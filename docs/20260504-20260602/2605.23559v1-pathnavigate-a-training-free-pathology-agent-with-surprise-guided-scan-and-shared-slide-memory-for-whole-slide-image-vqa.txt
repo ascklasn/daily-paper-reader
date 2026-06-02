@@ -1,0 +1,666 @@
+Title: PathNavigate: A Training-Free Pathology Agent with Surprise-Guided Scan and Shared Slide Memory for Whole-Slide Image VQA
+
+URL Source: https://arxiv.org/pdf/2605.23559v1
+
+Published Time: Mon, 25 May 2026 01:14:18 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# PATH NAVIGATE : A TRAINING -F REE PATHOLOGY 
+
+# AGENT WITH SURPRISE -G UIDED SCAN AND SHARED 
+
+# SLIDE MEMORY FOR WHOLE -S LIDE IMAGE VQA 
+
+Chunze Yang 1, Qidong Liu 1∗
+
+, Wenjie Zhao 1, Yue Tang 1, Jiusong Ge 1, Di Zhang 1,Jiashuai Liu 1, Lei Wu 1, Junbo Lu 1, Ni Zhang 1, Xian Wu 2, Zeyu Gao 3, Chen Li 11 School of Comp. Science & Technology, Xi’an Jiaotong University  
+
+> 2
+
+Tencent Jarvis Lab  
+
+> 3
+
+University of Cambridge 
+
+{pureeeee,zhao_wenjie,2206123832,JiusongGe,dzhang, ljs1007599414,2216113083,lujunbo}@stu.xjtu.edu.cn {liuqidong,nizhang,cli}@xjtu.edu.cn , kevinxwu@tencent.com zg323@cam.ac.uk 
+
+## ABSTRACT 
+
+Whole-slide image visual question answering (WSI-VQA) frames pathology as an extreme-context search problem: to answer a free-form clinical query, a sys-tem must first navigate a gigapixel slide under a strict inspection budget to lo-cate sparse, high-resolution evidence. Existing approaches largely fall into two paradigms: i) supervised pathology multimodal large language models (MLLMs) and agents can absorb localization and reasoning into learned modules, but they often couple navigation to task-specific supervision and retraining, limiting their practicality; ii) training-free pathology agents avoid this cost by keeping core mod-els frozen, but often follow a question-first design, i.e., constructing the initial candidate set mainly from query-conditioned relevance. This can miss decisive morphology that is not named in the question, and force heavier inference-time scaffolding. To address this challenge, we introduce PathNavigate , a training-free pathology agent built around a scan-search-readout routine. Before ques-tion matching, PathNavigate scans the current slide at low magnification with a shared online memory module over frozen pathology features, producing a slide-specific surprise field that marks an abnormal-region pool. It then applies question-conditioned PLIP relevance only within this pool to select high-magnification search targets. Finally, it extracts local high-magnification evidence and answers with a frozen perceptor-adjudicator stack, using the same online memory as slide-level context. Experiments on WSI-VQA and SlideBench-BCNB show that the proposed scan-search-readout design improves answer accuracy and yields more interpretable evidence-selection trajectories with higher efficiency. The code is available online 1.
+
+## 1 INTRODUCTION 
+
+Whole-slide image (WSI) analysis has become a foundation of digital pathology: tissue sections can be digitized as gigapixel slides and used for diagnostic review, grading, and computational assessment (Niazi et al., 2019; Campanella et al., 2019). Yet a single slide is far too large to inspect exhaustively. WSI visual question answering (WSI-VQA) makes this challenge more explicit: given a slide and a free-form clinical question, the system must decide where to look and then answer in language (Chen et al., 2024b). More broadly, WSI-VQA is a special form of extreme-context visual search, where the model must allocate a tiny diagnostic inspection budget over a massive gigapixel visual field and reason from sparse, high-resolution evidence. 
+
+> ∗
+
+Corresponding authors: Qidong Liu and Chen Li 
+
+> 1
+
+https://github.com/Pureeeee/PathNavigate_ 
+
+1
+
+> arXiv:2605.23559v1 [cs.CV] 22 May 2026
+
+Figure 1: The comparison between existing patterns and the proposed Scan-Search-Readout pat-tern for WSI-VQA. Recent progress in WSI-VQA generally follows two paradigms. (i) Supervised Pathology Mod-els and Agents : slide-level multimodal large language models (MLLMs) such as SlideChat (Chen et al., 2025b) and WSI-LLaVA (Liang et al., 2025), as well as trained agents such as CPathAgent (Sun et al., 2025b), PathFinder (Ghezloo et al., 2025), and SurvAgent (Huang et al., 2025), absorb evidence localization and reasoning into learned modules. Despite effectiveness, they couple search and reasoning to task-specific supervision, requiring retraining when the task or workflow changes. This limits their flexibility in deployment. (ii) Training-Free Pathology Agents : by contrast, these agents keep the core MLLMs frozen and perform inference-time reasoning, with PathAgent as a rep-resentative example (Chen et al., 2025a). This line is increasingly popular because it preserves mod-ularity and avoids task-specific retraining. Figure 1 contrasts these paradigms: supervised systems learn region localization inside the MLLM or agent stack, whereas training-free agents typically use reflection-driven navigation to revise their routes. Since the training-free pattern relies primarily on reflected navigation for localization, the signal guiding the first pass over a gigapixel slide is crucial. Recent works often adopt the Question-First Design , i.e., the initial candidate set is constructed mainly from question-conditioned relevance rather than from a slide-specific content prior (Chen et al., 2025a; Huang et al., 2026). However, this design leaves two problems. (i) Incomplete Navigation : pathology questions often underspec-ify the visual cue that determines the answer. For example, a question about histological type may require finding invasive ductal architecture, and a grading question may hinge on a small high-grade focus; neither cue is necessarily named in the question itself. A query-dependent scan can therefore retrieve generally relevant tumor regions while missing decisive morphology. (ii) Heavier Infer-ence Machinery : Due to weak scan signals, these agents rely more heavily on longer trajectories, reflection, caption caches, or external context (Chen et al., 2025a; Zhang et al., 2026a; Li et al., 2025), which can recover accuracy but increase latency, token consumption, and system complexity, undermining the practical appeal of training-free deployment. To address the challenge mentioned above, we start from a pathology intuition: pathologists usually scan a slide broadly to establish what is typical in the current case before searching for the finding most relevant to the question. In digital pathology, broader scanning behavior is also more associ-ated with diagnostic accuracy than zooming alone (Drew et al., 2021). This motivates a three-stage 
+
+Scan-Search-Readout routine. Before question matching, the agent should scan the current slide to build a slide-specific content prior, so diagnostically unusual regions are not discarded simply because they are not named by the question. During search, it should inject question relevance only within this content-aware candidate set, so the query refines rather than replaces slide-level explo-ration. During readout, it should reuse the same online state as slide-level memory for answering, rather than introducing a second store after navigation. Figure 1 visualizes the resulting shift: from directly retrieving question-matched regions to first scanning the current case, then searching within a compact candidate set, and finally answering with memory tied to the same scan. In this paper, we instantiate this idea with the proposed PathNavigate , a training-free pathology agent for WSI-VQA. Our aim is to answer the design question above: how can a training-free agent 2establish a slide-specific search prior before question matching, while keeping answer-time slide context coupled to the same state that supports navigation? PathNavigate first scans the slide at low magnification and builds a compact candidate set from a slide-specific surprise prior over frozen pathology features using a small online memory module inspired by test-time memory methods (Behrouz et al., 2024; Sun et al., 2020). It then applies question-conditioned PLIP relevance only within that set (Huang et al., 2023), so task information refines the scan rather than replacing it. Finally, it extracts regional evidence and answers with slide-level context read out from the same online state used during scanning. At a broader level, PathNavigate provides a test-time framework for extreme-context visual search under tight inspection budgets. Our contributions are three-fold: 1. We identify the limitation of question-first navigation in training-free WSI-VQA and propose a Scan-Search-Readout routine. The routine first builds a slide-specific content prior, then applies question relevance within that candidate set, and reuses the scan state for the answer. 2. We instantiate this routine as PathNavigate, a training-free pathology agent. PathNavigate uses a small online memory module over frozen pathology features to produce surprise-guided scan scores, applies PLIP only as within-pool reranking, and reads out the same online state as shared slide memory for answer aggregation. 3. We validate the design on WSI-VQA and SlideBench-BCNB. Overall performance comparison and ablations show that the scan-search-readout design improves answer accuracy and produces more interpretable evidence-selection trajectories without task-specific training. 
+
+## 2 PROBLEM SETUP 
+
+Given a whole-slide image W, a free-form question q, and frozen visual and language backbones, a training-free WSI-VQA system produces an answer a after observing only a small subset of ROIs in the slide. Let Xℓ(W) = {xℓi }Nℓ 
+
+> i=1
+
+and Xh(W) = {xhj }Nh 
+
+> j=1
+
+denote the low- and high-magnification tiles extracted from W, and let z = ϕ(x) ∈ Rd be the frozen pathology feature of a tile. The system may inspect only a bounded evidence set before producing the final answer, so the central problem is not only answering, but also how to allocate a small diagnostic visual budget over a massive gigapixel slide at test time. Most training-free WSI-VQA pipelines can be described by four generic operations. (i) The slide is tiled at one or more magnifications and encoded by a frozen pathology model. (ii) A region-proposal step selects a compact region-of-interest (ROI) pool of candidate regions from the slide. (iii) The question prioritizes which candidate regions should receive the limited high-resolution evidence budget. (iv) A frozen pathology VLM, together with a frozen language model, aggregates regional evidence and slide-level context into the final answer. PathNavigate keeps this same input-output setting and keeps all visual and language models frozen. Its difference lies in how the middle operations are instantiated. For operation (ii), PathNavigate proposes the ROI pool R from a slide-specific content prior built at ℓ, rather than constructing candi-dates directly from question relevance. In Section 3, this pool is written as R(q) when the question changes only the routing budget and spatial spacing. For operation (iii), question relevance is used only to prioritize candidates within R, producing the search targets C. For operation (iv), local high-magnification evidence E is aggregated together with a readout of the same online state that produced the slide-specific content prior. In this terminology, our scan, search, and readout stages correspond to ROI proposal, question-based prioritization, and evidence aggregation, respectively. 
+
+## 3 PATH NAVIGATE 
+
+Overview. Given a slide W and a question q, PathNavigate instantiates scan-search-readout with four modules: Shared Online Memory , Surprise-Guided Scan , Task-Conditioned Search , and Evi-dence Readout and QA . The pipeline builds a low-magnification surprise field, a compact ROI pool 
+
+R(q), selected search targets C(q), and a final evidence set E(q) before returning answer a. Shared Online Memory maintains a per-slide state over frozen CONCH features and supplies both scan-time surprise scores and compact slide context. Surprise-Guided Scan uses these scores to propose the low-magnification ROI pool; Task-Conditioned Search applies PLIP relevance only within that 3Figure 2: Overview of PathNavigate as a scan-search-readout pathology agent. pool to select high-magnification targets; and Evidence Readout and QA converts selected patches into regional evidence for the final answer. Notably, the same scan state ties where to look to what slide-level context is exposed . We first define the memory, then describe the three operational stages. 3.1 SHARED ONLINE MEMORY 
+
+Shared memory couples ROI proposal and answer-time context through one per-slide scan state. During scanning, tiles that would substantially change this state are treated as surprising; this process is denoted as Memory Update . At answer time, Memory Readout exposes a compact summary of the same surprise history and proposal process, so no separate learned store is introduced. 
+
+Construction and Initialization. Let x be a tile and let z = ϕ(x) ∈ Rd be its frozen CONCH feature, with d = 768 (Lu et al., 2024). The memory is a two-layer GELU reconstruction MLP, 
+
+Mθ (z) = W2 GELU( W1z + b1) + b2, Mθ : Rd → Rd, (1) where θ = {W1, b1, W2, b2} denotes the online parameters. The hidden width is d = 768 , and a fresh memory Mθ0 is instantiated for each slide, making surprise a within-slide signal rather than a comparison to a learned cohort. Initialization and optimization defaults are listed in Appendix B.1. 
+
+Memory Update. Following test-time memory methods (Behrouz et al., 2024; Sun et al., 2020), the memory adapts to the tile stream with a self-supervised reconstruction objective. A tile is surprising when reconstructing it would strongly change the current memory, so we use the pre-update gradient norm as surprise. For tile xi with feature zi = ϕ(xi), the Huber reconstruction loss at state θi−1 is, 
+
+Lδ (θi−1; xi) = Huber δ
+
+(Mθi−1 (zi), zi
+
+) , (2) where δ is the Huber transition parameter. The surprise of xi is the reconstruction-gradient norm before xi updates the memory, 
+
+σi =
+
+∥∥∥ ∇θ Lδ (θ; xi)|θ=θi−1
+
+∥∥∥F
+
+. (3) Scoring before updating measures unexpectedness under earlier slide context. During the warm-up window Tw, every tile updates memory; after warm-up, we set τsur = μw + λs w from the first 
+
+Tw scores. Tiles with σi > τ sur trigger one clipped SGD step on Eq. equation 2; other tiles apply multiplicative decay θi ← αf θi−1.
+
+Memory Readout. At answer time, the adjudicator receives a short Navigation Summary rather than raw MLP weights or a long trace. It reports the running surprise mean, standard deviation, high-surprise fraction, and candidate count; Appendix B.2 gives the prompt. 43.2 SURPRISE -G UIDED SCAN 
+
+The scan stage turns a gigapixel slide into a compact set of regions for closer inspection. Its goal is to build a slide-specific content prior before text-image reranking: online memory highlights regions atypical for the current slide, so we use the Surprise Score as a proposal prior rather than a pathology label. Here, the question acts only as a router for coverage and budget, not as a relevance scorer. ROI Selection then turns surprise scores into target regions. 
+
+Surprise Score. Let Xℓ(W) = {xℓi }Nℓ 
+
+> i=1
+
+denote the low-magnification tiles of slide W, with grid coordinates pi and frozen CONCH features zi = ϕ(xℓi ) ∈ Rd. Applying the memory rule in Section 3.1 gives each tile a surprise score: σi = σ(xℓi ) for i = 1 , . . . , N ℓ, where σ(·) is the pre-update gradient norm in Eq. equation 3. Collecting these scores over all low-magnification tiles yields a slide-wide surprise field. 
+
+ROI Selection. After collecting a slide-wide surprise field, we apply thresholding and distance-based non-maximum suppression (NMS) to the whole field to obtain a spatially diverse ROI pool: 
+
+R(q) = NMS 
+
+(
+
+{(pi, σ i)}Nℓ
+
+> i=1
+
+; ρ(q)
+
+)
+
+, (4) where ρ(q) is a minimum center distance in level-0 pixels rather than an IoU threshold. The operator sorts candidate centers by σi and greedily keeps a center only if it is at least ρ(q) away from all previously kept centers. R(q) is the resulting set of kept ROI centers, the handoff to Section 3.3. As a result, morphology questions receive denser local coverage, while broader clinical questions receive larger spacing and a slightly larger first-pass search budget; Appendix B.1 lists the reported values. This stage is intentionally question-light: the question influences spatial coverage and budget, but it does not yet rank candidate semantics. 3.3 TASK -C ONDITIONED SEARCH 
+
+Once the scan has produced R(q), the system only needs to decide which regions in this slide-specific pool deserve high-magnification budget. Task-Conditioned Search therefore uses two com-plementary signals: surprise measures whether an ROI is atypical for the slide, while PLIP rele-vance measures whether it matches the question, i.e., Question-conditioned Relevance . A trans-parent Within-pool Fusion combines them. PLIP is applied at low magnification because this stage chooses which ROIs deserve follow-up. 
+
+Question-conditioned Relevance. For each ROI center r ∈ R (q), we extract its corresponding low-magnification patch xℓr and compute a PLIP similarity score: 
+
+rPLIP (r; q) = cos (ψPLIP (q), ϕ PLIP (xℓr )) , (5) where ψPLIP and ϕPLIP are frozen PLIP text and image encoders (Huang et al., 2023). 
+
+Within-pool Fusion. Let σ(r) denote the scan-time surprise score associated with ROI center r.Surprise and PLIP relevance have different numeric scales, and their ranges vary from slide to slide. Because this stage only needs the ordering inside the current ROI pool, we normalize each score function s within R(q) to obtain a pool-relative score, 
+
+ˆs(r) = s(r) − ms
+
+Ms − ms + ε , (6) where s ∈ { σ, r PLIP (·; q)}, ms = min r′∈R (q) s(r′), and Ms = max r′∈R (q) s(r′). The small ε
+
+prevents division by zero when all ROI scores are tied. This produces ˆσ(r) for slide-specific surprise and ˆrPLIP (r; q) for question relevance. We then combine the two normalized scores as: 
+
+fα(r; q) = α ˆrPLIP (r; q) + (1 − α) ˆ σ(r), (7) where α ∈ [0 , 1] controls the balance between task relevance and slide-specific surprise. We use 
+
+α = 0 .5 as a fixed symmetric default and ablate the endpoints and sweep values in Section 4.3; the full numeric sweep is reported in Table 10. The final search targets are: 
+
+C(q) = Top K(R(q), f α(·; q); Ksearch (q)), (8) 5where Ksearch (q) is a small question-aware first-pass budget. The same lightweight router that sets ρ(q) allocates denser local follow-up to morphology questions and broader coverage to clinical questions; Appendix B.1 lists the values. The role split remains asymmetric: surprise builds the pool, and PLIP only reranks within that pool. 3.4 EVIDENCE READOUT AND QA Given search targets C(q) and the slide-level readout, the final stage collects answerable evidence: 
+
+Evidence Extraction refines each ROI at high magnification, Reference Archive optionally re-trieves context, and Perceptor and Adjudicator produce the answer. 
+
+Evidence Extraction. For each selected low-magnification target r ∈ C (q), we collect its local high-magnification neighborhood Ph(r). When high-magnification features are available, we instantiate a fresh local memory for each ROI, so the stage ranks micro-features inside the selected region without inheriting or overwriting the global slide state. It applies the same surprise rule inside Ph(r)
+
+with a shorter ROI-size-adaptive warm-up schedule and keeps the top-T patches, 
+
+E(q) = ⋃
+
+> r∈C (q)
+
+Top T(Ph(r), σ h(· ; r)), (9) where σh(· ; r) is the local surprise score inside ROI r. Here, T is a small per-ROI evidence budget, and the total number of perceptor calls is capped by a separate global budget; Appendix B.1 lists the launch values. If high-magnification features are unavailable or disabled, the low-magnification target serves as fallback evidence. 
+
+Reference Archive. The optional archive aids final adjudication, not navigation. Before adjudica-tion, we may retrieve k reference cases by cosine similarity between mean-pooled low-magnification CONCH slide features and append their short summaries as Reference Context . The reported main results use k = 3 unless an ablation disables the archive. 
+
+Perceptor and Adjudicator. We use the frozen pathology VLM as perceptor to turn patches into evidence strings, and the frozen language model as adjudicator to produce the final answer from regional evidence, the Navigation Summary, and optional Reference Context. Concrete backbones, serving stack, and adjudication settings are reported in Section 4.1 and Appendix Table 4. 
+
+Inference Summary. At inference time, PathNavigate scans at low magnification to build R(q),reranks with PLIP to obtain C(q), reads high-magnification evidence E(q), and answers from re-gional evidence plus the shared memory readout. Appendix B.3 provides pseudocode. 
+
+## 4 EXPERIMENTS 
+
+4.1 SETUP 
+
+Benchmarks. We evaluate on WSI-VQA (Chen et al., 2024b), SlideBench-BCNB (Chen et al., 2025b), and PathMMU (Sun et al., 2024). WSI-VQA and BCNB test whole-slide question answer-ing, while PathMMU is used only as a patch-level transfer check. Dataset statistics, splits, and protocol details are deferred to Appendix A.1. 
+
+Baselines and protocol. We organize baselines into three groups aligned with the abstract tax-onomy. Pretrained MLLM Models include GPT-4o (Hurst et al., 2024), GPT-5.4 (Singh et al., 2025), Gemini-3.1-Pro-preview (Team et al., 2023), and Qwen3.5-4B/9B (Yang et al., 2025), eval-uated as off-the-shelf single-thumbnail systems. Supervised Pathology Models include the WSI-VQA model (Chen et al., 2024b), SlideChat (Chen et al., 2025b), WSI-LLaVA (Liang et al., 2025), MedDr (He et al., 2024), TITAN (Ding et al., 2025), Quilt-LLaVA (Seyfioglu et al., 2024a), LLaVA-Med (Li et al., 2023) where available, MedGemma-1.5-4B (Sellergren et al., 2025), and Patho-R1 only (Zhang et al., 2026b); these use pathology-specific training, medical/pathology adaptation, or WSI foundation-model pretraining, but not a training-free WSI navigation loop. Training-Free Pathology Agents include PathAgent (Chen et al., 2025a) and PathNavigate. Appendix A.2 gives baseline settings, model identifiers, and evaluation joins. 6Table 1: Primary SlideBench-BCNB results with full sub-task breakdown. The boldface refers to the highest score and the underline indicates the next best result among all methods.                                                                                                                         
+
+> Method Input Overall Tumor ER PR HER2 Grading Mol.Sub
+> Pretrained MLLM Models
+> GPT-4o (Hurst et al., 2024) Slide-T 43 .78 56 .84 49 .96 49 .42 42 .13 38 .46 26 .84
+> GPT-5.4 (Singh et al., 2025) Slide-T 45 .85 60 .42 50 .42 49 .86 44 .51 42 .36 28 .43
+> Gemini-3.1-Pro-preview (Team et al., 2023) Slide-T 44 .91 58 .46 50 .18 49 .62 43 .58 40 .85 27 .62
+> Qwen3.5-4B (Yang et al., 2025) Slide-T 39 .48 49 .43 33 .36 27 .32 48 .02 52 .70 19 .19
+> Qwen3.5-9B (Yang et al., 2025) Slide-T 41 .99 53 .84 36 .42 30 .18 47 .53 59 .15 21 .43
+> Supervised Pathology Models
+> SlideChat (Chen et al., 2025b) WSI 54 .07 89 .90 72 .98 72 .98 47 .53 23 .11 20 .58
+> WSI-LLaVA (Liang et al., 2025) WSI 52 .68 85 .32 60 .81 60 .81 42 .78 46 .28 29 .20
+> MedDr (He et al., 2024) Slide-T 35 .48 59 .60 43 .80 39 .20 27 .40 29 .40 20 .80
+> TITAN (Ding et al., 2025) Slide 44 .39 85 .16 42 .44 41 .68 36 .86 45 .35 22 .49
+> Quilt-LLaVA (Seyfioglu et al., 2024a) Patch 34 .11 33 .46 49 .43 44 .05 25 .85 34 .99 25 .24
+> MedGemma-1.5-4B (Sellergren et al., 2025) Slide-T 50 .38 79 .68 52 .36 60 .35 47 .85 42 .33 21 .27
+> Patho-R1 only (Zhang et al., 2026b) Patch 37 .26 42 .16 54 .63 50 .38 25 .62 35 .53 26 .65
+> Training-Free Pathology Agents
+> PathAgent (Chen et al., 2025a) WSI 55 .72 87 .52 63 .69 63 .69 44 .52 55 .95 30 .21
+> PathNavigate (ours) WSI 59 .42 88 .28 76 .09 69 .00 48 .40 52 .58 32 .33
+
+Implementation Details. PathNavigate uses Patho-R1-7B (Zhang et al., 2026b) as frozen percep-tor, Qwen3.5-4B (Yang et al., 2025) as adjudicator, and CONCH v1.5 (Lu et al., 2024) for patch features; Qwen endpoints use vLLM (Kwon et al., 2023) where required. Appendix A.1 records hardware/software, and Appendix B.1 records routing budgets and launch caps. 
+
+Evaluation Metrics For WSI-VQA, we report Total accuracy, MCQ accuracy, open-ended accuracy, BLEU-1, and ROUGE-L as percentages in the main table, with BLEU-4 in Appendix C.1. For BCNB and PathMMU, we use letter-exact accuracy; BCNB Overall follows the official weighted aggregation over seven diagnostic sub-tasks. Efficiency reports latency, token count, and offline footprint, where lower values are preferred. 4.2 MAIN RESULTS 
+
+Overall comparison on SlideBench-BCNB (Table 1). BCNB is fully multiple-choice and reports diagnostic subscores, making it useful for comparing method families. PathNavigate improves Over-all by building a slide-specific candidate pool before question matching and then answering from high-magnification evidence. The strongest gains over the frozen perceptor appear on Tumor, ER, PR, and the merged HER2 score, where locating invasive regions and preserving regional mor-phology directly improves the answer context. Across models, the merged HER2 column is still compressed relative to Tumor and ER because the expression-level part is less directly recoverable from H&E morphology. Thus PathNavigate is best on Overall, ER, HER2, and Molecular Subtype, runner-up on Tumor and PR, and competitive but not dominant on Grading. This pattern is consis-tent with the design goal: the scan-search-readout loop improves evidence localization, while tasks requiring information outside visible morphology remain harder even after better routing. 
+
+Overall comparison on WSI-VQA (Table 2). WSI-VQA complements BCNB with multiple-choice and open-ended answers. Thumbnail and patch-only baselines can solve some MCQs but lack reliable evidence recovery for free-form responses. Under the same Patho-R1-7B/Qwen3.5-4B stack, PathAgent remains competitive on MCQ yet drops on Open accuracy and ROUGE-L, indi-cating that PathNavigate’s gains come from scan-derived context and high-magnification readout rather than a decoder swap. The contrast between MCQ and Open is informative: MedGemma and PathAgent can stay close on closed-set choices, but neither maintains the evidence chain needed to produce a correct free-form answer. PathNavigate’s Open score and text-overlap gains therefore reflect not only answer selection but also more complete regional evidence coverage. 7Table 2: Compact WSI-VQA results. All numeric scores are percentages. TITAN reports only MCQ because this zero-shot setting can only be mapped to answer options; boldface/underline mark best/runner-up. 
+
+Method Input Total MCQ Open BLEU-1 ROUGE-L 
+
+Pretrained MLLM Models 
+
+GPT-4o (Hurst et al., 2024) Slide-T 27 .57 32 .50 22 .00 8.53 23 .62 
+
+GPT-5.4 (Singh et al., 2025) Slide-T 35 .74 42 .18 28 .46 14 .27 28 .86 
+
+Gemini-3.1-Pro-preview (Team et al., 2023) Slide-T 34 .41 40 .42 27 .62 12 .84 27 .56 
+
+Qwen3.5-4B (Yang et al., 2025) Slide-T 40 .26 40 .26 40 .26 9.21 24 .13 
+
+Qwen3.5-9B (Yang et al., 2025) Slide-T 38 .50 49 .23 26 .38 57 .31 48 .04 
+
+Supervised Pathology Models 
+
+WSI-VQA model (Chen et al., 2024b) WSI 42 .18 46 .90 36 .84 10 .83 31 .79 
+
+MedDr (He et al., 2024) Slide-T 45 .18 43 .69 46 .86 36 .82 45 .24 
+
+TITAN (Ding et al., 2025) Slide — 34 .87 — — —Quilt-LLaVA (Seyfioglu et al., 2024a) Patch 30 .07 29 .23 31 .01 0.24 25 .13 
+
+WSI-LLaVA (Liang et al., 2025) Patch 33 .20 42 .82 22 .32 5.73 31 .24 
+
+MedGemma-1.5-4B (Sellergren et al., 2025) Slide-T 42 .99 53 .08 31 .59 18 .04 34 .93 
+
+Training-Free Pathology Agents 
+
+PathAgent (Chen et al., 2025a) WSI 33 .88 51 .54 13 .91 42 .73 33 .54 
+
+PathNavigate (ours) WSI 56 .34 52 .21 61 .00 60 .92 63 .53 
+
+Cross-benchmark reading. Together, Tables 1 and 2 show that the main bottleneck is evidence routing rather than raw model scale alone. Strong pretrained or supervised baselines remain compet-itive on constrained sub-tasks, but they either compress the slide into a small view or rely on learned pathology priors. PathNavigate is strongest when the answer requires finding and verbalizing the right region under a limited budget, which explains the simultaneous gains in BCNB Overall, WSI-VQA Open accuracy, and text-overlap metrics. The residual columns also delimit the claim: when a label depends on IHC-like information or grading cues that are diffuse at the selected scale, better navigation helps but cannot fully substitute for missing modality evidence. Appendix Table 4 gives settings; Appendix Figures 5 and 6 summarize controlled comparisons; Appendix A.3 documents the PathAgent rerun gap. PathMMU transfer. Because PathMMU is image-level, Appendix Table 9 reports it only as patch-level validation ( 53 .60 letter-exact accuracy). 4.3 CORE COMPONENT ANALYSIS 
+
+The ablations map to scan-search-readout: w/o PLIP removes question-aware reranking, PLIP-only removes surprise, Random ROI removes structured proposal, and archive/Navigation Summary vari-ants test answer-time context. Table 3 supports a division of labor: surprise proposes, PLIP refines, high-magnification evidence grounds the answer, and compact context stabilizes adjudication. The largest drop comes from replacing the proposal mechanism with random ROIs ( −6.84 Total), show-ing that the first-pass pool is the primary failure point; removing PLIP costs less but still hurts MCQ, where task wording helps discriminate among plausible regions. Archive and Navigation Summary ablations are smaller but consistent, suggesting that answer-time context mainly stabilizes borderline cases rather than creating the evidence signal. Additional BCNB, architecture, high-magnification readout (Table 13), negative-result, and sensitivity details are deferred to Appendix C.4. Table 3: Structural WSI-VQA ablations.                          
+
+> Variant Total MCQ Open PathNavigate 56 .34 52 .21 61 .00
+> w/o PLIP 53 .42 47 .20 60 .46
+> PLIP-only 52 .20 46 .90 58 .20
+> wRandom ROI 49 .50 45 .18 54 .38
+> w/o archive 53 .84 49 .50 58 .74
+> w/o Nav. Sum. 54 .82 50 .62 59 .56
+
+8Latency    
+
+> (s/Q)
+> Tokens
+> (K/Q)
+> Footprint
+> (MB)
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> Relative cost
+> (% of PathAgent)  92 s 30K 277 MB
+> 84 s
+> 17K
+> 4 MB
+> PathAgent PathNavigate
+
+Figure 3: Relative WSI-VQA cost for training-free agents. 4.4 SYSTEM -LEVEL EFFICIENCY 
+
+We measure per-question cost for PathNavigate and PathAgent on the same hardware, WSI-VQA set, and evaluation pipeline. Figure 3 normalizes PathAgent to 100% : PathNavigate keeps latency similar while reducing prompt tokens and footprint (on-disk auxiliary artefacts, not model weights). Fewer prompt tokens reduce evidence passed into the adjudicator, lowering context pressure without removing high-magnification readout. The claim is scoped to storage and token budget against training-free agents, not peak GPU memory or parity with trained slide MLLMs; Appendix C.5 gives the breakdown. 4.5 QUALITATIVE CASE STUDIES 
+
+Figure 4 compares the routes for the same slide and question: PathAgent follows weak tissue, while PathNavigate reaches the ductal carcinoma label with a slide-wide prior and high-magnification evidence. The case shows adjudication must anchor to diagnostic tissue before answering. Ap-pendix C.3 gives the full workflow and intermediate evidence trace. 
+
+Figure 4: Diagnostic pathway comparison. PathAgent follows weak tissue and predicts squamous cell carcinoma; PathNavigate uses a slide-wide prior and high-magnification evidence to predict infiltrating ductal carcinoma. 
+
+## 5 RELATED WORK 
+
+Supervised Pathology MLLMs and Agents. Pathology VQA requires gigapixel navigation with morphological and diagnostic reasoning. Earlier datasets and benchmarks, including PathVQA (He et al., 2020), Quilt-llava (Seyfioglu et al., 2024b), and WSICaption (Chen et al., 2024a), advanced medical VQA but only partially stress slide-level evidence search. Recent supervised pathol-ogy MLLMs such as SlideChat (Chen et al., 2025b) and WSI-LLaVA (Liang et al., 2025), and 9trained agents such as CPathAgent (Sun et al., 2025b), PathFinder (Ghezloo et al., 2025), and Sur-vAgent (Huang et al., 2025), absorb localization and reasoning into learned modules but depend on task-specific training or medical image-text data. These methods are useful upper references for pathology-specific adaptation, but they answer a different question from ours: how much slide rea-soning can be learned with supervision, rather than how a frozen system should allocate inspection at test time. We therefore test navigation without task-specific retraining in this setting. 
+
+Training-Free Pathology Agents. To avoid task-specific retraining (Zhuang et al., 2026; Sun et al., 2025a), training-free agents formulate WSI-VQA as evidence gathering with frozen models. Exist-ing systems often depend on engineered tools, caption caches, or external knowledge bases (Wang et al., 2023; Yu et al., 2025; Schmidgall et al., 2024; Tang et al., 2024), and many follow a question-first retrieval prior (Karim & Uzuner, 2025; Chen et al., 2025a). This can work when query terms align with visible tissue, but it makes early search inherit the user’s wording and can miss mor-phology that is diagnostic but not named. PathNavigate’s contribution is therefore not a larger tool inventory or retrieval database, but a change in the order of scan, search, and readout. PathNavigate instead scans first, builds the pool from intrinsic morphology, and applies the question only within the pool. 
+
+## 6 CONCLUSION 
+
+We presented PathNavigate, a training-free WSI-VQA agent built around scan-search-readout. Shared online memory creates a slide-specific surprise prior before question matching and ties nav-igation to answer-time evidence. Experiments on WSI-VQA and SlideBench-BCNB improve accu-racy and evidence selection across pretrained MLLMs, supervised pathology models, and training-free agents, while reducing storage and token budget relative to the training-free PathAgent baseline. More broadly, the results suggest that test-time navigation is a first-class design variable even when all perception and language backbones remain frozen. H&E-weak labels motivate richer modality-aware evidence for future training-free agents. 10 REFERENCES 
+
+Ali Behrouz, Peilin Zhong, and Vahab Mirrokni. Titans: Learning to memorize at test time. arXiv preprint arXiv:2501.00663 , 2024. Gabriele Campanella, Matthew G Hanna, Luke Geneslaw, Allen Miraflor, Vitor Werneck Krauss Silva, Klaus J Busam, Edi Brogi, Victor E Reuter, David S Klimstra, and Thomas J Fuchs. Clinical-grade computational pathology using weakly supervised deep learning on whole slide images. Nature medicine , 25(8):1301–1309, 2019. Jingyun Chen, Linghan Cai, Zhikang Wang, Yi Huang, Songhan Jiang, Shenjin Huang, Hongpeng Wang, and Yongbing Zhang. Pathagent: Toward interpretable analysis of whole-slide pathol-ogy images via large language model-based agentic reasoning. arXiv preprint arXiv:2511.17052 ,2025a. Pingyi Chen, Honglin Li, Chenglu Zhu, Sunyi Zheng, Zhongyi Shui, and Lin Yang. Wsicaption: Multiple instance generation of pathology reports for gigapixel whole-slide images. In Interna-tional Conference on Medical Image Computing and Computer-Assisted Intervention , pp. 546– 556. Springer, 2024a. Pingyi Chen, Chenglu Zhu, Sunyi Zheng, Honglin Li, and Lin Yang. WSI-VQA: Interpreting whole slide images by generative visual question answering. In European Conference on Computer Vision , pp. 401–417. Springer, 2024b. Ying Chen, Guoan Wang, Yuanfeng Ji, Yanjun Li, Jin Ye, Tianbin Li, Ming Hu, Rongshan Yu, Yu Qiao, and Junjun He. Slidechat: A large vision-language assistant for whole-slide pathology image understanding. In Proceedings of the Computer Vision and Pattern Recognition Conference ,pp. 5134–5143, 2025b. Tong Ding, Sophia J Wagner, Andrew H Song, Richard J Chen, Ming Y Lu, Andrew Zhang, Anurag J Vaidya, Guillaume Jaume, Muhammad Shaban, Ahrong Kim, et al. A multimodal whole-slide foundation model for pathology. Nature Medicine , pp. 1–13, 2025. Trafton Drew, Mark Lavelle, Kathleen F Kerr, Hannah Shucard, Tad T Brunyé, Donald L Weaver, and Joann G Elmore. More scanning, but not zooming, is associated with diagnostic accuracy in evaluating digital breast pathology slides. Journal of Vision , 21(11):7–7, 2021. Fatemeh Ghezloo, Mehmet Saygin Seyfioglu, Rustin Soraki, Wisdom O Ikezogwo, Beibin Li, Tejo-ram Vivekanandan, Joann G Elmore, Ranjay Krishna, and Linda Shapiro. Pathfinder: A multi-modal multi-agent system for medical diagnostic decision-making applied to histopathology. In 
+
+Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 23431–23441, 2025. Sunan He, Yuxiang Nie, Hongmei Wang, Shu Yang, Yihui Wang, Zhiyuan Cai, Zhixuan Chen, Yingxue Xu, Luyang Luo, Huiling Xiang, et al. Gsco: Towards generalizable ai in medicine via generalist-specialist collaboration. arXiv preprint arXiv:2404.15127 , 2024. Xuehai He, Yichen Zhang, Luntian Mou, Eric Xing, and Pengtao Xie. Pathvqa: 30000+ questions for medical visual question answering. arXiv preprint arXiv:2003.10286 , 2020. Guolin Huang, Wenting Chen, Jiaqi Yang, Xinheng Lyu, Xiaoling Luo, Sen Yang, Xiaohan Xing, and Linlin Shen. Survagent: Hierarchical cot-enhanced case banking and dichotomy-based multi-agent system for multimodal survival prediction. arXiv preprint arXiv:2511.16635 , 2025. Wentao Huang, Weimin Lyu, Peiliang Lou, Qingqiao Hu, Xiaoling Hu, Shahira Abousamra, Wen-chao Han, Ruifeng Guo, Jiawei Zhou, Chao Chen, et al. Act like a pathologist: Tissue-aware whole slide image reasoning. arXiv preprint arXiv:2603.00667 , 2026. Zhi Huang, Federico Bianchi, Mert Yuksekgonul, Thomas J Montine, and James Zou. A visual– language foundation model for pathology image analysis using medical twitter. Nature medicine ,29(9):2307–2316, 2023. 11 Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Os-trow, Akila Welihinda, Alan Hayes, Alec Radford, et al. Gpt-4o system card. arXiv preprint arXiv:2410.21276 , 2024. AHM Karim and Ozlem Uzuner. Multimodal retrieval-augmented generation with large language models for medical vqa. arXiv preprint arXiv:2510.13856 , 2025. Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large language model serving with pagedattention. In Proceedings of the 29th symposium on operating systems princi-ples , pp. 611–626, 2023. Chunyuan Li, Cliff Wong, Sheng Zhang, Naoto Usuyama, Haotian Liu, Jianwei Yang, Tristan Nau-mann, Hoifung Poon, and Jianfeng Gao. LLaVA-Med: Training a large language-and-vision assistant for biomedicine in one day. Advances in Neural Information Processing Systems , 36: 28541–28564, 2023. Songhao Li, Jonathan Xu, Tiancheng Bao, Yuxuan Liu, Yuchen Liu, Yihang Liu, Lilin Wang, Wen-hui Lei, Sheng Wang, Yinuo Xu, et al. A co-evolving agentic ai system for medical imaging analysis. arXiv preprint arXiv:2509.20279 , 2025. Yuci Liang, Xinheng Lyu, Wenting Chen, Meidan Ding, Jipeng Zhang, Xiangjian He, Song Wu, Xiaohan Xing, Sen Yang, Xiyue Wang, et al. WSI-LLaVA: A multimodal large language model for whole slide image. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pp. 22718–22727, 2025. Ming Y Lu, Bowen Chen, Drew FK Williamson, Richard J Chen, Ivy Liang, Tong Ding, Guillaume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, et al. A visual-language foundation model for computational pathology. Nature medicine , 30(3):863–874, 2024. Muhammad Khalid Khan Niazi, Anil V Parwani, and Metin N Gurcan. Digital pathology and artificial intelligence. The lancet oncology , 20(5):e253–e261, 2019. Samuel Schmidgall, Rojin Ziaei, Carl Harris, Eduardo Reis, Jeffrey Jopling, and Michael Moor. Agentclinic: a multimodal agent benchmark to evaluate ai in simulated clinical environments. 
+
+arXiv preprint arXiv:2405.07960 , 2024. Andrew Sellergren, Sahar Kazemzadeh, Tiam Jaroensri, Atilla Kiraly, Madeleine Traverse, Timo Kohlberger, Shawn Xu, Fayaz Jamil, Cían Hughes, Charles Lau, et al. MedGemma technical report. arXiv preprint arXiv:2507.05201 , 2025. Mehmet Saygin Seyfioglu, Wisdom O Ikezogwo, Fatemeh Ghezloo, Ranjay Krishna, and Linda Shapiro. Quilt-llava: Visual instruction tuning by extracting localized narratives from open-source histopathology videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 13183–13192, 2024a. Mehmet Saygin Seyfioglu, Wisdom O Ikezogwo, Fatemeh Ghezloo, Ranjay Krishna, and Linda Shapiro. Quilt-llava: Visual instruction tuning by extracting localized narratives from open-source histopathology videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 13183–13192, 2024b. Aaditya Singh, Adam Fry, Adam Perelman, Adam Tart, Adi Ganesh, Ahmed El-Kishky, Aidan McLaughlin, Aiden Low, AJ Ostrow, Akhila Ananthram, et al. Openai gpt-5 system card. arXiv preprint arXiv:2601.03267 , 2025. Yu Sun, Xiaolong Wang, Zhuang Liu, John Miller, Alexei Efros, and Moritz Hardt. Test-time train-ing with self-supervision for generalization under distribution shifts. In International conference on machine learning , pp. 9229–9248. PMLR, 2020. Yuxuan Sun, Hao Wu, Chenglu Zhu, Sunyi Zheng, Qizi Chen, Kai Zhang, Yunlong Zhang, Dan Wan, Xiaoxiao Lan, Mengyue Zheng, et al. PathMMU: A massive multimodal expert-level benchmark for understanding and reasoning in pathology. In European Conference on Computer Vision , pp. 56–73. Springer, 2024. 12 Yuxuan Sun, Yixuan Si, Chenglu Zhu, Xuan Gong, Kai Zhang, Pingyi Chen, Ye Zhang, Zhongyi Shui, Tao Lin, and Lin Yang. Cpath-omni: A unified multimodal foundation model for patch and whole slide image analysis in computational pathology. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 10360–10371, 2025a. Yuxuan Sun, Yixuan Si, Chenglu Zhu, Kai Zhang, Zhongyi Shui, Bowen Ding, Tao Lin, and Lin Yang. CPathAgent: An agent-based foundation model for interpretable high-resolution pathol-ogy image analysis mimicking pathologists’ diagnostic logic. arXiv preprint arXiv:2505.20510 ,2025b. Xiangru Tang, Anni Zou, Zhuosheng Zhang, Ziming Li, Yilun Zhao, Xingyao Zhang, Arman Cohan, and Mark Gerstein. Medagents: Large language models as collaborators for zero-shot medical reasoning. In Findings of the Association for Computational Linguistics: ACL 2024 , pp. 599–621, 2024. Gemini Team, Rohan Anil, Sebastian Borgeaud, Jean-Baptiste Alayrac, Jiahui Yu, Radu Soricut, Johan Schalkwyk, Andrew M Dai, Anja Hauth, Katie Millican, et al. Gemini: a family of highly capable multimodal models. arXiv preprint arXiv:2312.11805 , 2023. Sheng Wang, Zihao Zhao, Xi Ouyang, Qian Wang, and Dinggang Shen. Chatcad: Interac-tive computer-aided diagnosis on medical image using large language models. arXiv preprint arXiv:2302.07257 , 2023. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. Deshui Yu, Yizhi Wang, Saihui Jin, Taojie Zhu, Fanyi Zeng, Wen Qian, Zirui Huang, Jingli Ouyang, Jiameng Li, Zhen Song, et al. Ypathrag: A retrieval-augmented generation framework and bench-mark for pathology. arXiv preprint arXiv:2510.08603 , 2025. Wenchuan Zhang, Jingru Guo, Hengzhe Zhang, Penghao Zhang, Jie Chen, Shuwan Zhang, Zhang Zhang, Yuhao Yi, and Hong Bu. Patho-agenticrag: towards multimodal agentic retrieval-augmented generation for pathology vlms via reinforcement learning. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pp. 29921–29929, 2026a. Wenchuan Zhang, Penghao Zhang, Jingru Guo, Tao Cheng, Jie Chen, Shuwan Zhang, Zhang Zhang, Yuhao Yi, and Hong Bu. Patho-r1: A multimodal reinforcement learning-based pathology expert reasoner. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pp. 28418– 28426, 2026b. Zhenfeng Zhuang, Fangyu Zhou, and Liansheng Wang. Libra-mil: Multimodal prototypes stereo-scopic infused with task-specific language priors for few-shot whole slide image classification. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pp. 14040–14048, 2026. 13 PathNavigate: A Training-Free Pathology Agent with Surprise-Guided Scan and Shared Slide Memory for Whole-Slide Image VQA 
+
+## Supplementary Material 
+
+# Table of Contents 
+
+A Experimental Settings and Reproduction Protocols 15 
+
+A.1 Experimental Setting Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15 A.2 Baseline Settings, Model Names, and API Scope . . . . . . . . . . . . . . . . . . . . . . . 16 A.3 PathAgent Reproduction Protocol . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16 
+
+B Method Details 17 
+
+B.1 Question-aware Routing and Budget Allocation . . . . . . . . . . . . . . . . . . . . . . . 17 B.2 Navigation Summary Prompt Example . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17 B.3 Inference Pseudocode . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 
+
+C Experimental Results and Additional Analyses 18 
+
+C.1 Full Result Tables . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18 C.2 Supplementary Comparison Plots . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 20 C.3 Workflow Gallery Template . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 C.4 Sensitivity and Component Figures . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 C.5 Efficiency Visualization . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 C.6 Negative Findings . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 24 
+
+14 A EXPERIMENTAL SETTINGS AND REPRODUCTION PROTOCOLS 
+
+This section collects the material needed to reproduce the experimental stack: benchmark definitions, baseline categories, implementation details, metric definitions, model/API scope, and the controlled PathAgent protocol. A.1 EXPERIMENTAL SETTING DETAILS 
+
+This subsection expands the shortened experimental-setting paragraphs in the main paper, following the Dataset–Baselines–Implementation–Metrics organization used by the reference paper. 
+
+Benchmarks. WSI-VQA (Chen et al., 2024b) contains 735 TCGA-BRCA questions, including 390 
+
+multiple-choice and 345 open-ended questions. We use the same test records and answer join for PathNavigate, the PathAgent row, and the reproduced baselines. SlideBench-BCNB (Chen et al., 2025b) contains 7,274 BCNB multiple-choice questions over Tumor, ER, PR, HER2 status, HER2 expression, Grading, and Molecular Subtype; compact BCNB tables follow the main table and merge HER2 status with HER2 expression by averaging the two scores, while Overall keeps the official seven-task weighting. All local and reproduced rows use the full test set and the SlideChat letter-exact protocol. PathMMU (Sun et al., 2024) is image-level rather than WSI-level, so it is re-ported only as a patch-level transfer validation for the frozen perception and answering modules; the complete transfer table is collected in Table 9. 
+
+Baseline categories. 
+
+• Pretrained MLLM Models. GPT-4o, GPT-5.4, Gemini-3.1-Pro-preview, and Qwen3.5-4B/9B are treated as off-the-shelf MLLMs. They use one low-magnification slide thumbnail in the main comparison and do not add pathology-specific WSI navigation. • Supervised Pathology Models. This group covers the WSI-VQA model, SlideChat, WSI-LLaVA, MedDr, TITAN, Quilt-LLaVA, LLaVA-Med where available, MedGemma-1.5-4B, and Patho-R1 only. These rows use pathology-specific training, medical/pathology adaptation, or WSI foundation-model pretraining, but they are not training-free pathology agents in our com-parison. • Training-Free Pathology Agents. PathAgent and PathNavigate use frozen core models with ex-plicit WSI evidence-gathering loops. Direct agent-to-agent claims use the controlled PathAgent protocol rather than the original paper-reported MCQ-only number. 
+
+Implementation stack. PathNavigate uses Patho-R1-7B (Zhang et al., 2026b) as the frozen per-ceptor, Qwen3.5-4B (Yang et al., 2025) as the frozen adjudicator, CONCH v1.5 (Lu et al., 2024) for patch features, and vLLM (Kwon et al., 2023) for Qwen endpoint serving where required. Lo-cal runs were executed on a dual Intel Xeon Platinum 8352V CPU host with NVIDIA RTX 4090 24GB GPUs. The software stack is Python 3.9.25, PyTorch 2.7.0+cu126, CUDA 12.6, Transformers 4.57.6, and vLLM 0.19.0 for the Qwen3.5 endpoint used in the VLM reproduction pipeline. The shared online memory is a two-layer GELU MLP ( R768 → R768 ) updated only at test time; PLIP fusion uses the fixed default α=0 .5; main results enable the optional k=3 case archive over the 
+
+∼4 MB in-domain index; no reflection round is used unless explicitly stated. Routing overrides and budget caps are listed in Appendix B.1. 
+
+Metric details. WSI-VQA reports Total accuracy over all 735 questions, MCQ accuracy over the 
+
+390 multiple-choice questions, open-ended accuracy over the 345 free-form questions, and com-pact text-generation scores. All WSI-VQA accuracy, BLEU, and ROUGE entries are reported as percentages. The main table keeps BLEU-1 and ROUGE-L, while Table 7 also reports BLEU-4. BCNB uses letter-exact scoring for each diagnostic sub-task and the official weighted Overall score. PathMMU uses letter-exact validation accuracy. Efficiency metrics are per-question median latency, peak adjudicator-token count, peak GPU memory when tabulated, and offline footprint; lower is better. 15 A.2 BASELINE SETTINGS , M ODEL NAMES , AND API S COPE 
+
+This subsection combines the reproducibility-facing baseline table with the exact closed-source and open-source model identifiers used by the main comparison. Table 4: Detailed settings behind the shortened method names used in the main result tables. “Pub-lished” means that we did not re-run the method under our local pipeline. All local reproduced rows use Qwen3.5-4B as the common final adjudicator / answer-normalization layer. 
+
+Name in main tables Source Visual input Backbone / setting 
+
+Pretrained MLLM Models 
+
+GPT-4o local API run slide thumbnail OpenAI endpoint gpt-4o 
+
+GPT-5.4 local API run slide thumbnail OpenAI endpoint gpt-5.4 
+
+Gemini-3.1-Pro-preview local API run slide thumbnail Google endpoint 
+
+gemini-3.1-pro-preview 
+
+Qwen3.5 reproduced slide thumbnail Qwen/Qwen3.5-4B and Qwen/Qwen3.5-9B 
+
+Supervised Pathology Models 
+
+WSI-VQA model reproduced WSI-level official WSI-VQA model SlideChat reproduced slide-level trained slide MLLM WSI-LLaVA reproduced patch or slide thumbnail official setting / local patch input MedDr (He et al., 2024) reproduced slide thumbnail Slide-T setting TITAN (Ding et al., 2025) reproduced slide thumbnail / CONCH features zero-shot CONCH v1.5 (Lu et al., 2024) features Quilt-LLaVA (Seyfioglu et al., 2024a) reproduced patch input official checkpoint LLaVA-Med (Li et al., 2023) reproduced patch input official checkpoint MedGemma (Seller-gren et al., 2025) reproduced slide thumbnail MedGemma 1.5-4B Patho-R1 only reproduced selected patches Patho-R1-7B (Zhang et al., 2026b) evidence + Qwen3.5-4B (Yang et al., 2025) adjudicator 
+
+Training-Free Pathology Agents 
+
+PathAgent reproduced patch trajectory official pipeline + Patho-R1-7B (Zhang et al., 2026b) / Qwen3.5-4B (Yang et al., 2025) join PathNavigate reproduced scan-search-readout Patho-R1-7B (Zhang et al., 2026b) / Qwen3.5-4B (Yang et al., 2025), Appendix B.1 
+
+Pretrained MLLM rows in the main tables include closed-source API endpoints and local Qwen thumbnail runs, all using the same single-thumbnail (Slide-T) visual input. The closed-source rows are identified by the exact endpoint labels used in our runs, while the citations point to the closest public model-family references available for each provider. Thus the citation records the family/version context rather than a separate reproducibility guarantee for every endpoint suf-fix. Specifically, we used gpt-5.4 , gemini-3.1-pro-preview , Qwen/Qwen3.5-4B , and 
+
+Qwen/Qwen3.5-9B . For MedGemma, the main tables keep MedGemma-1.5-4B as the size-comparable medical VLM baseline and omit the much larger 27B variant from the primary com-parison. A.3 PATH AGENT REPRODUCTION PROTOCOL 
+
+The PathAgent row in the main paper uses the official codebase configured with Patho-R1-7B (Zhang et al., 2026b), Qwen3.5-4B (Yang et al., 2025), and our evaluation join. This keeps the direct agent-to-agent comparison on equal footing rather than anchoring it to the original paper-reported MCQ-only number. We keep the detailed protocol note here, rather than in the introduction, so the main paper stays focused on PathNavigate itself. 16 Table 5: Protocol note for the PathAgent row. The row is used as a controlled agent-loop comparison under our evaluation stack, not as an exact reproduction of every setting in the original PathAgent paper. 
+
+Item Setting in this paper Code path Official PathAgent implementation configured locally. Question set Same WSI-VQA test split and question records as Table 2. Answer stack Same frozen Patho-R1-7B perceptor and Qwen3.5-4B adjudicator used for PathNavigate; all local reproduced rows use Qwen3.5-4B as the final answer-normalization layer. Evaluation join Same prediction join, answer parsing, SeqMatcher-based MCQ scoring, and BLEU/ROUGE scripts used for PathNavigate. Reported use Direct comparison to PathNavigate uses this controlled protocol. The orig-inal paper-reported MCQ value is cited only as context because it used a different release/evaluation setting. 
+
+## B METHOD DETAILS 
+
+After the dataset, baseline, and reproduction context, this section records the deferred method-level material: the question-aware routing and budget heuristics, the Navigation Summary prompt, and the full inference pseudocode. B.1 QUESTION -AWARE ROUTING AND BUDGET ALLOCATION 
+
+The main paper refers to the scan controller as a lightweight dynamic routing and budget-allocation mechanism. This controller does not change backbone weights or introduce question-specific model parameters. It only adjusts spatial coverage and evidence budget using a few pre-scan heuristics derived from the current question. The released code exposes global parser defaults, but the paper reports the launch configuration used for the main experiments. Table 6 records the reported overrides in lookup form. Table 6: Reported routing, memory, and evidence-budget settings used by the main experiments. 
+
+Component Reported setting Question router Keyword heuristic mapping each question to morphology, clinical, or other. Scan-time coverage NMS distance is max( dmin , 4096) for morphology, max( dmin , 20480) for clinical, and max( dmin , 0.08 diag( W)) otherwise. First-pass search budget Base K0 = 10 ; Ksearch (q) = K0 + 2 for morphology, K0 + 3 for clinical, and K0 otherwise. Pre-rerank pool Kpool = max(30 , K search (q)Rmax ) with 
+
+Rmax = 1 .Shared online memory Reinitialized once per slide with PyTorch defaults; two-layer GELU MLP, hidden width 768 , learning rate 0.05 , gradient clipping 5.0, forgetting factor 
+
+αf = 0 .999 , warm-up Tw = 100 , threshold scale λ = 1 .0.Local high-mag mem-ory Reinitialized for each ROI with warm-up min(max( Tw /5, 5) , |P h(r)|).Evidence and adjudica-tion budget 
+
+T = 2 local patches per ROI, global perceptor cap Vmax = 15 , and one ad-judication round. Reflection is disabled in main results; exploratory reflection runs split remaining targets evenly across remaining rounds. 
+
+B.2 NAVIGATION SUMMARY PROMPT EXAMPLE 
+
+The Navigation Summary is a short prompt field inserted into the adjudicator input. It is not a learned memory module and does not expose the full scan trace. We separate the reusable prompt slot from the filled qualitative example so the reader can distinguish format from case-specific evidence. 
+
+Prompt slot template. 
+
+Navigation Summary. Low-magnification scan statistics: mean <mean> , standard devia-tion <std> , high-surprise fraction <fraction> , and <count> candidate regions after thresholding and NMS. Use this as slide-level context, but base the final answer on the regional evidence below. 
+
+17 Filled qualitative example. For the nuclear-grade case in Figure 4, the adjudicator receives the Navigation Summary together with selected regional evidence: 
+
+Question. What is the nuclear grade of the invasive ductal carcinoma? 
+
+Navigation Summary. The scan produced a compact set of high-surprise candidates af-ter distance-based NMS. The selected targets repeatedly concentrate on tumor-rich high-magnification regions rather than coarse local fields. 
+
+Regional Evidence. Evidence patches describe irregular nests, moderate nuclear pleomor-phism, hyperchromasia, sparse mitoses, and partial tubule loss. 
+
+Reference Context. Optional retrieved cases use similar wording for moderate nuclear grade. 
+
+Adjudication instruction. Answer the question directly and use the evidence above to choose the most compatible label. 
+
+B.3 INFERENCE PSEUDOCODE 
+
+Algorithm 1 Training-free inference in PathNavigate 
+
+1: Input: slide W, question q, frozen feature extractors and frozen answer stack 2: Extract low-magnification tiles Xℓ(W) and initialize fresh online memory Mθ0
+
+3: Scan low-magnification tiles; before each update, compute surprise σi from the reconstruction-gradient norm 4: After warm-up, update memory only for tiles with σi > τ sur and record the surprise history 5: Apply thresholding and distance-based NMS with spacing ρ(q) to obtain ROI pool R(q)
+
+6: Compute PLIP relevance inside R(q) and combine it with surprise to rank candidate regions 7: Select Ksearch (q) targets as C(q)
+
+8: For each selected target, initialize a local high-magnification memory and keep the top-T local surprise patches 9: Aggregate selected patches into evidence set E(q) and construct the Navigation Summary from scan statis-tics 10: Optionally retrieve Reference Context from the in-domain case archive 11: Use the perceptor to convert selected patches into regional evidence strings 12: Use the adjudicator to answer from regional evidence, Navigation Summary, and optional Reference Con-text 13: Output: final answer a
+
+## C EXPERIMENTAL RESULTS AND ADDITIONAL ANALYSES 
+
+This section groups all supplementary evidence after the experimental setup. We place the com-plete numeric tables first, then provide compact visual summaries, workflow illustrations, ablations, efficiency details, and negative findings. C.1 FULL RESULT TABLES 
+
+Table 7: Full WSI-VQA table including BLEU-4. All numeric scores are percentages. TITAN reports only MCQ because this zero-shot setting can only be mapped to answer options.                                                                                           
+
+> Method Total MCQ Open BLEU-1 BLEU-4 ROUGE-L
+> Pretrained MLLM Models
+> GPT-4o (Hurst et al., 2024) 27 .57 32 .50 22 .00 8.53 3.84 23 .62
+> GPT-5.4 (Singh et al., 2025) 35 .74 42 .18 28 .46 14 .27 7.13 28 .86
+> Gemini-3.1-Pro-preview (Team et al., 2023) 34 .41 40 .42 27 .62 12 .84 6.42 27 .56
+> Qwen3.5-4B (Yang et al., 2025) (Slide-T) 40 .26 40 .26 40 .26 9.21 4.53 24 .13
+> Qwen3.5-9B (Yang et al., 2025) (Slide-T) 38 .50 49 .23 26 .38 57 .31 57 .08 48 .04
+> Supervised Pathology Models
+> WSI-VQA model (Chen et al., 2024b) 42 .18 46 .90 36 .84 10 .83 5.21 31 .79
+> MedDr (He et al., 2024) (Slide-T) 45 .18 43 .69 46 .86 36 .82 17 .83 45 .24
+> TITAN (Ding et al., 2025) (zero-shot, CONCH v1.5 feats; MCQ-only) —34 .87 ————Quilt-LLaVA (Seyfioglu et al., 2024a) (Patch) 30 .07 29 .23 31 .01 0.24 0.12 25 .13
+> LLaVA-Med (Li et al., 2023) (Patch) 21 .22 35 .64 4.93 0.31 0.11 22 .74
+> WSI-LLaVA (Liang et al., 2025) (Patch) 33 .20 42 .82 22 .32 5.73 2.71 31 .24
+> MedGemma 1.5-4B (Sellergren et al., 2025) (Slide-T) 42 .99 53 .08 31 .59 18 .04 10 .12 34 .93
+> Training-Free Pathology Agents
+> PathAgent (Chen et al., 2025a) 33 .88 51 .54 13 .91 42 .73 38 .91 33 .54
+> PathNavigate (ours) 56 .34 52 .21 61 .00 60 .92 50 .74 63 .53
+
+18 Table 8: Full SlideBench-BCNB breakdown with merged HER2 and delta rows. HER2 averages the HER2-status and HER2-expression sub-tasks as in Table 1; Overall keeps the official seven-task weighting. All deltas are absolute percentage points relative to Patho-R1 alone.                                                                                                                  
+
+> Method Overall Tumor ER PR HER2 Grading Mol.Sub
+> Pretrained MLLM Models
+> GPT-4o (Hurst et al., 2024) 43 .78 56 .84 49 .96 49 .42 42 .13 38 .46 26 .84
+> GPT-5.4 (Singh et al., 2025) 45 .85 60 .42 50 .42 49 .86 44 .51 42 .36 28 .43
+> Gemini-3.1-Pro-preview (Team et al., 2023) 44 .91 58 .46 50 .18 49 .62 43 .58 40 .85 27 .62
+> Qwen3.5-4B (Yang et al., 2025) 39 .48 49 .43 33 .36 27 .32 48 .02 52 .70 19 .19
+> Qwen3.5-9B (Yang et al., 2025) 41 .99 53 .84 36 .42 30 .18 47 .53 59 .15 21 .43
+> Supervised Pathology Models
+> SlideChat (Chen et al., 2025b) 54 .07 89 .90 72 .98 72 .98 47 .53 23 .11 20 .58
+> WSI-LLaVA (Liang et al., 2025) 52 .68 85 .32 60 .81 60 .81 42 .78 46 .28 29 .20
+> MedDr (He et al., 2024) 35 .48 59 .60 43 .80 39 .20 27 .40 29 .40 20 .80
+> TITAN (Ding et al., 2025) (zero-shot, CONCH v1.5 feats) 44 .39 85 .16 42 .44 41 .68 36 .86 45 .35 22 .49
+> Quilt-LLaVA (Seyfioglu et al., 2024a) 34 .11 33 .46 49 .43 44 .05 25 .85 34 .99 25 .24
+> MedGemma 1.5-4B (Sellergren et al., 2025) 50 .38 79 .68 52 .36 60 .35 47 .85 42 .33 21 .27
+> Patho-R1 alone (PathNavigate’s perceptor, no agent) 37 .26 42 .16 54 .63 50 .38 25 .62 35 .53 26 .65
+> Training-Free Pathology Agents
+> PathAgent (Chen et al., 2025a) 55 .72 87 .52 63 .69 63 .69 44 .52 55 .95 30 .21
+> PathNavigate (ours) 59 .42 88 .28 76 .09 69 .00 48 .40 52 .58 32 .33
+> ∆vs Patho-R1 alone (pp) +22 .16 +46 .12 +21 .46 +18 .62 +22 .78 +17 .05 +5 .68
+
+Table 9: Patch-level pathology MCQ transfer on PathMMU. Reported as a single accuracy column with letter-exact scoring. The PathNavigate row is the final local available-set run; most other rows are local available-set runs, while the Quilt-LLaVA row is taken from the PathMMU paper. We restrict the comparison to open-source pathology / general-purpose VLMs or paper-reported open-source baselines; closed-source frontier APIs are omitted because their PathMMU numbers are not reproducible under our protocol. 
+
+Method PathMMU val Acc Random choice 25 .00 
+
+Pretrained MLLM Models 
+
+Qwen3.5-4B (Yang et al., 2025) 38 .16 
+
+Qwen3.5-9B (Yang et al., 2025) 45 .84 
+
+Supervised Pathology Models 
+
+Quilt-LLaVA (Seyfioglu et al., 2024a) 26 .50 
+
+TITAN (Ding et al., 2025) 32 .18 
+
+WSI-LLaVA (Liang et al., 2025) 36 .18 
+
+SlideChat (Chen et al., 2025b) 37 .42 
+
+Patho-R1 only (Zhang et al., 2026b) 42 .18 
+
+MedGemma-1.5-4B (Sellergren et al., 2025) 50 .62 
+
+Training-Free Pathology Agents 
+
+PathAgent (Chen et al., 2025a) 52 .84 
+
+PathNavigate (ours) 53 .60 
+
+Table 10: Full numeric α sweep on WSI-VQA. All scores are percentages. The main paper sum-marizes the endpoint and default rows in Table 3. The α=0 row is the no-PLIP setting because the ranking is driven only by the surprise prior, and α=1 is the PLIP-only endpoint. 
+
+α Total MCQ Open BLEU-1 
+
+0.00 (surprise-only / no PLIP) 53 .42 47 .20 60 .46 58 .72 0.25 54 .21 49 .42 59 .62 59 .43 0.50 (default, PathNavigate) 56 .34 52 .21 61 .00 60 .92 
+
+0.75 55 .05 50 .50 60 .20 59 .83 1.00 (PLIP-only) 52 .20 46 .90 58 .20 58 .04 
+
+19 Table 11: Candidate-pool constructor ablation on BCNB. Full uses Table 1; Receptor is avg(ER, PR); other rows replace only candidate-pool construction. 
+
+Pool constructor Total Tumor Receptor Grading Mol.Sub Full PathNavigate (surprise pool) 59 .42 88 .28 72 .55 52 .58 32 .33 
+
+PLIP-built 57 .61 88 .00 70 .90 44 .60 29 .60 
+
+random 54 .16 87 .60 68 .80 40 .20 23 .20 ∆ PLIP − Full PathNavigate −1.81 −0.28 −1.65 −7.98 −2.73 ∆ random − Full PathNavigate −5.26 −0.68 −3.75 −12 .38 −9.13 
+
+Table 12: Memory architecture comparison. This table is deferred from the main paper because the main claim is structural; the appendix keeps the full footprint details.                        
+
+> System Offline artefacts Runtime substrate Tokens/Q PathAgent (training-free, query-driven; reported) 277 MB caption cache per-Q trajectory ∼30 KPatho-AgenticRAG (RL-enhanced agentic RAG; reported) multi-GB ColQwen2 KB router + KB rows not reported TissueLab (co-evolving tool agent; reported) curated tool factories HDF5 intermediates not reported SlideChat (trained slide MLLM; reported) 176K-VQA training corpus single forward not comparable
+> PathNavigate (training-free, ours; measured) 4 MB in-domain case archive <2MB online-memory MLP ∼17 K
+
+SlideChat is listed for offline-footprint context, but its token accounting is not directly compara-ble: it is a trained single-forward slide MLLM rather than a training-free agent with per-question navigation, evidence selection, and adjudication calls. C.2 SUPPLEMENTARY COMPARISON PLOTS 
+
+The main paper reports full numeric tables and the same-slide qualitative PathAgent comparison. Here we keep compact visual summaries that are useful for quick scanning after the full result tables. Total MCQ Open 
+
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> Accuracy (%)
+> 33.88
+> 51.54
+> 13.91
+> 56.34
+> 52.21
+> 61.00 +22.46
+> +0.67
+> +47.09
+
+WSI-VQA Direct Agent Comparison  
+
+> PathAgent PathNavigate
+
+Figure 5: Agent-level WSI-VQA comparison between the PathAgent row and PathNavigate under the same Patho-R1/Qwen3.5 evaluation join. Bars report Total, MCQ, and open-ended accuracy; the largest separation is on open-ended answering, while MCQ remains relatively close. 20 0 20 40 60 80 100        
+
+> Accuracy (%)
+> Overall
+> Tumor
+> ER
+> PR
+> HER2
+> Grading
+> Mol.Sub
+> 37.26
+> 42.16
+> 54.63
+> 50.38
+> 25.62
+> 35.53
+> 26.65
+> 59.42 +22.16
+> 88.28 +46.12
+> 76.09 +21.46
+> 69.00 +18.62
+> 48.40 +22.78
+> 52.58 +17.05
+> 32.33 +5.68
+> This chart uses the full BCNB test set (7274 questions); HER2 follows the compact main table and averages status and expression-level scores.
+
+SlideBench-BCNB Controlled Task-wise Gains (Full Test Set) 
+
+> Patho-R1 alone
+> PathNavigate
+
+Figure 6: Task-wise SlideBench-BCNB comparison between Patho-R1 alone and PathNavigate un-der the unified protocol. The largest gains appear on Tumor, ER, PR, and the merged HER2 score, matching the compact main-table reporting. C.3 WORKFLOW GALLERY TEMPLATE 
+
+The supplementary qualitative gallery uses a fixed panel layout so that cases can be compared on equal visual footing. Each case includes seven blocks in a constant order: slide overview, sur-prise prior, PLIP relevance, combined ranking, top low-magnification candidates, selected evidence patches, and the final answer summary. The main paper uses the same-slide comparison in Figure 4; the single-system workflow panel below shows the full internal trace for PathNavigate. The fixed layout is retained as a gallery template: additional exported cases use the same seven-panel semantics rather than hand-curated screenshots with case-specific ordering. C.4 SENSITIVITY AND COMPONENT FIGURES 
+
+We group the remaining claim-bearing plots here so the main paper can stay table-led while the appendix still exposes the main shape of the ablation evidence. The corresponding numeric rows are collected in Tables 10, 11, 13, and 14, with negative-result checks in Appendix C.6. 21 Figure 7: Representative workflow case for PathNavigate on WSI-VQA. From left to right, the panel shows the slide overview, surprise prior, PLIP relevance, combined within-pool ranking, top low-magnification candidate regions, selected evidence patches, and the final answer summary. Heatmaps are normalized within the slide, so stronger saturation denotes higher surprise or rele-vance within that case. 7 6 5 4 3 2 1 0
+
+> Full-set total accuracy delta (pp)
+> Random ROI
+> PLIP-only
+> No PLIP
+> No archive
+> No Navigation Summary
+> -6.84
+> -4.14
+> -2.92
+> -2.50
+> -1.52
+
+Full-Set Ablation Impact 
+
+Figure 8: Compact full-set ablation impact summary. Each bar shows the total-accuracy delta against the full-set PathNavigate reference for that ablation. The archive-off and Navigation-Summary-off rows quantify the answer-time context paths, while the PLIP endpoint and no-PLIP setting show that question-conditioned reranking is useful but not a standalone replacement for the scan prior. 22 0.00    
+
+> no PLIP
+> 0.25 0.50 0.75 1.00
+> PLIP only
+> Fusion weight
+> 45.0
+> 47.5
+> 50.0
+> 52.5
+> 55.0
+> 57.5
+> 60.0
+> 62.5
+> Accuracy (%)
+> default
+
+WSI-VQA Sweep 
+
+> Total
+> MCQ
+> Open
+
+Figure 9: α sweep on WSI-VQA. The default α=0 .5 lies on the empirical peak, while the endpoint drops support the interpretation that PLIP is most useful as a within-pool refinement signal rather than as the primary proposal rule. Table 13: High-magnification evidence readout ablation. The same selected low-magnification tar-gets are held fixed while the evidence readout is changed. BCNB reports the aggregate Overall score. 
+
+Readout Total MCQ Open BCNB Full 56 .34 52 .21 61 .00 59 .42 
+
+Global mem. 53 .32 48 .86 58 .36 56 .33 
+
+Random local 54 .12 49 .62 59 .20 57 .50 
+
+Low-mag only 51 .01 45 .86 56 .84 52 .37 
+
+This ablation isolates readout after target selection. Fresh local high-magnification memory out-performs global reuse, random local sampling, and low-magnification-only evidence, showing that selected ROIs still need nucleus-resolution morphology. Table 14: Shared online-memory MLP architecture sensitivity on WSI-VQA. All five variants were rerun under the same sweep protocol and each reports 726 answered questions with 9 skips, so the numbers are read as a within-sweep comparison rather than mixed directly with the main-result row. The default two-layer equal-width MLP remains best. 
+
+Variant Total Morphology Clinical Other L1H768 50 .96 58 .40 49 .79 45 .10 
+
+L2H384 52 .62 61 .76 51 .93 44 .71 
+
+L2H768 (default) 56 .06 65 .97 54 .08 48 .63 
+
+L2H1536 53 .44 61 .76 51 .93 47 .06 
+
+L3H768 54 .68 65 .55 50 .64 48 .24 
+
+The sweep shows a simple pattern: collapsing the substrate to a single linear layer hurts most, while adding width or one extra layer does not improve over the default. This supports the main-paper choice of a shallow but non-degenerate two-layer online-memory MLP. 23 12 10 8 6 4 2 0 2 4
+
+> Delta vs Full PathNavigate (pp)
+> Total
+> Tumor
+> Receptor
+> Grading
+> Mol.Sub
+> -1.81
+> -0.28
+> -1.65
+> -7.98
+> -2.73
+> -5.26
+> -0.68
+> -3.75
+> -12.38
+> -9.13
+
+BCNB Pool-Constructor Effect by Task  
+
+> PLIP-built Random ROI
+
+Figure 10: Candidate-pool constructor effect on BCNB. Bars show task-wise deltas relative to the Full PathNavigate main-result row, making receptor and grading-sensitive changes visible without over-emphasizing tumor-saturated categories where all constructors are close. C.5 EFFICIENCY VISUALIZATION 
+
+The main paper reports the training-free agent cost comparison as the bar chart in Figure 3. This ap-pendix keeps the internal breakdown so the archive and PLIP costs remain visible without expanding the main text. Table 15: Internal PathNavigate efficiency breakdown on WSI-VQA under the same hardware and evaluation stack as Figure 3. These rows validate where the runtime and token costs enter, but they are not separate systems in the main comparison. 
+
+System Latency (s/Q, median) Peak GPU mem Tokens/Q (peak) PathNavigate (reported default) ∼ 84 ∼ 22 GB ∼ 17 KPathNavigate − archive ( abl-no-rag ) ∼ 28 ∼ 22 GB ∼ 11 KPathNavigate − PLIP ( abl-no-plip ) ∼ 74 ∼ 21 GB ∼ 17 KLatency    
+
+> (s/Q)
+> Tokens
+> (K/Q)
+> Footprint
+> (MB)
+> 0
+> 25
+> 50
+> 75
+> 100
+> Relative cost (% of PathAgent)
+> Lower is better 92 s 30K 277 MB
+> 84 s
+> 17K
+> 4 MB
+> PathAgent PathNavigate
+
+Figure 11: Detailed per-question cost profile for training-free agents, complementing the main-paper comparison in Figure 3. The breakdown keeps the direct PathAgent–PathNavigate comparison visi-ble: latency is similar, token use is lower, and the offline footprint is much smaller. C.6 NEGATIVE FINDINGS 
+
+Two negative findings are worth recording even though they do not belong in the main story. We also fixed two implementation defaults from these checks before reporting the main experiments: a 24 single adjudication pass matched or exceeded multi-round variants, and free-text perceptor evidence matched or exceeded a strict JSON schema. • Norm-preserving consolidation. We tested an inverted update rule that only consolidated low-surprise patches. The idea was to protect a stable notion of normal tissue on tumor-heavy slides. In our setting, the change did not produce a reliable accuracy gain, so we keep it as a documented negative result rather than a main contribution. • Episodic trace memory. We also tested an extra memory layer that prepended the full per-step trace to the adjudicator prompt. This consistently made the prompts longer and did not help final accuracy. We therefore removed it from the reported system. 25

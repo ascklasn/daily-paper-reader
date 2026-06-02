@@ -1,0 +1,557 @@
+Title: Bridging the Modality Bottleneck in Pathology MIL through Virtual Molecular Staining
+
+URL Source: https://arxiv.org/pdf/2605.16392v1
+
+Published Time: Tue, 19 May 2026 00:09:57 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Bridging the Modality Bottleneck in Pathology MIL through Virtual Molecular Staining 
+
+Yucheng Xing 1∗
+
+, Pei Liu 2∗
+
+, Jingying Ma 1, Ruping Hong 3, Jiangdong Qiu 3,Tianyu Liu 1, Kai He 1, Ling Huang 4†
+
+, Mengling Feng 11National University of Singapore, Singapore 
+
+> 2
+
+Hunan University, China 
+
+> 3
+
+Peking Union Medical College Hospital (PUMCH), China 
+
+> 4
+
+Imperial College London, United Kingdom 
+
+Abstract 
+
+Multiple instance learning (MIL) is the dominant framework for whole-slide image analysis in computational pathology, typically combining a frozen patch encoder, a projection layer, and a slide-level aggregator. While encoders and aggregators have been extensively studied, the projection layer remains a largely morphology-only bottleneck. This limits endpoints such as biomarker status and survival, which are governed by a molecular state that is not fully captured by H&E morphology. We introduce Molecularly Informed Staining Transform (MIST), a plug-in replacement for the MIL projection layer that uses paired spatial transcriptomics only during training to construct virtual molecular stains. MIST clusters gene expression profiles into cross-modal prototypes, anchors them in the frozen foundation model feature space, and uses them to reorganize H&E patch features along molecularly guided axes. It requires no transcriptomics at inference and can be inserted before standard MIL aggregators. We evaluate MIST across 23 downstream tasks and 8 MIL aggregators. MIST improves 240 of 256 configurations over the standard projection layer, with an average gain of +3.5%, observed consistently across endpoint types: +5.2% on survival prediction, +3.3% on tissue subtyping, and +2.6% on biomarker prediction. Ablations confirm that gene-derived prototypes are the primary source of the gains, while spatial, biological, and pathological analyses show that cross-modal prototype affinities capture spatially coherent molecular programs from H&E alone. 
+
+1 Introduction 
+
+Computational pathology (CPath) increasingly relies on whole-slide image (WSI) analysis for tissue subtyping, biomarker prediction, and prognosis [ 1 , 2, 3]. Because WSIs are gigapixel-scale and heterogeneous, multiple instance learning (MIL) has become the dominant paradigm [ 4]. A slide is split into patches, each embedded by a frozen pathology foundation model (FM), and the resulting patch set is aggregated into a slide-level prediction. This pipeline has been effective, but it exposes a fundamental mismatch. Many clinical endpoints, including biomarker status, treatment response, and survival, are governed by molecular state, whereas frozen pathology FMs are pretrained mainly from H&E morphology and pathology reports [ 5 ]. They organize tissue along morphological axes. Histologically similar regions can correspond to distinct molecular programs (Fig. 1A), suggesting that morphology-only MIL faces not only a capacity bottleneck, but also a modality bottleneck . 
+
+> ∗Equal contribution.
+> †Corresponding author: iweisskohl@gmail.com
+> Preprint.
+> arXiv:2605.16392v1 [q-bio.QM] 12 May 2026
+
+We address this bottleneck at the projection layer. A standard MIL pipeline contains a frozen patch encoder, a per-patch projection layer, and a slide-level aggregator [ 6 ]. Prior work has extensively improved encoders through self-supervised and vision-language pretraining [ 7, 8 ], and aggregators through attention, clustering, and low-rank structure [ 9, 10 , 11 ]. The projection layer is a strategically important intervention point because it can reshape patch features while preserving both the frozen encoder and the downstream aggregator. Existing projection-layer redesigns still operate inside the FM’s morphological feature space [ 12 ]. They can better use morphology, but they cannot introduce molecular axes that the encoder never observed during pretraining. Pathologists routinely overcome this limitation by adding molecularly targeted stains. When H&E morphology alone cannot resolve a diagnostic or prognostic question, immunohistochemistry (IHC) allows the same tissue to be interpreted under an additional molecular label space [ 13 ]. Inspired by this role of staining, we introduce Molecularly Informed Staining Transform (MIST) for MIL. MIST converts paired spatial transcriptomics (ST), available only during training, into virtual molecular stains that reorganize H&E patch features along gene-defined axes. It leaves the pathology FM frozen, requires no transcriptomics at inference, and can be inserted before standard MIL aggregators. Paired ST is a natural source of molecular supervision because it co-registers H&E morphology with spot-level gene expression [ 14 ]. Existing training-only ST approaches usually inject this signal at the encoder stage by fine-tuning or re-pretraining a pathology FM with vision-omics objectives [ 15 , 16 ]. This validates the value of molecular supervision, but ties the resulting representation to a specific FM checkpoint and requires costly retraining when new pathology FMs are adopted. MIST instead moves molecular supervision one stage later. By operating at the projection layer, it provides a reusable molecularly informed adaptation module without modifying the frozen encoder. MIST is a form of cross-modal adaptation for frozen foundation-model pipelines. Instead of requiring the auxiliary modality at inference, MIST uses it during training to define a molecularly grounded coordinate system. The downstream MIL objective then learns how to use this coordinate system for each endpoint. 
+
+Figure 1: (A) MIST separates patches with similar morphology but distinct molecular profiles. (B) 
+
+Mean performance gains across downstream tasks for eight MIL aggregators. MIST realizes feature-level virtual molecular staining in three steps. First, it derives molec-ular prototypes by clustering gene-expression profiles and anchoring the resulting prototypes in the pathology FM feature space, allowing each prototype to encode the morphological sig-nature of a distinct molecular concept. Second, each patch is softly associated with multiple prototypes through affinities, reflecting the fact that local tissue regions often express overlap-ping molecular programs. Finally, prototype-conditioned low-rank residual transforms gen-erate one stained view per molecular concept, which are combined according to the affinity weights and added back to the original patch em-bedding, preserving the underlying H&E mor-phology as a stable reference for downstream MIL. We evaluate MIST across 23 downstream tasks and 8 MIL aggregators using a frozen encoder. MIST improves 240 of 256 configurations over the standard projection layer, with consistent gains across endpoint types, including survival prediction (+5.2%), tissue subtyping (+3.3%), and biomarker prediction (+2.6%), yielding an overall average improvement of +3.5%. Ablation studies further show that replacing gene-derived prototypes with random or morphology-derived alternatives removes much of the gain, suggesting that the improvement primarily arises from cross-modal molecular priors rather than additional morphology-only modeling capacity. Our contributions are as follows: • A modality-bottleneck view of MIL projection layers. We identify the projection layer as a modular but modality-limited stage in frozen-FM pathology MIL, and show that molecular priors provide an effective intervention beyond morphology-only projection capacity. 2• Virtual molecular staining through cross-modal prototypes. We introduce a projection-layer mechanism that injects spatial transcriptomic priors during training while requiring only H&E at inference, enabling molecularly informed adaptation without retraining the pathology FM. • Broad empirical evidence and molecular interpretability. Across 23 tasks and 8 MIL aggre-gators, MIST improves most evaluated configurations (Fig. 1B), while spatial, biological, and pathological analyses indicate that cross-modal prototype affinities capture spatially coherent and pathologically meaningful molecular programs. 
+
+2 Related Work 
+
+MIL for Computational Pathology. The standard MIL pipeline for gigapixel WSI analysis de-composes into three stages: patch feature extraction, per-patch linear projection, and aggregation into a slide representation. Existing work focuses on the first and third stages. At the encoder level, pathology foundation models (FMs) have evolved along two directions distinguished by pretraining supervision: vision-only FMs learn patch representations through self-supervision on unlabeled H&E [ 7, 17 , 18 , 19 ], while vision-language FMs additionally align H&E with pathology reports through contrastive objectives [ 8, 20 , 21 ]. At the aggregation level, MIL methods pool patch sets through inductive biases such as attention [ 22 ], clustering-constrained attention with instance super-vision [ 10 ], dual-stream max-pooling [ 23 ], correlated self-attention [ 9], and low-rank structure [ 11 ]. The intermediate projection layer has only recently received dedicated attention. Regional Trans-formers re-embed patches based on spatial proximity [ 12 ], query-aware sparse attention extends this to longer-range spatial dependencies [ 24 ], and low-rank mixtures of experts adapt the per-patch transformation to each patch’s morphological phenotype [ 6]. These methods reorganize patches along progressively finer dimensions, moving from spatial to morphological similarity, yet all draw their inductive bias from the FM’s feature space alone. MIST instead injects transcriptional prior from paired ST, introducing a modality the FM never saw, with no ST required at inference. 
+
+Spatial Transcriptomics for Downstream Pathology Tasks. Recent studies have explored paired molecular and H&E data for downstream MIL tasks such as tissue subtyping, biomarker prediction, and survival analysis. Multimodal fusion approaches combine H&E features with bulk molecular profiles [ 3], but require gene expression at inference, which is rarely available in clinical practice. ST offers a finer-grained alternative, providing molecular signal co-localized with morphology at spot resolution. Training-only ST approaches incorporate this signal at the encoder stage through paired-ST objectives such as vision-omics contrastive fine-tuning [ 15 ], ST-token distillation under DINO self-supervision [ 25 ], and vision-ST mixture-of-experts pretraining on HEST-1k [ 26 ]. These studies demonstrate the value of training-time molecular supervision, but tightly couple the learned representations to a specific FM checkpoint. Given the rapid evolution of pathology FMs [ 7, 8], the costly vision-omics training must be repeated whenever a new FM is adopted. In contrast, MIST operates at the projection layer above any frozen FM, allowing the module to remain reusable as the pathology FM ecosystem evolves. 
+
+Prototype-Based Methods in Computational Pathology. Prototype-based methods learn a compact set of representative concepts to summarize complex inputs [ 27 , 28 , 29 ]. In CPath, prior work models patches as Gaussian mixtures and aggregates through the mixture parameters [ 30 ], clusters patches into histological types and represents slides as type-frequency distributions [ 31 ], extends prototype-based representations to multimodal survival prediction with bulk transcriptomics at both training and inference [ 32 ], and couples morphological prototypes with class anchors under an evidential fusion framework for uncertainty-aware survival [ 33 ]. In all of these methods, prototypes live in the FM’s morphology feature space and act at the aggregation stage. MIST departs in two coupled ways: prototypes are discovered in gene-expression space but anchored as centroids in morphology space, encoding molecular concepts beyond morphology; and they condition the per-patch projection rather than summarize the slide, leaving the aggregator unconstrained. 
+
+3 Method 
+
+To bridge the transcriptional modality gap without requiring ST at inference, we propose MIST 
+
+(Molecularly-Informed Staining Transform), a plug-and-play replacement for the standard MIL projection layer that, unlike prior MIL redesigns, conditions patch transforms on gene-expression 3Figure 2: Overview of MIST. Each patch is encoded by a frozen foundation model and matched to organ-specific molecular prototypes through soft affinities. Prototype-conditioned low-rank residual transforms generate stained views over a shared basis, which are combined to produce a patch representation consumable by any MIL aggregator. The prototype bank is constructed once per organ from paired ST and H&E data, with no transcriptomics required at inference. prototypes learned during training only (Fig. 2). MIST (1) builds molecular prototypes via gene-space clustering, anchored in morphological feature space for direct H&E conditioning (§3.1); (2) assigns patches via soft, non-competitive affinities to handle co-expression (§3.2); (3) applies a prototype-conditioned low-rank transform over a shared morphological subspace to produce stained patch views (§3.3); and (4) mixes views residually by affinity, preserving the original morphological signal as a stable anchor (§3.4). 
+
+3.1 Cross-Modal Prototypes Learning via Paired ST-H&E Data 
+
+We derive the prototypes from paired ST and H&E data in HEST-1k [ 14 ], which provides gene expression and morphology co-localized at Visium-spot resolution across 1,276 paired slides and 26 organ types with millions of spots. 
+
+Extracting Paired Morphology and Gene Expression at Each Spot. HEST-1k provides pre-extracted patches at 0.5 μm/px, each centered on a Visium spot. We encode each patch with the frozen pathology foundation model UNI2-h [ 7] to obtain its morphology embedding xj ∈ RD .For the corresponding Visium spots, we follow SEAL’s processing pipeline [ 15 ] to obtain the gene expression vector gj : empty spots and genes detected in less than 10% of spots are removed; raw counts are normalized to 10 4 per spot and log(1+ x)-transformed; the top 2,000 highly variable genes are retained via the Seurat v3 method [34]; and each spot’s expression is averaged with the mean of its immediate neighbors on the hexagonal lattice to mitigate Visium sparsity and noise. This yields paired samples {(xj , gj )}Mj=1 . Further details are provided in Appendix A. 
+
+Clustering Within Each Organ to Form Prototypes. We construct prototypes per organ since molecular concepts differ substantially across organs and downstream tasks are typically organ-specific. For each organ o, we cluster its gene vectors {gj } into Ko groups, assigning each spot a cluster label cj . The prototype for cluster k is the centroid of the corresponding patch features: 
+
+μk = 1
+
+|C k|
+
+X
+
+> j∈C k
+
+xj ∈ RD , Ck = {j : cj = k}. (1) This construction is central to MIST: clustering in gene space discovers molecular concepts, while the prototypes themselves live in morphological feature space so they can condition H&E patch embeddings directly. Each μk thus encodes the morphological signature of a specific molecular concept, and defines the corresponding virtual stain applied to patches downstream. 43.2 Patch Assignment to Multiple Molecular Concepts 
+
+Given the prototypes {μk}Kk=1 , we associate each patch in a WSI with these molecular concepts. To compute the affinity of a patch to each prototype, we first project both into a shared d-dimensional space via a linear layer ϕ, yielding hi = ϕ(xi) and pk = ϕ(μk). The affinity of patch i to prototype 
+
+k is then 
+
+αik = σ(h⊤ 
+
+> i
+
+pk)
+
+P 
+
+> k′
+
+σ(h⊤ 
+
+> i
+
+pk′ ) , (2) where σ is the sigmoid, allowing a patch to activate multiple prototypes simultaneously when it expresses several molecular concepts at once. This reflects a common situation in tissue, where a single spot can carry mixed cellular programs. The ℓ1 normalization preserves the relative pattern of co-activations while bounding the total affinity of each patch to a fixed budget, keeping the stain intensity comparable across patches before aggregation. 
+
+3.3 Patch Staining via Low-Rank Transforms 
+
+To represent how each patch manifests under each molecular concept, each prototype k induces its own view vik of the patch embedding, computed as 
+
+vik = hi + UkVh i, (3) with V ∈ Rr×d shared across prototypes and Uk ∈ Rd×r prototype-specific. The residual form mirrors the physical nature of staining. A stained sample still contains the underlying tissue, and the stain is added on top. The factorization further restricts this stain. Morphology has only a limited number of axes along which any stain can act, so the shared V extracts these common axes while each Uk recombines them for its own concept. 
+
+3.4 Patch Representation for Downstream MIL 
+
+Given the K views {vik }Kk=1 , we combine them into a single patch embedding that the downstream aggregator can consume. Each patch is stained by the concepts it expresses, weighted by its affinity, 
+
+˜hi = hi +
+
+> K
+
+X
+
+> k=1
+
+αik vik . (4) The affinity weights give each patch its own stain mixture on a comparable scale across patches. Adding hi once more keeps the unstained view of the patch available alongside the stained views, so the original morphological signal from the frozen encoder remains accessible regardless of how the patch aligns with the prototypes. 
+
+Theoretical grounding. MIST can separate morphologically similar but molecularly distinct patches beyond what morphology alone permits. For two patches with hi − hj = ϵv but different prototype affinities, the output difference decomposes as 
+
+˜hi − ˜hj = (2 I + ¯W) ϵv +
+
+X 
+
+> k
+
+∆αk Uk
+
+
+
+V¯h, (5) where ϵv denotes the small morphological difference between the two patches, with ϵ controlling the perturbation magnitude and v the perturbation direction. The first term corresponds to the morphology-only transformation, while the second term captures molecular routing induced by differences in prototype affinity. Here, ¯W denotes the uniform-affinity baseline transform and 
+
+∆αk = αk(hi) − αk(hj ) measures affinity differences induced by molecular identity. When the routing term aligns with the morphology term, the output distance exceeds the morphology-only baseline. A formal existence proof is provided in Appendix B. 
+
+4 Experiments 
+
+4.1 Datasets Tissue subtyping. We evaluated MIST on six tissue subtyping classification tasks: EBRAINS fine-grained (EBRAINS-F, C=30 ) and coarse-grained (EBRAINS-C, C=12 ) brain tumor subtyping 5(n=2 ,319 slides) [ 35 ]; Non-Small Cell Lung Carcinoma (NSCLC, C=2 ) subtyping with 5-fold cross-validation (CV) on TCGA ( n=1 ,041 ), with external validation on CPTAC ( n=1 ,091 ) and NLST (n=1 ,008 ) [ 36 ]; ISUP grading from the PANDA prostate cancer challenge ( C=6 , n=10 ,616 ) [ 37 ]; and BRACS breast carcinoma subtyping at coarse (BRACS-C, C=3 ) and fine (BRACS-F, C=7 )granularity ( n=547 ) [ 38 ]. We report balanced accuracy for the multiclass tasks, AUROC for NSCLC, and weighted κ for PANDA. 
+
+Molecular biomarker prediction. We evaluate on 13 molecular biomarker prediction tasks across four cohorts. On TCGA GBMLGG, we perform 5-fold CV for IDH1 mutation prediction (GBMLGG-C, C=2 , n=1 ,539 ) and histomolecular subtyping (GBMLGG-F, C=5 , n=1 ,516 ), with external evaluation on the EBRAINS glioma cohort ( n=894 ) [ 35 ]. 5-fold CV on TCGA Lung (LUAD + LUSC) for TP53, KRAS, STK11, and EGFR mutation status ( C=2 , n=1 ,024 ) [ 39 ]; 5-fold CV on TCGA BRCA for receptor status (ER, PR, HER2; C=2 ) and PIK3CA mutation ( C=2 ), with n
+
+ranging from 741 (HER2) to 1,061 (PIK3CA); and 10-fold CV on BCNB ( n=1 ,058 ) [ 40 ] for ER, PR, and HER2 status. We report AUROC for binary tasks, balanced accuracy for GBMLGG-F, and macro-averaged performance across cohorts where external evaluation is available. 
+
+Survival prediction. We predict disease-specific survival (DSS) with 5-fold CV on four TCGA cohorts [ 39 ]: breast carcinoma (BRCA, n=1 ,041 ), colon adenocarcinoma (COAD, n=417 ), lung adenocarcinoma (LUAD, n=456 ), and lung squamous cell carcinoma (LUSC, n=471 ). LUAD, LUSC, and COAD include external validation on CPTAC; LUAD and LUSC additionally include NLST. Performance is measured by the concordance index (C-index). 
+
+4.2 Baselines 
+
+We compare MIST against the standard linear layer across eight MIL aggregators: ABMIL [ 22 ], CLAM [ 10 ], DSMIL [ 23 ], TransMIL [ 9 ], ILRA [ 11 ], Transformer [ 41 , 42 ], MeanMIL, and MaxMIL. Each aggregator retains its published hyperparameters. We further combine MIST with MAM-MOTH [ 6 ] to examine whether modality bottlenecks and morphology-focused capacity bottlenecks are complementary. Further details are provided in Appendix E. 
+
+4.3 Implementation Details 
+
+All slides are processed at 20 × magnification and tiled into non-overlapping 256 ×256 patches. Patch features are extracted using the frozen UNI2-h pathology foundation model [ 7 ]. Molecular prototypes are constructed once per organ from paired ST and H&E data following Section 3.1. Unless otherwise specified, all models are trained using AdamW with cosine learning rate decay and evaluated under the same optimization setting across all MIL aggregators. Additional implementation details and hyperparameters are provided in the appendix D. 
+
+5 Results 
+
+5.1 Downstream Task Performance Survival prediction. Table 1 shows that M IST improves mean concordance across all four datasets, yielding an average gain of +5 .2% . Table 7 further shows performance improvements in 71 out of 72 experimental configurations. The largest gains are observed for weaker aggregators that rely on coarse pooling operations. For example, MaxMIL achieves a +7 .2% improvement, approximately twice the typical gain obtained by stronger backbones such as ABMIL or CLAM. This trend is consistent with the hypothesis that survival outcomes are primarily driven by molecular state and microenvironmental composition, which H&E morphology captures only indirectly [ 3]. Consequently, weaker aggregators have limited capacity to fully exploit morphological information alone, causing them to benefit more substantially from molecularly-informed priors. 
+
+Molecular biomarker prediction. MIST improves mean performance on every dataset, yielding an average gain of +2 .6% (Table 2), with improvements observed in 110 out of 120 configurations (Table 8). MaxMIL alone achieves a +6 .0% gain. Because biomarker labels are defined by molecular assays and are only indirectly reflected in H&E morphology [ 43 , 44 ], the orthogonal molecular axis introduced by M IST is particularly relevant for these tasks. 6Table 1: Survival prediction. Concordance index across four datasets using eight MIL aggregators. LUAD and LUSC are averaged across TCGA, CPTAC, and NLST, while COAD is averaged across TCGA and CPTAC. Propagated standard errors are reported in parentheses. Trans.,Transformer. Cohort Status ABMIL CLAM TransMIL Trans. ILRA Mean Max DSMIL Avg. BRCA Base 60.58 (6 .44) 60.79 (6 .33) 62.66 (9 .88) 63.12 (8 .92) 57.47 (6 .20) 65.77 (7 .26) 54.95 (3 .82) 60.99 (4 .92) 60.79 (3 .14) 
+
++Ours 69.34 (3 .87) 69.70 (3 .65) 67.56 (7 .98) 70.28 (8 .02) 65.31 (6 .37) 70.96 (1 .54) 58.77 (9 .11) 68.12 (2 .51) 67.50 (3 .70) 
+
+∆ +8.76 +8.91 +4.90 +7.16 +7.84 +5.19 +3.81 +7.13 +6.71 LUAD Base 66.07 (6 .56) 65.75 (6 .72) 60.90 (5 .23) 56.15 (4 .79) 51.03 (3 .37) 66.62 (6 .40) 49.40 (4 .84) 64.81 (5 .63) 60.09 (6 .57) 
+
++Ours 67.49 (6 .54) 67.33 (6 .85) 65.64 (9 .18) 62.32 (5 .90) 55.94 (3 .62) 67.64 (6 .89) 58.74 (4 .41) 66.37 (6 .32) 63.93 (4 .19) 
+
+∆ +1.42 +1.59 +4.74 +6.17 +4.91 +1.02 +9.35 +1.55 +3.84 LUSC Base 61.99 (2 .75) 61.27 (1 .81) 53.79 (4 .86) 54.71 (3 .01) 49.29 (6 .68) 61.79 (2 .65) 47.14 (4 .98) 57.87 (2 .58) 55.98 (5 .37) 
+
++Ours 63.41 (2 .88) 63.48 (2 .11) 62.54 (4 .24) 61.53 (5 .50) 58.72 (4 .03) 62.55 (3 .26) 54.30 (4 .15) 61.48 (5 .04) 61.00 (2 .90) 
+
+∆ +1.42 +2.22 +8.75 +6.82 +9.43 +0.75 +7.16 +3.61 +5.02 COAD Base 60.71 (6 .18) 60.76 (6 .86) 59.62 (8 .47) 55.99 (4 .25) 48.34 (3 .31) 60.44 (7 .28) 49.97 (8 .26) 57.61 (8 .23) 56.68 (4 .63) 
+
++Ours 62.48 (5 .70) 62.68 (4 .90) 64.53 (6 .37) 60.49 (2 .59) 58.75 (2 .68) 61.49 (6 .47) 58.28 (1 .89) 65.23 (2 .27) 61.74 (2 .34) 
+
+∆ +1.77 +1.91 +4.91 +4.49 +10.41 +1.05 +8.31 +7.61 +5.06 Table 2: Molecular biomarker prediction. Mean performance across biomarker tasks within each dataset, with GBMLGG additionally averaged across TCGA and EBRAINS. Propagated standard errors are reported in parentheses. Dataset Status ABMIL CLAM TransMIL Trans. ILRA Mean Max DSMIL Avg. GBMLGG (2 tasks) Base 77.63 (1 .72) 77.80 (1 .47) 74.36 (1 .69) 76.05 (1 .39) 70.29 (1 .83) 76.03 (1 .47) 73.16 (1 .71) 76.25 (2 .41) 75.20 (2 .35) 
+
++Ours 79.28 (1 .73) 79.30 (1 .50) 77.33 (1 .83) 78.12 (1 .50) 73.26 (1 .62) 77.30 (1 .48) 75.49 (1 .35) 77.91 (1 .52) 77.25 (1 .89) 
+
+∆ +1.65 +1.49 +2.97 +2.06 +2.97 +1.27 +2.33 +1.66 +2.05 BCNB (3 tasks) Base 85.12 (2 .07) 85.49 (2 .10) 82.46 (2 .39) 83.36 (2 .39) 78.99 (3 .21) 81.83 (2 .41) 79.89 (3 .52) 84.16 (2 .21) 82.66 (2 .20) 
+
++Ours 86.38 (1 .88) 86.41 (1 .94) 84.36 (2 .06) 86.02 (1 .88) 82.03 (2 .63) 83.31 (2 .06) 83.21 (2 .06) 84.86 (2 .07) 84.57 (1 .53) 
+
+∆ +1.26 +0.92 +1.89 +2.67 +3.04 +1.48 +3.32 +0.69 +1.91 BRCA (4 tasks) Base 76.35 (2 .38) 76.36 (2 .90) 71.96 (2 .63) 72.22 (2 .61) 68.11 (1 .88) 73.33 (2 .32) 71.16 (2 .70) 73.70 (2 .40) 72.90 (2 .55) 
+
++Ours 77.16 (1 .90) 77.21 (1 .85) 75.25 (1 .94) 75.64 (1 .90) 71.42 (2 .15) 74.32 (2 .03) 74.11 (2 .03) 74.83 (2 .25) 74.99 (1 .73) 
+
+∆ +0.81 +0.84 +3.29 +3.42 +3.32 +0.99 +2.96 +1.13 +2.10 Lung (4 tasks) Base 77.79 (2 .48) 77.67 (2 .32) 74.73 (2 .00) 74.81 (1 .92) 72.06 (1 .53) 76.18 (1 .85) 69.83 (3 .05) 75.01 (2 .86) 74.76 (2 .53) 
+
++Ours 79.29 (1 .83) 79.44 (1 .60) 77.68 (2 .18) 77.97 (2 .54) 75.26 (1 .83) 77.16 (1 .95) 73.00 (2 .18) 77.24 (2 .11) 77.13 (1 .99) 
+
+∆ +1.51 +1.77 +2.95 +3.16 +3.20 +0.98 +3.18 +2.22 +2.37 
+
+Tissue subtyping. MIST improves average performance by +3 .3% across six tissue subtyping tasks from four datasets (Table 3), with gains observed in 59 out of 64 configurations (Table 9); MaxMIL alone improves by +4 .5% . The largest gains occur on BRACS, where balanced accuracy increases by +6 .39% on BRACS-C and +3 .37% on BRACS-F. Unlike NSCLC or PANDA, several BRACS categories exhibit substantial molecular and biological overlap despite similar histological appearance, making them difficult to separate using morphology alone. In such settings, the orthogonal molecular axis introduced by M IST provides complementary information beyond the morphology space encoded by pathology foundation models. The gains are comparatively smaller on saturated cohorts where baseline H&E performance already exceeds 90% AUROC or weighted κ (NSCLC and PANDA), suggesting limited remaining headroom for improvement. Further details are provided in Appendix C. 
+
+5.2 Interpretability Spatial validation. We first evaluate whether prototypes capture spatially coherent molecular organization from H&E alone. On a held-out HEST slide with paired ST measurements, Fig. 3A compares the ground-truth spatial transcriptomic prototype maps (GT) with the corresponding model-predicted affinity maps (P) for two representative prototypes. The strong spatial agreement between GT and P indicates that MIST can infer biologically meaningful molecular distributions directly from morphology, despite receiving no ST input at inference. Notably, the predicted patterns remain spatially structured rather than diffuse, suggesting that the prototype space captures stable tissue-level molecular organization. Further details are provided in Appendix F. 
+
+Biological grounding. To characterize the biological meaning of each prototype, Fig. 3B summarizes the top upregulated genes associated with representative molecular clusters. Several prototypes align with recognizable tissue programs and microenvironmental states. For example, P0 is enriched for surfactant-related genes ( SFTPA1 , SFTPA2 , SFTPC ), consistent with alveolar epithelium, while P4 captures squamous and basal-like tumor states through markers including SOX2 and KRT17 .These two prototypes correspond closely to distinct normal and tumor-associated tissue programs 7Table 3: Tissue subtyping. Mean performance across tissue subtyping tasks using eight MIL aggregators. NSCLC is averaged across TCGA, CPTAC, and NLST. Standard errors reported in parentheses are estimated using 1000 bootstrap resamples. Task Status ABMIL CLAM TransMIL Trans. ILRA Mean Max DSMIL Avg. NSCLC (AUROC) Base 93.92 (0 .75) 94.46 (0 .74) 92.19 (1 .32) 92.99 (1 .38) 89.09 (1 .44) 90.33 (0 .82) 93.70 (0 .80) 93.43 (0 .93) 92.51 (1 .76) 
+
++Ours 94.55 (0 .73) 94.56 (0 .71) 93.40 (1 .05) 93.92 (1 .09) 91.27 (1 .32) 91.48 (0 .93) 94.30 (0 .71) 94.41 (0 .74) 93.49 (1 .27) 
+
+∆ +0.63 +0.10 +1.21 +0.93 +2.19 +1.15 +0.60 +0.98 +0.97 PANDA (Weighted κ)Base 93.40 (0 .65) 93.72 (0 .60) 93.42 (0 .62) 92.70 (0 .77) 92.94 (0 .76) 87.74 (1 .18) 83.05 (1 .64) 94.24 (0 .60) 91.40 (3 .69) 
+
++Ours 94.15 (0 .69) 94.15 (0 .59) 93.92 (0 .63) 94.19 (0 .60) 95.47 (0 .48) 92.17 (0 .85) 86.29 (1 .32) 93.99 (0 .73) 93.04 (2 .68) 
+
+∆ +0.75 +0.43 +0.50 +1.48 +2.53 +4.43 +3.25 -0.24 +1.64 BRACS-C (Bal. acc.) Base 62.59 (5 .18) 62.41 (5 .13) 65.99 (4 .21) 61.82 (4 .71) 44.70 (5 .34) 54.89 (5 .38) 60.28 (5 .02) 57.61 (5 .19) 58.79 (6 .18) 
+
++Ours 72.78 (4 .79) 70.29 (4 .90) 70.70 (4 .97) 72.60 (4 .67) 51.40 (5 .14) 58.42 (5 .49) 65.31 (5 .48) 59.87 (5 .14) 65.17 (7 .36) 
+
+∆ +10.19 +7.88 +4.71 +10.78 +6.70 +3.53 +5.03 +2.26 +6.39 BRACS-F (Bal. acc.) Base 36.66 (4 .70) 44.02 (4 .60) 38.98 (4 .79) 41.15 (5 .17) 29.93 (4 .60) 31.14 (4 .60) 28.41 (4 .24) 34.59 (5 .19) 35.61 (5 .23) 
+
++Ours 44.35 (4 .97) 45.22 (5 .14) 45.58 (5 .22) 41.90 (4 .58) 30.25 (4 .24) 32.20 (4 .82) 36.02 (4 .52) 36.36 (4 .91) 38.98 (5 .68) 
+
+∆ +7.69 +1.20 +6.60 +0.75 +0.31 +1.06 +7.61 +1.77 +3.37 EBRAINS-C (Bal. acc.) Base 90.77 (1 .92) 89.86 (1 .97) 87.97 (2 .02) 88.11 (2 .04) 84.74 (2 .39) 86.97 (2 .21) 75.91 (2 .35) 83.24 (2 .36) 85.95 (4 .44) 
+
++Ours 91.86 (1 .84) 92.15 (1 .79) 90.41 (1 .94) 91.74 (1 .68) 86.17 (2 .25) 90.36 (2 .02) 83.02 (2 .26) 90.34 (2 .04) 89.51 (3 .02) 
+
+∆ +1.08 +2.28 +2.45 +3.64 +1.43 +3.39 +7.12 +7.10 +3.56 EBRAINS-F (Bal. acc.) Base 69.36 (2 .20) 71.04 (2 .19) 72.76 (2 .00) 72.10 (1 .96) 63.46 (2 .21) 69.08 (2 .20) 60.23 (2 .28) 64.25 (2 .20) 67.79 (4 .28) 
+
++Ours 74.87 (2 .07) 74.15 (1 .97) 73.82 (2 .08) 75.38 (1 .97) 68.12 (2 .17) 73.79 (2 .09) 63.78 (2 .17) 68.36 (2 .18) 71.53 (3 .95) 
+
+∆ +5.51 +3.11 +1.06 +3.28 +4.66 +4.70 +3.54 +4.11 +3.75 
+
+Figure 3: Interpretability analysis of MIST. (A) Prototype affinity maps on a held-out HEST slide with paired ST. GT and P denote transcriptomics ground truth and H&E-based prediction, respectively. (B) Top upregulated genes associated with representative molecular prototypes. (C) Patch-level affinity distributions across representative tissue regions annotated by board-certified pathologists, including normal tissue, bronchus, tumor-normal (N–T) interface, and sparse tumor. visible in the slide-level and patch-level analyses. Importantly, these biological structures emerge without explicit tissue annotations during downstream training, suggesting that the prototype space is organized around intrinsic tissue biology rather than the downstream task objective alone. 
+
+Pathological validation. We further examine whether the prototype affinities correspond to inter-pretable histopathological patterns at the local tissue level. Fig. 3C shows the prototype affinity profiles of four representative patches annotated by board-certified pathologists. Each tissue state exhibits a distinct prototype signature. Normal Tissue preferentially activates alveolar-associated prototypes, whereas Sparse Tumor shows elevated tumor-associated activity. Bronchus activates airway and immune-related prototypes, while the N–T Interface co-activates alveolar, tumor, and stromal-associated prototypes, reflecting the heterogeneous composition commonly observed at invasive tumor boundaries. Importantly, these prototype signatures are not directly supervised by pathology annotations, but emerge indirectly from ST-derived molecular priors, suggesting that MIST captures clinically meaningful tissue heterogeneity through the alignment between morphology and molecular organization. 8Table 4: Ablation of key design choices in MIST, including prototype source, stain transform, and residual structure. Avg. denotes the mean perfor-mance across GBMLGG, LUAD, BRACS-C/F, and EBRAINS-C/F.                  
+
+> Variant Avg. MIST (full) 73.9
+> Prototype source (Eq. 1)
+> Random vectors 71.7 (−2.2)
+> H&E-only clustering 72.8 (−1.1)
+> Stain transform (Eq. 3)
+> Full-rank Wk72.6 (−1.3)
+> Unshared Vkper prototype 72.1 (−1.8)
+> Residual structure
+> No external residual (Eq. 4) 72.1 (−1.8)
+> No view residual (Eq. 3) 72.1 (−1.8)
+
+Table 5: Sensitivity analysis over the number of molecular prototypes K.                                   
+
+> Dataset k=4 k=8 k=16 k=32 k=64
+> BRACS-C 68.66 72.78 70.92 67.84 68.66 BRACS-F 44.45 44.35 43.45 42.97 44.11 EBRAINS-C 91.86 91.57 91.71 91.84 91.58 EBRAINS-F 74.87 74.37 74.29 74.45 74.01 GBMLGG 79.28 79.26 79.23 79.27 78.89 LUAD 67.47 67.49 67.24 67.42 66.94
+
+Table 6: Performance of MIST with ABMIL and ABMIL+MAMMOTH on LUAD. Results are reported as c-index.      
+
+> w/o MIST w/ MIST ABMIL 0.6111 0.6469 ABMIL + MAMMOTH 0.6324 0.6647
+
+5.3 Ablation and Hyperparameter Analysis Model design ablations. Table 4 evaluates four key design choices in MIST. Replacing gene-derived prototypes with random vectors produces the largest drop ( −2.2), indicating that the molecular prior is the primary source of improvement. Replacing cross-modal prototypes with H&E-only clustering partially recovers performance ( −1.1), suggesting that morphology alone captures only part of the underlying structure and that cross-modal anchoring remains important. Removing the low-rank factorization ( −1.3) or assigning independent Vk to each prototype ( −1.8) both reduce performance, supporting the design choice of learning prototype-specific modulation over a shared morphological subspace. Finally, removing either the view-level residual or the external residual leads to consistent degradation ( −1.8), indicating that both the stained and unstained pathways contribute complementary information. 
+
+Key hyperparameter. Table 5 evaluates the number of prototypes per organ K ∈ { 4, 8, 16 , 32 , 64 }.MIST remains stable across most datasets, with only minor variation on EBRAINS-C/F, GBMLGG, and LUAD. BRACS shows greater sensitivity to prototype granularity, particularly on the coarse classification setting, suggesting that breast lesion subtypes may require finer molecular partitioning to resolve subtle morphological differences. Across all datasets, performance consistently peaks at small to moderate values of K (4–8), while larger prototype sets provide little additional benefit. This behavior suggests that only a compact set of molecular concepts is needed to effectively organize the morphology space accessible from H&E images. Further analysis of the computational cost and parameter overhead of MIST is provided in Appendix G. 
+
+Modality bottleneck. Table 6 examines whether the gains from MIST overlap with capacity-focused MIL redesigns on LUAD. Adding MAMMOTH to ABMIL improves c-index by +0 .0213 , while MIST alone yields a larger gain of +0 .0358 . Applying MIST on top of ABMIL+MAMMOTH produces an additional +0 .0323 improvement, which remains close to the gain obtained on vanilla ABMIL. The improvements therefore combine almost additively, with little evidence of saturation. This result supports the hypothesis that MIST and capacity-focused MIL redesigns address comple-mentary limitations. MAMMOTH increases the expressive capacity of the morphology pathway, whereas MIST introduces molecular priors that are not directly accessible from morphology alone. 
+
+6 Conclusion 
+
+We introduced MIST, a plug-and-play replacement for the MIL projection layer that injects ST priors into frozen pathology foundation model pipelines while requiring only H&E images at inference. Unlike prior ST-based approaches that adapt the encoder, MIST performs cross-modal adaptation at the projection layer, allowing molecular priors to remain reusable across evolving pathology foundation models. By constructing cross-modal prototypes from paired ST and H&E data, MIST reorganizes patch representations along molecularly-informed axes beyond morphology alone. Across 923 downstream tasks and 8 MIL aggregators, MIST consistently improves performance, particularly on survival and biomarker prediction. Gains are strongest for weaker aggregators and molecularly heterogeneous tasks, supporting the view that the MIL projection layer represents both a capacity bottleneck and a modality bottleneck. Interpretability analyses further show that learned prototype affinities capture spatially coherent tissue programs directly from H&E images. 10 References 
+
+[1] Nicolas Coudray, Paolo Santiago Ocampo, Theodore Sakellaropoulos, Navneet Narula, Matija Snuderl, David Fenyö, Andre L Moreira, Narges Razavian, and Aristotelis Tsirigos. Classifica-tion and mutation prediction from non–small cell lung cancer histopathology images using deep learning. Nature medicine , 24(10):1559–1567, 2018. [2] Jakob Nikolas Kather, Alexander T Pearson, Niels Halama, Dirk Jäger, Jeremias Krause, Sven H Loosen, Alexander Marx, Peter Boor, Frank Tacke, Ulf Peter Neumann, et al. Deep learning can predict microsatellite instability directly from histology in gastrointestinal cancer. Nature medicine , 25(7):1054–1056, 2019. [3] Richard J Chen, Ming Y Lu, Drew FK Williamson, Tiffany Y Chen, Jana Lipkova, Zahra Noor, Muhammad Shaban, Maha Shady, Mane Williams, Bumjin Joo, et al. Pan-cancer integrative histology-genomic analysis via multimodal deep learning. Cancer cell , 40(8):865–878, 2022. [4] Gabriele Campanella, Matthew G Hanna, Luke Geneslaw, Allen Miraflor, Vitor Werneck Krauss Silva, Klaus J Busam, Edi Brogi, Victor E Reuter, David S Klimstra, and Thomas J Fuchs. Clinical-grade computational pathology using weakly supervised deep learning on whole slide images. Nature medicine , 25(8):1301–1309, 2019. [5] Katherine A Hoadley, Christina Yau, Toshinori Hinoue, Denise M Wolf, Alexander J Lazar, Esther Drill, Ronglai Shen, Alison M Taylor, Andrew D Cherniack, Vésteinn Thorsson, et al. Cell-of-origin patterns dominate the molecular classification of 10,000 tumors from 33 types of cancer. Cell , 173(2):291–304, 2018. [6] Daniel Shao, Joel Runevic, Richard J. Chen, Drew F. K. Williamson, Ahrong Kim, Andrew H. Song, and Faisal Mahmood. Mixture of mini experts: Overcoming the linear layer bottleneck in multiple instance learning. In International Conference on Learning Representations (ICLR) ,2026. [7] Richard J Chen, Tong Ding, Ming Y Lu, Drew FK Williamson, Guillaume Jaume, Bowen Chen, Andrew Zhang, Daniel Shao, Andrew H Song, Muhammad Shaban, et al. Towards a general-purpose foundation model for computational pathology. Nature Medicine , 2024. [8] Ming Y Lu, Bowen Chen, Drew FK Williamson, Richard J Chen, Ivy Liang, Tong Ding, Guil-laume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, et al. A visual-language foundation model for computational pathology. Nature medicine , 30(3):863–874, 2024. [9] Zhuchen Shao, Hao Bian, Yang Chen, Yifeng Wang, Jian Zhang, Xiangyang Ji, et al. Transmil: Transformer based correlated multiple instance learning for whole slide image classification. 
+
+Advances in neural information processing systems , 34:2136–2147, 2021. [10] Ming Y Lu, Drew FK Williamson, Tiffany Y Chen, Richard J Chen, Matteo Barbieri, and Faisal Mahmood. Data-efficient and weakly supervised computational pathology on whole-slide images. Nature biomedical engineering , 5(6):555–570, 2021. [11] Jinxi Xiang and Jun Zhang. Exploring low-rank property in multiple instance learning for whole slide image classification. In The Eleventh International Conference on Learning Representations , 2023. [12] Wenhao Tang, Fengtao Zhou, Sheng Huang, Xiang Zhu, Yi Zhang, and Bo Liu. Feature re-embedding: Towards foundation model-level performance in computational pathology. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11343–11352, 2024. [13] Shino Magaki, Seyed A Hojat, Bowen Wei, Alexandra So, and William H Yong. An introduction to the performance of immunohistochemistry. In Biobanking: methods and protocols , pages 289–298. Springer, 2018. [14] Guillaume Jaume, Paul Doucet, Andrew H. Song, Ming Y. Lu, Cristina Almagro-Perez, Sophia J. Wagner, Anurag J. Vaidya, Richard J. Chen, Drew F. K. Williamson, Ahrong Kim, and Faisal Mahmood. Hest-1k: A dataset for spatial transcriptomics and histology image analysis. In 
+
+Advances in Neural Information Processing Systems , December 2024. 11 [15] Konstantin Hemker, Andrew H. Song, Cristina Almagro-Perez, Guillaume Jaume, Sophie J. Wagner, Anurag Vaidya, Nikola Simidjievski, Mateja Jamnik, and Faisal Mahmood. Towards spatial transcriptomics-driven pathology foundation models. arXiv preprint arXiv:2602.14177 ,2026. [16] Jinxi Xiang, Siyu Hou, Yuchen Li, Ryan Quinton, Xiaoming Zhang, Feyisope Eweje, Xiangde Luo, Yijiang Chen, Zhe Li, Colin Bergstrom, et al. A multimodal foundation model of spatial transcriptomics and histology for biological discovery and clinical prediction. arXiv preprint arXiv:2604.03630 , 2026. [17] Eugene Vorontsov, Alican Bozkurt, Adam Casson, George Shaikovski, Michal Zelechowski, Kristen Severson, Eric Zimmermann, James Hall, Neil Tenenholtz, Nicolo Fusi, et al. Afoundation model for clinical-grade computational pathology and rare cancers detection. Nature medicine , 30(10):2924–2935, 2024. [18] Hanwen Xu, Naoto Usuyama, Jaspreet Bagga, Sheng Zhang, Rajesh Rao, Tristan Naumann, Cliff Wong, Zelalem Gero, Javier González, Yu Gu, et al. A whole-slide foundation model for digital pathology from real-world data. Nature , 630(8015):181–188, 2024. [19] Richard J Chen, Chengkuan Chen, Yicong Li, Tiffany Y Chen, Andrew D Trister, Rahul G Krishnan, and Faisal Mahmood. Scaling vision transformers to gigapixel images via hierarchical self-supervised learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 16144–16155, 2022. [20] Jinxi Xiang, Xiyue Wang, Xiaoming Zhang, Yinghua Xi, Feyisope Eweje, Yijiang Chen, Yuchen Li, Colin Bergstrom, Matthew Gopaulchan, Ted Kim, et al. A vision–language foundation model for precision oncology. Nature , 638(8051):769–778, 2025. [21] Tong Ding, Sophia J Wagner, Andrew H Song, Richard J Chen, Ming Y Lu, Andrew Zhang, Anurag J Vaidya, Guillaume Jaume, Muhammad Shaban, Ahrong Kim, et al. A multimodal whole-slide foundation model for pathology. Nature medicine , pages 1–13, 2025. [22] Maximilian Ilse, Jakub Tomczak, and Max Welling. Attention-based deep multiple instance learning. In International conference on machine learning , pages 2127–2136. PMLR, 2018. [23] Bin Li, Yin Li, and Kevin W Eliceiri. Dual-stream multiple instance learning network for whole slide image classification with self-supervised contrastive learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 14318–14328, 2021. [24] Zhengrui Guo, Qichen Sun, Jiabo Ma, Lishuang Feng, Jinzhuo Wang, and Hao Chen. Context matters: Query-aware dynamic long sequence modeling of gigapixel images. arXiv preprint arXiv:2501.18984 , 2025. [25] Minsoo Lee, Jonghyun Kim, Juseung Yun, Sunwoo Yu, and Jongseong Jang. Mint: Molecularly informed training with spatial transcriptomics supervision for pathology foundation models. 
+
+arXiv preprint arXiv:2603.07895 , 2026. [26] Ekaterina Redekop, Mara Pleasure, Zichen Wang, Kimberly Flores, Anthony Sisk, William Speier, and Corey W Arnold. Spade: Spatial transcriptomics and pathology alignment using a mixture of data experts for an expressive latent space. arXiv preprint arXiv:2506.21857 , 2025. [27] Ling Huang, Yucheng Xing, Thierry Denoeux, and Mengling Feng. An evidential time-to-event prediction model based on gaussian random fuzzy numbers. In International Conference on Belief Functions , pages 49–57. Springer, 2024. [28] Ling Huang, Yucheng Xing, Swapnil Mishra, Thierry Denœux, and Mengling Feng. Evidential time-to-event prediction with calibrated uncertainty quantification. International Journal of Approximate Reasoning , 181:109403, 2025. [29] Ling Huang, Yucheng Xing, Qika Lin, Jinming Duan, Su Ruan, and Mengling Feng. Esurvfu-sion: An evidential multimodal survival fusion model based on epistemic random fuzzy sets. 
+
+IEEE Transactions on Fuzzy Systems , 2025. 12 [30] Andrew H Song, Richard J Chen, Tong Ding, Drew FK Williamson, Guillaume Jaume, and Faisal Mahmood. Morphological prototyping for unsupervised slide representation learning in computational pathology. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024. [31] Quoc Dang Vu, Kashif Rajpoot, Shan E Ahmed Raza, and Nasir Rajpoot. Handcrafted histo-logical transformer (h2t): Unsupervised representation of whole slide images. Medical image analysis , 85:102743, 2023. [32] Andrew H Song, Richard J Chen, Guillaume Jaume, Anurag J Vaidya, Alexander S Baras, and Faisal Mahmood. Multimodal prototyping for cancer survival prediction. arXiv preprint arXiv:2407.00224 , 2024. [33] Yucheng Xing, Ling Huang, Jingying Ma, Ruping Hong, Jiangdong Qiu, Pei Liu, Kai He, Huazhu Fu, and Mengling Feng. Dpsurv: Dual-prototype evidential fusion for uncertainty-aware and interpretable whole-slide image survival prediction. arXiv preprint arXiv:2510.00053 ,2025. [34] Tim Stuart, Andrew Butler, Paul Hoffman, Christoph Hafemeister, Efthymia Papalexi, William M Mauck, Yuhan Hao, Marlon Stoeckius, Peter Smibert, and Rahul Satija. Com-prehensive integration of single-cell data. cell , 177(7):1888–1902, 2019. [35] Thomas Roetzer-Pejrimovsky, Anna-Christina Moser, Baran Atli, Clemens Christian Vogel, Petra A Mercea, Romana Prihoda, Ellen Gelpi, Christine Haberler, Romana Höftberger, Jo-hannes A Hainfellner, et al. The digital brain tumour atlas, an open histopathology resource. 
+
+Scientific Data , 9(1):55, 2022. [36] Joshua D Campbell, Anton Alexandrov, Jaegil Kim, Jeremiah Wala, Alice H Berger, Chan-dra Sekhar Pedamallu, Sachet A Shukla, Guangwu Guo, Angela N Brooks, Bradley A Murray, et al. Distinct patterns of somatic genome alterations in lung adenocarcinomas and squamous cell carcinomas. Nature genetics , 48(6):607–616, 2016. [37] Wouter Bulten, Kimmo Kartasalo, Po-Hsuan Cameron Chen, Peter Ström, Hans Pinckaers, Kunal Nagpal, Yuannan Cai, David F Steiner, Hester Van Boven, Robert Vink, et al. Artificial intelligence for diagnosis and gleason grading of prostate cancer: the panda challenge. Nature medicine , 28(1):154–163, 2022. [38] Nadia Brancati, Anna Maria Anniciello, Pushpak Pati, Daniel Riccio, Giosuè Scognamiglio, Guillaume Jaume, Giuseppe De Pietro, Maurizio Di Bonito, Antonio Foncubierta, Gerardo Botti, et al. Bracs: A dataset for breast carcinoma subtyping in h&e histology images. Database ,2022:baac093, 2022. [39] John N Weinstein, Eric A Collisson, Gordon B Mills, Kenna R Shaw, Brad A Ozenberger, Kyle Ellrott, Ilya Shmulevich, Chris Sander, and Joshua M Stuart. The cancer genome atlas pan-cancer analysis project. Nature genetics , 45(10):1113–1120, 2013. [40] Feng Xu, Chuang Zhu, Wenqi Tang, Ying Wang, Yu Zhang, Jie Li, Hongchuan Jiang, Zhongyue Shi, Jun Liu, and Mulan Jin. Predicting axillary lymph node metastasis in early breast cancer using deep learning on primary tumor biopsy slides. Frontiers in oncology , 11:759007, 2021. [41] Sophia J Wagner, Daniel Reisenbüchler, Nicholas P West, Jan Moritz Niehues, Jiefu Zhu, Sebastian Foersch, Gregory Patrick Veldhuizen, Philip Quirke, Heike I Grabsch, Piet A van den Brandt, et al. Transformer-based biomarker prediction from colorectal cancer histology: A large-scale multicentric study. Cancer cell , 41(9):1650–1661, 2023. [42] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin. Attention is all you need. Advances in neural information processing systems , 30, 2017. [43] Jakob Nikolas Kather, Lara R Heij, Heike I Grabsch, Chiara Loeffler, Amelie Echle, Hannah So-phie Muti, Jeremias Krause, Jan M Niehues, Kai AJ Sommer, Peter Bankhead, et al. Pan-cancer image-based detection of clinically actionable genetic alterations. Nature cancer , 1(8):789–799, 2020. 13 [44] Yu Fu, Alexander W Jung, Ramon Viñas Torne, Santiago Gonzalez, Harald Vöhringer, Artem Shmatko, Lucy R Yates, Mercedes Jimenez-Linan, Luiza Moore, and Moritz Gerstung. Pan-cancer computational histopathology reveals mutations, tumor composition and prognosis. 
+
+Nature cancer , 1(8):800–810, 2020. 14 Appendix A Molecular Prototype Construction 
+
+We derive K molecular prototypes offline, each capturing a distinct gene expression program while living in the morphological feature space so it can directly interact with patch embeddings at training time. We use the HEST-1k dataset [ 14 ], which provides 1,276 spatially-resolved transcriptomic profiles paired with H&E whole-slide images across 26 organ types and approximately 940,000 human Visium spots. 
+
+Data curation. We apply MAPLE-style filtering [ 15 ] to select high-quality samples: (1)Homo sapiens only; (2) Visium or Visium HD (spot diameter ≤ 55 μm), excluding legacy 100 μm ST arrays; (3) 14 organ types (Breast, Bowel, Skin, Kidney, Heart, Prostate, Brain, Lung, Uterus, Liver, Bladder, Pancreas, Cervix, Ovary); (4) ≥ 5,000 detected genes per sample. 
+
+Patch features. For each sample, patches at 0.5 μm/px ( 20 ×) are tessellated from the H&E slide and encoded by a frozen pathology foundation model (UNI2-h [ 7 ], D=1536 ). Each patch is matched to its overlapping Visium spot by coordinate alignment, producing paired samples {(xj , gj )}Mj=1 .
+
+Gene expression preprocessing. After quality control (removing empty spots and genes detected in <10% of spots), counts are normalized to a target sum of 10 4 per spot and transformed via 
+
+log(1+ x). We select the top 2,000 highly variable genes (HVGs) using the Seurat v3 variance-stabilizing method [ 34 ] on the raw count layer. To mitigate Visium sparsity and noise, we apply spatial smoothing within each tissue section independently to prevent leakage across sections. For each spot j, we average its HVG vector with its n=6 nearest neighbors by Euclidean distance on spatial coordinates (approximating the Visium hexagonal grid): 
+
+¯gj = 1
+
+|N n(j)| + 1 
+
+
+
+gj + X
+
+> j′∈N n(j)
+
+gj′
+
+
+
+. (6) 
+
+Molecular clustering. We run MiniBatch K-means on the smoothed vectors {¯gj }Mj=1 pooled across all samples, assigning each spot a cluster label cj ∈ { 1, . . . , K }. Each cluster corresponds to a distinct molecular program, e.g., hepatocyte metabolism (SERPINA1 +), B-cell immune response (IGKC +), glial identity (GFAP +), or epithelial differentiation (KRT19 +). We scan K ∈ { 4, 8, 16 , 32 , 64 } and evaluate clustering quality via silhouette score on a random subset of 50,000 spots. 
+
+Prototype computation. For each cluster k, the molecular prototype is the centroid of its patch features): 
+
+μk = 1
+
+|C k|
+
+X
+
+> j∈C k
+
+xj ∈ RD , Ck = {j : cj = k}. (7) This cross-modal design is central: clustering is performed in gene expression space to discover molecular states, but the prototypes live in morphological feature space so they can directly condition patch embeddings at training time. Each μk thus encodes the average morphological appearance of a specific molecular program, serving as a virtual molecular stain . The full set Π = {μk}Kk=1 ∈ RK×D
+
+is stored offline and used to initialize MIST at the start of training. 
+
+B MIST Can Increase Separation Between Morphologically Similar but Molecularly Distinct Patches 
+
+Setup. Let hi, hj ∈ Rd be two patch embeddings that are morphologically similar but molecularly distinct: 
+
+hi − hj = ϵv, ∥v∥ = 1 , ϵ ≪ 1, (8) and patch i is associated with prototype A while patch j is associated with prototype B, i.e., 
+
+αA(hi) > α A(hj ). Denote ∆αk = αk(hi) − αk(hj ), with ∆αA > 0 and ∆αB < 0.15 Molecular baseline. Define the molecular baseline as the MIST output when the affinity is uniform across prototypes, i.e., αk ≡ 1/K for all k. In this case the prototype-conditioned term reduces to a fixed transform ¯W = 1
+
+> K
+
+P 
+
+> k
+
+UkV, and the output distance is 
+
+∥fbase (hi) − fbase (hj )∥ = ∥(2 I + ¯W)ϵv∥. (9) This baseline captures the separation that MIST achieves from morphology alone, with no molecular routing. 
+
+MIST output distance. The full MIST output difference (to first order in ϵ) is 
+
+˜hi − ˜hj = (2 I + ¯W)ϵv +
+
+X 
+
+> k
+
+∆αk Uk
+
+
+
+V¯h
+
+| {z }
+
+> molecular routing term
+
+, (10) where ¯h = 12 (hi + hj ) and higher-order terms in ϵ are absorbed into o(ϵ).
+
+Proposition. There exists a parameter configuration {Uk}, V such that 
+
+∥˜hi − ˜hj ∥ > ∥fbase (hi) − fbase (hj )∥. (11) 
+
+Proof. Let n = (2 I + ¯W)v denote the baseline direction (normalized: ˆn = n/∥n∥). Construct parameters as follows: 
+
+V = ˆh⊤, UA − UB = c ˆn, c > 0, (12) where ˆh = ¯h/∥¯h∥. Under this construction, the molecular routing term becomes 
+
+X 
+
+> k
+
+∆αk Uk
+
+
+
+V¯h = ∆ αA (UA − UB ) ∥¯h∥ = c ∆αA ∥¯h∥ ˆn, (13) using P 
+
+> k
+
+∆αk = 0 (from ℓ1 normalization). Since ∆αA > 0, c > 0, and ∥¯h∥ > 0, this term is strictly positive along ˆn, i.e., aligned with the baseline direction. Therefore, 
+
+∥˜hi − ˜hj ∥ = ∥ϵn+c ∆αA ∥¯h∥ ˆn∥ = ϵ∥n∥+c ∆αA ∥¯h∥ > ϵ ∥n∥ = ∥fbase (hi)−fbase (hj )∥, (14) which establishes Eq. (11). 
+
+Remark. The construction in Eq. (12) is not unique; any UA − UB with a positive projection onto 
+
+ˆn suffices. The key condition is P 
+
+> k
+
+∆αk = 0 , which holds by design from the ℓ1 normalization of affinities, and ∆αA > 0, which holds whenever the prototype affinities correctly reflect the molecular identity of the patch. Whether MIL training discovers such a configuration is an empirical question; Section 5.2 provides evidence that it does. 
+
+C Detailed Results 
+
+This section summarizes the complete downstream evaluation results across survival prediction, molecular biomarker prediction, and tissue subtyping. In total, we evaluate 256 model-task configu-rations spanning multiple datasets, external validation cohorts, and eight MIL aggregators. MIST improves 240 configurations, with only 16 configurations showing negative changes relative to the standard projection layer.The detailed tables below show that the gains are broadly consistent across endpoint types, aggregators, and external evaluation settings (Tables 8, 9, and 7).. 
+
+D Implementation Details 
+
+All whole-slide images are processed at 20 × magnification ( 0.5 μm/pixel) and tiled into non-overlapping 256 ×256 patches. Patch embeddings are extracted using the frozen UNI2-h encoder [ 7], a ViT-H/14 pathology foundation model pretrained with the DINOv2 objective, producing 1,536 -dimensional feature vectors. Molecular prototypes are constructed once per organ from paired ST and H&E data following Section 3.1. Unless otherwise specified, MIST uses a projection dimension of d=512 and a low-rank bottleneck dimension of r=16 .16 Table 7: Survival prediction (detailed breakdown). Concordance index (%) across individual cohorts and external validation datasets using eight MIL aggregators. CPTAC and NLST are evaluated as external cohorts. Propagated standard errors are reported in parentheses. Avg. denotes the cross-aggregator mean performance. Cohort Status ABMIL CLAM TransMIL Trans. ILRA Mean Max DSMIL Avg. BRCA Base 60.58 (6 .44) 60.79 (6 .33) 62.66 (9 .88) 63.12 (8 .92) 57.47 (6 .20) 65.77 (7 .26) 54.95 (3 .82) 60.99 (4 .92) 60.79 (3 .14) 
+
++Ours 69.34 (3 .87) 69.70 (3 .65) 67.56 (7 .98) 70.28 (8 .02) 65.31 (6 .37) 70.96 (1 .54) 58.77 (9 .11) 68.12 (2 .51) 67.50 (3 .70) 
+
+∆ +8.76 +8.91 +4.90 +7.16 +7.84 +5.19 +3.81 +7.13 +6.71 LUAD (TCGA) Base 61.11 (11 .26) 61.00 (11 .39) 63.45 (7 .33) 58.80 (6 .42) 47.53 (1 .26) 61.40 (10 .83) 52.26 (7 .68) 58.76 (8 .76) 58.04 (5 .05) 
+
++Ours 64.96 (10 .77) 64.80 (10 .85) 63.85 (15 .56) 60.27 (9 .55) 47.88 (2 .83) 63.37 (11 .57) 55.05 (4 .89) 62.75 (9 .87) 60.37 (5 .61) 
+
+∆ +3.85 +3.81 +0.40 +1.48 +0.35 +1.97 +2.79 +3.99 +2.33 LUAD (CPTAC, ext.) Base 73.59 (1 .44) 74.19 (2 .07) 65.54 (5 .18) 53.53 (5 .17) 53.73 (5 .31) 73.76 (1 .98) 49.76 (1 .43) 74.31 (4 .05) 64.80 (10 .08) 
+
++Ours 73.69 (3 .01) 74.68 (2 .58) 71.70 (1 .89) 66.20 (3 .22) 67.61 (4 .29) 74.21 (2 .51) 67.07 (5 .40) 74.70 (3 .89) 71.23 (3 .44) 
+
+∆ +0.10 +0.49 +6.16 +12.67 +13.88 +0.45 +17.31 +0.39 +6.43 LUAD (NLST, ext.) Base 63.53 (0 .61) 62.05 (1 .27) 53.70 (1 .24) 56.12 (0 .94) 51.84 (2 .09) 64.69 (1 .23) 46.17 (3 .03) 61.37 (1 .40) 57.43 (6 .13) 
+
++Ours 63.84 (1 .77) 62.52 (4 .05) 61.35 (2 .66) 60.49 (1 .64) 52.33 (3 .60) 65.32 (1 .52) 54.11 (2 .31) 61.65 (2 .73) 60.20 (4 .29) 
+
+∆ +0.31 +0.47 +7.66 +4.38 +0.49 +0.63 +7.95 +0.28 +2.77 LUSC (TCGA) Base 51.63 (4 .05) 49.88 (1 .87) 54.15 (7 .06) 53.57 (2 .32) 43.00 (5 .55) 50.42 (4 .45) 45.45 (6 .75) 47.50 (2 .90) 49.45 (3 .65) 
+
++Ours 51.82 (3 .72) 50.39 (3 .20) 57.48 (6 .80) 56.28 (9 .06) 51.99 (5 .57) 51.46 (4 .62) 52.06 (1 .59) 54.69 (7 .37) 53.27 (2 .39) 
+
+∆ +0.20 +0.51 +3.33 +2.71 +8.99 +1.04 +6.61 +7.19 +3.82 LUSC (CPTAC, ext.) Base 65.26 (2 .27) 65.42 (1 .97) 48.02 (4 .04) 50.96 (3 .15) 51.30 (4 .90) 67.96 (0 .76) 46.04 (5 .32) 62.48 (3 .27) 57.18 (8 .36) 
+
++Ours 68.45 (2 .60) 70.78 (0 .51) 67.24 (2 .02) 65.94 (1 .37) 53.56 (3 .67) 68.05 (2 .46) 60.37 (6 .12) 67.71 (4 .47) 65.26 (5 .24) 
+
+∆ +3.19 +5.36 +19.23 +14.98 +2.26 +0.09 +14.33 +5.23 +8.09 LUSC (NLST, ext.) Base 69.08 (1 .05) 68.50 (1 .58) 59.19 (2 .20) 59.61 (3 .43) 53.57 (8 .89) 67.01 (0 .89) 49.94 (0 .64) 63.64 (0 .92) 61.32 (6 .58) 
+
++Ours 69.96 (2 .09) 69.27 (1 .69) 62.90 (1 .89) 62.37 (2 .61) 70.60 (2 .07) 68.14 (2 .13) 50.48 (3 .41) 62.05 (1 .43) 64.47 (6 .25) 
+
+∆ +0.88 +0.77 +3.70 +2.76 +17.03 +1.13 +0.53 -1.59 +3.15 COAD (TCGA) Base 60.71 (8 .60) 59.84 (9 .68) 60.20 (11 .62) 58.87 (5 .45) 48.38 (3 .52) 58.70 (10 .26) 48.92 (11 .55) 57.22 (11 .16) 56.61 (4 .70) 
+
++Ours 62.08 (7 .98) 63.02 (6 .78) 63.73 (8 .92) 65.00 (2 .67) 61.57 (2 .79) 60.10 (9 .13) 64.96 (2 .16) 69.34 (2 .21) 63.73 (2 .64) 
+
+∆ +1.38 +3.18 +3.53 +6.13 +13.20 +1.40 +16.04 +12.12 +7.12 COAD (CPTAC, ext.) Base 60.72 (1 .54) 61.69 (0 .61) 59.04 (2 .91) 53.12 (2 .54) 48.31 (3 .08) 62.18 (0 .92) 51.01 (1 .77) 58.01 (3 .31) 56.76 (4 .92) 
+
++Ours 62.88 (1 .16) 62.33 (1 .40) 65.33 (1 .22) 55.97 (2 .50) 55.93 (2 .55) 62.88 (0 .67) 51.60 (1 .57) 61.11 (2 .32) 59.75 (4 .40) 
+
+∆ +2.16 +0.64 +6.29 +2.85 +7.63 +0.70 +0.58 +3.10 +3.00 All models are optimized using AdamW with learning rate 10 −4 and weight decay 10 −5. Training uses a batch size of 1 with gradient accumulation over 32 iterations, together with input feature dropout of 0.1 and model dropout of 0.25 . A cosine learning rate schedule with one epoch of warmup is applied throughout training. For classification tasks, models are trained for up to 20 epochs with early stopping based on validation performance (patience 5, minimum training length 10 epochs). For survival prediction, all models are trained for 20 epochs without early stopping. Unless otherwise noted, all MIL aggregators follow their published hyperparameter settings. All experiments are conducted on NVIDIA H100 GPUs. 
+
+E Baseline MIL Aggregators 
+
+We evaluate MIST as a plug-in replacement for the standard projection layer across eight repre-sentative MIL aggregators, following the benchmark configuration of [ 6 ]. These aggregators span three broad categories: pooling-based methods, attention-based methods, and transformer-based architectures. 
+
+MeanMIL and MaxMIL are parameter-free pooling baselines that aggregate patch embeddings using mean pooling and max pooling, respectively. Despite their simplicity, they provide useful reference points for evaluating the contribution of learned aggregation mechanisms. 
+
+ABMIL [ 22 ] aggregates patch embeddings through gated attention, assigning each patch a learnable relevance weight before weighted pooling. Its simplicity and interpretability have made it one of the most widely used MIL baselines in computational pathology. 
+
+CLAM [ 10 ] extends ABMIL with a clustering-based auxiliary objective that encourages the attention mechanism to focus on diagnostically informative regions. This auxiliary supervision improves instance selection without requiring patch-level annotations. 
+
+TransMIL [ 9 ] introduces transformer-based aggregation with morphology-aware positional encod-ing to model long-range spatial dependencies among patches. By explicitly capturing inter-patch interactions, it provides richer contextual representations than independent attention pooling. 17 Table 8: Molecular biomarker prediction (detailed breakdown). Results across 15 biomarker prediction tasks spanning GBMLGG, BCNB, BRCA, and Lung cohorts using eight MIL aggregators. TCGA and EBRAINS are reported separately for GBMLGG. AUROC is used for binary classification tasks and balanced accuracy for Histomol. Propagated standard errors are reported in parentheses. Avg. denotes the cross-aggregator mean performance. Task Status ABMIL CLAM TransMIL Trans. ILRA Mean Max DSMIL Avg. GBMLGG IDH1 (TCGA) Base 95.86 (0 .38) 95.94 (0 .99) 94.10 (1 .37) 95.34 (1 .56) 94.11 (2 .20) 96.24 (0 .90) 92.42 (3 .56) 95.12 (0 .71) 94.89 (1 .20) 
+
++Ours 96.61 (0 .82) 96.61 (0 .59) 95.63 (1 .43) 96.38 (0 .81) 96.66 (1 .36) 96.57 (0 .80) 94.63 (1 .29) 96.62 (0 .54) 96.21 (0 .68) 
+
+∆ +0.76 +0.68 +1.53 +1.03 +2.55 +0.33 +2.21 +1.50 +1.32 GBMLGG IDH1 (EBRAINS) Base 93.40 (2 .23) 94.23 (1 .03) 89.91 (2 .15) 93.09 (1 .58) 88.66 (1 .95) 91.68 (1 .21) 90.33 (1 .12) 92.39 (2 .85) 91.71 (1 .80) 
+
++Ours 94.95 (0 .81) 94.87 (1 .17) 93.27 (1 .81) 94.81 (1 .10) 91.68 (1 .86) 93.29 (0 .99) 92.36 (0 .85) 94.82 (0 .97) 93.76 (1 .21) 
+
+∆ +1.55 +0.64 +3.36 +1.73 +3.02 +1.62 +2.03 +2.43 +2.04 GBMLGG Histomol (TCGA) Base 66.57 (6 .03) 66.37 (5 .01) 63.17 (5 .89) 66.74 (3 .45) 56.18 (5 .86) 66.57 (4 .91) 60.10 (5 .61) 64.92 (8 .24) 63.83 (3 .61) 
+
++Ours 68.85 (5 .92) 69.01 (5 .15) 66.65 (6 .12) 68.32 (3 .56) 58.60 (5 .91) 67.86 (4 .63) 61.65 (5 .01) 65.94 (5 .39) 65.86 (3 .54) 
+
+∆ +2.28 +2.64 +3.48 +1.58 +2.41 +1.29 +1.54 +1.02 +2.03 GBMLGG Histomol (EBRAINS) Base 54.69 (2 .40) 54.68 (2 .72) 50.24 (5 .07) 49.05 (3 .75) 42.19 (2 .25) 49.63 (2 .86) 49.79 (1 .23) 52.57 (3 .41) 50.35 (3 .74) 
+
++Ours 56.71 (3 .39) 56.70 (2 .84) 53.77 (3 .26) 52.97 (4 .63) 46.09 (1 .39) 51.48 (3 .47) 53.32 (1 .30) 54.25 (2 .59) 53.16 (3 .15) 
+
+∆ +2.02 +2.02 +3.54 +3.92 +3.90 +1.85 +3.54 +1.68 +2.81 BCNB ER Base 92.38 (2 .18) 93.07 (1 .89) 90.66 (3 .18) 90.98 (3 .87) 87.29 (4 .57) 88.93 (2 .85) 75.67 (8 .21) 91.84 (2 .92) 88.85 (5 .28) 
+
++Ours 93.31 (2 .34) 92.80 (2 .02) 92.37 (2 .90) 93.13 (1 .73) 90.23 (3 .02) 90.50 (2 .01) 91.29 (3 .17) 92.81 (2 .81) 92.06 (1 .13) 
+
+∆ +0.92 −0.27 +1.71 +2.16 +2.95 +1.57 +15.61 +0.98 +3.20 BCNB HER2 Base 76.54 (4 .93) 76.92 (4 .44) 73.56 (5 .31) 74.34 (4 .89) 70.21 (6 .42) 72.70 (5 .03) 64.10 (6 .82) 74.73 (3 .73) 72.89 (3 .87) 
+
++Ours 77.87 (4 .20) 77.80 (4 .97) 72.81 (5 .69) 77.51 (3 .83) 72.58 (6 .12) 74.26 (4 .15) 73.57 (3 .94) 75.53 (4 .39) 75.24 (2 .10) 
+
+∆ +1.33 +0.88 −0.75 +3.17 +2.37 +1.56 +9.47 +0.80 +2.35 BCNB PR Base 86.42 (3 .12) 87.06 (2 .91) 83.74 (4 .80) 84.75 (3 .56) 79.48 (5 .53) 83.87 (4 .32) 80.77 (7 .23) 86.44 (3 .21) 84.07 (2 .57) 
+
++Ours 87.97 (2 .96) 88.09 (2 .40) 86.32 (3 .53) 87.43 (3 .75) 83.29 (3 .98) 85.18 (4 .12) 84.77 (3 .55) 86.18 (3 .26) 86.15 (1 .57) 
+
+∆ +1.54 +1.03 +2.59 +2.67 +3.81 +1.31 +4.00 −0.26 +2.09 BRCA ER Base 90.61 (2 .33) 91.29 (2 .93) 86.30 (5 .68) 86.42 (2 .83) 80.78 (3 .84) 87.95 (2 .49) 86.13 (3 .46) 89.21 (3 .60) 87.34 (3 .09) 
+
++Ours 91.19 (2 .50) 90.56 (3 .38) 89.45 (2 .68) 90.84 (2 .84) 85.45 (2 .09) 88.66 (2 .26) 88.40 (2 .14) 89.87 (2 .21) 89.30 (1 .73) 
+
+∆ +0.58 −0.73 +3.15 +4.42 +4.67 +0.70 +2.27 +0.66 +1.97 BRCA HER2 Base 70.43 (7 .29) 70.06 (5 .50) 64.92 (4 .48) 63.77 (4 .87) 57.67 (3 .70) 66.20 (6 .81) 60.12 (4 .89) 62.13 (5 .79) 64.41 (4 .20) 
+
++Ours 72.20 (4 .06) 68.67 (6 .03) 69.35 (4 .21) 71.00 (2 .23) 65.40 (6 .18) 68.27 (5 .69) 67.45 (4 .97) 68.59 (6 .87) 68.87 (1 .95) 
+
+∆ +1.77 −1.40 +4.44 +7.24 +7.73 +2.07 +7.34 +6.46 +4.45 BRCA PIK3CA Base 64.43 (3 .80) 65.20 (5 .88) 57.88 (4 .37) 59.11 (5 .37) 57.36 (4 .74) 61.70 (4 .82) 58.73 (6 .49) 61.71 (6 .16) 60.77 (2 .78) 
+
++Ours 64.37 (5 .11) 65.94 (4 .38) 63.68 (3 .89) 63.19 (4 .60) 60.88 (5 .00) 62.71 (3 .69) 62.06 (3 .88) 62.63 (4 .96) 63.18 (1 .43) 
+
+∆ −0.07 +0.74 +5.80 +4.08 +3.52 +1.02 +3.34 +0.92 +2.42 BRCA PR Base 79.91 (4 .18) 80.24 (2 .81) 74.70 (5 .53) 74.06 (2 .54) 69.77 (3 .75) 77.48 (3 .36) 72.67 (2 .98) 78.41 (3 .96) 75.91 (3 .47) 
+
++Ours 80.89 (2 .99) 80.36 (3 .01) 78.52 (4 .46) 77.54 (4 .82) 73.96 (2 .58) 77.64 (3 .86) 78.54 (4 .62) 78.20 (2 .03) 78.21 (1 .96) 
+
+∆ +0.97 +0.12 +3.82 +3.48 +4.19 +0.16 +5.87 −0.21 +2.30 Lung EGFR Base 71.71 (7 .74) 69.68 (7 .70) 70.08 (5 .08) 68.24 (7 .19) 67.40 (7 .64) 72.02 (4 .50) 59.65 (7 .54) 65.72 (8 .62) 68.06 (3 .75) 
+
++Ours 73.86 (3 .72) 73.37 (3 .22) 69.39 (8 .39) 72.37 (5 .63) 74.71 (3 .01) 72.68 (3 .87) 65.18 (5 .40) 71.21 (5 .74) 71.60 (2 .87) 
+
+∆ +2.15 +3.68 −0.69 +4.13 +7.32 +0.67 +5.53 +5.49 +3.53 Lung KRAS Base 82.44 (4 .21) 82.71 (3 .57) 79.13 (4 .72) 79.53 (1 .96) 72.22 (2 .62) 82.38 (3 .26) 78.76 (5 .59) 82.79 (3 .37) 80.00 (3 .35) 
+
++Ours 83.34 (3 .13) 83.60 (3 .53) 82.86 (2 .66) 82.52 (4 .24) 79.05 (2 .45) 82.21 (3 .94) 81.53 (1 .62) 81.28 (5 .95) 82.05 (1 .36) 
+
+∆ +0.90 +0.88 +3.73 +3.00 +6.84 −0.17 +2.78 −1.51 +2.05 Lung STK11 Base 85.82 (2 .52) 85.35 (2 .74) 80.42 (2 .26) 77.26 (9 .01) 70.48 (3 .59) 80.62 (2 .44) 61.72 (9 .41) 81.89 (3 .70) 77.94 (7 .63) 
+
++Ours 86.62 (3 .87) 87.17 (2 .98) 84.95 (5 .08) 83.39 (5 .90) 78.46 (5 .16) 81.67 (4 .29) 78.40 (6 .13) 83.48 (3 .79) 83.02 (3 .13) 
+
+∆ +0.80 +1.82 +4.53 +6.13 +7.98 +1.05 +16.69 +1.58 +5.07 Lung TP53 Base 71.17 (3 .79) 72.92 (2 .62) 67.32 (4 .09) 69.37 (4 .65) 63.75 (4 .36) 70.08 (3 .58) 61.88 (5 .61) 68.54 (4 .64) 68.13 (3 .47) 
+
++Ours 73.36 (3 .86) 73.62 (3 .09) 71.83 (3 .72) 73.59 (4 .36) 68.80 (3 .42) 72.08 (3 .42) 66.89 (2 .55) 71.49 (3 .41) 71.46 (2 .27) 
+
+∆ +2.19 +0.70 +4.51 +4.22 +5.06 +2.00 +5.01 +2.95 +3.33 
+
+TransformerMIL [41 , 42 ] applies a standard transformer encoder without tissue-specific positional encoding, serving as a simplified variant of TransMIL that isolates the contribution of transformer-based sequence modeling. 
+
+ILRA [11 ] formulates MIL aggregation through iterative low-rank approximation of the patch interaction matrix, constraining the representation to a compact latent subspace. This design reduces overfitting while preserving dominant patterns of inter-patch variation. 
+
+DSMIL [ 23 ] adopts a dual-stream architecture in which one branch identifies the most informa-tive instance while the second branch propagates attention scores according to patch similarity to this anchor. The combination of instance-level and bag-level objectives improves robustness and calibration. 
+
+F More Interpretability Results 
+
+We provide additional interpretability visualizations on three held-out HEST slides from brain, breast, and lung tissues. For each slide, we visualize the whole-slide prototype affinity distributions predicted from H&E alone, together with representative molecular prototypes and their associated spatial patterns. 18 Table 9: Tissue subtyping (detailed breakdown). Results across NSCLC, PANDA, BRACS, and EBRAINS tissue subtyping tasks using eight MIL aggregators. NSCLC is evaluated separately on TCGA, CPTAC, and NLST cohorts. AUROC is reported for NSCLC, weighted κ for PANDA, and balanced accuracy for BRACS and EBRAINS. Propagated standard errors are reported in parentheses. Avg. denotes the cross-aggregator mean performance. Task Status ABMIL CLAM TransMIL Trans. ILRA Mean Max DSMIL Avg. NSCLC (TCGA, AUROC) Base 98.25 (1 .05) 98.31 (1 .09) 98.04 (1 .20) 97.89 (1 .14) 96.96 (1 .75) 96.95 (1 .15) 96.50 (0 .73) 97.70 (1 .21) 97.57 (0 .64) 
+
++Ours 98.51 (0 .98) 98.53 (0 .94) 98.26 (1 .04) 98.31 (1 .01) 97.61 (1 .35) 97.53 (1 .14) 97.84 (0 .77) 98.20 (0 .94) 98.10 (0 .36) 
+
+∆ +0.26 +0.21 +0.22 +0.42 +0.65 +0.58 +1.35 +0.51 +0.52 NSCLC (CPTAC, ext.) Base 97.20 (0 .42) 97.50 (0 .31) 93.42 (1 .84) 94.19 (1 .94) 92.09 (1 .42) 93.95 (0 .75) 96.13 (0 .65) 96.71 (0 .62) 95.15 (1 .87) 
+
++Ours 96.86 (0 .53) 96.69 (0 .46) 95.33 (1 .15) 95.54 (1 .45) 94.88 (1 .18) 94.96 (0 .80) 95.96 (0 .56) 96.11 (0 .62) 95.79 (0 .70) 
+
+∆ -0.34 -0.81 +1.92 +1.35 +2.78 +1.02 -0.16 -0.60 +0.64 NSCLC (NLST, ext.) Base 86.32 (0 .65) 87.56 (0 .60) 85.12 (0 .62) 86.90 (0 .80) 78.21 (1 .09) 80.10 (0 .39) 88.47 (0 .99) 85.87 (0 .86) 84.82 (3 .44) 
+
++Ours 88.29 (0 .58) 88.45 (0 .63) 86.60 (0 .94) 87.93 (0 .65) 81.34 (1 .43) 81.96 (0 .83) 89.09 (0 .79) 88.92 (0 .63) 86.57 (2 .93) 
+
+∆ +1.97 +0.89 +1.48 +1.03 +3.13 +1.86 +0.61 +3.04 +1.75 PANDA (Weighted κ)Base 93.40 (0 .65) 93.72 (0 .60) 93.42 (0 .62) 92.70 (0 .77) 92.94 (0 .76) 87.74 (1 .18) 83.05 (1 .64) 94.24 (0 .60) 91.40 (3 .69) 
+
++Ours 94.15 (0 .69) 94.15 (0 .59) 93.92 (0 .63) 94.19 (0 .60) 95.47 (0 .48) 92.17 (0 .85) 86.29 (1 .32) 93.99 (0 .73) 93.04 (2 .68) 
+
+∆ +0.75 +0.43 +0.50 +1.48 +2.53 +4.43 +3.25 -0.24 +1.64 BRACS-C (Bal. acc.) Base 62.59 (5 .18) 62.41 (5 .13) 65.99 (4 .21) 61.82 (4 .71) 44.70 (5 .34) 54.89 (5 .38) 60.28 (5 .02) 57.61 (5 .19) 58.79 (6 .18) 
+
++Ours 72.78 (4 .79) 70.29 (4 .90) 70.70 (4 .97) 72.60 (4 .67) 51.40 (5 .14) 58.42 (5 .49) 65.31 (5 .48) 59.87 (5 .14) 65.17 (7 .36) 
+
+∆ +10.19 +7.88 +4.71 +10.78 +6.70 +3.53 +5.03 +2.26 +6.39 BRACS-F (Bal. acc.) Base 36.66 (4 .70) 44.02 (4 .60) 38.98 (4 .79) 41.15 (5 .17) 29.93 (4 .60) 31.14 (4 .60) 28.41 (4 .24) 34.59 (5 .19) 35.61 (5 .23) 
+
++Ours 44.35 (4 .97) 45.22 (5 .14) 45.58 (5 .22) 41.90 (4 .58) 30.25 (4 .24) 32.20 (4 .82) 36.02 (4 .52) 36.36 (4 .91) 38.98 (5 .68) 
+
+∆ +7.69 +1.20 +6.60 +0.75 +0.31 +1.06 +7.61 +1.77 +3.37 EBRAINS-C (Bal. acc.) Base 90.77 (1 .92) 89.86 (1 .97) 87.97 (2 .02) 88.11 (2 .04) 84.74 (2 .39) 86.97 (2 .21) 75.91 (2 .35) 83.24 (2 .36) 85.95 (4 .44) 
+
++Ours 91.86 (1 .84) 92.15 (1 .79) 90.41 (1 .94) 91.74 (1 .68) 86.17 (2 .25) 90.36 (2 .02) 83.02 (2 .26) 90.34 (2 .04) 89.51 (3 .02) 
+
+∆ +1.08 +2.28 +2.45 +3.64 +1.43 +3.39 +7.12 +7.10 +3.56 EBRAINS-F (Bal. acc.) Base 69.36 (2 .20) 71.04 (2 .19) 72.76 (2 .00) 72.10 (1 .96) 63.46 (2 .21) 69.08 (2 .20) 60.23 (2 .28) 64.25 (2 .20) 67.79 (4 .28) 
+
++Ours 74.87 (2 .07) 74.15 (1 .97) 73.82 (2 .08) 75.38 (1 .97) 68.12 (2 .17) 73.79 (2 .09) 63.78 (2 .17) 68.36 (2 .18) 71.53 (3 .95) 
+
+∆ +5.51 +3.11 +1.06 +3.28 +4.66 +4.70 +3.54 +4.11 +3.75 
+
+G Computational Cost 
+
+MIST is designed as a lightweight plug-and-play module with minimal computational overhead. Figure 7 compares parameter counts before and after inserting MIST across eight MIL aggregators. With K=8 prototypes and rank r=16 , the entire MIST module contains only 0.87 M parameters, most of which ( 0.79 M) belong to the shared projection layer replacing the baseline input projection. As a result, the net parameter increase is less than 0.09 M for seven of the eight evaluated architectures. For example, ABMIL increases from 1.18 M to 1.27 M parameters ( +7 .2% ), while the overhead remains small for larger transformer-based models such as TransformerMIL ( 7.09 M → 7.18 M, +1 .2% ) and TransMIL ( 2.93 M → 3.02 M, +2 .9% ). Interestingly, MIST reduces the parameter count of ILRA from 13 .67 M to 12 .44 M ( −9.0% ). This reduction arises because the shared projection compresses the input feature dimension from 1,536 to 
+
+512 before the first attention block, reducing the size of subsequent projection layers. The efficiency of MIST further comes from the low-rank factorization of prototype-conditioned transforms, where each prototype contributes only a shared V ∈ RD×r and a prototype-specific Uk ∈ Rr×D with small rank r=16 , avoiding the cost of multiple full-rank transformations. Overall, these results show that MIST introduces spatial transcriptomic priors with minimal additional computational cost. 
+
+H Limitations 
+
+MIST relies on paired ST and H&E data for prototype construction, which limits the diversity of molecular concepts to the tissues and cohorts currently available in existing ST datasets. Although the learned prototype banks generalize across multiple downstream datasets and external cohorts, they may not fully capture rare tissue states, treatment-specific phenotypes, or underrepresented patient populations. 
+
+I Broader Impacts 
+
+MIST aims to improve whole-slide image analysis by introducing molecular priors into pathology foundation model pipelines without requiring transcriptomic measurements at inference. This may improve biomarker prediction, prognosis estimation, and tissue characterization while reducing dependence on expensive molecular assays. Because MIST operates as a lightweight plug-in module, 19 Figure 4: Additional interpretability results on a held-out brain HEST slide. Whole-slide prototype affinity visualizations generated from H&E images without transcriptomics at inference. it may also broaden access to molecularly-informed computational pathology systems in settings where transcriptomics is unavailable. At the same time, MIST relies on molecular supervision derived from existing ST datasets, which remain limited in scale, tissue diversity, and population coverage. As a result, biases or underrep-resentation in current ST datasets may propagate into downstream predictions and affect model generalization across institutions or patient populations. 20 Figure 5: Additional interpretability results on a held-out breast HEST slide. Whole-slide prototype affinity visualizations generated from H&E images without transcriptomics at inference. 21 Figure 6: Additional interpretability results on a held-out lung HEST slide. Whole-slide prototype affinity visualizations generated from H&E images without transcriptomics at inference. 22 Figure 7: Parameter comparison before and after inserting MIST. Parameter counts (millions) across eight MIL aggregators with and without MIST ( K=8 , r=16 ). MIST introduces minimal overhead for most architectures and reduces the parameter count for ILRA through shared feature compression. 23

@@ -1,0 +1,311 @@
+Title: Geometry-Aware Uncertainty Coresets for Robust Visual In-Context Learning in Histopathology
+
+URL Source: https://arxiv.org/pdf/2605.18419v1
+
+Published Time: Tue, 19 May 2026 02:35:12 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+## Geometry-Aware Uncertainty Coresets for Robust Visual In-Context Learning in Histopathology 
+
+Franciskus Xaverius Erick 1 , Johanna Paula Müller 1 , and Bernhard Kainz 1,2 
+
+> 1
+
+FAU Erlangen-Nürnberg, Erlangen, DE 
+
+franciskus.erick@fau.de  
+
+> 2
+
+Department of Computing, Imperial College London, London, UK 
+
+Abstract. Vision-language models (VLMs) can couple visual percep-tion with open-ended clinical reasoning, making them attractive for com-putational histopathology. However, fine-tuning billions of parameters on scarce, expert-annotated pathology data is prohibitive, while in-context learning (ICL), which conditions the VLM on demonstrative image-text pairs without parameter updates, suffers from high sensitivity to which examples are selected and how the query is phrased, produc-ing unreliable diagnostics. Existing selection strategies rely on query-dependent nearest-neighbour retrieval that ignores global data structure, require costly parameter updates, or disregard the joint vision-text em-bedding geometry of VLMs. We propose GAUC, a training-free core-set selection method operating directly in the pre-trained multimodal embedding space. GAUC jointly optimises three objectives: (1) a Maxi-mum Mean Discrepancy term enforcing distributional fidelity between coreset and full dataset, (2) an Effective Mutual Information Differ-ence regulariser bounding performance degradation under prompt para-phrases by exploiting the VLM’s joint vision-text alignment, and (3) a predictive-variance penalty suppressing overconfident, unstable outputs. On CRC-100K and MHIST across multiple open-source VLM architec-tures, GAUC consistently improves accuracy, calibration, and prompt robustness over recent ICL selection methods and dataset-distillation baselines, all without a single gradient update. Code is available at 
+
+Github Repository 
+
+Keywords: Vision-Language Model · Coreset Selection · In-Context Learning · Uncertainty. 
+
+1 Introduction 
+
+Histopathological examination remains the diagnostic gold standard for most solid tumours, requiring trained pathologists to visually assess tissue morphol-ogy at high magnification, a process that is time-consuming, subjective, and bot-tlenecked by a global shortage of specialist expertise [5]. With colorectal cancer alone accounting for over 1.9 million new cases and 935,000 deaths annually [10], scalable tools that support high-throughput tissue classification are needed. The    
+
+> arXiv:2605.18419v1 [cs.CV] 18 May 2026 2Franciskus Xaverius Erick , Johanna Paula Müller , and Bernhard Kainz
+
+widespread adoption of automated sample preparation pipelines and whole-slide image (WSI) scanners has further intensified this demand by dramatically accel-erating the rate at which digitised histology data is generated, placing mount-ing workload pressure on pathologists [5]. Pre-trained vision-language models (VLMs) offer a compelling path forward: by coupling a vision encoder with a large language backbone, they interpret complex medical imagery while produc-ing human-readable diagnostic rationales that mirror clinician reasoning [16,14]. Unlike conventional supervised classifiers, VLMs can simultaneously process vi-sual evidence and contextual clinical descriptions, enabling more holistic and interpretable tissue analysis [9]. However, deploying VLMs clinically is hindered by the intractability of fine-tuning billions of parameters on scarce, privacy-sensitive data [14] and by per-sistent overconfident hallucinations that are unacceptable in safety-critical set-tings [22,4]. In-context learning (ICL) sidesteps the first obstacle by conditioning the model on demonstrative image-label pairs placed directly in the prompt, re-quiring no parameter updates [3]. This capability, originally observed in large language models, transfers naturally to VLMs [1,2,15]. Yet ICL is notoriously sensitive to both the choice of demonstrations and the phrasing of the textual query [19,29,17]. Current remedies either insert learnable shift modules that require additional training [12,17], or rely on nearest-neighbour retrieval that captures local query similarity but ignores the global distributional structure of the dataset [9]. Neither accounts for the joint visual-textual embedding geome-try of the VLM, nor explicitly controls for prompt-induced instability or predic-tive overconfidence, shortcomings that are especially damaging in histopathology where class imbalance obscures minority morphologies and minor prompt refor-mulations can flip a diagnosis. We propose a principled, entirely training-free coreset selection framework for visual ICL that jointly optimises representative-ness, prompt robustness, and predictive calibration. Our contributions are: 1. A geometry-aware objective based on Maximum Mean Discrepancy (MMD) that selects real, clinically traceable demonstrations whose embedding distri-bution preserves the global structure of the full dataset, preventing collapse into dominant morphological clusters. 2. An Effective Mutual Information Difference (EMID)-derived mutual-information regulariser that quantifies response discrepancies under paraphrased queries, steering selection toward in-context sets robust to textual variation across both visual and textual modality embeddings. 3. A variance regularisation term that penalises predictive uncertainty, encour-aging demonstrations that minimise output entropy and suppress overconfi-dent hallucinations. 4. Consistent improvements over nearest-neighbour and random baselines on two challenging histopathology benchmarks, CRC-100K (8-class tissue subtyping) and MHIST (binary polyp classification), with fully training-free deployment compatible with any off-the-shelf VLM. 
+
+Related Work. Recent works in ICL [18] have formalised demonstrations as la-tent shift vectors that steer query-token representations, and extended this view Geometry-Aware Uncertainty Coresets 3
+
+to multimodal models through lightweight query-dependent shift modules [12] and prompt-configuration strategies [17]. These methods are effective but require learnable parameters or task-specific inference modifications. In computational pathology, k-Nearest Neighbour ( kNN) retrieval of demonstration images has matched or exceeded specialised fine-tuned networks [9], yet kNN selects solely by local query proximity. Two broader strategies exist for constructing repre-sentative subsets: dataset distillation synthesises artificial samples by match-ing gradient trajectories, feature distributions, or diffusion-based latent map-pings [28,8,7] but is computationally expensive and produces clinically untrace-able images, whereas coreset selection retrieves real samples and can enforce distributional fidelity through statistical distances such as Maximum Mean Dis-crepancy [25]. Curriculum-based adaptation on biomedical figure-caption cor-pora effectively aligns VLM semantics with visual features [16], yet clinical VLMs remain prone to overconfident hallucinations and prompt-induced out-put instability [22,4,14]. The Effective Mutual Information Difference (EMID) upper-bounds the performance degradation from multimodal alignment shifts via Jensen-Shannon divergence in the joint latent space [21]. The quality of any geometry-aware selection further depends on the feature space; self-supervised Vision Transformers pre-trained on histopathology data through masked image modelling [11] provide the semantically rich embeddings required for distribu-tional metrics to reflect genuine morphological variation. 
+
+2 Method 
+
+Let Wθ denote a pre-trained VLM with frozen parameters θ. Given a full labelled dataset F = {(xi, y i)}|F | 
+
+> i=1
+
+of histopathology patches and their class labels, we seek a compact coreset D = {(xj , y j )}|D|  
+
+> j=1
+
+with |D| ≪ | F | that, when placed in the prompt as in-context demonstrations, maximises diagnostic accuracy while remaining robust to prompt variation and predictive overconfidence. We optimise 
+
+D by minimising a composite objective over three complementary terms (Fig. 1), each operating entirely in the pre-trained embedding space of Wθ without any gradient-based parameter updates. 
+
+Geometry-aware coreset selection via MMD. We require the embedding distribution of D to faithfully mirror that of F . Let x, x ′ denote independent samples from F and u, u ′ from D, mapped through the vision encoder of Wθ .We measure distributional discrepancy with the Maximum Mean Discrepancy in a reproducing kernel Hilbert space [23]: 
+
+MMD 2(F, D) = Ex,x ′
+
+k(x, x ′) + Eu,u ′
+
+k(u, u ′) − 2 Ex,u 
+
+k(x, u ), (1) where k(x, u ) = exp  −∥ x − u∥2/2σ2 is the RBF kernel. Minimising MMD 2
+
+enforces a geometric constraint that prevents the coreset from collapsing into locally dominant clusters and ensures global representativeness across all tissue morphologies. 4 Franciskus Xaverius Erick , Johanna Paula Müller , and Bernhard Kainz Original 
+
+> Prompt
+> Paraphr.
+> Prompt
+> Text prompt
+> Var
+> 3
+> MMD
+> MI
+> Response, Report
+> 1
+> 2
+
+Fig. 1: The GAUC optimization pipeline. GAUC involves 1) MMD matching between the embedded distribution of the full dataset and the selected coreset examples, 2) effective mutual information upper bound regularisation between outputs with original text prompts and paraphrased prompts, and 3) variance uncertainty minimisation of selected coreset examples. 
+
+Prompt-robustness regularisation via EMID. Minor textual rephrasing of the query prompt can shift the conditional response distribution of a VLM, de-grading diagnostic reliability. We regularise against this instability using EMID [21]. For a query image x, coreset D, original prompt t, and paraphrased variant 
+
+t′, the mutual information between the model response r and the multimodal input is I(r; x, D, t ) = H(r) − H(r | x, D, t ). The EMID quantifies how this coupling degrades under the prompt shift t → t′: EMID( P, Q ) = EMI  P (r |
+
+x, D, t ) − EMI  Q(r′ | x, D, t ′), where P and Q denote the response distribu-tions under the original and paraphrased prompts. A tractable upper bound decomposes into Jensen-Shannon divergences over the individual modality em-beddings: 
+
+EMID upper = D1/2 
+
+> JS
+
+(Px∥Qx) + D1/2 
+
+> JS
+
+(Pt∥Qt) + D1/4 
+
+> JS
+
+(Pˆr ∥Pr ) + D1/4 
+
+> JS
+
+(Pˆr ∥Qr′ ), (2) where Px, Q x and Pt, Q t are the visual and textual embedding distributions un-der each prompt, Pr , Q r′ the corresponding response distributions, and ˆr the ideal ground-truth response. We treat prompt paraphrases, generated by a sep-arate LLM, as localised distribution shifts in the textual modality and penalise coresets that yield large EMID upper . Unlike retrieval methods that operate solely on image embeddings [25], this term explicitly leverages the joint vision-text alignment of the VLM to enforce prompt invariance. 
+
+Predictive variance regularisation. To suppress overconfident yet unstable predictions, we penalise the variance of the model’s output distribution across Geometry-Aware Uncertainty Coresets 5
+
+class labels. For a classification task with label set Y, we define Var( D) = Var k∈Y 
+
+log p(yk | x, D), where p(yk | x, D) is the predicted probability for class 
+
+k given the query and the coreset. Minimising this term steers the selection toward demonstrations that yield concentrated, low-entropy predictive distribu-tions, discouraging coresets that leave the model ambivalent or overconfident on incorrect classes. 
+
+Joint objective. The final coreset is obtained by jointly minimising: 
+
+D∗ = arg min  
+
+> D
+
+MMD 2(F, D) + α EMID upper + β Var( D), (3) with α, β ≥ 0 controlling the trade-off between distributional fidelity, prompt robustness, and predictive stability. Because all three terms are evaluated from forward-pass embeddings and output log-probabilities, the entire optimisation is training-free, requires no backward passes through Wθ , and produces a single query-independent coreset reusable across all test images. 
+
+3 Experiments 
+
+We evaluate on two histopathology benchmarks. CRC-100K [13] contains 100,000 H&E-stained colorectal tissue patches spanning 9 classes; following prior work [9,11,24] we omit the background class and report 8-class performance. MHIST 
+
+[26] consists of 3,152 colorectal polyp patches annotated as hyperplastic polyp (HP) or sessile serrated adenoma (SSA), a binary task that is challenging even for trained pathologists. All experiments use two open-source VLM families, Qwen and LLaVA, loaded with default ImageNet pre-trained weights from Hug-gingFace to test out-of-domain ICL capability. We optimise coresets via greedy selection for 1,000 iterations with α = 0 .1, β = 0 .1 in Eq. 3. 
+
+Baselines. We compare against three ICL demonstration-selection strategies: random sampling, kNN retrieval [9], and mutual-information-informed retrieval (DR) [25], as well as the shift-vector method MIMIC [12] which requires addi-tional training. We further include three dataset-distillation baselines: Trajec-tory Matching (TM) [6], Distribution Matching (DM) [27], and diffusion-based distillation (D3R) [28]. 
+
+Statistical testing. To assess whether observed differences are statistically meaningful, we apply the two-sided Wilcoxon signed-rank test over paired per-run metric values between GAUC and each baseline. This non-parametric test is appropriate given the moderate number of runs and makes no distributional assumptions on the metric differences. We report significance at p < 0.05 (†)and p < 0.01 (‡) in all tables. 
+
+Classification and calibration (Tables 1, 2). On CRC-100K with Qwen at 3-shot, GAUC achieves the highest accuracy ( 0.610 ±0.030 ) and F1 ( 0.588 ±0.015 ), improving over the strongest, heavyweight learned baseline MIMIC by 1.16 
+
+percentage points ( p < 0.05 , Wilcoxon signed-rank) while simultaneously re-ducing ECE over the mutual-information aligned dual retrieval (DR) baseline from 0.153 ±0.015 to 0.145 ±0.012 , indicating substantially better-calibrated pre-dictions. The gains are consistent across models: with LLaVA, GAUC yields the 6 Franciskus Xaverius Erick , Johanna Paula Müller , and Bernhard Kainz 
+
+Table 1: Classification and calibration on CRC-100K (8-class). Best in bold ,second-best underlined. †/‡: GAUC significantly better than the best baseline at p < 0.05 / p < 0.01 (Wilcoxon signed-rank, 10 runs). 
+
+1-shot 3-shot Model Method Acc ↑ F1 ↑ NLL ↓ ECE ↓ Acc ↑ F1 ↑ NLL ↓ ECE ↓
+
+> Qwen
+
+Random 0.334 ±0.082 0.207 ±0.032 5.047 ±0.110 0.513 ±0.028 0.401 ±0.064 0.374 ±0.024 4.923 ±0.095 0.340 ±0.021 
+
+kNN 0.402 ±0.067 0.366 ±0.027 4.951 ±0.090 0.387 ±0.022 0.593 ±0.051 0.557 ±0.019 4.877 ±0.082 0.156 ±0.016 
+
+DR 0.390 ±0.069 0.367 ±0.026 4.832 ±0.085 0.310 ±0.020 0.591 ±0.049 0.562 ±0.018 4.765 ±0.075 0.153 ±0.015 
+
+TM 0.175 ±0.056 0.158 ±0.024 6.103 ±0.120 0.506 ±0.030 0.217 ±0.044 0.185 ±0.020 5.887 ±0.105 0.308 ±0.020 
+
+DM 0.123 ±0.051 0.119 ±0.022 5.986 ±0.115 0.555 ±0.032 0.204 ±0.041 0.178 ±0.019 5.971 ±0.100 0.379 ±0.023 
+
+D3R 0.217 ±0.058 0.191 ±0.025 5.088 ±0.095 0.483 ±0.026 0.395 ±0.048 0.186 ±0.021 4.996 ±0.085 0.335 ±0.020 
+
+MIMIC 0.325 ±0.047 0.341 ±0.028 4.993 ±0.088 0.422 ±0.024 0.603 ±0.035 0.583 ±0.016 4.779 ±0.072 0.188 ±0.016 
+
+GAUC (ours) 0.398 ±0.038 0.370 †±0.024 4.788 ‡±0.080 0.308 †±0.018 0.610 †±0.030 0.588 †±0.015 4.592 ‡±0.065 0.145 †±0.012 
+
+> LLaVA
+
+Random 0.281 ±0.087 0.146 ±0.038 5.382 ±0.125 0.442 ±0.030 0.360 ±0.067 0.343 ±0.029 5.186 ±0.110 0.339 ±0.022 
+
+kNN 0.338 ±0.079 0.312 ±0.034 5.170 ±0.105 0.405 ±0.026 0.503 ±0.055 0.469 ±0.024 5.034 ±0.095 0.287 ±0.019 
+
+DR 0.350 ±0.077 0.320 ±0.033 4.968 ±0.100 0.372 ±0.024 0.495 ±0.052 0.463 ±0.025 4.883 ±0.088 0.256 ±0.018 
+
+TM 0.164 ±0.061 0.128 ±0.027 6.085 ±0.130 0.525 ±0.032 0.323 ±0.050 0.295 ±0.022 5.978 ±0.115 0.423 ±0.025 
+
+DM 0.156 ±0.059 0.120 ±0.026 5.983 ±0.120 0.530 ±0.033 0.301 ±0.047 0.279 ±0.021 5.991 ±0.108 0.438 ±0.026 
+
+D3R 0.183 ±0.063 0.165 ±0.029 5.522 ±0.110 0.473 ±0.028 0.343 ±0.051 0.330 ±0.023 5.400 ±0.098 0.365 ±0.021 
+
+MIMIC 0.307 ±0.060 0.281 ±0.031 4.882 ±0.090 0.383 ±0.023 0.507 ±0.044 0.471 ±0.020 4.805 ±0.082 0.248 ±0.017 
+
+GAUC (ours) 0.335 ±0.053 0.323 †±0.030 4.810 †±0.085 0.346 †±0.021 0.498 ±0.042 0.485 †±0.019 4.723 †±0.075 0.204 ‡±0.015 
+
+best F1 in both shot regimes and reduces ECE by 0.044 absolute points over the next-best method, with all pairwise improvements over kNN and MIMIC reaching significance at p < 0.01 . Dataset-distillation baselines (TM, DM, D3R) perform markedly worse across all metrics ( p < 0.01 in all comparisons), con-firming that synthetic demonstrations are poorly suited for VLM-based ICL in histopathology. On MHIST (Table 2), GAUC achieves 0.652 ±0.012 X accuracy at 3-shot with Qwen, outperforming kNN ( 0.645 ±0.015 ) by 0.007 points ( p < 0.05 ). GAUC achieves comparable 1-shot and 3-shot accuracies for different models and datasets to the baselines, while achieving considerable improvements in F1, NLL, and ECE, indicating robustness without sacrificng accuracy. 
+
+Robustness to prompt variation and hallucinations (Table 3). GAUC yields the lowest Var-para across both models and shot settings ( p < 0.01 vs. all baselines), confirming that the EMID regulariser (Eq. 2) effectively suppresses sensitivity to prompt paraphrasing. Var-runs is likewise reduced, indicating that the selected coresets produce stable predictions across independent evaluations rather than relying on fortunate random seeds. On the hallucination metrics, GAUC achieves 0.795 ±0.014 CHAIRs and 0.539 ±0.007 CHAIRi at 3-shot with Qwen, representing a 1.61 % relative reduction over MIMIC ( p < 0.05 ). This confirms that the variance penalty in Eq. 3 discourages demonstration sets that leave the model in high-entropy states where hallucinated findings are more likely. 
+
+Qualitative analysis (Fig. 2). We visualise the demonstrations selected by 
+
+kNN and GAUC for the same query. The kNN coreset clusters around a single morphological pattern, offering the VLM a narrow distributional view that trig-gers a confident misclassification. GAUC instead selects demonstrations span-ning multiple tissue classes, providing the geometric diversity enforced by the MMD term (Eq. 1). The resulting prediction is correct and better calibrated, Geometry-Aware Uncertainty Coresets 7
+
+Table 2: Classification and calibration on MHIST (binary). Best in bold ,second-best underlined. †/‡: GAUC significantly better than the best baseline at p < 0.05 /p < 0.01 (Wilcoxon signed-rank, 10 runs). 
+
+1-shot 3-shot Model Method Acc ↑ F1 ↑ NLL ↓ ECE ↓ Acc ↑ F1 ↑ NLL ↓ ECE ↓
+
+> Qwen
+
+Random 0.554 ±0.018 0.537 ±0.020 4.865 ±0.045 0.193 ±0.012 0.627 ±0.016 0.608 ±0.018 4.792 ±0.038 0.126 ±0.010 
+
+kNN 0.560 ±0.017 0.542 ±0.019 4.802 ±0.042 0.188 ±0.011 0.645 ±0.015 0.624 ±0.016 4.517 ±0.036 0.102 ±0.008 
+
+DR 0.558 ±0.016 0.543 ±0.018 4.877 ±0.043 0.198 ±0.010 0.636 ±0.014 0.625 ±0.015 4.590 ±0.034 0.086 ±0.007 
+
+TM 0.352 ±0.012 0.336 ±0.013 5.016 ±0.048 0.229 ±0.014 0.524 ±0.010 0.503 ±0.012 4.933 ±0.040 0.205 ±0.011 
+
+DM 0.348 ±0.011 0.328 ±0.013 5.110 ±0.049 0.243 ±0.013 0.511 ±0.010 0.499 ±0.011 5.005 ±0.042 0.218 ±0.012 
+
+D3R 0.548 ±0.017 0.537 ±0.018 4.923 ±0.044 0.208 ±0.012 0.619 ±0.015 0.600 ±0.016 4.559 ±0.037 0.133 ±0.010 
+
+MIMIC 0.531 ±0.016 0.514 ±0.017 4.875 ±0.043 0.201 ±0.011 0.649 ±0.014 0.637 ±0.015 4.502 ±0.034 0.098 ±0.007 
+
+GAUC (ours) 0.549 ±0.014 0.539 ±0.013 4.808 ‡±0.020 0.190 ±0.011 0.652 †±0.012 0.640 †±0.011 4.433 ‡±0.018 0.073 ‡±0.007 
+
+> LLaVA
+
+Random 0.538 ±0.018 0.512 ±0.020 4.926 ±0.045 0.278 ±0.014 0.598 ±0.016 0.563 ±0.018 4.860 ±0.038 0.185 ±0.012 
+
+kNN 0.546 ±0.017 0.519 ±0.018 4.907 ±0.043 0.262 ±0.013 0.611 ±0.015 0.583 ±0.016 4.783 ±0.036 0.153 ±0.010 
+
+DR 0.523 ±0.016 0.506 ±0.017 4.832 ±0.042 0.282 ±0.013 0.603 ±0.014 0.589 ±0.015 4.702 ±0.034 0.144 ±0.009 
+
+TM 0.341 ±0.012 0.308 ±0.013 5.325 ±0.052 0.313 ±0.015 0.446 ±0.010 0.410 ±0.012 5.296 ±0.045 0.276 ±0.012 
+
+DM 0.329 ±0.011 0.294 ±0.012 5.290 ±0.051 0.335 ±0.014 0.439 ±0.010 0.408 ±0.011 5.339 ±0.045 0.291 ±0.013 
+
+D3R 0.509 ±0.016 0.487 ±0.017 4.914 ±0.043 0.284 ±0.012 0.587 ±0.015 0.555 ±0.016 4.937 ±0.036 0.199 ±0.010 
+
+MIMIC 0.535 ±0.017 0.503 ±0.018 4.911 ±0.043 0.273 ±0.012 0.618 ±0.015 0.584 ±0.016 4.805 ±0.036 0.162 ±0.010 
+
+GAUC (ours) 0.540 ±0.014 0.528 †±0.012 4.883 ±0.020 0.288 †±0.010 0.609 ±0.012 0.592 †±0.011 4.684 ‡±0.017 0.130 ‡±0.008 
+
+Table 3: Robustness and hallucination evaluation on CRC-100K . Var-para/Var-runs: prediction variance under prompt paraphrases / across independent runs (lower = more stable). CHAIRs/CHAIRi: sentence-/instance-level hallucination rates (lower = fewer fabricated findings). Notation as in Table 1. 
+
+1-shot 3-shot Model Method Var-para ↓ Var-runs ↓ CHAIRs ↓ CHAIRi ↓ Var-para ↓ Var-runs ↓ CHAIRs ↓ CHAIRi ↓
+
+> Qwen
+
+Random 0.283 ±0.012 0.227 0.916 ±0.020 0.640 ±0.015 0.265 ±0.011 0.187 0.912 ±0.019 0.633 ±0.014 
+
+kNN 0.207 ±0.010 0.183 0.852 ±0.018 0.585 ±0.012 0.197 ±0.009 0.125 0.847 ±0.017 0.579 ±0.011 
+
+DR 0.210 ±0.011 0.190 0.841 ±0.017 0.577 ±0.011 0.190 ±0.009 0.120 0.829 ±0.016 0.565 ±0.010 
+
+MIMIC 0.175 ±0.009 0.145 0.819 ±0.016 0.560 ±0.009 0.163 ±0.007 0.107 0.808 ±0.015 0.548 ±0.008 
+
+GAUC (ours) 0.127 ‡±0.007 0.103 ‡ 0.803 ‡±0.015 0.552 †±0.008 0.105 ‡±0.006 0.095 † 0.795 †±0.014 0.539 †±0.007 
+
+> LLaVA
+
+Random 0.310 ±0.013 0.255 1.019 ±0.021 0.732 ±0.016 0.297 ±0.012 0.213 0.996 ±0.020 0.725 ±0.015 
+
+kNN 0.233 ±0.011 0.230 0.994 ±0.020 0.700 ±0.014 0.213 ±0.010 0.175 0.983 ±0.019 0.681 ±0.012 
+
+DR 0.215 ±0.010 0.223 0.990 ±0.019 0.706 ±0.013 0.200 ±0.009 0.190 0.987 ±0.018 0.678 ±0.011 
+
+MIMIC 0.220 ±0.010 0.187 0.938 ±0.017 0.637 ±0.010 0.197 ±0.009 0.147 0.925 ±0.016 0.614 ±0.009 
+
+GAUC (ours) 0.207 ‡±0.008 0.163 ‡ 0.943 ±0.016 0.630 †±0.008 0.190 ‡±0.007 0.130 ‡ 0.936 ±0.015 0.608 †±0.007 
+
+with the model assigning 81 .3% confidence to the true class compared to 39 .7%under kNN. 
+
+Ablation (Table 4). Removing the EMID regulariser ( α=0 ) increases Var-para by 74 .28 % ( p < 0.01 ), confirming its role in prompt robustness, while accuracy drops by 0.007 points. Dropping variance regularisation ( β=0 ) degrades ECE from 0.145 ±0.012 to 0.165 ±0.015 (p < 0.01 ), demonstrating its contribution to calibration. Using MMD alone ( α=β=0 ) still outperforms kNN and random baselines significantly ( p < 0.01 ), validating the geometric term as a strong standalone objective, but underperforms the full model on all metrics. All three terms contribute complementary, statistically significant gains; the full objective achieves the best trade-off across accuracy, calibration, and robustness. 
+
+Discussion. Our optimization of Eq. 3 scales linearly in the number of candidate samples and requires only forward-pass embeddings, making it practical even 8 Franciskus Xaverius Erick , Johanna Paula Müller , and Bernhard Kainz 
+
+kNN   
+
+> Response: "The image shows a high number of abnormal cells with irregular nuclei and loss of cellular integrity, which are characteristic features of cancer. The presence of mitotic fig-ures and pleomorphism further supports the diagnosis of cancer. There is no evidence of de-bris, mucus, smooth muscle, or stroma in the image. (incorrect)
+
+GAUC     
+
+> Response: The image shows a high concentra-tion of small, round cells with a dark nucleus and a pale cytoplasm, which is characteristic of lymphocytes. There is no evidence of can-cerous cells, debris, mucus, smooth muscle tis-sue, or stroma. The cells appear to be evenly distributed throughout the field of view, sug-gesting a lymphoid tissue rather than a neo-plastic process.. (correct)
+> Query In-context demonstrations VLM report output
+
+Fig. 2: Qualitative comparison. Top: kNN selects morphologically redundant demonstrations, leading to a misclassification. Bottom: GAUC provides diverse, globally representative demonstrations yielding the correct diagnosis. Table 4: Ablation on CRC-100K (3-shot, Qwen). Each row removes one term from Eq. 3. †/‡: full model significantly better at p< 0.05 /p< 0.01 .
+
+Variant Acc ↑ F1 ↑ ECE ↓ Var-para ↓ Var-runs ↓
+
+GAUC (full) 0.610 †±0.030 0.588 †±0.015 0.145 ‡±0.012 0.105 ‡±0.006 0.095 †
+
+w/o EMID ( α=0 ) 0.603 ±0.035 0.579 ±0.022 0.150 ±0.014 0.183 ±0.010 0.098 
+
+w/o Var ( β=0 ) 0.597 ±0.037 0.563 ±0.021 0.165 ±0.015 0.111 ±0.007 0.117 
+
+MMD only ( α=β=0 ) 0.600 ±0.036 0.559 ±0.023 0.172 ±0.016 0.186 ±0.009 0.113 
+
+on a single GPU. Because the coreset is selected once and reused across all queries, the per-inference cost is identical to standard ICL with no additional overhead. The current formulation assumes access to a class-balanced candidate pool; in settings with severe class imbalance, a stratified sampling stage prior to optimisation could further improve minority-class coverage. We also note that the EMID upper bound relies on Gaussian approximations of the embedding distributions, which may loosen for highly multimodal feature spaces. Tighter variational bounds or sample-based estimators could be explored in future work. 
+
+4 Conclusion 
+
+We presented GAUC, a training-free coreset selection method that makes vi-sual in-context learning reliable enough for clinical histopathology. By jointly optimizing distributional fidelity (MMD), prompt robustness (EMID), and pre-dictive stability (variance regularization) directly in the pre-trained multimodal embedding space, GAUC selects real, clinically traceable demonstration images that consistently improve accuracy, calibration, and robustness to prompt vari-ation across two VLM architectures and two challenging benchmarks. We be-lieve this principled integration of geometry-aware selection with information-theoretic prompt invariance establishes a new standard for trustworthy, training-free diagnostic support in computational pathology and generalities naturally to other safety-critical domains where reliable in-context can be useful. Geometry-Aware Uncertainty Coresets 9
+
+Acknowledgments. We acknowledge HPC resources from NHR@FAU (projects b143dc, b180dc), funded by federal and Bavarian state authorities and Gerhard Wellein’s HPC approach. NHR@FAU hardware is partially funded by DFG 440719683. Additional support was received from ERC projects MIA-NORMAL 101083647, DFG 513220538 and 512819079, and the state of Bavaria (HTA and the Bavarian Foundation Model Initiative). We further acknowledge resources provided by the Isambard-AI National AI Research Resource (AIRR), operated by the University of Bristol and funded by DSIT via UKRI and STFC [ST/AIRR/I-A-I/1023] [20]. We were supported by coding agents and LLMs from Anthropic, OpenAI, Google, and Mistral AI, for text polishing, coding, experiment orchestration, and cluster monitoring. 
+
+Disclosure of Interests. The authors have no relevant competing interests. 
+
+References 
+
+1. Achiam, J., et al.: GPT-4 technical report. Tech. rep., OpenAI (2024), arXiv:2303.08774 2. Awadalla, A., Gao, I., Gardner, J., Hessel, J., Hanafy, Y., Zhu, W., Marathe, K., Bitton, Y., Gadre, S., Sagawa, S., Jitsev, J., Kornblith, S., Koh, P.W., Ilharco, G., Wortsman, M., Schmidt, L.: OpenFlamingo: An open-source framework for training large autoregressive vision-language models (2023), arXiv:2308.01390 3. Brown, T.B., Mann, B., Ryder, N., Subbiah, M., Kaplan, J., Dhariwal, P., Nee-lakantan, A., Shyam, P., Sastry, G., Askell, A., Agarwal, S., Herbert-Voss, A., Krueger, G., Henighan, T., Child, R., Ramesh, A., Ziegler, D.M., Wu, J., Win-ter, C., Hesse, C., Chen, M., Sigler, E., Litwin, M., Gray, S., Chess, B., Clark, J., Berner, C., McCandlish, S., Radford, A., Sutskever, I., Amodei, D.: Language models are few-shot learners. In: NeurIPS’20. vol. 33, pp. 1877–1901 (2020) 4. Bungert, T.J., Kobelke, L., Jaeger, P.F.: Understanding silent failures in medical image classification. In: MICCAI’23. pp. 400–410 (2023) 5. Campanella, G., Hanna, M.G., Geneslaw, L., Miraflor, A., Silva, V.W.K., Busam, K.J., Brogi, E., Reuter, V.E., Klimstra, D.S., Fuchs, T.J.: Clinical-grade com-putational pathology using weakly supervised deep learning on whole slide images. Nature Medicine 25 (8), 1301–1309 (2019). https://doi.org/10.1038/ s41591-019-0508-1 
+
+6. Cazenavette, G., Wang, T., Torralba, A., Efros, A.A., Zhu, J.Y.: Dataset distilla-tion by matching training trajectories. In: CVPR’22. pp. 4750–4759 (2022) 7. Cechnicka, S., Ball, J., Baugh, M., Reynaud, H., Simmonds, N., Smith, A.P., Hors-field, C., Roufosse, C., Kainz, B.: URCDM: Ultra-resolution image synthesis in histopathology. In: MICCAI’24. pp. 535–545 (2024) 8. Cechnicka, S., Ball, J., Reynaud, H., Arthurs, C., Roufosse, C., Kainz, B.: Realistic data enrichment for robust image segmentation in histopathology. In: MICCAI’23 Workshop on Domain Adaptation and Representation Transfer. pp. 63–72 (2023) 9. Ferber, D., Wölflein, G., Wiest, I.C., Ligero, M., Sainath, S., Ghaffari Laleh, N., El Nahhas, O.S.M., Müller-Franzes, G., Jäger, D., Truhn, D., Kather, J.N.: In-context learning enables multimodal large language models to classify cancer pathology images. Nature Communications 15 (1), 10104 (2024). https://doi. org/10.1038/s41467-024-51465-9 
+
+10. Ferlay, J., Colombet, M., Soerjomataram, I., Parkin, D.M., Piñeros, M., Znaor, A., Bray, F.: Cancer statistics for the year 2020: An overview. International Journal 10 Franciskus Xaverius Erick , Johanna Paula Müller , and Bernhard Kainz of Cancer 149 (4), 778–789 (2021). https://doi.org/https://doi.org/10.1002/ ijc.33588 , https://onlinelibrary.wiley.com/doi/abs/10.1002/ijc.33588 
+
+11. Filiot, A., Ghermi, R., Olivier, A., Jacob, P., Fidon, L., Camara, A., Mac Kain, A., Saillard, C., Schiratti, J.B.: Scaling self-supervised learning for histopathology with masked image modeling. medRxiv (2023). https://doi.org/10.1101/2023. 07.21.23292757 
+
+12. Jiang, Y., Fu, J., Hao, C., Hu, X., Peng, Y., Geng, X., Yang, X.: Mimic in-context learning for multimodal tasks. In: CVPR’25. pp. 29825–29834 (2025) 13. Kather, J.N., Krisam, J., Charoentong, P., Luedde, T., Herpel, E., Weis, C.A., Gaiser, T., Marx, A., Valous, N.A., Ferber, D., Jansen, L., Reyes-Aldasoro, C.C., Zörnig, I., Jäger, D., Brenner, H., Chang-Claude, J., Hoffmeister, M., Halama, N.: Predicting survival from colorectal cancer histology slides using deep learning: A retrospective multicenter study. PLOS Medicine 16 (1), e1002730 (2019). https: //doi.org/10.1371/journal.pmed.1002730 
+
+14. Kurz, C.F., Merzhevich, T., Eskofier, B.M., Kather, J.N., Gmeiner, B.: Bench-marking vision-language models for diagnostics in emergency and critical care settings. npj Digital Medicine 8(1), 423 (2025). https://doi.org/10.1038/ s41746-025-01837-2 
+
+15. Laurençon, H., Tronchon, L., Cord, M., Sanh, V.: What matters when building vision-language models? In: NeurIPS’24. vol. 37 (2024) 16. Li, C., Wong, C., Zhang, S., Usuyama, N., Liu, H., Yang, J., Naumann, T., Poon, H., Gao, J.: LLaVA-Med: Training a large language-and-vision assistant for biomedicine in one day. In: NeurIPS’23. vol. 36, pp. 28541–28564 (2023) 17. Li, L., Peng, J., Chen, H., Gao, C., Yang, X.: How to configure good in-context sequence for visual question answering. In: CVPR’24. pp. 26710–26720 (2024) 18. Liu, S., Ye, H., Xing, L., Zou, J.: In-context vectors: Making in context learning more effective and controllable through latent space steering. In: ICML’24 (2024) 19. Lu, Y., Bartolo, M., Moore, A., Riedel, S., Stenetorp, P.: Fantastically ordered prompts and where to find them: Overcoming few-shot prompt order sensitivity. In: ACL’22. pp. 8086–8098 (2022). https://doi.org/10.18653/v1/2022.acl-long. 556 
+
+20. McIntosh-Smith, S., Alam, S.R., Woods, C.: Isambard-ai: a leadership class super-computer optimised specifically for artificial intelligence. arXiv.2410.11199 (2024) 21. Oh, C., Fang, Z., Im, S., Du, X., Li, Y.: Understanding multimodal LLMs under distribution shifts: An information-theoretic approach. In: ICML’25 (2025) 22. Sanogo, K., Ardiccioni, R.: Toward more reliable artificial intelligence: Reducing hallucinations in vision-language models (2025), arXiv:2512.07564 23. Tolstikhin, I.O., Sriperumbudur, B.K., Schölkopf, B.: Minimax estimation of max-imum mean discrepancy with radial kernels. In: NeurIPS’16. vol. 29 (2016) 24. Wang, X., Yang, S., Zhang, J., Wang, M., Zhang, J., Yang, W., Huang, J., Han, X.: TransPath: Transformer-based self-supervised learning for histopathological image classification. In: MICCAI’21. Lecture Notes in Computer Science, vol. 12908, pp. 186–195 (2021). https://doi.org/10.1007/978-3-030-87237-3_18 
+
+25. Wang, Z., Wang, J., Xu, H., Yan, M., Huang, F., Yang, X., Wei, X.S., Mi, S., Zhang, Y.: Efficient and effective in-context demonstration selection with coreset. Proceedings of the AAAI Conference on Artificial Intelligence 40 (13), 10458–10466 (Mar 2026). https://doi.org/10.1609/aaai.v40i13.38017 , https://ojs.aaai. org/index.php/AAAI/article/view/38017 
+
+26. Wei, J., Suriawinata, A., Ren, B., Liu, X., Lisovsky, M., Vaickus, L., Brown, C., Baker, M., Tomita, N., Torresani, L., Wei, J., Hassanpour, S.: A petri dish for Geometry-Aware Uncertainty Coresets 11 histopathology image analysis. In: AIME’21. Lecture Notes in Computer Science, vol. 12721, pp. 11–24 (2021). https://doi.org/10.1007/978-3-030-77211-6_2 
+
+27. Zhao, B., Bilen, H.: Dataset condensation with distribution matching. In: WACV’23. pp. 6514–6523 (2023) 28. Zhao, L., Wu, Y., Jiang, X., Gu, J., Wang, Y., Xu, X., Zhao, P., Lin, X.: Taming diffusion for dataset distillation with high representativeness. In: ICML’25 (2025) 29. Zhao, T.Z., Wallace, E., Feng, S., Klein, D., Singh, S.: Calibrate before use: Im-proving few-shot performance of language models. In: ICML’21. pp. 12697–12706 (2021)

@@ -1,0 +1,1442 @@
+Title: Beyond ViT Tokens: Masked-Diffusion Pretrained Convolutional Pathology Foundation Model for Cell-Level Dense Prediction
+
+URL Source: https://arxiv.org/pdf/2605.08276v1
+
+Published Time: Tue, 12 May 2026 00:06:37 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+# Beyond ViT Tokens: Masked-Diffusion Pretrained Convolutional Pathology Foundation Model for Cell-Level Dense Prediction 
+
+Weiming Chen ∗∗,1 , Xitong Ling ∗,1,3 , Zhenyang Cai 2, Xidong Wang 2, Jiawen Li 1, Tian Guan 1,
+
+Benyou Wang †,2 Yonghong He ††,1,3 
+
+> 1
+
+Tsinghua Shenzhen International Graduate School, Tsinghua University 
+
+> 2
+
+The Chinese University of Hong Kong, ShenZhen 
+
+> 3
+
+Research Institute of Tsinghua, Pearl River Delta 
+
+Abstract 
+
+Cell-level dense prediction is central to computational pathology, but remains challenging due to fine-grained histological structures, strong domain shifts, and costly dense annotations. Existing ViT-based pathology foundation models rely on patch tokenization, which can disrupt spatial continuity and weaken local morphological details needed for cell-level prediction. To address this, we pro-pose Masked-Diffusion Convolutional Foundation Models, termed ConvNeXt 
+
+Masked-Diffusion ( CMD ), a self-supervised convolutional generative pretraining framework for dense pathology representation learning. CMD uses a fully con-volutional ConvNeXt-UNet backbone, performs masked-diffusion pretraining in pixel space, and incorporates frozen pathology foundation model features through adaptive normalization. Experimental results demonstrate that CMD consistently outperforms existing ViT-based pathology foundation models and even surpasses state-of-the-art end-to-end segmentation methods while fine-tuning only a small number of task-specific parameters across multiple pathology dense prediction tasks. The advantage is particularly pronounced under limited annotation settings, where CMD exhibits stronger robustness and generalization ability. Our find-ings suggest that purely convolutional architectures can also serve as competitive pathology foundation models for cell-level dense prediction, achieving leading performance within the current ViT-dominated paradigm and providing a scalable, high-performance solution that better preserves histological structural priors for fine-grained pathology understanding. 
+
+1 Introduction 
+
+Cell-level dense prediction is central to computational pathology, enabling nuclear segmentation, inflammatory cell detection, and tissue microenvironment analysis. This task remains difficult because pathological structures are often tiny, morphologically diverse, and separated by ambiguous boundaries, while dense annotations are costly and domain shifts across stains, scanners, tissues, and institutions are substantial. Recent pathology foundation models largely build on ViT architectures. Although effective for high-level recognition, ViT-style patch tokenization is not naturally suited to cell-level dense prediction: fixed-size patches may disrupt continuous histological structures and lose intra-patch morphology, texture, and boundary details that are critical for pixel- or instance-level prediction. This suggests 
+
+> ∗Contributed equally
+> †Corresponding authors
+> arXiv:2605.08276v1 [cs.CV] 8 May 2026
+
+that convolutional networks, with their locality and spatial continuity biases, are a more suitable architectural choice for fine-grained pathology representation learning. However, convolutional networks still lack a scalable pretraining paradigm comparable to masked image modeling for ViTs. Inspired by recent generative models, which demonstrate a strong ability to learn high-fidelity image representations through reconstruction and synthesis, we ask whether generative modeling can serve as an effective self-supervised pretraining recipe for convolutional pathology foundation models. To this end, we propose Masked-Diffusion Convolutional Foundation Models, termed ConvNeXt 
+
+Masked-Diffusion ( CMD ), a generative self-supervised pretraining framework for cell-level dense pre-diction in pathology. CMD performs masked-diffusion pretraining in pixel space with a convolutional architecture, preserving local spatial continuity while learning morphology-aware representations. We instantiate CMD with a ConvNeXt-UNet backbone and condition the diffusion process on pathology foundation model features, combining semantic priors with fine-grained spatial reconstruction. Across multiple cell-level pathology benchmarks, including multi-dataset training, few-shot adapta-tion, and scaling settings, CMD consistently outperforms ViT-based pathology foundation models and state-of-the-art end-to-end segmentation networks. Our contributions are summarized as follows: I. We propose CMD , a self-supervised Masked-Diffusion Convolutional Foundation Model for learning cell-level dense representations in pathology. II. We systematically design the key components of the framework, including the masked-diffusion objective, ConvNeXt-UNet backbone, pixel-space modeling, and pathology foundation model conditioning. III. We validate the generalizability of the learned representations across multiple datasets, few-shot scenarios, and scaling regimes, with visualizations showing localized, cell-aware dense features. 
+
+2 Related Work 
+
+Pathology Foundation Models. Pathology foundation models (PFMs) provide transferable rep-resentations for computational pathology. Most existing PFMs follow vision-only self-supervised pretraining with ViT backbones and objectives such as DINOv2 [ 1], iBOT [ 2 ], or masked image modeling [ 3], and are later paired with MIL-style aggregators [ 4 , 5 , 6] for WSI-level tasks. Represen-tative models include UNI/UNI2 [ 7], Virchow/Virchow2 [ 8 , 9 ], PathOrchestra [ 10 ], Phikon [ 11 , 12 ], Prov-GigaPath [ 13 ], Hibou [ 14 ], Kaiko [ 15 ], Digepath [ 16 ], StainNet [ 17 ], GPFM [ 18 ], Midnight-12k [ 19 ] and GenBio-PathFM [ 20 ]. Another line uses vision–language pretraining to align pathology images with reports or biomedical text, such as PLIP [ 21 ], CONCH [ 22 , 23 ] and MUSK [ 24 ]. While effective for global image- or slide-level semantics, ViT-based PFMs may lose fine local continuity due to patch tokenization, limiting their suitability for cell-level dense prediction. 
+
+Dense Prediction in Pathology. Dense prediction [ 25 ] supports pixel- or region-level analysis of nuclei, glands, tumor regions, immune cells, and tissue microenvironment components [ 26 ]. Existing methods often adapt natural-image segmentation architectures to pathology. TransUNet [ 27 ]combines CNN local features with Transformer global context, ViT-Adapter [ 28 ] adapts pretrained ViTs through multi-scale modules. These methods improve supervised dense prediction, but typically require end-to-end training with dense annotations. 
+
+Generative and Convolutional Pretraining. Generative pretraining learns representations by reconstructing or synthesizing image content. Masked image modeling is widely used for ViT pretraining [ 3], while diffusion models learn visual structure through denoising objectives. Masked diffusion [ 29 ] further views diffusion as time-conditioned reconstruction, suggesting that the cor-ruption process can be designed for representation learning rather than image synthesis alone. In parallel, modern convolutional architectures such as ConvNeXt [ 30 ] and ConvNeXt V2 [ 31 ] provide strong locality bias and efficient multi-scale feature extraction, making convolutional pretraining an important alternative to token-based visual representation learning. 2Frozen Trainable Element-wise Add Data Flow Skip Connection Loss / Supervision    
+
+> Pathology Foundation Model
+> Unlabeled Pathology Patches
+> Masked Patch
+> ConvNeXt-Unet
+> Encoder
+> ConvNeXt-Unet
+> Decoder
+> Pathology Foundation Model
+> Timestep Embedding
+> Reconstruction
+> Mask-Diff Loss
+> (A) Large-Scale Unsupervised Pretraining (Masked-Diffusion)
+> Encoder ConvNeXt-Unet
+> Decoder
+> Multi-scale
+> Dense Features
+> Pathology Foundation Model
+> Timestep Embed
+> Lightweight
+> Segmentation
+> Head
+> (B) Downstream Cell-Level Dense Prediction
+> Scale
+> 1x1 PWConv dim
+> GRN
+> GELU
+> Scale & Shift
+> Layer Norm
+> Input Features
+> 7x7 DWConv dim
+> 1x1 PWconv dim x r
+> Timestep
+> MLP
+> 𝛾𝛾 ,𝛽𝛽
+> 𝛼𝛼
+> (C) Conditioned ConvNeXt blocks of ConvNeXt-Unet
+
+Figure 1: Overview of the proposed CMD framework. (A) Large-scale unlabeled pathology patches are used for self-supervised masked-diffusion pretraining, where timestep embeddings and pathology foundation model features condition a ConvNeXt U-Net to reconstruct masked patches. (B) After pretraining, the frozen generative backbone is reused as a dense visual encoder: multi-scale decoder features are extracted and fed into lightweight task-specific heads for cell-level dense prediction. (C) Each conditioned ConvNeXt block injects the fused timestep and pathology features via adaLN. 
+
+3 Method 
+
+We develop CMD by addressing five key design choices: the pretraining objective, backbone architecture, representation space, foundation-model conditioning, and downstream feature extraction. This section first summarizes the overall pipeline. 
+
+3.1 Overview: Frozen Generative Pretraining for Cell-Level Dense Prediction 
+
+CMD aims to learn a reusable generative pathology representation rather than another task-specific supervised segmentor. Given unlabeled pathology image patches, we pretrain a ConvNeXt masked-diffusion model in a self-supervised manner, following the masked diffusion formulation [ 29 ]. The model takes partially masked patches as input and learns to recover the clean image content through a diffusion denoising objective, encouraging it to capture local morphology, texture continuity, and cellular boundaries without dense annotations. After pretraining, we discard the sampling process and use the pretrained diffusion network as a frozen dense feature extractor. Multi-scale feature maps are extracted from intermediate decoder blocks, providing both fine spatial details and contextual information for downstream cell-level dense prediction. For each task, only a lightweight prediction head is trained, while the pretrained generative representation remains fixed. This protocol separates representation learning from task-specific supervision: expensive pretraining is performed once on unlabeled pathology data, and downstream adaptation requires only limited annotations. It also allows us to evaluate whether masked-diffusion pretraining learns generalizable pathology representations, rather than relying on end-to-end supervised tuning. The overall pipeline is shown in Figure 1. 33.2 Design Question I: Why ConvNeXt-UNet as the Diffusion Backbone? ConvNeXt-UNet Backbone for Microscopic Locality and Multi-Scale Structure 
+
+The diffusion backbone determines how effectively masked-diffusion pretraining captures pathology morphology. For cell-level dense prediction, features must preserve nuclear contours, chromatin texture, thin boundaries, and multi-scale tissue context. We therefore compare DiT [ 32 ], Attention U-Net [33], and ConvNeXt-UNet under the same pretraining and evaluation protocol. DiT offers scalable global modeling, but patch tokenization may weaken small structures and intra-patch boundaries. Attention U-Net is naturally suited to dense prediction, yet its conventional blocks may limit scalability. ConvNeXt-UNet combines U-Net-style multi-scale feature reuse with modern ConvNeXt blocks, providing locality bias, efficient channel mixing, and adaptive conditioning with timestep and pathology foundation model features. As shown in Table 1, ConvNeXt-UNet achieves stronger boundary-sensitive dense representations across datasets, supporting its use as the CMD diffusion backbone. Table 1: Backbone comparison under the same diffusion setting. DiT, Attention U-Net, and ConvNeXt-UNet all use VAE representations and pathology foundation model conditioning, are pretrained on 55K unlabeled pathology images with comparable parameter sizes, and are evaluated with frozen pretrained features and a linear-probe segmentation head. BF1 denotes boundary F1 score, measuring boundary agreement between predicted and ground-truth masks. Values in brackets denote 95% confidence intervals estimated with 1000 bootstrap resamples. Detailed experimental settings are provided in Appendix B.4.                  
+
+> Backbone(linear-probe) CPM-15 [34] CPM-17 [34] Janowczyk [35] Kumar [36] TNBC [37]
+> Dice BF1 Dice BF1 Dice BF1 Dice BF1 Dice BF1
+> DiT 44.39
+> [38.74, 50.04]
+> 19.65
+> [17.71, 21.58]
+> 56.33
+> [51.37, 61.12]
+> 23.24
+> [12.60, 32.62]
+> 50.56
+> [49.95, 51.26]
+> 5.15
+> [3.36, 7.34]
+> 48.80
+> [46.73, 52.28]
+> 11.12
+> [9.45, 12.65]
+> 55.11
+> [53.19, 56.97]
+> 21.12
+> [15.63, 25.75]
+> Attention U-Net 53.68
+> [49.98, 57.38]
+> 19.31
+> [12.57, 26.04]
+> 56.04
+> [53.71, 59.12]
+> 23.19
+> [19.62, 26.25]
+> 49.50
+> [49.24, 49.76]
+> 1.67
+> [0.89, 2.59]
+> 50.37
+> [47.53, 55.40]
+> 20.80
+> [14.66, 28.45]
+> 54.05
+> [51.91, 56.02]
+> 16.39
+> [8.68, 22.57]
+> ConvNeXt-UNet 50.19
+> [49.39, 50.99]
+> 33.66
+> [31.42, 35.89]
+> 55.20
+> [52.82, 57.39]
+> 35.04
+> [27.83, 41.36]
+> 50.27
+> [49.86, 50.75]
+> 6.45
+> [4.24, 8.92]
+> 51.61
+> [51.27, 51.90]
+> 34.38
+> [31.67, 37.95]
+> 53.23
+> [51.86, 54.60]
+> 25.09
+> [14.05, 32.77]
+
+3.3 Design Question II: Why Masked-Diffusion Instead of Standard DDPM? Masked-Diffusion Objective for Morphology-Aware Self-Supervision 
+
+Inspired by masked diffusion [ 29 ], we treat diffusion pretraining as time-conditioned reconstruction rather than only generative sampling. From this view, the timestep controls corruption difficulty, and Gaussian noise in standard DDPM [ 38 ] can be replaced by a corruption process better aligned with representation learning. For cell-level pathology, we use structure-oriented masking instead of Gaussian corruption. CMD learns to recover missing histological regions from visible context, encouraging representations that capture local morphology, tissue texture, nuclear boundaries, and spatial organization. Given an unlabeled pathology patch x0, we sample t ∈ [1 , T ] and set rt = t/ (T + 1) . Random non-overlapping patches are masked according to rt to obtain xt, and the ConvNeXt-UNet reconstructs the original image or latent representation conditioned on the timestep and pathology foundation model feature: 
+
+xt = M(x0, r t), rt = tT + 1 , (1) 
+
+ˆx0 = fθ (xt, t, z pfm ), (2) 
+
+Lmasked-diff = Ex0,t 
+
+∥x0 − fθ (xt, t, z pfm )∥1
+
+ , (3) where M(·) denotes timestep-controlled patch masking, zpfm is the frozen pathology foundation model feature, and fθ is the trainable ConvNeXt-UNet. A detailed theoretical derivation is provided in Appendix A. Thus, t changes from controlling Gaussian noise strength in DDPM to controlling structural occlusion in CMD. Timestep and pathology features are fused and injected into ConvNeXt blocks through adaptive Layer Normalization. 43.4 Design Question III: Pixel-Space or VAE Latent-Space Pretraining? Pixel-Space Masked Diffusion for Preserving Cell-Level Details 
+
+Masked diffusion can operate in pixel space or compressed VAE [ 39 ] latent space. While latent-space diffusion is efficient, VAE compression may discard high-frequency cues such as nuclear boundaries, chromatin texture, and small inter-cell gaps, which are critical for pathology dense prediction. We compare pixel-space pretraining, VAE latent-space pretraining, and a high-resolution VAE variant. As shown in Table 2, pixel-space masked diffusion yields stronger downstream dense features, suggesting that preserving native pixel-level morphology is more important than latent-space efficiency for cell-level prediction. Table 2: Pixel-space versus VAE latent-space masked-diffusion pretraining. Pixel-space and standard VAE latent-space settings use 256 × 256 inputs, while the High-res VAE latent setting uses 512 × 512 
+
+inputs. Other experimental settings are the same as in Table 1.                  
+
+> Pretraining Space CPM-15 CPM-17 Janowczyk Kumar TNBC
+> Dice BF1 Dice BF1 Dice BF1 Dice BF1 Dice BF1
+> VAE latent-space 50.19
+> [49.39, 50.99]
+> 33.66
+> [31.42, 35.89]
+> 55.20
+> [52.82, 57.39]
+> 35.04
+> [27.83, 41.36]
+> 50.27
+> [49.86, 50.75]
+> 6.45
+> [4.24, 8.92]
+> 51.61
+> [51.27, 51.90]
+> 34.38
+> [31.67, 37.95]
+> 53.23
+> [51.86, 54.60]
+> 25.09
+> [14.05, 32.77]
+> High-res VAE latent 47.96
+> [47.95, 47.98]
+> 11.52
+> [9.54, 13.50]
+> 63.80
+> [58.88, 68.49]
+> 30.49
+> [24.61, 35.82]
+> 51.87
+> [51.24, 52.63]
+> 11.03
+> [9.00, 13.37]
+> 53.09
+> [51.39, 54.40]
+> 33.31
+> [30.64, 36.10]
+> 58.24
+> [56.51, 59.81]
+> 22.43
+> [19.24, 24.80]
+> Pixel-space 63.25
+> [59.34, 67.16]
+> 56.03
+> [55.41, 56.64]
+> 76.74
+> [70.29, 82.39]
+> 73.45
+> [62.26, 83.70]
+> 53.66
+> [52.71, 54.70]
+> 18.24
+> [13.99, 22.46]
+> 62.76
+> [49.07, 70.45]
+> 62.25
+> [26.32, 83.66]
+> 73.51
+> [68.28, 80.45]
+> 75.63
+> [66.74, 86.52]
+
+3.5 Design Question IV: Is Pathology Foundation Model Conditioning Essential? Pathology Foundation Model Conditioning as Complementary Semantic Guidance 
+
+Pathology foundation models provide global tissue context and high-level morphological semantics. CMD uses frozen pathology foundation model features as conditional guidance, complementing local masked reconstruction with pathology-aware semantic priors. A frozen foundation model extracts an image-level feature from the original patch, which is fused with the timestep embedding and injected into ConvNeXt-UNet blocks through adaptive Layer Normalization. The dense representation is still learned by the masked-diffusion backbone. We compare ConvNeXt masked diffusion without conditioning and full CMD with conditioning, using UNI as the foundation model. As shown in Table 3, conditioning further improves performance, indicating that PFM features provide complementary semantic guidance rather than replacing masked-diffusion representation learning. Table 3: Effect of pathology foundation model conditioning. Other experimental settings are the same as in Table 1.                 
+
+> Method CPM-15 CPM-17 Janowczyk Kumar TNBC
+> Dice BF1 Dice BF1 Dice BF1 Dice BF1 Dice BF1
+> CMD w/o PFM 55.17
+> [50.90, 59.45]
+> 43.52
+> [40.68, 46.36]
+> 71.29
+> [64.18, 78.05]
+> 64.36
+> [50.59, 77.59]
+> 52.21
+> [51.47, 53.08]
+> 14.19
+> [10.53, 17.69]
+> 60.21
+> [55.20, 66.46]
+> 68.02
+> [61.82, 76.16]
+> 60.24
+> [52.82, 67.65]
+> 45.90
+> [32.53, 58.28]
+> CMD w/ PFM 63.25
+> [59.34, 67.16]
+> 56.03
+> [55.41, 56.64]
+> 76.74
+> [70.29, 82.39]
+> 73.45
+> [62.26, 83.70]
+> 53.66
+> [52.71, 54.70]
+> 18.24
+> [13.99, 22.46]
+> 62.76
+> [49.07, 70.45]
+> 62.25
+> [26.32, 83.66]
+> 73.51
+> [68.28, 80.45]
+> 75.63
+> [66.74, 86.52]
+
+4 Experiments 
+
+4.1 Experimental Setup 4.1.1 Pretraining data 
+
+We pretrain CMD on a large-scale unlabeled pathology corpus with approximately 1 million 512 ×512 
+
+image patches. All patches are unlabeled and used only for self-supervised masked-diffusion pretraining. Additional dataset details are provided in Appendix B.1. 
+
+4.1.2 Pretraining protocol 
+
+During pretraining, each 512 × 512 pathology patch is converted into a 256 × 256 input. We use a mixed resizing strategy: with 80% probability, we randomly crop a 256 × 256 region, and with 20% 5probability, we resize the whole patch to 256 × 256 . This exposes the model to both fine cellular details and broader tissue layouts. We use masked diffusion with T = 1000 timesteps. For a sampled timestep t, the masking ratio is rt = t/T , and random non-overlapping patches are masked and reconstructed by the diffusion backbone. For pixel-space pretraining, the mask patch size is 8, yielding a 32 × 32 patch grid for 
+
+256 × 256 inputs. When pathology foundation model conditioning is enabled, we use a frozen H0-mini encoder and inject its image-level feature together with the timestep embedding into ConvNeXt blocks through adaptive Layer Normalization. The model is optimized with AdamW using a learning rate of 3 × 10 −5, no weight decay, BF16 mixed precision, and an exponential moving average decay of 0.9999. Unless otherwise specified, we train for 80K optimization steps and use the EMA checkpoint for downstream evaluation. 
+
+4.1.3 Downstream task protocol 
+
+For downstream cell-level dense prediction, we freeze the pretrained CMD backbone and use it only as a dense feature extractor. Multi-scale features are extracted from selected decoder blocks and passed to a task-specific segmentation head. During downstream training, only the segmentation head is optimized, using a cosine learning-rate schedule and a combined cross-entropy plus Dice loss. Details of the downstream head designs are provided in Appendix B.3. 
+
+4.2 Comparisons With State-of-the-art Methods 
+
+We evaluate CMD on cell-level dense prediction under the frozen-backbone setting and compare it with both frozen pathology foundation models and end-to-end segmentation baselines. The frozen-backbone comparison isolates representation quality, while the end-to-end baselines provide strong task-specific references trained directly for segmentation. As shown in Table 4, CMD achieves stronger overall performance than ViT-based pathology founda-tion models and remains competitive with, or superior to, end-to-end segmentation models across CPM-15, CPM-17, and TNBC. This indicates that CMD is not only a stronger frozen pathology representation, but also provides dense features that can rival specialized segmentation architectures. An important advantage of CMD is its reduced sensitivity to input resolution. CMD uses a unified 
+
+256 × 256 downstream input, whereas ViT-based foundation models and end-to-end baselines often require larger dataset-specific resolutions. Despite this smaller input size, CMD matches or outperforms high-resolution ViT-based models, suggesting that the convolutional masked-diffusion representation captures local morphology efficiently without relying on larger image fields. Figure 2 further supports this observation. Frozen ViT-based foundation models often capture coarse foreground regions but miss small nuclei, merge adjacent cells, or produce noisy boundaries in crowded tissue areas. End-to-end baselines improve spatial layout but can still produce fragmented boundaries or incomplete cell separation. In contrast, CMD-L better preserves small-cell struc-tures, boundary consistency, and separation between adjacent nuclei, especially in the highlighted challenging regions. Overall, these results show that CMD is an effective frozen backbone for pathology dense prediction. Its convolutional architecture and masked-diffusion pretraining make it less dependent on high input resolution while maintaining strong morphology-aware segmentation performance. 
+
+4.3 State-of-the-Art Parameter-Efficient Few-Shot Adaptation 
+
+We further evaluate few-shot transfer for cell-level dense prediction on CPM-17 and TNBC under 1-shot, 5-shot, and 10-shot settings. This setting tests whether pretrained representations can be adapted with very limited annotations. We compare CMD-L with frozen pathology foundation model baselines, TransUNet with frozen UNI2-h features, and an end-to-end ViT-Adapter baseline. For CMD-L, the pretrained ConvNeXt masked-diffusion backbone remains frozen, and only a segmentation head with 7M parameters [41] is optimized. As shown in Table 5, frozen pathology foundation models provide limited few-shot segmentation performance, indicating that global pathology representations are not sufficient for dense cell-level prediction. TransUNet improves slightly in some settings, but still struggles to recover fine-grained 6Table 4: Segmentation performance and parameter statistics on CPM-15, CPM-17, and TNBC. The table compares frozen pathology foundation model backbones, end-to-end segmentation baselines, and CMD. Dataset headers report the input resolutions used by different model families. Results are reported as mean Dice/Precision with 95% confidence intervals. 
+
+Method Frozen Params. (M) Seg. Head Params. (M) cpm15 
+
+ViT/16:384; ViT/14:392; CMD:256 E2E Model:384 
+
+cpm17 
+
+ViT/16:496; ViT/14:490; CMD:256 E2E Model:496 
+
+TNBC 
+
+ViT/16:512; ViT/14:504; CMD:256 E2E Model:512 
+
+Dice Precision Dice Precision Dice Precision 
+
+Pre-trained ViT-based Pathology Foundation Models PathOrchestra 303 7.06 0.737 
+
+[0.658, 0.822] 
+
+0.758 
+
+[0.681, 0.838] 
+
+0.861 
+
+[0.837, 0.882] 
+
+0.856 
+
+[0.827, 0.888] 
+
+0.819 
+
+[0.781, 0.855] 
+
+0.810 
+
+[0.764, 0.850] 
+
+CONCHv1.5 306 7.06 0.748 
+
+[0.670, 0.824] 
+
+0.740 
+
+[0.690, 0.787] 
+
+0.858 
+
+[0.829, 0.885] 
+
+0.863 
+
+[0.834, 0.900] 
+
+0.826 
+
+[0.793, 0.859] 
+
+0.806 
+
+[0.763, 0.845] 
+
+CONCH 90.4 5.88 0.722 
+
+[0.608, 0.825] 
+
+0.746 
+
+[0.689, 0.793] 
+
+0.867 
+
+[0.841, 0.889] 
+
+0.877 
+
+[0.844, 0.906] 
+
+0.816 
+
+[0.785, 0.847] 
+
+0.793 
+
+[0.771, 0.822] 
+
+Prov-Gigapath 1100 9.42 0.759 
+
+[0.680, 0.842] 
+
+0.753 
+
+[0.685, 0.822] 
+
+0.871 
+
+[0.851, 0.888] 
+
+0.863 
+
+[0.832, 0.893] 
+
+0.828 
+
+[0.795, 0.860] 
+
+0.809 
+
+[0.773, 0.842] 
+
+Hibou 304 7.06 0.794 
+
+[0.722, 0.874] 
+
+0.781 
+
+[0.715, 0.853] 
+
+0.875 
+
+[0.853, 0.896] 
+
+0.872 
+
+[0.837, 0.915] 
+
+0.841 
+
+[0.812, 0.866] 
+
+0.823 
+
+[0.793, 0.855] 
+
+H-Optimus-0 1100 9.42 0.781 
+
+[0.700, 0.868] 
+
+0.795 
+
+[0.721, 0.871] 
+
+0.881 
+
+[0.862, 0.899] 
+
+0.869 
+
+[0.839, 0.904] 
+
+0.843 
+
+[0.808, 0.869] 
+
+0.811 
+
+[0.773, 0.842] 
+
+H-Optimus-1 1100 9.42 0.773 
+
+[0.711, 0.846] 
+
+0.771 
+
+[0.696, 0.871] 
+
+0.879 
+
+[0.857, 0.896] 
+
+0.870 
+
+[0.841, 0.895] 
+
+0.833 
+
+[0.805, 0.859] 
+
+0.802 
+
+[0.775, 0.827] 
+
+Kaiko 304 7.06 0.758 
+
+[0.663, 0.855] 
+
+0.803 
+
+[0.733, 0.866] 
+
+0.882 
+
+[0.861, 0.899] 
+
+0.866 
+
+[0.839, 0.894] 
+
+0.838 
+
+[0.807, 0.867] 
+
+0.822 
+
+[0.790, 0.852] 
+
+Midnight-12k 1100 9.42 0.710 
+
+[0.650, 0.775] 
+
+0.715 
+
+[0.660, 0.772] 
+
+0.845 
+
+[0.821, 0.865] 
+
+0.831 
+
+[0.806, 0.854] 
+
+0.798 
+
+[0.761, 0.834] 
+
+0.771 
+
+[0.731, 0.809] 
+
+MUSK 675 7.06 0.651 
+
+[0.614, 0.693] 
+
+0.643 
+
+[0.608, 0.681] 
+
+0.737 
+
+[0.706, 0.766] 
+
+0.728 
+
+[0.696, 0.762] 
+
+0.693 
+
+[0.666, 0.720] 
+
+0.668 
+
+[0.642, 0.696] 
+
+Phikon 86.4 5.88 0.759 
+
+[0.686, 0.837] 
+
+0.752 
+
+[0.690, 0.815] 
+
+0.871 
+
+[0.844, 0.897] 
+
+0.873 
+
+[0.833, 0.906] 
+
+0.828 
+
+[0.800, 0.856] 
+
+0.804 
+
+[0.776, 0.840] 
+
+Phikon-v2 303 7.06 0.754 
+
+[0.678, 0.841] 
+
+0.750 
+
+[0.670, 0.846] 
+
+0.874 
+
+[0.854, 0.893] 
+
+0.868 
+
+[0.842, 0.895] 
+
+0.824 
+
+[0.800, 0.849] 
+
+0.794 
+
+[0.777, 0.809] 
+
+UNI 303 7.06 0.738 
+
+[0.662, 0.813] 
+
+0.726 
+
+[0.674, 0.775] 
+
+0.867 
+
+[0.838, 0.892] 
+
+0.854 
+
+[0.812, 0.890] 
+
+0.820 
+
+[0.790, 0.850] 
+
+0.786 
+
+[0.756, 0.811] 
+
+UNI2-h 681 9.42 0.767 
+
+[0.703, 0.840] 
+
+0.761 
+
+[0.696, 0.835] 
+
+0.873 
+
+[0.852, 0.890] 
+
+0.864 
+
+[0.835, 0.891] 
+
+0.833 
+
+[0.807, 0.855] 
+
+0.804 
+
+[0.775, 0.829] 
+
+Virchow 631 8.24 0.770 
+
+[0.701, 0.853] 
+
+0.767 
+
+[0.685, 0.880] 
+
+0.876 
+
+[0.859, 0.890] 
+
+0.873 
+
+[0.853, 0.897] 
+
+0.839 
+
+[0.817, 0.861] 
+
+0.813 
+
+[0.789, 0.837] 
+
+Virchow2 631 8.24 0.725 
+
+[0.643, 0.827] 
+
+0.707 
+
+[0.640, 0.817] 
+
+0.863 
+
+[0.832, 0.887] 
+
+0.851 
+
+[0.811, 0.888] 
+
+0.821 
+
+[0.801, 0.841] 
+
+0.778 
+
+[0.759, 0.796] 
+
+End-to-End Segmentation Models nnUNet - 12.19 0.791 
+
+[0.765, 0.820] 
+
+0.751 
+
+[0.732, 0.772] 
+
+0.875 
+
+[0.859, 0.898] 
+
+0.842 
+
+[0.819, 0.874] 
+
+0.803 
+
+[0.778, 0.822] 
+
+0.754 
+
+[0.719, 0.779] 
+
+TransUNet - 105.28 0.809 
+
+[0.771, 0.850] 
+
+0.770 
+
+[0.739, 0.803] 
+
+0.897 
+
+[0.882, 0.914] 
+
+0.881 
+
+[0.856, 0.909] 
+
+0.843 
+
+[0.822, 0.860] 
+
+0.825 
+
+[0.794, 0.853] 
+
+ViT-Adapter - 133.52 0.876 
+
+[0.830, 0.924] 
+
+0.889 
+
+[0.863, 0.916] 
+
+0.872 
+
+[0.839, 0.898] 
+
+0.877 
+
+[0.838, 0.917] 
+
+0.854 
+
+[0.832, 0.876] 
+
+0.838 
+
+[0.805, 0.872] 
+
+SAM Pre-trained ViT-based Pathology Foundation Models VISTA [40] 168 Zero-shot 0.208 
+
+[0.149, 0.266] 
+
+0.518 
+
+[0.487, 0.576] 
+
+0.481 
+
+[0.366, 0.560] 
+
+0.531 
+
+[0.489, 0.570] 
+
+0.551 
+
+[0.501, 0.607] 
+
+0.584 
+
+[0.562, 0.607] 
+
+Pre-trained Purely Convolutional Pathology Foundation Models CMD-L(ours) 602 Linear Probe 0.676 
+
+[0.643, 0.709] 
+
+0.696 
+
+[0.636, 0.756] 
+
+0.841 
+
+[0.811, 0.871] 
+
+0.878 
+
+[0.848, 0.901] 
+
+0.807 
+
+[0.774, 0.841] 
+
+0.813 
+
+[0.783, 0.836] 
+
+CMD-L(ours) 
+
++ SegHead: Fig. B2(A) 602 7.15 0.864 
+
+[0.845, 0.882] 
+
+0.849 
+
+[0.842, 0.857] 
+
+0.865 
+
+[0.827, 0.902] 
+
+0.901 
+
+[0.876, 0.925] 
+
+0.854 
+
+[0.824, 0.891] 
+
+0.851 
+
+[0.822, 0.876] 
+
+CMD-L(ours) 
+
++ SegHead: Fig. B2(B) 602 21.21 0.889 
+
+[0.859, 0.925] 
+
+0.885 
+
+[0.853, 0.925] 
+
+0.880 
+
+[0.847, 0.908] 
+
+0.883 
+
+[0.860, 0.920] 
+
+0.854 
+
+[0.835, 0.874] 
+
+0.830 
+
+[0.802, 0.858] 
+
+nuclei structures from frozen image-level features. ViT-Adapter achieves strong results when more labels are available, but requires end-to-end optimization of a much larger number of trainable parameters. In contrast, CMD-L achieves competitive or superior performance with only 7M trainable parameters. It performs especially well in the most label-scarce settings and maintains strong Dice and Precision as the number of shots increases. These results show that CMD-L learns morphology-aware dense features that are both label-efficient and parameter-efficient for few-shot cell-level segmentation. 
+
+4.4 Scaling Behavior in Pretraining Duration and Model Capacity 
+
+We study CMD scaling from two aspects: masked-diffusion pretraining duration and diffusion backbone capacity. Unlike the few-shot setting, this analysis trains the downstream segmentation head with the full training split and evaluates on the corresponding test split, allowing us to assess representation quality under the standard full-data protocol. Table 6 shows that CMD generally benefits from longer pretraining. Performance improves or remains stable as the number of pretraining steps increases, indicating that masked-diffusion pretraining continues to produce transferable dense representations rather than overfitting to the reconstruction objective. Some dataset-specific fluctuations appear across intermediate checkpoints, but later checkpoints do not show systematic degradation. 7Frozen UNI2-h  Frozen H-Optimus-1  TransUnet  ViT Adapter  CMD-L(ours)  Ground Truth Image Figure 2: Qualitative comparison under the frozen-backbone dense prediction setting. CMD-L produces more complete and boundary-consistent cell masks than frozen ViT-based pathology foundation models and supervised dense prediction baselines, especially in crowded or ambiguous regions highlighted by red boxes. From top to bottom are the TNBC, CPM17, and CPM15 datasets. Table 5: Few-shot segmentation performance and parameter statistics on CPM-17 and TNBC. The table compares frozen pathology foundation models, TransUNet, end-to-end ViT-Adapter, and CMD-L under 1-shot, 5-shot, and 10-shot settings. Results are reported as mean Dice/Precision with 95% confidence intervals. 
+
+Condition Frozen UNI2-h Frozen H-opt-1 TransUNet ViT-Adapter Frozen CMD-L(ours) 
+
+Dice Precision Dice Precision Dice Precision Dice Precision Dice Precision 
+
+Trainable/Total Params. (M) 9/690 8/1144 23/704 364/364 7/609 
+
+cpm17 - 1-Shot 0.463 
+
+> [0.454, 0.472]
+
+0.507 
+
+> [0.490, 0.528]
+
+0.468 
+
+> [0.458, 0.479]
+
+0.493 
+
+> [0.485, 0.502]
+
+0.479 
+
+> [0.464, 0.492]
+
+0.499 
+
+> [0.485, 0.514]
+
+0.714 
+
+> [0.683, 0.749]
+
+0.695 
+
+> [0.661, 0.740]
+
+0.769 
+
+> [0.696, 0.832]
+
+0.784 
+
+> [0.718, 0.845]
+
+cpm17 - 5-Shot 0.468 
+
+> [0.457, 0.477]
+
+0.501 
+
+> [0.487, 0.521]
+
+0.467 
+
+> [0.456, 0.480]
+
+0.497 
+
+> [0.483, 0.512]
+
+0.477 
+
+> [0.463, 0.489]
+
+0.499 
+
+> [0.487, 0.511]
+
+0.812 
+
+> [0.694, 0.880]
+
+0.852 
+
+> [0.806, 0.904]
+
+0.811 
+
+> [0.735, 0.882]
+
+0.893 
+
+> [0.863, 0.918]
+
+cpm17 - 10-Shot 0.464 
+
+> [0.453, 0.474]
+
+0.500 
+
+> [0.487, 0.518]
+
+0.472 
+
+> [0.460, 0.485]
+
+0.508 
+
+> [0.489, 0.529]
+
+0.476 
+
+> [0.463, 0.488]
+
+0.497 
+
+> [0.485, 0.509]
+
+0.819 
+
+> [0.725, 0.881]
+
+0.832 
+
+> [0.780, 0.894]
+
+0.820 
+
+> [0.744, 0.887]
+
+0.896 
+
+> [0.875, 0.914]
+
+TNBC - 1-Shot 0.497 
+
+> [0.477, 0.519]
+
+0.506 
+
+> [0.473, 0.534]
+
+0.486 
+
+> [0.477, 0.497]
+
+0.500 
+
+> [0.484, 0.516]
+
+0.478 
+
+> [0.469, 0.489]
+
+0.495 
+
+> [0.482, 0.512]
+
+0.498 
+
+> [0.470, 0.529]
+
+0.501 
+
+> [0.464, 0.539]
+
+0.714 
+
+> [0.618, 0.817]
+
+0.865 
+
+> [0.817, 0.917]
+
+TNBC - 5-Shot 0.493 
+
+> [0.482, 0.506]
+
+0.509 
+
+> [0.492, 0.529]
+
+0.490 
+
+> [0.480, 0.500]
+
+0.508 
+
+> [0.488, 0.529]
+
+0.477 
+
+> [0.468, 0.488]
+
+0.484 
+
+> [0.470, 0.500]
+
+0.800 
+
+> [0.773, 0.830]
+
+0.808 
+
+> [0.783, 0.849]
+
+0.792 
+
+> [0.761, 0.851]
+
+0.845 
+
+> [0.800, 0.880]
+
+TNBC - 10-Shot 0.497 
+
+> [0.491, 0.504]
+
+0.514 
+
+> [0.499, 0.525]
+
+0.492 
+
+> [0.484, 0.503]
+
+0.510 
+
+> [0.495, 0.524]
+
+0.476 
+
+> [0.468, 0.488]
+
+0.910 
+
+> [0.879, 0.953]
+
+0.828 
+
+> [0.807, 0.852]
+
+0.837 
+
+> [0.796, 0.916]
+
+0.819 
+
+> [0.790, 0.870]
+
+0.845 
+
+> [0.807, 0.877]
+
+We further compare CMD-B and CMD-L in Table 7. Increasing backbone capacity consistently im-proves Dice across CPM-17 and TNBC, while maintaining comparable Precision. This suggests that larger ConvNeXt diffusion backbones improve region-level segmentation quality without increasing false positives. Architecture details of CMD-B and CMD-L are provided in Appendix B.2. Overall, CMD shows favorable scaling behavior with both pretraining duration and model capacity. Although not a full scaling-law analysis, these results indicate that masked-diffusion convolutional pretraining can continue to benefit from more computation and larger backbones for cell-level dense prediction. Table 6: Effect of CMD-L pretraining duration on full-data downstream segmentation. Results are Dice scores reported as mean with 95% confidence interval. 
+
+Dataset Training Steps 10k 20k 30k 40k 50k 60k 70k 80k CPM15 0.851 
+
+[0.806, 0.895] 
+
+0.858 
+
+[0.842, 0.874] 
+
+0.774 
+
+[0.751, 0.797] 
+
+0.859 
+
+[0.840, 0.879] 
+
+0.868 
+
+[0.845, 0.892] 
+
+0.866 
+
+[0.842, 0.889] 
+
+0.865 
+
+[0.841, 0.889] 
+
+0.864 
+
+[0.845, 0.882] 
+
+CPM17 0.873 
+
+[0.845, 0.903] 
+
+0.864 
+
+[0.829, 0.901] 
+
+0.827 
+
+[0.757, 0.899] 
+
+0.842 
+
+[0.787, 0.895] 
+
+0.851 
+
+[0.802, 0.899] 
+
+0.849 
+
+[0.796, 0.902] 
+
+0.863 
+
+[0.825, 0.902] 
+
+0.865 
+
+[0.827, 0.902] 
+
+TNBC 0.820 
+
+[0.779, 0.884] 
+
+0.823 
+
+[0.775, 0.889] 
+
+0.829 
+
+[0.790, 0.877] 
+
+0.839 
+
+[0.802, 0.892] 
+
+0.844 
+
+[0.810, 0.888] 
+
+0.845 
+
+[0.814, 0.885] 
+
+0.850 
+
+[0.817, 0.892] 
+
+0.854 
+
+[0.824, 0.891] 
+
+8Image Ground Truth CMD(ours) UNI2-h CONCH CONCHv1.5 Virchow Virchow2 UNI         
+
+> MUSK PathOrchestra Prov-Gigapath Phikon Phikon-v2 H-Optimus-0 H-Optimus-1 Kaiko Hibou
+> Anchor
+
+Figure 3: Visualization of cell-level dense representations. For ViT-based pathology foundation models, we select an anchor patch on a nucleus and visualize cosine similarity between the anchor token and all other patch tokens. These models mainly highlight coarse tissue regions and show limited sensitivity to individual cellular structures. For CMD, which does not use patch tokens, we extract dense convolutional features and visualize their K-means ( K=4) clustering result. CMD produces a more cell-aware representation that better follows fine nuclei distribution and local morphology. Table 7: Backbone capacity scaling of CMD at 70k pretraining steps on full-data downstream segmentation. Results are mean with 95% confidence interval.           
+
+> Dataset CMD-B CMD-L
+> Dice Precision Dice Precision
+> Params. (M) 217 602
+> CPM15 0.852
+> [0.836, 0.869]
+> 0.843
+> [0.837, 0.849]
+> 0.865
+> [0.841, 0.889]
+> 0.852
+> [0.835, 0.869]
+> CPM17 0.829
+> [0.755, 0.902]
+> 0.900
+> [0.870, 0.928]
+> 0.863
+> [0.825, 0.902]
+> 0.899
+> [0.872, 0.924]
+> TNBC 0.836
+> [0.806, 0.875]
+> 0.828
+> [0.797, 0.854]
+> 0.850
+> [0.817, 0.892]
+> 0.846
+> [0.812, 0.877]
+
+4.5 Visualization of Cell-Level Dense Representations 
+
+We visualize learned representations to examine whether CMD captures fine cellular structures rather than only coarse tissue semantics. As shown in Figure 3, ViT-based models tend to highlight broad tissue regions or coarse contextual patterns, with activations often spreading beyond individual nuclei. In contrast, CMD produces more localized and cell-aware feature clusters that better align with nuclei and fine boundaries. This supports the quantitative results: convolutional masked-diffusion pretraining learns dense, morphology-sensitive representations that are better suited for cell-level prediction. 
+
+5 Conclusion and Future Work 
+
+In this article, we introduced Masked-Diffusion Convolutional Foundation Models, termed ConvNeXt 
+
+Masked-Diffusion ( CMD ), for cell-level dense prediction in computational pathology. CMD uses a fully convolutional ConvNeXt-UNet backbone with pixel-space masked-diffusion pretraining to learn dense, morphology-aware representations, while incorporating pathology foundation model conditioning as semantic guidance. Experiments across multiple pathology benchmarks show that CMD provides strong frozen dense features, outperforming ViT-based pathology foundation models and remaining competitive with state-of-the-art end-to-end segmentation baselines. CMD also demonstrates parameter-efficient few-shot adaptation, favorable scaling behavior, and localized cell-aware representations in visualization analyses. Future work will explore larger corpora and backbones, multimodal or report-guided conditioning, and whole-slide workflows linking cell-level prediction to slide-level diagnosis and tumor microenvi-ronment analysis. 9References 
+
+[1] Maxime Oquab, Timothée Darcet, Théo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. Dinov2: Learning robust visual features without supervision. arXiv preprint arXiv:2304.07193 , 2023. [2] Jinghao Zhou, Chen Wei, Huiyu Wang, Wei Shen, Cihang Xie, Alan Yuille, and Tao Kong. ibot: Image bert pre-training with online tokenizer. arXiv preprint arXiv:2111.07832 , 2021. [3] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr Dollár, and Ross Girshick. Masked autoencoders are scalable vision learners. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 16000–16009, 2022. [4] Ming Y Lu, Drew FK Williamson, Tiffany Y Chen, Richard J Chen, Matteo Barbieri, and Faisal Mahmood. Data-efficient and weakly supervised computational pathology on whole-slide images. Nature biomedical engineering , 5(6):555–570, 2021. [5] Xitong Ling, Minxi Ouyang, Yizhi Wang, Xinrui Chen, Renao Yan, Hongbo Chu, Junru Cheng, Tian Guan, Sufang Tian, Xiaoping Liu, et al. Agent aggregator with mask denoise mechanism for histopathology whole slide image analysis. In Proceedings of the 32nd ACM International Conference on Multimedia ,pages 2795–2803, 2024. [6] Xiangde Luo, Jinxi Xiang, Yuanfeng Ji, and Ruijiang Li. nnmil: A generalizable multiple instance learning framework for computational pathology. arXiv preprint arXiv:2511.14907 , 2025. [7] Richard J Chen, Tong Ding, Ming Y Lu, Drew FK Williamson, Guillaume Jaume, Andrew H Song, Bowen Chen, Andrew Zhang, Daniel Shao, Muhammad Shaban, et al. Towards a general-purpose foundation model for computational pathology. Nature medicine , 30(3):850–862, 2024. [8] Eugene Vorontsov, Alican Bozkurt, Adam Casson, George Shaikovski, Michal Zelechowski, Kristen Severson, Eric Zimmermann, James Hall, Neil Tenenholtz, Nicolo Fusi, et al. A foundation model for clinical-grade computational pathology and rare cancers detection. Nature medicine , 30(10):2924–2935, 2024. [9] Eric Zimmermann, Eugene Vorontsov, Julian Viret, Adam Casson, Michal Zelechowski, George Shaikovski, Neil Tenenholtz, James Hall, David Klimstra, Razik Yousfi, et al. Virchow2: Scaling self-supervised mixed magnification models in pathology. arXiv preprint arXiv:2408.00738 , 2024. [10] Fang Yan, Jianfeng Wu, Jiawen Li, Wei Wang, Yirong Chen, Linda Wei, Jiaxuan Lu, Wen Chen, Zizhao Gao, Jianan Li, et al. Pathorchestra: A comprehensive foundation model for computational pathology with over 100 diverse clinical-grade tasks. npj Digital Medicine , 8(1):695, 2025. [11] Alexandre Filiot, Ridouane Ghermi, Antoine Olivier, Paul Jacob, Lucas Fidon, Alice Mac Kain, Charlie Saillard, and Jean-Baptiste Schiratti. Scaling self-supervised learning for histopathology with masked image modeling. medRxiv , 2023. [12] Alexandre Filiot, Paul Jacob, Alice Mac Kain, and Charlie Saillard. Phikon-v2, a large and public feature extractor for biomarker prediction. arXiv preprint arXiv:2409.09173 , 2024. [13] Hanwen Xu, Naoto Usuyama, Jaspreet Bagga, Sheng Zhang, Rajesh Rao, Tristan Naumann, Cliff Wong, Zelalem Gero, Javier González, Yu Gu, et al. A whole-slide foundation model for digital pathology from real-world data. Nature , 630(8015):181–188, 2024. [14] Dmitry Nechaev, Alexey Pchelnikov, and Ekaterina Ivanova. Hibou: A family of foundational vision transformers for pathology. arXiv preprint arXiv:2406.05074 , 2024. [15] Nanne Aben, Edwin D de Jong, Ioannis Gatopoulos, Nicolas Känzig, Mikhail Karasikov, Axel Lagré, Roman Moser, Joost van Doorn, Fei Tang, et al. Towards large-scale training of pathology foundation models. arXiv preprint arXiv:2404.15217 , 2024. [16] Lianghui Zhu, Xitong Ling, Minxi Ouyang, Xiaoping Liu, Tian Guan, Mingxi Fu, Zhiqiang Cheng, Fanglei Fu, Maomao Zeng, Liming Liu, et al. Subspecialty-specific foundation model for intelligent gastrointestinal pathology. arXiv preprint arXiv:2505.21928 , 2025. [17] Jiawen Li, Jiali Hu, Xitong Ling, Yongqiang Lv, Yuxuan Chen, Yizhi Wang, Tian Guan, Yifei Liu, and Yonghong He. Stainnet: A special staining self-supervised vision transformer for computational pathology. 
+
+arXiv preprint arXiv:2512.10326 , 2025. 
+
+10 [18] Jiabo Ma, Zhengrui Guo, Fengtao Zhou, Yihui Wang, Yingxue Xu, Jinbang Li, Fang Yan, Yu Cai, Zhengjie Zhu, Cheng Jin, et al. A generalizable pathology foundation model using a unified knowledge distillation pretraining framework. Nature Biomedical Engineering , pages 1–20, 2025. [19] Mikhail Karasikov, Joost van Doorn, Nicolas Känzig, Melis Erdal Cesur, Hugo Mark Horlings, Robert Berke, Fei Tang, and Sebastian Otálora. Training state-of-the-art pathology foundation models with orders of magnitude less data. arXiv preprint arXiv:2504.05186 , 2025. [20] Saarthak Kapse, Mehmet Aygün, Elijah Cole, Emma Lundberg, Le Song, and Eric P Xing. Genbio-pathfm: A state-of-the-art foundation model for histopathology. bioRxiv , pages 2026–03, 2026. [21] Zhi Huang, Federico Bianchi, Mert Yuksekgonul, Thomas J Montine, and James Zou. A visual–language foundation model for pathology image analysis using medical twitter. Nature medicine , 29(9):2307–2316, 2023. [22] Ming Y Lu, Bowen Chen, Drew FK Williamson, Richard J Chen, Ivy Liang, Tong Ding, Guillaume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, et al. A visual-language foundation model for computational pathology. Nature medicine , 30(3):863–874, 2024. [23] Tong Ding, Sophia J Wagner, Andrew H Song, Richard J Chen, Ming Y Lu, Andrew Zhang, Anurag J Vaidya, Guillaume Jaume, Muhammad Shaban, Ahrong Kim, et al. A multimodal whole-slide foundation model for pathology. Nature medicine , pages 1–13, 2025. [24] Jinxi Xiang, Xiyue Wang, Xiaoming Zhang, Yinghua Xi, Feyisope Eweje, Yijiang Chen, Yuchen Li, Colin Bergstrom, Matthew Gopaulchan, Ted Kim, et al. A vision–language foundation model for precision oncology. Nature , 638(8051):769–778, 2025. [25] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In International Conference on Medical image computing and computer-assisted intervention , pages 234–241. Springer, 2015. [26] Shangke Liu, Mohamed Amgad, Deeptej More, Muhammad A Rathore, Roberto Salgado, and Lee AD Cooper. A panoptic segmentation dataset and deep-learning approach for explainable scoring of tumor-infiltrating lymphocytes. NPJ Breast Cancer , 10(1):52, 2024. [27] Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L Yuille, and Yuyin Zhou. Transunet: Transformers make strong encoders for medical image segmentation. arXiv preprint arXiv:2102.04306 , 2021. [28] Zhe Chen, Yuchen Duan, Wenhai Wang, Junjun He, Tong Lu, Jifeng Dai, and Yu Qiao. Vision transformer adapter for dense predictions. arXiv preprint arXiv:2205.08534 , 2022. [29] Zixuan Pan, Jianxu Chen, and Yiyu Shi. Masked diffusion as self-supervised representation learner. arXiv preprint arXiv:2308.05695 , 2023. [30] Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell, and Saining Xie. A convnet for the 2020s. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11976–11986, 2022. [31] Sanghyun Woo, Shoubhik Debnath, Ronghang Hu, Xinlei Chen, Zhuang Liu, In So Kweon, and Saining Xie. Convnext v2: Co-designing and scaling convnets with masked autoencoders. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 16133–16142, 2023. [32] William Peebles and Saining Xie. Scalable diffusion models with transformers. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4195–4205, 2023. [33] Ozan Oktay, Jo Schlemper, Loic Le Folgoc, Matthew Lee, Mattias Heinrich, Kazunari Misawa, Kensaku Mori, Steven McDonagh, Nils Y Hammerla, Bernhard Kainz, et al. Attention u-net: Learning where to look for the pancreas. arXiv preprint arXiv:1804.03999 , 2018. [34] Quoc Dang Vu, Simon Graham, Tahsin Kurc, Minh Nguyen Nhat To, Muhammad Shaban, Talha Qaiser, Navid Alemi Koohbanani, Syed Ali Khurram, Jayashree Kalpathy-Cramer, Tianhao Zhao, et al. Methods for segmentation and classification of digital microscopy tissue images. Frontiers in bioengineering and biotechnology , 7:53, 2019. [35] Andrew Janowczyk and Anant Madabhushi. Deep learning for digital pathology image analysis: A comprehensive tutorial with selected use cases. Journal of pathology informatics , 7(1):29, 2016. 
+
+11 [36] Simon Graham, David Epstein, and Nasir Rajpoot. Dense steerable filter cnns for exploiting rotational symmetry in histology images. IEEE Transactions on Medical Imaging , 39(12):4124–4136, 2020. [37] Peter Naylor, Marick Laé, Fabien Reyal, and Thomas Walter. Segmentation of nuclei in histopathology images by deep regression of the distance map. IEEE transactions on medical imaging , 38(2):448–459, 2018. [38] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. Advances in neural information processing systems , 33:6840–6851, 2020. [39] Diederik P Kingma and Max Welling. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114 ,2013. [40] Peixian Liang, Songhao Li, Shunsuke Koga, Yutong Li, Zahra Alipour, Yucheng Tang, Daguang Xu, and Zhi Huang. Vista-path: An interactive foundation model for pathology image segmentation and quantitative analysis in computational pathology. arXiv preprint arXiv:2601.16451 , 2026. [41] Ziyi Li, Qinye Zhou, Xiaoyun Zhang, Ya Zhang, Yanfeng Wang, and Weidi Xie. Open-vocabulary object segmentation with diffusion models. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 7667–7676, 2023. [42] Dmitry Nechaev, Alexey Pchelnikov, and Ekaterina Ivanova. Histai: an open-source, large-scale whole slide image dataset for computational pathology. arXiv preprint arXiv:2505.12120 , 2025. 
+
+12 A Theoretical Overview of ConvNeXt Masked-Diffusion Models 
+
+Masked-diffusion pretraining can be viewed as a self-supervised relaxation of denoising diffusion models for dense representation learning. In a standard DDPM, an image x0 ∼ q(x0) is corrupted by Gaussian noise at timestep t, and a time-conditioned network is trained to predict either the injected noise or the clean image. In contrast, masked diffusion replaces Gaussian corruption with timestep-controlled structural masking. This change removes the requirement that the forward process correspond to a valid generative diffusion chain, but preserves the key representation-learning property: the model must recover the original signal from corruptions of varying difficulty. Given an unlabeled pathology image patch x0 ∈ RH×W ×C , we divide it into N = HW/P 2
+
+non-overlapping patches with patch size P . A timestep t ∼ U{ 1, . . . , T } determines the masking ratio 
+
+rt = tT + 1 . (1) Let mt ∈ { 0, 1}H×W ×C be a binary patch mask obtained by randomly masking ⌊rtN ⌋ patches and broadcasting the patch-level mask to pixels. The corrupted input is 
+
+xt = M(x0, t ) = mt ⊙ x0, (2) where ⊙ denotes element-wise multiplication. Larger timesteps therefore correspond to stronger structural occlusion rather than stronger Gaussian noise. The model is trained to reconstruct the clean image from the partially observed input: 
+
+ˆx0 = fθ (xt, t, z pfm ), (3) where fθ is a ConvNeXt-U-Net masked-diffusion backbone and zpfm denotes an optional frozen pathology foundation model feature. The ConvNeXt-U-Net architecture provides a locality-preserving alternative to token-based diffusion backbones. Its encoder-decoder structure extracts multi-scale dense features, while skip connections preserve high-resolution morphology. Timestep and pathology conditions are projected into a shared conditioning vector, 
+
+c = ϕt(t) + ϕz (zpfm ), (4) and injected into ConvNeXt blocks through adaptive normalization, e.g., 
+
+AdaLN( u, c ) = γ(c) ⊙ LN( u) + β(c), (5) where γ(c) and β(c) are learned scale and shift parameters. This allows the same convolutional backbone to adapt its reconstruction behavior to both the corruption level and pathology-aware semantic context. Following the masked diffusion formulation, the pretraining loss compares the reconstruction ˆx0 with the original image x0. A pixel reconstruction objective can be written as 
+
+Lrec = Ex0,t 
+
+∥x0 − fθ (xt, t, z pfm )∥1
+
+ . (6) To better align reconstruction pretraining with downstream dense prediction, one may also use a structural similarity loss: 
+
+LSSIM (x0, ˆx0) = 1 − SSIM( x0, ˆx0)2 , (7) where 
+
+SSIM( x, ˆx) = (2 μxμˆx + c1)(2 σxˆx + c2)(μ2 
+
+> x
+
++ μ2ˆx + c1)( σ2 
+
+> x
+
++ σ2ˆx + c2) . (8) Here μ, σ2, and σxˆx denote local means, variances, and covariance, while c1 and c2 stabilize the division. The overall masked-diffusion objective can therefore be expressed as 
+
+LCMD = Ex0,t [λ1 ∥x0 − ˆx0∥1 + λsLSSIM (x0, ˆx0)] , (9) with λ1 and λs controlling the balance between pixel fidelity and structural consistency. After pretraining, the generative reconstruction head is not used for sampling. Instead, the frozen ConvNeXt masked-diffusion model serves as a dense feature extractor. Multi-scale decoder activations are collected at a fixed timestep, resized to a common resolution, and passed to a lightweight segmentation head. Thus, the model transfers the structural representations learned from unlabeled masked reconstruction to cell-level dense prediction with limited annotation. 13 B Experimental Details 
+
+B.1 Datasets 
+
+We use unlabeled pathology patches sourced from the public HistAI collection [ 42 ] for masked-diffusion pretraining and evaluate the learned frozen representations on downstream cell-level dense prediction datasets. Figure B1 summarizes the organ-source distribution of the unlabeled pretraining corpus. We strictly confirm that the pretraining dataset contains no overlapping samples with downstream evaluation data to eliminate data leakage concerns. 
+
+Figure B1: Organ-source distribution of unlabeled pathology images used for masked-diffusion pretraining. The left donut chart shows the 55,000-image method-development corpus, and the right donut chart shows the 1,048,349-image large-scale experimental corpus. 
+
+B.2 ConvNeXt Masked-Diffusion Architecture Details 
+
+Table B1 summarizes the architectural differences between CMD-B and CMD-L, together with their shared ConvNeXt masked-diffusion design. The two variants use the same U-shaped topology and differ mainly in model width. CMD-L increases the number of channels at each stage, providing higher representation capacity while preserving the same resolution hierarchy, block allocation, conditioning mechanism, and downstream feature extraction protocol. 
+
+B.3 Downstream Segmentation Head 
+
+After pretraining, the CMD diffusion backbone is frozen and used as a dense feature extractor. We evaluate two downstream segmentation heads, as illustrated in Fig. B2. The first is a lightweight segmentation head with 7.15M trainable parameters, corresponding to the setting reported in Table 5. The second is a stronger SOTA-level segmentation head with 21.21M trainable parameters, also reported in Table 5. Multi-scale           
+
+> Dense Features
+> Upsample
+> & Concat
+> (Cin ,𝐻𝐻 ,𝑊𝑊 )
+> (512, 𝐻𝐻 ,𝑊𝑊 )
+> Conv3x3
+> Conv3x3
+> (16, 𝐻𝐻 ,𝑊𝑊 )
+> …
+> Conv3x3
+> ConvNext
+> Unet
+> Multi-scale
+> Dense Features
+> ConvNext
+> Unet
+> 1 x 1 Conv
+> 1 x 1 Conv
+> 1 x 1 Conv
+> 1 x 1 Conv
+> Concat
+> Concat
+> Upsample
+> Concat
+> Mix-Conv Upsample
+> Mix-Conv Upsample
+> Mix-Conv Upsample
+> (A) Lightweight Segmentation Head with Only 7.15M Parameters (B) SOTA Segmentation Head with 21.21M Parameters
+
+Figure B2: Two downstream segmentation heads built on frozen CMD dense features. (A) The lightweight segmentation head has 7.15M trainable parameters and fuses multi-scale decoder features in a top-down manner. (B) The SOTA-level segmentation head has 21.21M trainable parameters and uses a convolutional decoder after multi-scale feature concatenation. For the lightweight head in Fig. B2(A), we follow the visual encoder design of Li et al. [ 41 ]. Multi-scale decoder features are extracted from selected frozen diffusion decoder stages. Each feature is 14 Table B1: Architecture details of CMD-B and CMD-L. Variant-specific settings are listed at the top, while shared architectural components are grouped below.                                                                    
+
+> Component CMD-B CMD-L
+> Base channel width 256 512 Channel hierarchy 256 ,256 ,256 ,512 ,512 ,1024 512 ,512 ,512 ,1024 ,1024 ,2048
+> Trainable parameters ∼130.75M ∼516.71M
+> Shared ConvNeXt Masked-Diffusion Design
+> Input/output RGB pathology image input and RGB reconstruction target at
+> 256 ×256 resolution. Backbone topology ConvNeXt-style U-Net with five downsampling stages, a bottle-neck, and five mirrored decoder stages. Resolution hierarchy 256 2→128 2→64 2→32 2→16 2→82, followed by symmetric upsampling back to 256 2.Encoder depth The five encoder stages contain 1,2,3,2,2ConvNeXt blocks, respectively. Bottleneck depth The lowest-resolution 8×8bottleneck contains 6 ConvNeXt blocks for global tissue-context aggregation. Decoder depth The five decoder stages contain 2,2,3,2,1ConvNeXt blocks, respectively. Total ConvNeXt blocks 26 blocks in total. ConvNeXt block 7×7depthwise convolution, LayerNorm, pointwise MLP, GELU, GRN, residual connection, and adaptive modulation. MLP expansion ratio 3. Down/up sampling Pixel-unshuffle downsampling and pixel-shuffle upsampling. Skip connection Encoder features are concatenated with decoder features at the same resolution and compressed by a 1×1convolution. Conditioning Diffusion timestep embedding and frozen pathology feature are projected to each stage dimension and fused by addition. Condition injection Adaptive LayerNorm-Zero modulation is applied in every Con-vNeXt block. Feature extraction During downstream dense prediction, the reconstruction output is discarded and multi-scale decoder features are reused as frozen dense representations.
+
+first projected to a unified dimension d = 256 by a 1 × 1 convolution. Starting from the coarsest scale, features are progressively upsampled, concatenated with the next finer feature map, and blended by a Mix-Conv module. Each Mix-Conv contains two 3 × 3 convolutions with a residual connection and conditional batch normalization. The final fused feature is passed to a lightweight 1 × 1 convolutional segmentation head. For the SOTA-level head in Fig. B2(B), dense features from selected decoder blocks are resized to the target segmentation resolution and concatenated along the channel dimension, producing a feature map of shape (Cin , H, W ). In the FCDM-L setting, Cin = 4096 using decoder blocks [1 , 3, 5, 6, 8, 9] 
+
+at diffusion step t = 50 . The head first applies a 3×3 convolution with batch normalization and ReLU to reduce the channel dimension to 512, followed by four convolutional decoder blocks with output channels 256, 128, 64, and 16. Each block contains two 3 × 3 Conv-BN-ReLU layers and preserves spatial resolution. A final 3 × 3 convolution maps the 16-channel feature map to segmentation logits. 
+
+B.4 Hyperparameters and Implementation Details of Method-Section 
+
+We summarize the configuration used in our method-section. Table B2 details the architectural specifications of the compared backbones. To keep the comparison controlled, ConvNeXt-U-Net, Attention U-Net, and DiT are trained with the same masked-diffusion objective and the same frozen pathology foundation model conditioning, with unified pretraining and downstream training settings summarized in Table B3. The ConvNeXt-U-Net model is our default backbone, while Attention U-Net-B and DiT-B serve as architecture ablations. 15 Table B2: Backbone configurations for method-section masked-diffusion models. 
+
+Configuration ConvNeXt-U-Net Attention U-Net DiT 
+
+Backbone type ConvNeXt-style U-Net Hybrid-style U-Net Transformer Default input space Pixel space Pixel / VAE latent VAE latent Input size 256 × 256 256 × 256 256 × 256 
+
+Parameters ∼130.75M ∼132.65M ∼131M 
+
+Table B3: Shared masked-diffusion and downstream training settings of Method-Section. 
+
+Configuration Setting 
+
+Pretraining data 55,000 unlabeled pathology images Diffusion timesteps T = 1000 
+
+Pixel-space mask 8 × 8 patches, producing a 32 × 32 mask grid VAE-space mask 4 × 4 latent patches, producing an 8 × 8 mask grid Optimizer AdamW, weight decay 0 Pretraining schedule 50,000 steps, learning rate 3 × 10 −5
+
+EMA 0.9999 Pathology conditioning Frozen UNI feature, 1024 dimensions VAE variant SD-VAE with 4 latent channels and scaling factor 0.18215 Downstream protocol Linear Probe Downstream timestep t = 50 
+
+Downstream training 150 epochs, AdamW, learning rate 10 −3, cosine schedule Downstream loss Cross-entropy plus Dice loss 
+
+C Comparison with Test-Time Training 
+
+We further compare CMD-L with Test-Time Training (TTT) on CPM-17 and TNBC. TTT relies on test-time optimization, while CMD-L uses a frozen pretrained diffusion backbone and performs standard feed-forward inference with downstream segmentation heads. As shown in Table C1, CMD-L achieves performance close to TTT without test-time adaptation, highlighting the effectiveness of the learned frozen dense representation .Table C1: Comparison between Test-Time Training (TTT) and CMD-L on CPM-17 and TNBC. CMD-L is evaluated with two downstream segmentation heads from Fig. B2. Results are reported as mean Dice/Precision with 95% confidence intervals.          
+
+> Method CPM-17 TNBC
+> Dice Precision Dice Precision
+> CMD-L(ours)
+> + SegHead: Fig. B2(A) 0.865
+> [0.827, 0.902]
+> 0.901
+> [0.876, 0.925]
+> 0.854
+> [0.824, 0.891]
+> 0.851
+> [0.822, 0.876]
+> CMD-L(ours)
+> + SegHead: Fig. B2(B) 0.880
+> [0.847, 0.908]
+> 0.883
+> [0.860, 0.920]
+> 0.854
+> [0.835, 0.874]
+> 0.830
+> [0.802, 0.858]
+> CMD-L(ours) + TTT + SegHead: Fig. B2(B) 0.885
+> [0.862, 0.908]
+> 0.892
+> [0.866, 0.924]
+> 0.861
+> [0.842, 0.880]
+> 0.860
+> [0.823, 0.894]
+
+16

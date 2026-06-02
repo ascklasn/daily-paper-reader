@@ -1,0 +1,1286 @@
+Title: ConceptM^3oE: Concept-Guided Multimodal Mixture of Experts for Interpretable Computational Pathology
+
+URL Source: https://arxiv.org/pdf/2605.24399v2
+
+Published Time: Fri, 29 May 2026 00:22:47 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# ConceptM 3oE: Concept-Guided Multimodal Mixture of Experts for Interpretable Computational Pathology 
+
+Xuan Wang 1, ∗, Zhongling Xu 1, ∗, Gopi Kannedhara 1, Joakim Nguyen 1, Jian Yu 1, Jinrui Fang 1,Abdurrahmaan Baghdadi 1, Tianlong Chen 2, Awais Naeem 1, Chandra Krishnan 3, Edward Castillo 1,Andrew H. Song 4, Ankita Shukla 5, Ying Ding 1, Nicholas Konz 2, †, Hairong Wang 1, † 
+
+> 1
+
+University of Texas at Austin, Austin, TX, USA  
+
+> 2
+
+University of North Carolina at Chapel Hill, NC, USA  
+
+> 3
+
+Dell Children’s Medical Center, Austin, TX, USA  
+
+> 4
+
+The University of Texas MD Anderson Cancer Center, Houston, TX, USA  
+
+> 5
+
+University of Nevada, Reno, NV, USA 
+
+{xuan.wang, xuzhl}@austin.utexas.edu nickk124@cs.unc.edu, hairong.wang@austin.utexas.edu 
+
+Abstract 
+
+Healthcare models are transitioning from unimodal prediction toward multimodal reasoning over heterogeneous diagnostic inputs. In computational pathology, for complex tumor subtypes where morphology alone can be challenging to distinguish, pathology reports and molecular measurements may provide additional diagnostic evidence alongside whole-slide images, yet existing models often fail to clarify how diverse signals assemble into recognizable diagnostic concepts. We propose 
+
+ConceptM 3oE (Concept M ulti modal MoE ), which embeds concept formation directly within interaction-aware mixture-of-experts (MoE) pathways. The archi-tecture decomposes evidence into modality-specific, redundant, and synergistic experts, which are then projected into structured concept bottlenecks mapping la-tent features to a hierarchy of morphology and biomarker concepts. To prevent the information loss typical of interpretable bottlenecks, we utilize residual pathways within each expert to allow task-relevant signals to flow both through the concepts and directly to the final task prediction, so that high performance is maintained alongside interpretability. Across an institutional pediatric brain tumor cohort and a public glioma cohort, the framework delivers competitive performance to un-constrained models while producing reasoning traces validated by an independent neuropathologist. In data-limited regimes, ConceptM 3oE improves limited-data performance, increasing macro-F1 from 56.41% to 66.70% at small training sizes compared to non-concept-informed baselines, while also showing faster training convergence consistent with the regularizing effect of concept learning. This work offers a scalable path toward high-performance medical AI that is inherently verifiable and better aligned with the complex decision-making of clinical practice. 
+
+1 Introduction 
+
+Data-driven models have revolutionized diagnostic and prognostic workflows in healthcare, driven by progress in medical image analysis, clinical outcome prediction, biomedical foundation models, and multimodal diagnostic systems [ 2, 29 , 46 ]. A primary objective of these systems is the synthesis of        
+
+> ∗Equal contribution. †Corresponding authors. Preprint.
+> arXiv:2605.24399v2 [cs.AI] 27 May 2026 Common Approaches Our Innovation
+> Prediction
+> Multimodal
+> evidence
+> Prediction Black-box
+> multimodal
+> model
+> ?
+> Concept-guided
+> Unimodal/Multimodal
+> Expert Module
+> Expert-1 Expert-2 Redundancy Synergy
+> Concept-wise attribution
+> Cellularity
+> Pleomorphism
+> ...
+> +
+> Concept embedding
+> Accurate
+> Interpretable
+> Accurate
+> Interpretable
+> Concept-guided
+> Multimodal
+> Evidence
+
+Figure 1: Illustrative comparison. Left: Common multimodal models produce accurate but opaque predictions from WSI and cell-graph evidence. Right: Our concept-guided expert module links predictions to morphology concepts with unimodal and cross-modal attribution. Predictions are informed by concepts attributed separately to unimodal and cross-modal evidence. heterogeneous patient data to facilitate reliable clinical decision-making. Computational pathology has emerged as a critical domain for these methodologies, as whole-slide images (WSIs) provide high-resolution tissue-level evidence for cancer diagnosis, prognosis, and biomarker identification [ 27 , 7 , 48 , 17 , 11 ]. However, definitive pathological diagnosis is seldom predicated on image-based patterns alone. In practice, pathologists synthesize evidence from morphology, cellular architecture, and molecular or biomarker profiles, an integrative approach that is critical in oncology for distinguishing clinically distinct tumor subtypes [24, 4, 8, 44, 28, 37, 38]. The complexity of cancer diagnosis necessitates multimodal learning to integrate images, clinical variables, and molecular data [ 3 , 23 , 22 , 2 , 29 , 46 ]. Prior research has established various fusion archi-tectures, ranging from early and late fusion to tensor based, low-rank and attention driven approaches to model cross-modal interactions [ 33 , 56 , 25 , 31 , 52 , 9]. In oncology, these methodologies have been applied to integrate histopathology, genomics, and EHR data for clinical outcome prediction and biomarker discovery [ 16 , 42 , 24 , 4 , 8 , 47 ]. Mixture-of-experts (MoE) architectures offer further flexibility by specializing pathways to specific input sources or interaction patterns [ 18 , 19 , 39 , 30 , 5]. Recent work has explicitly modeled modality-specific, redundant, and synergistic expert interactions to improve transparency via expert reweighting [ 51 ]. However, clinical reliability requires not only correct information weighting but also evidence utilization consistent with pathological reasoning. Useful explanations should demonstrate how evidence from each source contributes to recognizable diagnostic features before affecting the final prediction, a level of detail current multimodal methods seldom provide. Concept-based learning grounds model predictions in human-interpretable intermediate variables. Concept bottleneck models (CBM) enable inspection by predicting concepts prior to the final label [21 ], while concept embedding models (CEM) utilize high-dimensional representations to mitigate accuracy-interpretability trade-offs [ 12 ]. Subsequent research has introduced functional variants including post-hoc, probabilistic, and language-guided models [ 55 , 35 , 20 , 53 , 41 , 6], alongside structured concept organizations [ 10 , 36 , 50 , 15 , 49 ]. In parallel, computational pathology has progressed through weakly supervised foundation models [27, 7, 48], vision-language architectures utilizing pathology reports [ 17 , 26 , 11 ], and multimodal integration of histopathology with omics data [ 8 , 9, 43 , 47 , 34 , 54 ]. However, while these pathology frameworks achieve strong performance, they typically do not employ concept-guided reasoning, relying instead on high-dimensional fusion that lacks semantic transparency. Consequently, explanations remain limited to slide or modality-level importance, failing to bridge the gap between multimodal evidence and recognizable clinical reasoning. To address these challenges, we introduce ConceptM 3oE (Concept M ulti modal MoE ), a concept-informed multimodal prediction model which establishes a structured semantic interface between multimodal evidence and diagnostic decisions. An overview of ConceptM 3oE is shown in Fig. 1. Unlike standard fusion models, ConceptM 3oE embeds concept learning directly within an interaction-aware Mixture-of-Experts (MoE) architecture. Each expert, specialized either for unimodal evidence or for capturing redundant or synergistic cross-modal interactions, is internally structured as a CEM that maps latent features to clinical descriptors. These expert-specific representations are then organized into a two-level hierarchy where morphology concepts facilitate the learning of biomarker 2and molecular concepts, reflecting the clinical dependency between histological patterns and genetic status. To mitigate the performance degradation typically associated with interpretable bottlenecks, each expert utilizes a residual pathway to allow task-relevant signals to flow both through the human-understandable concepts and directly to the final task prediction, ensuring the model maintains high predictive power alongside transparency. Across two pediatric brain tumor cohorts comprising an institutional dataset and the public TCGA-GBM dataset, ConceptM 3oE achieves performance competitive with unconstrained models while producing modality attribution and concept-informed reasoning traces validated by an independent neuropathologist. Notably, in data-limited regimes (N = 50 ), the framework demonstrates significant sample efficiency, increasing macro-F1 from 
+
+56 .41% to 66 .70% and exhibiting highly accelerated training convergence due to the regularizing effect of the structured concept bottleneck. Our contributions are summarized as follows. (1) Multimodality-aware concept representation learning: We formulate morphology concepts as traceable multimodal representations decomposed into modality-specific and cross-modal evidence. When biomarker labels are available, we further extend the model into a hierarchy where morphology concepts inform biomarker-level concepts that are less directly observable from histology but more closely tied to diagnosis. (2) Multilevel interpretability and clinical validation: We provide a framework for verifiable clinical reasoning by decomposing diagnostic features into modality-specific and cross-modal interaction-aware (redundant or synergistic) expert evidence. (3) Competitive performance and sample efficiency: Across institutional and public (TCGA-GBM) pediatric brain tumor cohorts, ConceptM 3oE is competitive with the performance of unconstrained concept-blind models while providing inherent interpretability. 
+
+2 Method 
+
+ConceptM 3oE (illustrated in Fig. 2) is motivated by a diagnostic reasoning question: can a multimodal model organize histopathology-derived input modalities into a transparent pathway from evidence sources to clinically meaningful concepts, then to final diagnosis? In this work, we use WSI and cell-graph as model inputs. Pathology reports and biomarker annotations are used to define the morphology and biomarker concept layers. A pathology concept can be supported by a single source of evidence, by information shared across sources, or by synergistic evidence from multiple sources. For example, cellularity, pleomorphism, mitotic activity, necrosis, and Rosenthal fibers are morphology concepts extracted from pathology reports, while GFAP, Synaptophysin, INI1, H3K27M, and ALK1 are biomarker concepts obtained from available protein-level or molecular annotations. At the diagnostic level, clinically meaningful interpretability requires exposing the concept-to-label mapping, clarifying how morphology and biomarker concepts provide intermediate clinical evidence for the final prediction. ConceptM 3oE is designed to learn this reasoning process by embedding concept formation within an interaction-aware mixture-of-experts architecture. The resulting representation exposes how each concept is predicted from single-source signals, redundant signals shared across sources, or synergistic signals jointly provided by multiple sources, and how these concepts provide intermediate clinical evidence for the final diagnostic prediction. 
+
+2.1 Problem formulation 
+
+Let D = {(X(1)  
+
+> n
+
+, . . . , X(M ) 
+
+> n
+
+, y n)}Nn=1 be a multimodal dataset with M modalities and C diagnostic classes, where X(m) 
+
+> n
+
+is modality m of sample n and yn ∈ { 1, . . . , C }. We use M = 2 histopathology-derived modalities: WSI patch features, capturing local tissue and cytologic patterns, and cell-graph features, capturing cellular organization and neighborhood structure. Each sample is annotated with a two-level concept hierarchy from pathology reports and biomarker annotations: K1 morphology concepts with soft-ordinal targets t1 ∈ [0 , 1] K1 , and K2 biomarker concepts with binary targets 
+
+t2 ∈ { 0, 1}K2 . Appendix F details the vocabulary, extraction prompts, and masking rules. 
+
+2.2 Interaction-decomposed expert evidence 
+
+Each modality is encoded as em = hm(X(m)) ∈ Rd, m = 1 , . . . , M , using a modality-specific encoder hm. In our histopathology setting, M = 2 : WSI patch features are aggregated by gated-attention MIL pooling [ 27 ], while cell-graph features, constructed from the same slide to encode cellular organization and neighborhood structure, are encoded by GraphSAGE-style message passing followed by attention pooling [ 13 ]. Following the interaction semantics of I2MoE [51 ], ConceptM 3oE 
+
+defines E = M + 2 expert pathways, E = {U1, . . . , U M , R, S }, where Um, R, and S respectively capture modality-unique, cross-modal redundant, and cross-modal synergistic evidence. Here, 3Mixture of Concept-Informed Experts          
+
+> Modality 1
+> Expert
+> Output & Interpretability
+> Prediction: Pediatric brain tumor subtype
+> •••
+> Contribution of each expert pathway
+> to each morphology concept
+> Concept contribution by modality
+> WSI Graph Redundancy Synergy
+> Uni-modal
+> expert 1
+> Uni-modal
+> expert 2 Redundancy Synergy
+> Cellularity
+> Pleomorphism
+> Necrosis
+> •••
+> Modality1
+> Modality 2
+> Expert
+> Redundancy
+> Expert
+> Synergy
+> Expert
+> Expert
+> encoder Output
+> Residual pathway
+> +
+> Morphology
+> concept
+> embedding
+> Biomarker
+> concept
+> embedding
+> Expert Architecture
+> Interaction-A ware
+> Expert Aggregation
+> ••• Modality2
+> •••
+> Morphology &
+> Biomarker Concept Reasoning
+> Reasoning as a pathologist
+> Cellularity
+> High
+> Protein
+> Positive
+> WSI
+> Cell
+> graph
+> Morphology
+> concepts
+> Cellularity
+> Pleomorphism
+> Necrosis
+> ...
+> Concept N
+> Protein
+> Genomics
+> ...
+> Biomarker N
+> AHigh-grade CNS tumor
+> Optional
+> biomarker concepts
+
+Figure 2: Overview of the proposed ConceptM 3oE framework. Left: WSI and cell-graph inputs are processed by unimodal, redundancy, and synergy experts, with each expert combining concept embedding and residual pathways. Middle: morphology concepts are learned from multimodal evidence and can further support optional biomarker concepts, forming a clinically meaningful reasoning layer. Right: the model outputs pediatric brain tumor subtype predictions and provides modality- and expert-level interpretability through concept-wise evidence attribution. redundancy denotes diagnostic cues consistently reflected by both WSI and cell-graph representations, whereas synergy denotes cues that become informative only when local tissue appearance and cellular architecture are integrated. Each expert outputs ze = fe([ e1; . . . ; eM ]) ∈ Rd, e ∈ E .Expert semantics are enforced through a perturbation loss. Let pclean 
+
+e denote the prediction of expert 
+
+e from the original modality embeddings, and pme its prediction after injecting Gaussian noise into 
+
+em. We define 
+
+Le
+
+int =
+
+MX
+
+m=1 
+
+sme DKL 
+
+ pclean 
+
+e ∥ pme
+
+ , (1) where sme = −1 if expert e is encouraged to be sensitive to modality m, and sme = +1 if it is encouraged to be invariant. Thus, Um is sensitive only to modality m, R is invariant to single-modality perturbations, and S is sensitive to all modalities. Detailed perturbation and sign conventions are provided in Appendix K.2. 
+
+2.3 Interaction-aware concept formation 
+
+The key difference from a standard concept bottleneck is that concepts are formed inside each expert .For expert e and concept k, we compute positive and negative concept states from the expert latent: 
+
+c+
+
+e,k = LeakyReLU( ϕ+
+
+e,k (ze)) , c−
+
+e,k = LeakyReLU( ϕ−
+
+e,k (ze)) , c±
+
+e,k ∈ Rdc . (2) For ordinal morphology concepts, such as necrosis or pleomorphism, the positive and negative states encode evidence for higher versus lower concept expression, allowing both the presence and relative absence of clinically meaningful findings to inform diagnosis. The scalar concept activation is 
+
+pe,k = σ se,k ([ c+
+
+e,k ; c−
+
+e,k ])  ∈ [0 , 1] , which is supervised by the corresponding concept target. The concept representation passed to the task head is 
+
+ˆce,k = pe,k c+
+
+e,k + (1 − pe,k )c−
+
+e,k + γres ψe,k (ze), (3) where ψe,k : Rd → Rdc is a residual projection and γres ∈ { 0, 1} controls the residual pathway. Here, 
+
+pe,k provides the readable concept value, while ˆce,k preserves within-concept variation and residual evidence beyond the predefined vocabulary, allowing concepts to regularize expert representations without collapsing prediction to a hard list of scalar probabilities. 
+
+Hierarchical concepts. When biomarker annotations are available, concepts are organized into two levels. The first level contains morphology concepts grounded in histologic evidence; the second level contains protein-level and molecular biomarker concepts, which are not directly observable but can be predicted from the expert latent representation and the first-level morphology concepts. This hierarchy reflects brain tumor subtyping practice, where H&E morphology summarizes observable tissue findings and biomarkers provide additional context for subtype refinement. First-level morphology 4concept embeddings are collected as Be, 1 = [ˆ ce, 1; . . . ; ˆ ce,K 1 ] ∈ RK1dc , where each ˆce,k includes the per-concept residual ψe,k (ze) defined in Eq. (3) . The second-level input concatenates the expert latent with the first-level concept embeddings: ze, 2 = [ ze; Be, 1] ∈ Rd+K1dc . Each biomarker block independently maps ze, 2 to ˆce,K 1+j using the same per-concept residual mechanism as Eq. (3) ,yielding 
+
+Be, 2 = [ˆ ce,K 1+1 ; . . . ; ˆ ce,K 1+K2 ] ∈ RK2dc . (4) Thus, morphology-level evidence can inform biomarker-level concept prediction while the raw expert latent remains available. The expert logit is ℓe = ge([ Be, 1; Be, 2]) ∈ RC . If K2 = 0 , the second level is omitted and ℓe = ge(Be, 1).
+
+Soft bottleneck preserves the raw expert predictor. Eq. (3) augments each supervised concept with an embedding and residual projection, providing clinically organized concept coordinates while retaining access to the expert latent. This is useful in pathology, where predefined concepts may only partially cover the visual evidence relevant to diagnosis; the residual pathway preserves complementary signal beyond explicitly supervised concepts. The following proposition formalizes this soft-bottleneck property. For a fixed expert, let re, 1 = [ ψe, 1(ze); . . . ; ψe,K 1 (ze)] and define the representation chain: 
+
+Re, 0 = ze, Re, 1 = [ ze; Be, 1; re, 1], Re, 2 = [ ze; Be, 1; re, 1; Be, 2]. (5) 
+
+Proposition 1 (Soft concept augmentation preserves the raw expert predictor) . Let Y be the class label and R⋆
+
+> log
+
+(R) = inf q E[− log q(Y | R)] be the optimal population log-loss from representation 
+
+R. The representations in Eq. (5) satisfy I(Re, 0; Y ) ≤ I(Re, 1; Y ) ≤ I(Re, 2; Y ) and R⋆
+
+> log
+
+(Re, 2) ≤R⋆
+
+> log
+
+(Re, 1) ≤ R ⋆
+
+> log
+
+(Re, 0). Moreover, if Fj denotes the task-head class on Re,j and the head can zero out appended coordinates, then F0 ⊆ F 1 ⊆ F 2. Let bLcls (f ; Re,j ) be the empirical classification loss of head f on representation Re,j . Then 
+
+inf  
+
+> f∈F 2
+
+bLcls (f ; Re, 2) ≤ inf  
+
+> f∈F 1
+
+bLcls (f ; Re, 1) ≤ inf  
+
+> f∈F 0
+
+bLcls (f ; Re, 0).
+
+If the appended concept and residual coordinates are deterministic functions of ze and ze is retained, then the information guarantee becomes exact preservation: I(Re,j ; Y ) = I(ze; Y ) for j ∈ { 0, 1, 2}.
+
+We evaluate this property through the information-plane analysis in Figs. 5c and 5d, where concept-augmented representations retain label-relevant dependence rather than collapsing into a lossy scalar bottleneck. The proof is in Appendix K.5. 
+
+2.4 Training objective and statistical interpretation 
+
+The model is optimized with classification, concept supervision, and interaction specialization: 
+
+L = Lcls + λ1LL1 concept + λ2LL2 concept + λint Lint , where Lcls is class-weighted cross-entropy, Lint =
+
+|E| −1 P 
+
+> e∈E
+
+Le
+
+> int
+
+, and λ1, λ 2, λ int are hyperparameters. Concept supervision is applied only to observed concepts: 
+
+LLq 
+
+> concept
+
+= 1
+
+|E| 
+
+X
+
+> e∈E
+
+P
+
+> n∈B
+
+P 
+
+> k∈K q
+
+mqn,k ℓq (pe,n,k , t qn,k )
+
+P
+
+> n∈B
+
+P 
+
+> k∈K q
+
+mqn,k + ε , q ∈ { 1, 2}, (6) where B is a minibatch, Kq is the concept index set at level q, mqn,k indicates whether concept k is observed for sample n, ℓq is the level-specific concept loss, and ε prevents division by zero. 
+
+Concept supervision localizes the predictor class. Let H be the predictor class induced by the architecture, ℓcls (h(X), Y ) the per-sample classification loss, and Rcls (h) = E[ℓcls (h(X), Y )] and 
+
+bRcls (h) = n−1 Pni=1 ℓcls (h(Xi), Y i) its population and empirical risks. Let RLq
+
+> concept
+
+(h) denote the population counterpart of Eq. (6) , and define C(h) = λ1RL1 concept (h) + λ2RL2 concept (h). For τ ≥ 0,consider the localized class Hτ = {h ∈ H : C(h) ≤ τ }. The concept terms in the training objective can be viewed as a Lagrangian relaxation of this constrained formulation, guiding the model toward clinically aligned representations while retaining the diagnostic objective. 
+
+Theorem 1 (Concept-aligned localization) . Assume 0 ≤ ℓcls (h(X), Y ) ≤ Bℓ for all h ∈ H τ , and let ˆhτ ∈ arg min h∈H τ
+
+bRcls (h). Then, with probability at least 1 − δ,
+
+Rcls (ˆhτ ) ≤ inf 
+
+> h∈H τ
+
+Rcls (h) + 4 Rn(ℓcls ◦ H τ ) + 2 Bℓ
+
+r log(2 /δ )2n ,
+
+5where Rn(ℓcls ◦ H τ ) is the empirical Rademacher complexity. Since Hτ ⊆ H , Rn(ℓcls ◦ H τ ) ≤
+
+Rn(ℓcls ◦ H ). If Hτ is nearly task-sufficient, i.e., inf h∈H τ Rcls (h) ≤ inf h∈H Rcls (h) + ϵapp , then localization improves the finite-sample bound whenever the complexity reduction exceeds ϵapp .
+
+Theorem 1 shows that clinical concepts can localize the search space while preserving diagnostic predictors. We evaluate this in the subsampling experiment in Fig. 5a; the proof is in Appendix K.6. 
+
+Optimization implication. The same objective also introduces auxiliary gradients from concept su-pervision and interaction specialization. Proposition 2 in Appendix K.7 shows that, under smoothness, Polyak-Łojasiewicz (PL) condition, and gradient-alignment conditions, the joint update contracts the classification loss faster than the task-only update. This explains Fig. 5b: faster convergence is expected when the auxiliary gradients align with the diagnostic objective. 
+
+3 Experiments 
+
+We evaluate ConceptM 3oE across four key dimensions: (1) predictive performance on par with state-of-the-art multimodal baselines (Sec. 3.2); (2) the clinical validity and interpretability of the learned concept activations and expert gates (Sec. 3.3); (3) predictive robustness in data-limited regimes and training convergence dynamics (Sec. 3.4); and (4) the preservation and semantic reorganization of task-relevant information, analyzed via the information plane (Sec. 3.5). Extensive architectural ablation studies are deferred to Appendix H. 
+
+3.1 Experimental Setup Datasets. We evaluate on an institutional pediatric brain tumor cohort (PBT) from Dell Children’s Medical Center and a public adult glioma cohort (TCGA) [ 14 , 40 , 32 ]. Central nervous system (CNS) tumors provide a clinically relevant setting because complex subtyping often relies on morphology together with immunohistochemical or molecular evidence. PBT is primary cohort, while TCGA provides an external cohort with related CNS tumor classes for assessing cross-cohort generalization. PBT contains 199 diagnostic WSIs from 196 patients across 4 classes: Ependymoma, High-grade CNS, Low-grade CNS, and Non-glial. Each sample provides WSI patches (UNIv2 [ 7]), a cell graph, and pathology report text. Concept annotations are LLM-extracted from reports: K1 morphology concepts (soft ordinal in [0 , 1] ) and K2 IHC biomarker concepts (binary labels, for PBT only). The TCGA dataset contains 208 WSIs from 67 patients across 2 classes: High-grade CNS and Low-grade CNS. 
+
+Evaluation Protocol. All models are evaluated via cross-validation with strict patient-level splits to prevent data leakage. The primary evaluation metric is macro-averaged F1. We also report per-class precision and recall.                                                                                
+
+> Table 1: Backbone comparison on PBT and TCGA datasets. ConceptM 3oE is the flat (morph) variant. “HG/LG”= HG/LG-CNS. “NGT” = Non-glial tumor. Bold : best, underline: second best.
+> PBT TCGA Per-class F1 Macro Per-class F1 Macro Model Epend. LG HG NGT PRF1 LG HG PRF1 Early Fusion 0.600 0.844 0.742 0.732 0.746 0.735 0.729 0.810 0.815 0.839 0.825 0.812 MoEPP 0.400 0.864 0.792 0.737 0.728 0.703 0.698 0.816 0.816 0.857 0.824 0.816 Switch Gate 0.200 0.859 0.775 0.773 0.673 0.662 0.652 0.782 0.815 0.833 0.808 0.799 PathMoE 0.600 0.914 0.821 0.862 0.812 0.801 0.799 0.853 0.888 0.890 0.875 0.871
+> ConceptM 3oE 0.600 0.884 0.821 0.787 0.782 0.765 0.773 0.871 0.771 0.831 0.823 0.821
+
+Baselines. We compare ConceptM 3oE against two families of state-of-the-art methods: (1) MoE-based fusion models operating on WSI, text, and graph modalities, including Early Fusion, MoEPP, Switch Gate, and PathMoE [ 54 ] ( I2MoE ); and (2) Concept-aware models , including CBM [ 21 ] and CEM [12], augmented with different backbones and concept hierarchies. Detailed dataset preprocessing, optimization, and hardware configurations are deferred to Appendix A. 
+
+3.2 Main Results 
+
+Table 1 compares standard multimodal fusion baselines: Early Fusion, MoEPP, Switch Gate, and PathMoE [ 54 ], against ConceptM 3oE . Table 2 ablates the bottleneck design within the ConceptM 3oE 
+
+6family. The flat variant uses a single concept layer of biomarkers; the hier variant uses two layers, with morphology concepts in the first layer feeding into biomarkers in the second. The (CBM) ablation replaces the continuous concept embeddings (CEM) with discrete CBM-style scalar predictions, isolating the contribution of the embedding-based bottleneck. The (WSI-only) ablation removes the graph modality entirely, retaining only the WSI expert to quantify the value of multimodal evidence. All variants are evaluated under identical training settings. 
+
+Table 2: Concept-bottleneck variants of ConceptM 3oE on PBT. “HG/LG”= HG/LG-CNS. “NGT" = Non-glial tumor. 
+
+Per-class F1 Macro Concept 
+
+ConceptM 3oE 
+
+Variant Epend. LG HG NGT P R F1 AUROC flat (CBM+bio) 0.400 0.389 0.591 0.278 0.421 0.426 0.415 0.645 flat (morph) 0.600 0.884 0.821 0.787 0.782 0.765 0.773 0.672 flat (bio) 0.500 0.878 0.809 0.810 0.768 0.753 0.749 0.726 hier (WSI+morph+bio) 0.500 0.869 0.812 0.772 0.752 0.741 0.738 0.700 hier (CBM+morph+bio) 0.233 0.421 0.586 0.232 0.372 0.395 0.368 0.585 hier (morph+bio) 0.500 0.873 0.798 0.818 0.760 0.740 0.747 0.761 
+
+3.3 Interpretability Analysis 
+
+ConceptM 3oE ’s gating network produces a per-sample weight vector α = softmax( g(x)) over experts; class-averaged α reveals which evidence ConceptM 3oE relies on for which tumor type, a quantitative view of modality usage opaque in standard fusion models that lets us check whether learned specializations align with histopathological expectations. 0.2      
+
+> 0.4
+> 0.6
+> 0.8
+> 1
+> cellularity
+> pleomorphism
+> mitotic
+> necrosis
+> rosenthal
+> GFAP
+> Synaptophysin
+> INI1
+> H3K27M
+> ALK1
+> L1 morphology vs. L2 biomarker
+> WSI Graph Redundancy Synergy
+
+(a) Per-expert concept AUROC. 0.1     
+
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> Ependymoma
+> (N=10)
+> High-grade CNS
+> (N=63)
+> Low-grade CNS
+> (N=89)
+> Non-glial
+> (N=40)
+> WSI Graph Redundancy Synergy
+
+(b) Per-class gate weights. WSI Graph Redundancy Synergy   
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Mean gate weight
+> 0.194
+> 0.508
+> 0.157 0.140
+
+(c) Overall routing distribution. 0.1 
+
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> cellularity
+> pleomorphism
+> mitotic necrosis
+> rosenthal
+> rosenthal
+> necrosis
+> cellularity
+> 0.55
+> 0.55
+> 0.58
+> Ependymoma
+> pleomorphism
+> pleomorphism
+> cellularity
+> 0.60
+> 0.70
+> 0.72
+> High-grade CNS
+> cellularity
+> cellularity
+> mitotic
+> 0.66
+> 0.74
+> 1.21
+> Low-grade CNS
+> cellularity
+> necrosis
+> mitotic
+> 0.27
+> 0.30
+> 0.35
+> Non-glial
+
+(d) L1 morphology → stage-1 logit attribution. 0.5  
+
+> 1
+> 1.5
+> GFAP
+> Synaptophysin
+> INI1 H3K27M
+> ALK1
+> H3K27M
+> INI1
+> ALK1
+> 1.23
+> 1.23
+> 1.91
+> Ependymoma
+> H3K27M
+> H3K27M
+> INI1
+> 1.73
+> 1.73
+> 1.94
+> High-grade CNS
+> GFAP
+> H3K27M
+> ALK1
+> 1.94
+> 2.44
+> 2.58
+> Low-grade CNS
+> H3K27M
+> INI1
+> GFAP
+> 1.31
+> 2.46
+> 2.82
+> Non-glial
+> Ependymoma
+> High-grade CNS
+> Low-grade CNS
+> Non-glial
+> WSI
+> Graph
+> Redundancy
+> Synergy
+
+(e) L2 biomarker → final logit attribution. 
+
+Figure 3: Interpretability of ConceptM 3oE on PBT. (a) Per-expert concept AUROC (L1 morphology dark blue, L2 biomarker dark gold; dashed circle: chance). (b) Per-class mean gate weights over the four experts (WSI, Graph, Redundancy, Synergy); N next to class names. (c) Overall routing distribution, marginalized over classes. (d, e) Concept-to-logit attribution for L1 and L2. Spider plots: gate-aggregated contribution per class on each concept axis. Bar panels: top-3 (concept, expert) drivers per class, colored by dominant expert. Legend in (e) applies to both. 7Per-class expert specialization. Routing in Fig. 3b and 3c aligns with histopathological intuition: 
+
+Graph dominates both glial classes (HG: 0.562, LG: 0.527), capturing architectural cues at the cell-graph level; WSI peaks for Ependymoma (0.351), whose cytology is best resolved at tile resolution; 
+
+Synergy specializes to Non-glial (0.289 vs. 0.08 –0.15 elsewhere, 2–3 ×), where tile cytology and graph organization provide complementary evidence; and Redundancy is most active for Low-grade CNS (0.215, ∼2× HG and Non-glial), matching the stereotyped histology of pilocytic astrocytoma. Histological correlates per expert are in Appendix B. 
+
+Hierarchical concept attribution. Gradient ×input on the stage-1 (L1) and final (L2) heads attributes each class logit to its driving concepts; bar panels in Fig. 3d, Fig. 3e report the top-3 (concept, expert) pairs per class, colored by dominant expert. L1 morphology recovers textbook cytology: pleomorphism and cellularity drive HG (cellularity 0.72 Synergy; pleomorphism 0.70 WSI / 0.60 Synergy), the anaplastic phenotype; mitotic and cellularity drive LG via Redundancy (mitotic 1.21; cellularity 0.74 Redundancy / 0.66 Synergy), matching pilocytic histology; Ependymoma routes cellularity, necrosis, and rosenthal through WSI alone (0.58, 0.55, 0.55); and Non-glial L1 contributions are uniformly small and Graph-routed (mitotic 0.35, necrosis 0.30, cellularity 0.27), indicating reliance on L2 over L1. L2 biomarkers recover molecular signatures: H3K27M dominates HG via both modalities (INI1 1.94 Graph; H3K27M 1.73 WSI / 1.73 Graph), the DMG signature; Synergy integrates GFAP-negative / INI1-loss evidence for Non-glial (GFAP 2.82, INI1 2.46, H3K27M 1.31), the ATRT workup; Redundancy pairs ALK1 (2.58) and H3K27M (2.44) for LG alongside Graph-driven GFAP (1.94), using absence of high-grade markers as confirmatory evidence; and INI1 is used bidirectionally , supporting HG when retained (1.94) and Non-glial when lost (2.46). ConceptM 3oE also learns negative evidence: Rosenthal fibers, pathognomonic for pilocytic astrocytoma, receive the lowest L1 weights where they should not apply (HG: 0.16; Non-glial: 0.10), with pleomorphism and mitotic dominating the L1 →L2 path to H3K27M. Full attribution maps and L1 →L2 details are in Appendix C. 
+
+Inference-time reasoning trace. Beyond what ConceptM 3oE learns during training, at deployment it produces a per-slide three-part reasoning trace: (i) the gate weights α indicate which modalities and interactions ConceptM 3oE uses; (ii) per-expert concept activations expose the morphology and biomarker evidence behind the prediction; (iii) comparing concept scores across experts diagnoses the 
+
+informational origin of the decision, whether driven by shared cross-modal consensus (Redundancy) or emergent multimodal interactions (Synergy). Together these compose a clinically-readable justifi-cation for the predicted class. Fig. 3a reveals a strikingly non-uniform pattern: cellularity, mitotic, and ALK1 are reliably recovered by Redundancy and Synergy experts (AUROC 0.76 –0.86 ) while unimodal WSI and Graph experts sit near or below chance on the same concepts; conversely, GFAP is recovered at AUROC ≥ 0.81 in all four experts, as expected for a near-universal glial marker present in every modality view. We attribute this non-uniformity to three factors (concept learning need not be consistent across experts; high gate weight does not imply broad concept coverage; and 
+
+ConceptM 3oE routes supervision toward the cleaner cross-modal signal); details are in Appendix D.                  
+
+> True: High-grade CNS Predicted: High-grade CNS ✓
+> Concept (top-6) Expected Model Clinical Rationale
+> pleomorphism high high (0.995)
+> All six concepts inform H&E assignment within high-grade CNS. INI1 retention and H3K27M negativity exclude two specific diagnoses; the remaining features keep this case in the high-grade CNS group.
+> mitotic high low (0.019) INI1 retained retained (0.999) H3K27M –negative (0.000) cellularity high high (1.000) necrosis high high (0.880)
+
+Figure 4: Reasoning trace for a high-grade CNS Example. Top-6 concepts driving ConceptM 3oE ’s prediction with neuropathologist-expected status; 5/6 match. 
+
+Case study. To evaluate the extent to which the concepts leveraged by ConceptM 3oE are consistent with neuropathological reasoning, we compare the six highest-contribution concepts for a correctly classified high-grade CNS slide with the diagnostic rationale provided by an independent, board-certified neuropathologist. (Fig. 4). Five of six (pleomorphism, INI1 retention, H3K27M-negative status, cellularity, necrosis) match the pathologist’s cited evidence in both identity and status; Mitotic activity is the notable divergence (the report records six mitoses per 10 high-power fields, yet the model assigned it low probability), but the remaining evidence is sufficient to recover the correct class. The full reasoning trace, gate weights selecting experts, morphology concepts supplying 8cytologic evidence, biomarkers refining molecular subtype, is thus inspectable in standard pathology vocabulary. Additional cases per class with independent rationales are in Appendix G. 
+
+3.4 Training-Set Subsampling Analysis 
+
+To examine how the models behave when labeled training data are limited, we repeat training under progressively smaller training sets while keeping the same split protocol and hyperparameters. As shown in Fig. 5a, ConceptM 3oE (full) achieves higher mean macro-F1 than PathMoE at the three reduced training sizes. At N = 50 , the full model improves macro-F1 from 56 .41 to 66 .70 , with a smaller cross-split standard deviation ( 11 .73 vs. 21 .99 ). The advantage remains at N = 100 (80 .02 
+
+vs. 77 .32 ) and becomes more pronounced at N = 150 (84 .58 vs. 72 .70 ). At the full training size (N = 164 ), the gap narrows, and the bio-only variant obtains the highest mean macro-F1 ( 81 .68 ), with all three methods within a relatively small range. These results suggest that concept supervision provides a useful inductive bias in data-limited regimes. By encouraging the representation to align with intermediate clinical concepts, the model may reduce reliance on purely end-to-end label fitting when labels are scarce. This observation is consistent with the concept-aligned localization view in Theorem 1, while the crossover at the full training size also indicates that the benefit of concept regularization is data- and configuration-dependent rather than uniformly dominant. The convergence curves in Fig. 5b provide a complementary optimization perspective. Under the same training configuration, both concept-supervised variants reach low training cross-entropy earlier than PathMoE. This trend is consistent with Proposition 2: when auxiliary concept losses provide gradients aligned with the task objective, they can accelerate task-loss contraction. We therefore interpret the subsampling and convergence results as evidence that hierarchical concept supervision can improve limited-data behavior and optimization dynamics, while maintaining comparable performance. 50 100 150 164     
+
+> Training set size (N)
+> 50
+> 60
+> 70
+> 80
+> 90
+> F1-macro (%)
+> ConceptM 3oE hier ,morph +bio
+> ConceptM 3oE flat ,bio
+> PathMoE
+
+(a) Sample efficiency. 10 20 30 40 50      
+
+> Epoch
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> Train task loss (cross-entropy)
+> PathMoE
+> ConceptM 3oE flat ,bio
+> ConceptM 3oE hier ,morph +bio
+
+(b) Train Loss Curve 0 5 10 15 20 25  
+
+> I(X; bottleneck)
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> I(bottleneck; Y)
+> PathMoE
+> ConceptM 3oE (L1)
+> ConceptM 3oE (L2)
+> CBM (L1)
+> CBM (L2)
+
+(c) MI plane. 0 20 40 60 80  
+
+> Training Epoch
+> 0
+> 2
+> 4
+> 6
+> 8
+> 10
+> 12
+> 14
+> I(bottleneck; Y)
+> PathMoE
+> ConceptM 3oE (L1)
+> ConceptM 3oE (L2)
+> CBM (L1)
+> CBM (L2)
+
+(d) I(C; Y ) over epochs. 
+
+Figure 5: Training analysis of ConceptM 3oE on PBT. (a) Macro-F1 vs. training-set size N ,mean ± SEM (Standard Error of the Mean) over 5 splits. (b) Task cross-entropy loss at N =164 ,mean ± std over 5 splits, to epoch 50. (c) Mutual information of bottleneck C w.r.t. input X and label Y ; marker size grows with epoch. (d) Task information I(C; Y ) over epochs; CBM variants stay near 0 (no class-relevant concept info), whereas ConceptM 3oE variants stay close to PathMoE. In (c) and (d), PathMoE is the no-bottleneck baseline; ConceptM 3oE and the CBM-ConceptM 3oE 
+
+variant use ( hier, morph+bio ) with supervision at L1 (morphology) or L2 (biomarker). 
+
+3.5 Mutual Information Analysis 
+
+To explain why ConceptM 3oE matches PathMoE despite the concept bottleneck, we analyze them via the Information Plane framework [ 45 ], plotting bottleneck capacity I(X; C) against task-relevant mutual information I(C; Y ) (details in Appendix J). We compare three variants under identical 10-fold splits: (1) PathMoE latent features (no bottleneck, d=768 ); (2) our continuous 
+
+ConceptM 3oE hier , morph+bio , tracking both its L1 (morphology, d=80 ) and L2 (biomarker, d=80 )bottlenecks; and (3) the discrete CBM-ConceptM 3oE baseline. Fig. 5c shows that continuous 
+
+ConceptM 3oE bottlenecks begin at the origin and migrate toward PathMoE’s upper-right region dur-ing training. At convergence, ConceptM 3oE hier , morph+bio (L1) preserves task information I(ˆ c1; Y )
+
+comparable to PathMoE despite a ∼10 × dimensionality reduction, while L2 slightly exceeds L1. In stark contrast, purely scalar CBM-ConceptM 3oE variants fail to preserve class-relevant information, lingering near zero throughout training. Along the training trajectory, ConceptM 3oE hier , morph+bio (L2) accumulates higher capacity I(X; C)
+
+than L1. This stems from our hierarchical architecture: L2 receives both raw encoder features and the L1 concept residual, expanding its effective information content rather than strictly constraining it. Corroborating this, Fig. 5d shows I(C; Y ) rising in close correspondence with validation macro-F1, indicating MI consistently captures task-relevant structure. These findings offer an information-9theoretic explanation for the performance parity observed in §3.2. When realized as learnable embeddings with interaction-aware routing, the concept bottleneck imposes negligible information loss relative to an unconstrained latent space. Its primary effect is to reorganize information into semantically interpretable axes rather than to restrict capacity. 
+
+4 Discussion and Conclusion 
+
+ConceptM 3oE shows that concept supervision can serve as a structural prior for multimodal pathology without sacrificing predictive performance. On pediatric brain tumor classification, the model achieves performance on par with strong multimodal baselines while producing concept-wise evidence profiles that align with neuropathological reasoning, including class-specific reliance on modality-specific and cross-modal experts. The sample-efficiency results further suggest that morphology and biomarker concepts provide useful inductive bias under limited data, and the mutual information analysis indicates that concept embeddings preserve task-relevant signal while reorganizing it into interpretable axes. These findings support concept-centered expert modeling as a practical direction for reliable computational pathology, where predictions can be assessed through both accuracy and the clinical evidence structure behind them. Future work should validate the framework across larger multi-institutional cohorts and study how to specify concept sets with appropriate coverage, granularity, and clinical relevance. 
+
+Acknowledgments and Disclosure of Funding 
+
+This work was supported by the NSF AI Institute for Foundations of Machine Learning and partially funded by the National Institutes of Health (NIH) under award 1R01EB03710101. The computational experiments were conducted using the MIATA server at the School of Information at The University of Texas at Austin, as well as the Lonestar6 and Vista GPU clusters provided by the Texas Advanced Computing Center (TACC) and the Center for Generative AI (CGAI) at The University of Texas at Austin. The views and conclusions contained in this document are those of the authors and should not be interpreted as representing the official policies, either expressed or implied, of the NIH or the U.S. Government. 
+
+References 
+
+[1] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical report. arXiv preprint arXiv:2303.08774 , 2023. [2] Julián N. Acosta, Guido J. Falcone, Pranav Rajpurkar, and Eric J. Topol. Multimodal biomedical ai. Nature Medicine , 28:1773–1784, 2022. [3] Tadas Baltrušaitis, Chaitanya Ahuja, and Louis-Philippe Morency. Multimodal machine learn-ing: A survey and taxonomy. IEEE Transactions on Pattern Analysis and Machine Intelligence ,41(2):423–443, 2019. [4] Kevin M. Boehm, Pegah Khosravi, Rami Vanguri, Jianjiong Gao, and Sohrab P. Shah. Har-nessing multimodal data integration to advance precision oncology. Nature Reviews Cancer ,22:114–126, 2022. [5] Tianle Cai, Yuhang Li, Zhen Geng, Zihan Wang, Hong Peng, Dongsheng Lee, Tianlong Chen, and Ming Liu. A survey on mixture of experts. arXiv preprint arXiv:2407.06204 , 2024. [6] Kushal Chauhan, Rishabh Tiwari, Jan Freyberg, Pradeep Shenoy, and Krishnamurthy Dvijotham. Interactive concept bottleneck models. In AAAI Conference on Artificial Intelligence , 2023. [7] Richard J. Chen, Tong Ding, Ming Y. Lu, Drew F. K. Williamson, Guillaume Jaume, Andrew H. Song, Bowen Chen, Andrew Zhang, Daniel Shao, Muhammad Shaban, et al. Towards a general-purpose foundation model for computational pathology. Nature Medicine , 30:850–862, 2024. 10 [8] Richard J. Chen, Ming Y. Lu, Jingwen Wang, Drew F. K. Williamson, Scott J. Rodig, Neal I. Lindeman, and Faisal Mahmood. Pathomic fusion: An integrated framework for fusing histopathology and genomic features for cancer diagnosis and prognosis. IEEE Transactions on Medical Imaging , 41(4):757–770, 2022. [9] Richard J. Chen, Ming Y. Lu, Wei-Hung Weng, Tiffany Y. Chen, Drew F. K. Williamson, Trevor Manz, Maha Shady, and Faisal Mahmood. Multimodal co-attention transformer for survival prediction in gigapixel whole slide images. In IEEE/CVF International Conference on Computer Vision , 2021. [10] Francesco De Santis, Gabriele Ciravegna, Giovanni De Felice, Arianna Casanova, Francesco Gi-annini, Michelangelo Diligenti, Mateo Espinosa Zarlenga, Pietro Barbiero, Johannes Schneider, and Danilo Giordano. Mixture of concept bottleneck experts. arXiv preprint arXiv:2602.02886 ,2026. [11] Tong Ding, Sophia J. Wagner, Andrew H. Song, Richard J. Chen, Ming Y. Lu, Andrew Zhang, Anurag J. Vaidya, Guillaume Jaume, Muhammad Shaban, Ahrong Kim, et al. Multimodal whole slide foundation model for pathology. arXiv preprint arXiv:2411.19666 , 2024. [12] Mateo Espinosa Zarlenga, Pietro Barbiero, Gabriele Ciravegna, Giuseppe Marra, Francesco Giannini, Michelangelo Diligenti, Zohreh Shams, Frederic Precioso, Stefano Melacci, Adrian Weller, Pietro Liò, and Mateja Jamnik. Concept embedding models: Beyond the accuracy-explainability trade-off. In Advances in Neural Information Processing Systems , 2022. [13] William L. Hamilton, Rex Ying, and Jure Leskovec. Inductive representation learning on large graphs. In Advances in Neural Information Processing Systems , volume 30, 2017. [14] Allison P Heath, Vincent Ferretti, Stuti Agrawal, Maksim An, James C Angelakos, Renuka Arya, Rosita Bajari, Bilal Baqar, Justin HB Barnowski, Jeffrey Burt, et al. The nci genomic data commons. Nature genetics , 53(3):257–262, 2021. [15] Oscar Hill, Mateo Espinosa Zarlenga, and Mateja Jamnik. Hierarchical concept-based inter-pretable models. In International Conference on Learning Representations , 2026. [16] Shih-Cheng Huang, Anuj Pareek, Saeed Seyyedi, Imon Banerjee, and Matthew P. Lungren. Fusion of medical imaging and electronic health records using deep learning: A systematic review and implementation guidelines. npj Digital Medicine , 3:136, 2020. [17] Zhi Huang, Federico Bianchi, Mert Yuksekgonul, Thomas J. Montine, and James Zou. A visual-language foundation model for computational pathology. Nature Medicine , 30:1156–1167, 2024. [18] Robert A. Jacobs, Michael I. Jordan, Steven J. Nowlan, and Geoffrey E. Hinton. Adaptive mixtures of local experts. Neural Computation , 3(1):79–87, 1991. [19] Michael I. Jordan and Robert A. Jacobs. Hierarchical mixtures of experts and the em algorithm. 
+
+Neural Computation , 6(2):181–214, 1994. [20] Eunji Kim, Dahuin Jung, Sangha Park, Siwon Kim, and Sungroh Yoon. Probabilistic concept bottleneck models. In International Conference on Machine Learning , 2023. [21] Pang Wei Koh, Thao Nguyen, Yew Siang Tang, Stephen Mussmann, Emma Pierson, Been Kim, and Percy Liang. Concept bottleneck models. In International Conference on Machine Learning , 2020. [22] Dana Lahat, Tülay Adali, and Christian Jutten. Multimodal data fusion: An overview of methods, challenges, and prospects. Proceedings of the IEEE , 103(9):1449–1477, 2015. [23] Paul Pu Liang, Amir Zadeh, and Louis-Philippe Morency. A survey of multimodal learning: Methods, applications, and future directions. Foundations and Trends in Multimedia Information Retrieval , 2024. 11 [24] Jana Lipkova, Richard J. Chen, Bowen Chen, Ming Y. Lu, Matteo Barbieri, Daniel Shao, Anurag J. Vaidya, Chengkuan Chen, Luoting Zhuang, Drew F. K. Williamson, Muhammad Shaban, Tiffany Y. Chen, and Faisal Mahmood. Artificial intelligence in multimodal data integration for oncology. Cancer Cell , 40(10):1095–1110, 2022. [25] Zhun Liu, Ying Shen, Varun Bharadhwaj Lakshminarasimhan, Paul Pu Liang, Amir Zadeh, and Louis-Philippe Morency. Efficient low-rank multimodal fusion with modality-specific factors. In Proceedings of the 56th Annual Meeting of the Association for Computational Linguistics ,pages 2247–2256, 2018. [26] Ming Y. Lu, Bowen Chen, Drew F. K. Williamson, Richard J. Chen, Ivy Liang, Tong Ding, Guillaume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, et al. A visual-language founda-tion model for pathology image analysis using medical twitter. Nature Medicine , 30:2302–2311, 2024. [27] Ming Y. Lu, Drew F. K. Williamson, Tiffany Y. Chen, Richard J. Chen, Matteo Barbieri, and Faisal Mahmood. Data-efficient and weakly supervised computational pathology on whole-slide images. Nature Biomedical Engineering , 5:555–570, 2021. [28] Alan Mackay, Anna Burford, Diana Carvalho, Elisa Izquierdo, Janat Fazal-Salom, Kathryn R. Taylor, Lynn Bjerke, Matthew Clarke, Mara Vinci, Meera Nandhabalan, et al. Integrated molecular meta-analysis of 1,000 pediatric high-grade and diffuse intrinsic pontine glioma. 
+
+Cancer Cell , 32(4):520–537.e5, 2017. [29] Michael Moor, Oishi Banerjee, Zahra Shakeri Hossein Abad, Harlan M. Krumholz, Jure Leskovec, Eric J. Topol, and Pranav Rajpurkar. Foundation models for generalist medical artificial intelligence. Nature , 616:259–265, 2023. [30] Basil Mustafa, Carlos Riquelme, Joan Puigcerver, Rodolphe Jenatton, and Neil Houlsby. Multi-modal contrastive learning with LIMoE: The language-image mixture of experts. In Advances in Neural Information Processing Systems , volume 35, pages 9564–9576, 2022. [31] Arsha Nagrani, Shan Yang, Anurag Arnab, Aren Jansen, Cordelia Schmid, and Chen Sun. Attention bottlenecks for multimodal fusion. In Advances in Neural Information Processing Systems , volume 34, pages 14200–14213, 2021. [32] Cancer Genome Atlas Research Network. Comprehensive, integrative genomic analysis of diffuse lower-grade gliomas. New England Journal of Medicine , 372(26):2481–2498, 2015. [33] Jiquan Ngiam, Aditya Khosla, Mingyu Kim, Juhan Nam, Honglak Lee, and Andrew Y. Ng. Multimodal deep learning. In International Conference on Machine Learning , 2011. [34] Joakim Nguyen, Jian Yu, Jinrui Fang, Nicholas Konz, Tianlong Chen, Sanjay Krishnan, Chandra Krishnan, Ying Ding, Hairong Wang, and Ankita Shukla. Clinically-informed modeling for pediatric brain tumor classification from whole-slide histopathology images. arXiv preprint arXiv:2604.21060 , 2026. Accepted at the IEEE International Conference on Healthcare Infor-matics (ICHI), 2026. [35] Tuomas Oikarinen, Subhro Das, Lam M. Nguyen, and Tsui-Wei Weng. Label-free concept bottleneck models. In International Conference on Learning Representations , 2023. [36] Konstantinos P. Panousis, Dino Ienco, and Diego Marcos. Coarse-to-fine concept bottleneck models. arXiv preprint arXiv:2310.02116 , 2023. [37] Francesca Petralia, Nicole Tignor, Boris Reva, Mateusz Koptyra, Shrabanti Chowdhury, Dmitry Rykunov, Azra Krek, Weiping Ma, Yuankun Zhu, Jiayi Ji, et al. Integrated proteogenomic characterization across major histological types of pediatric brain cancer. Cell , 183(7):1962– 1985.e31, 2020. [38] Stefan M. Pfister, Miguel Reyes-Múgica, Jennifer A. Chan, Henrik Hasle, Alexander J. Lazar, Ingo Müller, Megan Munsie, Barbara Rivera, Dirk Schadendorf, Jack F. Shern, et al. Molecular classification of pediatric brain tumors. Nature Reviews Clinical Oncology , 19:531–547, 2022. 12 [39] Noam Shazeer, Azalia Mirhoseini, Krzysztof Maziarz, Andy Davis, Quoc Le, Geoffrey Hinton, and Jeff Dean. Outrageously large neural networks: The sparsely-gated mixture-of-experts layer. In International Conference on Learning Representations , 2017. [40] Cancer Genome Atlas Research Network Tissue source sites: Duke University Medical School McLendon Roger 1 Friedman Allan 2 Bigner Darrell 1, Emory University Van Meir Erwin G. 3 4 5 Brat Daniel J. 5 6 M. Mastrogianakis Gena 3 Olson Jeffrey J. 3 4 5, Henry Ford Hospital Mikkelsen Tom 7 Lehman Norman 8, MD Anderson Cancer Center Aldape Ken 9 Alfred Yung WK 10 Bogler Oliver 11, University of California San Francisco VandenBerg Scott 12 Berger Mitchel 13 Prados Michael 13, et al. Comprehensive genomic characterization defines human glioblastoma genes and core pathways. Nature , 455(7216):1061–1068, 2008. [41] Divyansh Srivastava, Ge Yan, and Tsui-Wei Weng. VLG-CBM: Training concept bottleneck models with vision-language guidance. In Advances in Neural Information Processing Systems ,2024. [42] Sören Richard Stahlschmidt, Benjamin Ulfenborg, and Jane Synnergren. Multimodal deep learning for biomedical data fusion: A review. Briefings in Bioinformatics , 23(2):bbab569, 2022. [43] Ario Steva, Amirali Ahmadi, and Jakob Nikolas Kather. Multimodal data fusion for cancer biomarker discovery with deep learning. Nature Machine Intelligence , 6:287–298, 2024. [44] Dominik Sturm, Brent A. Orr, Umut H. Toprak, Volker Hovestadt, David T. W. Jones, David Capper, Martin Sill, Ivo Buchhalter, Paul A. Northcott, Irina Leischner, et al. New brain tumor entities emerge from molecular classification of CNS tumors. Cell , 164(5):1060–1072, 2016. [45] Naftali Tishby, Fernando C Pereira, and William Bialek. The information bottleneck method. 
+
+arXiv preprint physics/0004057 , 2000. [46] Tao Tu, Shekoofeh Azizi, Danny Driess, Mike Schaekermann, Mohamed Amin, Pi-Chuan Chang, Andrew Carroll, Chuck Lau, Ryutaro Tanno, Ira Ktena, et al. Towards generalist biomedical ai. NEJM AI , 1(3), 2024. [47] Rami S. Vanguri, Jia Luo, Andrew T. Aukerman, Jacklynn V. Egger, Christopher J. Fong, Natally Horvat, Andrew Pagano, Jose D. Araujo-Filho, Luke Geneslaw, Hira Rizvi, et al. Multimodal integration of radiology, pathology, and genomics for prediction of response to immunotherapy in non-small cell lung cancer. Nature Cancer , 3:1151–1164, 2022. [48] Eugene Vorontsov, Alican Bozkurt, Adam Casson, George Shaikovski, Michal Zelechowski, Kristen Severson, Eric Zimmermann, James Hall, Neil Tenenholtz, Nicolo Fusi, et al. Virchow: A million-slide digital pathology foundation model. arXiv preprint arXiv:2309.07778 , 2024. [49] Ya Wang and Adrian Paschke. Concept flow models: Anchoring concept-based reasoning with hierarchical bottlenecks. Transactions on Machine Learning Research , 2026. [50] Haodong Xie, Yujun Cai, Rahul Singh Maharjan, Yiwei Wang, Federico Tavella, and Angelo Cangelosi. Hierarchical, interpretable, label-free concept bottleneck model. arXiv preprint arXiv:2604.02468 , 2026. [51] Jiayi Xin, Sukwon Yun, Jie Peng, Inyoung Choi, Jenna L. Ballard, Tianlong Chen, and Qi Long. I2MoE: Interpretable multimodal interaction-aware mixture-of-experts. In International Con-ference on Machine Learning , 2025. Poster. [52] Peng Xu, Xiatian Zhu, and David A. Clifton. Multimodal learning with transformers: A survey. 
+
+IEEE Transactions on Pattern Analysis and Machine Intelligence , 2023. [53] Yue Yang, Artemis Panagopoulou, Shenghao Zhou, Daniel Jin, Chris Callison-Burch, and Mark Yatskar. Language in a bottle: Language model guided concept bottlenecks for interpretable image classification. In IEEE/CVF Conference on Computer Vision and Pattern Recognition ,2023. 13 [54] Jian Yu, Joakim Nguyen, Jinrui Fang, Awais Naeem, Zeyuan Cao, Sanjay Krishnan, Nicholas Konz, Tianlong Chen, Chandra Krishnan, Hairong Wang, Edward Castillo, Ying Ding, and Ankita Shukla. PathMoE: Interpretable multimodal interaction experts for pediatric brain tumor classification. arXiv preprint arXiv:2603.01547 , 2026. [55] Mert Yuksekgonul, Maggie Wang, and James Zou. Post-hoc concept bottleneck models. In 
+
+International Conference on Learning Representations , 2023. Spotlight, notable top 25%. [56] Amir Zadeh, Minghai Chen, Soujanya Poria, Erik Cambria, and Louis-Philippe Morency. Tensor fusion network for multimodal sentiment analysis. In Proceedings of the 2017 Conference on Empirical Methods in Natural Language Processing , pages 1103–1114, 2017. 14 A Extended Experimental Setup and Implementation Details 
+
+A.1 Dataset Details and Preprocessing PBT Dataset. The institutional cohort was collected under IRB approval from Dell Children’s Medical Center. While the initial raw cohort comprised 253 diagnostic H&E WSIs (age ≤ 29 years), we categorized 199 cases with sufficient multimodal alignment into the four primary diagnostic classes used in our experiments. Patient-level splits were strictly enforced. Unmentioned concepts in the pathology reports are masked during the loss computation. 
+
+TCGA Dataset. Diagnostic H&E WSIs from TCGA-GBM and TCGA-LGG were accessed via the Genomic Data Commons (GDC) [ 14 , 40 , 32 ], filtered for patients aged ≤ 29 years to align with the pediatric/young-adult scope of our primary cohort. We categorized 55 cases with sufficient multimodal alignment into two primary diagnostic classes used in our experiments. Patient-level splits were strictly enforced. Unmentioned concepts in the pathology reports are masked during the loss computation. 
+
+A.2 Training and Optimization 
+
+Models are trained end-to-end using the Adam optimizer. For the primary PBT cohort, we utilize a learning rate of 2 × 10 −4, a batch size of 16 , and a dropout rate of p = 0 .1 for regularization (see Table 3 for the dataset-specific adjustments applied to the TCGA cohort). Across all experiments, we apply a cosine annealing learning rate schedule. Models are trained for up to 150 epochs with an early stopping patience of 30 epochs, monitored on the validation macro-F1 score. The checkpoint with the highest validation macro-F1 is selected for final testing. Each cross-validation fold uses identical pre-defined patient-level splits (consistent with the PathMoE protocol, yielding ∼20 test slides per fold) and is initialized with a fixed random seed to ensure exact reproducibility. All experiments were conducted on a single NVIDIA RTX A6000 (48 GB) GPU. 
+
+A.3 Hyperparameters 
+
+Table 3 details the complete set of architectural and optimization hyperparameters used for 
+
+ConceptM 3oE across both the PBT and TCGA evaluation cohorts. While the core multimodal mixture-of-experts architecture and bottleneck dimensions remain consistent across tasks, dataset-specific regularization strategies are applied to account for differences in cohort scale and complexity. Specifically, for the external TCGA validation dataset, we employ a lighter GNN backbone (2 layers vs. 3 layers), increased dropout ( 0.6 vs. 0.1), a reduced batch size, and heavier L1 concept regularization ( λ1 = 0 .9) without L2 hierarchy ( λ2 = 0 .0) to mitigate potential overfitting. Table 3: ConceptM 3oE architectural and optimization hyperparameters. Values shared across both datasets are centered.                                                       
+
+> Hyperparameter PBT (4-class) TCGA (2-class)
+> Architecture Details:
+> Hidden / token dim d256
+> Fusion tokens P16
+> Experts / routing mechanism 4/ dense softmax Expert MLP ·Fusion ·Predictor layers 2·1·1
+> Concept embed dim m16
+> Layer-1 residual dim 16
+> GNN layers / hidden / dropout 3/256 /0.12/128 /0.5
+> Optimization Details:
+> λ1, λ 2(Concept loss weights) 0.5,0.30.9,0.0
+> λint (Interaction loss weight) 0.110 −2
+> Optimizer / learning rate Adam / 2×10 −4Adam / 10 −4
+> Batch size / model dropout 16 /0.18/0.6
+> Epochs / patience / schedule 150 /30 / cosine annealing
+
+B Detailed expert specialization analysis 
+
+We expand the histopathological correlates behind each expert’s specialization in Sec. 3.3. The 
+
+Graph expert’s dominance on glial classes captures architectural features such as perivascular pseu-15 dorosettes, microvascular proliferation, and infiltrative growth, all well represented at the cell-graph level. The WSI expert’s peak for Ependymoma reflects its distinctive cytology, pseudorosettes with bland nuclei and canal-like structures, resolved at tile resolution. The Synergy specialization to Non-glial corresponds to ATRT and embryonal tumors, where tile-level cytology and graph-level organization provide complementary, non-redundant evidence that neither modality alone resolves. The Redundancy expert’s preference for Low-grade CNS matches the highly stereotyped histology of pilocytic astrocytoma, where modalities tend to agree. 
+
+C Per-class concept attribution maps 
+
+We provide complementary detail to the per-class attribution maps in Fig. 3d and 3e, focusing on gate-aggregated values and within-expert structure not covered by the top-3 bar panels in the main text. 
+
+L1 morphology. At the gate-aggregated level, pleomorphism is the top L1 contributor for High-grade CNS (0.41), and is localized to the WSI expert (0.70) as a per-cell cytologic feature best resolved at tile resolution. The Synergy expert’s two largest L1 weights, cellularity (0.72) and pleomorphism (0.60), both for High-grade CNS, reproduce the “more cells, abnormally shaped” combination pathologists use jointly to grade gliomas. The Rosenthal-fiber down-weighting noted in the main text shows ConceptM 3oE has learned where a concept should not be used , an objective as informative as positive evidence. 
+
+L2 biomarkers. At the gate-aggregated level, H3K27M is the top L2 contributor for High-grade CNS (1.54), recovered at similar magnitude by both WSI (1.73) and Graph (1.73): both modalities access the diffuse-midline-glioma signal. INI1 is second for High-grade CNS (1.50) and a top contributor for Non-glial (1.36), the gate-aggregated counterpart to the per-expert bidirectional pattern in the main text. Within the Redundancy expert, the three largest L2 weights for Low-grade CNS, ALK1 (2.58), H3K27M (2.44), and INI1 (1.93), are all high-grade-associated markers, reinforcing the absence-as-evidence interpretation. 
+
+L1 →L2 routing. Full L1 →L2 attribution maps and computational details for the gate-aggregated and per-expert attribution scores are provided in Appendix E. 
+
+D Per-expert concept-AUROC analysis 
+
+Three observations explain the non-uniform per-expert AUROC pattern noted in Sec. 3.3. 
+
+(1) Concept learning need not be consistent across experts. By construction, each ConceptM 3oE 
+
+expert is trained on a perturbation that isolates a different interaction type and is explicitly encouraged to capture mutually exclusive information; a concept will be recovered most strongly wherever its discriminative signal aligns best with that expert’s input view. 
+
+(2) High gate weight does not imply broad concept coverage. The Graph expert receives the largest aggregate gate weight (Fig. 3(c)) yet learns relatively few concepts at high AUROC, because classification and concept supervision are distinct objectives: Graph acts as ConceptM 3oE ’s diagnostic “heavy lifter,” while Redundancy and Synergy function as specialized tools that activate only when cross-modal evidence is needed. 
+
+(3) Routing toward the cleaner signal. Morphology concepts like cellularity and mitotic activity are partially visible in raw tiles, but ConceptM 3oE identifies that their cleaner signal is fundamentally cross-modal and routes the supervision accordingly. GFAP is the informative counter-example: as a near-universal glial marker, its signal is present in every modality view, which is why all four experts recover it. 
+
+E Concept attribution computation 
+
+For each test sample we compute the per-concept contribution to the class logit, both within each expert and after gating, then average within class and across folds. The full per-class L1 morphology and L2 biomarker attribution maps are shown as panels (d) and (e) of Fig. 3 in the main text. We use gradient × input attribution to quantify each concept’s contribution to a downstream output. For a scalar output y and a d-dimensional concept embedding c ∈ Rd, the contribution of c to y on a 16 single sample is 
+
+ϕ(c → y) = 
+
+> d
+
+X
+
+> i=1
+
+∂y ∂c i
+
+ci . (7) This captures both how sensitive y is to c (gradient) and what is actually present in the sample (input value); a concept the model weights heavily but whose embedding is near zero contributes little, and vice versa. Each L1 morphology and L2 biomarker concept is represented by a 16 -dimensional embedding, so the inner sum runs over d=16 .
+
+Forward paths. We instantiate Eq. 7 for three forward paths in ConceptM 3oE :• L1 → class. The L1 bottleneck b1 ∈ R80 (concatenation of five L1 concept embeddings) is fed to the stage-1 head, producing class logits s(1) ∈ R4. We attribute the class-c logit s(1)  
+
+> c
+
+to each L1 concept via Eq. 7 applied to the corresponding 16-d slice of b1.• L2 → class. The final head receives [softmax( s(1) ); b2], where b2 is the L2 bottleneck. We attribute the final class-c logit to each L2 concept by gradients with respect to the appropriate slice of b2.• L1 → L2. Each L2 concept embedding is produced by a block whose input concatenates the expert latent z with b1, and combines a predictive scorer path with a residual term. We report attribution against the squared-norm of the L2 embedding ∥c(2)  
+
+> j
+
+∥2, since this is the quantity that flows downstream. For each path we obtain one attribution number per (sample, expert, source-concept, target). We aggregate as follows: (i) restrict to test samples whose ground-truth label equals the target class c;(ii) average within each fold to obtain a (expert, source-concept) matrix; (iii) report the across-fold mean and standard deviation, excluding fold/class pairs with no samples. Two views are produced from the same per-fold matrices: a per-expert view that retains the expert dimension, and a 
+
+gate-aggregated view obtained by weighting each expert by its sample-level gate weight α before averaging. For L1 →L2 we differentiate the pre-sigmoid scorer score rather than the post-sigmoid probability, since the latter saturates for confidently predicted concepts and produces unstable gradients. Attri-bution magnitudes are not comparable across the three paths because their target functions differ in scale; only within-row (which concept matters most for a given class) and within-column (which class a concept is most informative for) comparisons are meaningful. Finally, gradient × input is a local linearization at the operating point of the trained model and does not measure counterfactual concept removal, which would require intervention experiments left to future work. 
+
+F Concept Vocabulary and Extraction Pipeline 
+
+This appendix describes the two-level concept hierarchy used in ConceptM 3oE , the extraction protocol for obtaining concept targets from clinical data, and the encoding scheme used during training. 
+
+F.1 Concept Vocabulary 
+
+We define a two-level concept hierarchy. The first level captures histopathological findings described in pathology reports; the second level captures immunohistochemical (IHC) and molecular markers obtained from clinical assays. 
+
+F.1.1 Level 1: Morphology Concepts ( K1 = 5 )
+
+Each concept is scored by a large language model on an ordinal scale derived from the descriptive language used in pathology reports. The five concepts and their category sets are: 
+
+Concept Ordinal categories (low → high) Target dim 
+
+Cellularity absent, low, mild_moderate, high 4Pleomorphism absent, mild, marked 3Mitotic activity absent, rare, present_not_increased, increased, high 5Necrosis absent, focal, definite, pseudopalisading 4Rosenthal fibers absent, focal, abundant 317 Each concept is represented as a one-hot vector over its categories during training, yielding 4 + 3 + 5 + 4 + 3 = 19 binary targets. When a report does not mention a concept, the entry is marked 
+
+not_mentioned and all categories for that concept are masked in the loss. 
+
+F.1.2 Level 2: Biomarker Concepts ( K2 = 5 )
+
+These are binary (positive/negative) markers obtained directly from clinical IHC staining and, where available, DNA methylation profiling: 
+
+Concept Source Target 
+
+GFAP IHC POS / NEG Synaptophysin IHC POS / NEG INI1 IHC POS / NEG H3K27M IHC POS / NEG ALK1 IHC POS / NEG Each biomarker is a single binary target. When a specific IHC stain was not performed for a given case, that concept is masked in the loss. 
+
+F.2 Extraction Pipeline F.2.1 Level 1: Morphology Concepts ( K1 = 5 )
+
+Free-text pathology reports for all 199 cases in the PBT dataset were processed using GPT-4 [ 1]. The prompt instructed the model to read each report and assign an ordinal category (from the predefined vocabulary above) for each of the five L1 concepts. A structured JSON output schema was enforced to ensure consistent formatting. The prompt template is reproduced below:         
+
+> You are a pathologist assistant. Read the following pathology report and score each morphological feature on the scale provided. If a feature is not mentioned, respond with "not_mentioned". Report: {report_text} Concepts: - cellularity: absent / low / mild_moderate / high -pleomorphism: absent / mild / marked - mitotic: absent / rare / present_not_increased / increased / high - necrosis: absent / focal / definite / pseudopalisading - rosenthal: absent / focal / abundant Return a JSON object with one key per concept.
+
+The extracted labels were manually reviewed for a random subset of 20 reports. Inter-rater agreement with a board-certified pathologist exceeded 85% for cellularity, necrosis, and vascular proliferation; pleomorphism and mitotic activity showed moderate agreement (70–75%), consistent with the inherent subjectivity of these features in pediatric brain tumor histology. 
+
+F.2.2 Level 2: Biomarker Concepts ( K2 = 5 )
+
+IHC staining results and methylation classifications were extracted from the structured fields of our institution’s pathology database. These are categorical clinical variables (POS / NEG / not performed) requiring no language model extraction. Methylation-based tumor subtyping (e.g., ZFTA-RELA fused ependymoma) was recorded where available but not used as a direct concept target; it served only to validate diagnostic labels. 
+
+F.3 Target Encoding and Loss Masking 
+
+For training, L1 categorical labels are one-hot encoded per concept. For a concept with V ordinal categories, the target tk ∈ { 0, 1}V is supervised with binary cross-entropy: 
+
+LL1 concept = 1
+
+P 
+
+> k
+
+mkK1X
+
+> k=1
+
+mk · 1
+
+VkVkX
+
+> v=1
+
+BCE( pk,v , t k,v ),
+
+where mk = 0 if the concept was marked not_mentioned and mk = 1 otherwise. L2 biomarkers are single binary targets ( Vk = 1 ) supervised identically with masked BCE. 18 G Case Study 
+
+We extend the case study of Sec. 3.3 to the remaining three tumor classes. For each class, we select one correctly-classified slide and report the concepts contributing most to ConceptM 3oE ’s prediction, alongside their textbook-expected status, the model’s predicted status, and the diagnostic rationale provided by an independent board-certified neuropathologist (Figures 6–8). Across all three cases, the pathologist’s reasoning closely tracks the concepts the model relied on, supporting the claim that 
+
+ConceptM 3oE produces clinically faithful, not merely accurate, predictions. 
+
+> WSI_000214
+
+True: Low-grade CNS Predicted: Low-grade CNS ✓
+
+Concept Expected Model Clinical Rationale 
+
+Rosenthal high high (0.611) All six concepts align with the expert feature set for assigning low-grade CNS. GFAP positivity, low cellularity, low likelihood of necrosis, and low pleomorphism are classic low-grade features. Rosenthal fibers are non-specific but helpful within the low-grade category. 
+
+GFAP high high (0.997) cellularity low low (0.426) mitotic low low (0.127) necrosis low low (0.069) pleomorphism low low (0.363) 
+
+Figure 6: Low-grade CNS reasoning trace . Clinical rationale provided by an independent neu-ropathologist. 
+
+> WSI_000009
+
+True: Ependymoma Predicted: Ependymoma ✓
+
+Concept Expected Model Clinical Rationale 
+
+Synaptophysin high low (0.023) All six concepts are reasonable, but from a human perspective do not, on their own, justify assignment to the ependymoma class. This class is largely decided by experts based on tumor morphology, growth pattern, GFAP positivity, retained INI1 protein, and cellular density. 
+
+INI1 high high (0.988) GFAP high high (0.996) H3K27M low low (0.013) ALK1 low low (0.077) Rosenthal low high (0.576) 
+
+Figure 7: Ependymoma reasoning trace . Clinical rationale provided by an independent neuropathol-ogist. 
+
+> WSI_000076
+
+True: Non-glial Predicted: Non-glial ✓
+
+Concept Expected Model Clinical Rationale 
+
+Rosenthal low low (0.398) All five concepts are pertinent. The most important features are absent GFAP and Synaptophysin, which determine glial vs. neuronal CNS tumors; when both are negative, the differential narrows to high-grade CNS or non-glial. The remaining features are helpful but non-specific—experts also rely on tumor morphology, cellular density, and growth pattern. 
+
+GFAP low low (0.032) Synaptophysin low low (0.068) mitotic low low (0.363) necrosis low low (0.267) 
+
+Figure 8: Non-glial reasoning trace . Clinical rationale provided by an independent neuropathologist. 
+
+H Ablation Study 
+
+H.1 Configuration Definitions 
+
+To rigorously evaluate the architectural components of ConceptM 3oE , we define the following configuration terminology used in our ablation study (Table 4): 19 • Hierarchy ( flat vs. hier ): flat uses a single-level concept bottleneck, treating concepts independently without hierarchical conditioning. hier employs a serial two-level hierarchy where higher-level biomarkers condition on lower-level morphology. • Bottleneck Strictness ( standard vs. -hard ): The standard variants retain the residual connection (γres = 1 ), acting as a soft bottleneck. The -hard variants disable the residual pathway ( γres = 0 ), forcing a strict information bottleneck. Because strict bottlenecks are harder to optimize and highly sensitive to class imbalance, all -hard variants employ a heavy regularization recipe consisting of balanced binary cross-entropy and a weighted data sampler. • Supervision Weights: Standard runs use (λ1 = 0 .5, λ 2 = 0 .3) . The low reg. variant scales this down to (0 .2, 0.2) , while high reg. applies a much stricter penalty of (1 .0, 0.6) .Table 4: Classification results of ConceptM 3oE variants on PBT (10-fold CV, mean ± std).                                                                                             
+
+> Model Variant Modalities Residual Accuracy F1-macro
+> Architecture & Hierarchy
+> flat (morph) WH ✓83.29 ±9.40 75.17 ±13.45 flat-hard (morph) WH ✗83.24 ±7.55 77.32 ±11.05 flat (morph+bio) WH ✓82.74 ±6.55 74.85 ±12.28 flat-hard (morph+bio) WH ✗81.76 ±6.38 75.34 ±11.07 hier (morph+bio) WH ✓83.71 ±6.91 76.88 ±12.40 hier-hard (morph+bio) WH ✗83.21 ±5.81 73.64 ±12.47
+> Supervision Weights (Applied to hier-hard)
+> hier-hard (low reg.) WH ✗83.71 ±5.27 75.05 ±12.03 hier-hard (high reg.) WH ✗82.21 ±7.69 73.48 ±15.09
+> Modality Ablations
+> hier (WSI-only) W✓82.24 ±7.63 73.82 ±14.84 flat-hard (bio) WH ✗83.74 ±6.78 74.92 ±14.28 flat (bio) WH ✓82.74 ±6.49 72.21 ±15.32
+
+Results and Analysis. Table 4 presents the ablation study. We observe three key findings: 
+
+Hierarchical vs. Flat Concept Architecture. When utilizing both morphology and biomarker concepts, organizing them in a serial hierarchy ( hier (morph+bio) ) outperforms both the flat fusion strategy ( flat (morph+bio) ) and the biomarker-only baseline ( flat-hard (bio) ). hier (morph+bio) achieves the highest overall accuracy ( 83 .71% ) and a strong macro-F1 ( 76 .88% ), validating that explicitly modeling the clinical dependency, where higher-level biomarkers condition on fundamental tissue morphology, yields better discriminative representations. 
+
+The Crucial Role of Residual Pathways. For a single-level morphology bottleneck, removing the residual and applying the stabilized hard-bottleneck recipe ( flat-hard (morph) ) acts as a strong regularizer, yielding the highest macro-F1 ( 77 .32% ). However, in the two-level hierarchical setting, the strict bottleneck ( hier-hard (morph+bio) ) leads to a noticeable performance drop (F1 drops from 76 .88% to 73 .64% ). This confirms that as the concept hierarchy deepens, residual connections become essential to prevent severe information loss, maintaining high performance without requiring complex class-balancing tricks. 
+
+Modality and Supervision Trade-offs. Removing the graph modality ( hier (WSI-only) ) degrades the macro-F1 to 73 .82% , reinforcing the necessity of multimodal fusion. Furthermore, tuning the concept loss weight is critical: applying overly strict concept supervision weights ( hier-hard (high reg.) ) severely harms task performance (F1 drops to 73 .48% ), highlighting the need for balanced concept regularization. 
+
+I Training-Set Subsampling Protocol 
+
+Training subsets. We construct training subsets at four sizes: N ∈ { 50 , 100 , 150 , 164 }, where 
+
+N =164 is the full training pool (the same pool used for one fold of the main 10-fold cross-validation). For each N , we draw 5 random subsets of size N from the training pool, yielding 5 splits per training size and 20 training runs per model in total. The validation and test sets are held fixed across training sizes within a split, so only the training-set size varies; this isolates the data-efficiency effect from changes in evaluation distribution. 20 Models and modalities. We compare three models: ConceptM 3oE (full), the two-layer concept-bottleneck variant with five L1 morphology and five L2 biomarker concepts; ConceptM 3oE (bio-only), the single-layer ablation that retains only the five L2 biomarker concepts; and PathMoE [ 54 ], the I2MoE-Transformer backbone without concept supervision. The two ConceptM 3oE variants use the WSI + Graph (WH) modality pair, while PathMoE uses the WSI + Graph + Text (WHT) triplet, this matches the configuration used for each method’s best run on the full data, so our sample-efficiency comparison reflects each model’s intended deployment regime rather than an artificially matched input. 
+
+Training. All three models share the optimizer and schedule: AdamW at learning rate 1e −4, batch size 16 , 150 epochs, dropout 0.5, hidden dimension 256 , 16 patches per slide. We report the test-set metric corresponding to the checkpoint with highest validation macro-F1 within the run. For each 
+
+(model , N ) pair we report mean and standard deviation across the 5 splits. 
+
+J Mutual Information Plane Details 
+
+This appendix details the mutual information estimation protocol used to produce the information plane analysis in Fig. 5c and 5d. We describe the models compared, the estimation methodology, and the trajectory post-processing steps. 
+
+J.1 Information Plane Framework 
+
+The information plane [ 45 ] visualizes the trade-off between compression and task-relevant information in learned representations. For a bottleneck representation C derived from input X and a target label 
+
+Y , the plane plots: • X-axis : I(X; C), the mutual information between the input and the bottleneck: measuring how much information about the input is preserved (capacity). • Y-axis : I(C; Y ), the mutual information between the bottleneck and the label: measuring how much task-relevant information is retained. A good concept bottleneck should compress the raw features into interpretable concepts (lower 
+
+I(X; C)) while preserving task-relevant signal (high I(C; Y )). The trajectory of these quantities across training epochs reveals how the model learns to balance these objectives. 
+
+J.2 Models and Bottlenecks Compared 
+
+We compare three model variants on the same information plane, all trained on the WSI + graph (WH) modality combination with 10-fold cross-validation: Table 5: Summary of model representations and tracked features compared in the Information Plane analysis.                            
+
+> Representation Tracked Feature Dim Description
+> PathMoE z(expert latent) 768 Mean-pooled expert outputs; no bottleneck (up-per reference).
+> ConceptM 3oE L1 ˆc1(concept embedding) 5×16 = 80 Morphology concept embeddings, mean over 4 experts.
+> ConceptM 3oE L2 ˆc2(concept embedding) 5×16 = 80 Biomarker concept embeddings, serial L1 →L2 design. CBM-ConceptM 3oE L1 p1(scalar probability) 19 Scalar concept probabilities (5 concepts, one-hot encoded). CBM-ConceptM 3oE L2 p2(scalar probability) 10 Scalar biomarker probabilities (5 binary con-cepts).
+
+The CBM variant replaces the concept embedding layer with a standard scalar concept bottleneck [ 21 ], where only the predicted probability pk (without the embedding ˆck) is passed to the classifier. This serves as a baseline to quantify the information retained by the embedding representation versus the scalar bottleneck. 21 J.3 MI Estimation: Gaussian Parametric Estimator 
+
+We estimate mutual information using a Gaussian parametric estimator with PCA pre-reduction. This choice balances stability under limited sample sizes ( N ≈ 200 samples per epoch across all 10 splits) with computational tractability. 
+
+J.3.1 Estimator Definition 
+
+For bottleneck features C ∈ RN ×d and labels Y , the Gaussian parametric MI is: 
+
+I(C; Y ) = H(C) − X
+
+> ℓ
+
+p(Y = ℓ) · H(C | Y = ℓ), (8) where H(C) = 12 log  (2 πe )d det(Σ)  is the differential entropy of a Gaussian with covariance Σ,and H(C | Y = ℓ) is the class-conditional entropy estimated from the covariance Σℓ of samples belonging to class ℓ. Both covariances are computed with bias correction (dividing by N rather than 
+
+N − 1) for consistency with the maximum-likelihood Gaussian fit. 
+
+J.3.2 PCA Pre-reduction and Regularization 
+
+Direct covariance estimation in the raw feature space is unstable when d is large relative to N . We apply PCA to reduce dimensionality before MI computation: 
+
+k = min  20 , d, ⌊N/ 4⌋. (9) To handle linearly dependent dimensions (e.g., probability vectors summing to 1 in the CBM bottleneck), we further detect the effective rank : the number of PCA eigenvalues exceeding 10 ε,where ε = 10 −3 is the Tikhonov regularization parameter. The final PCA dimension is k′ =min( k, effective_rank ), with a floor of k′ ≥ 2.All covariance matrices are regularized with Σreg = Σ + εI. If the regularized log-determinant is still non-positive, the entropy is clamped to 0. The X-axis quantity I(X; C) is upper-bounded by H(C),since H(C | X) = 0 for deterministic concept predictors. All models were trained for 150 epochs with early stopping (patience 30), batch size 16, learning rate 10 −4, and dump interval 1 (every epoch). Dumps from all 10 splits are pooled per epoch for MI computation, yielding approximately N = 200 samples per epoch. 
+
+J.4 Trajectory Post-processing J.4.1 Truncation 
+
+To focus on the learning phase and remove post-convergence noise, trajectories are truncated at the epoch of peak I(C; Y ) plus a 3-epoch buffer. For CEM variants, an additional monotonic filter retains only points where both H(C) and I(C; Y ) are strictly increasing relative to the previous retained point, suppressing training zigzag while preserving the dominant upward trend. The CBM variant is not truncated (its I(C; Y ) peaks at epoch 78, and truncation would conceal the fact that the scalar bottleneck requires approximately 65 epochs to produce any class-relevant concept signal). 
+
+J.4.2 Smoothing 
+
+Gaussian filter smoothing ( σ = 2 .0 epochs) is applied to both H(C) and I(C; Y ) trajectories before visualization. Epoch-proportional marker sizes follow the convention of [12]. 
+
+J.5 Key Observations 
+
+The information plane analysis (Fig. 5c and 5d) yields three main findings: 1. CEM embeddings preserve task information comparable to raw latents. The converged 
+
+I(ˆ c; Y ) of ConceptM 3oE L1 and L2 (12.3–14.2 nats) is comparable to or slightly exceeds that of PathMoE’s raw expert latents (11.6 nats). This confirms that the concept embedding layer, with residual pathways, does not act as a lossy bottleneck. 2. Scalar bottlenecks lose substantial information. The CBM variant achieves at most 3.3 nats (L1) and 0.7 nats (L2) of label-relevant information, a 70–95% reduction relative to ConceptM 3oE . This quantifies the cost of forcing the classifier to rely solely on scalar concept probabilities. 22 3. Scalar bottlenecks learn class-relevant concepts slowly. CBM I(p1; Y ) remains at zero for the first 64 epochs, indicating that the scalar concept predictor learns to produce confident concept predictions long before those predictions become class-discriminative. This slow emergence of task-relevant concept structure is invisible to standard validation metrics (which plateau much earlier) and highlights a hidden training dynamic revealed by the information plane. These findings provide quantitative support for the architectural choices in ConceptM 3oE : concept embeddings with residual pathways preserve the flexibility of unconstrained multimodal fusion while organizing the representation around clinically interpretable axes. 
+
+K Additional Method Details and Proofs 
+
+K.1 Concept annotation and masking details 
+
+The method uses two levels of clinical concepts. For loss notation, K1 = {1, . . . , K 1} indexes morphology concepts and K2 = {1, . . . , K 2} indexes biomarker concepts within their own levels. When global concept indices are used in the architecture, biomarker concept j ∈ K 2 corresponds to global index K1 + j.Morphology concepts are extracted from pathology reports and represented as soft-ordinal targets 
+
+t1 
+
+> n,k
+
+∈ [0 , 1] . A target is treated as observed when the report provides explicit evidence about the concept; unmentioned concepts are assigned mask m1 
+
+> n,k
+
+= 0 and do not contribute to the concept loss. Biomarker concepts are obtained from available protein-level or molecular biomarker annotations and represented as binary targets t2 
+
+> n,j
+
+∈ { 0, 1}, with mask m2 
+
+> n,j
+
+= 1 only when the corresponding annotation is available. The level-specific concept loss in Eq. (6) applies the soft-ordinal loss ℓ1 to morphology targets and binary cross-entropy ℓ2 to biomarker targets. The same masks are used for all experts, so missing concepts neither penalize nor reward any expert pathway. 
+
+K.2 Encoder and interaction-specialization details 
+
+For image inputs, patch-level features are aggregated into an image-level representation with gated-attention multiple-instance learning [ 27 ]. For graph-structured inputs, node features are encoded by a message-passing network such as GraphSAGE [ 13 ] and pooled into a graph-level representation. All modality embeddings are projected to the common dimension d before entering the expert layers. For the interaction-specialization loss in Eq. (1), modality m is perturbed as 
+
+˜em = em + ϵ, ϵ ∼ N (0, σ 2I).
+
+Let pclean  
+
+> e
+
+denote the expert prediction with the original embeddings, and let pme denote the prediction after perturbing modality m. The sign pattern is 
+
+sme =
+
+
+
+−1, e = Um,
+
+−1, e = S, 
+
++1 , e = R, 
+
++1 , e = Uj , j ̸ = m. 
+
+Thus the uniqueness expert Um is encouraged to be sensitive to modality m and invariant to the other modalities, the redundancy expert R is encouraged to be invariant to single-modality perturbations, and the synergy expert S is encouraged to be sensitive to all modalities. The averaged interaction loss is 
+
+Lint = 1
+
+E
+
+X
+
+> e∈E
+
+Le
+
+> int
+
+.
+
+K.3 Hierarchical concept block details 
+
+The main text defines the first-level concept block from the expert latent ze. For morphology concept 
+
+k ≤ K1, the positive state, negative state, scalar activation, and concept embedding are computed as in Eqs. (2)–(3). The first-level embeddings are collected in Be, 1.23 For biomarker concept j ∈ K 2, the second-level input is the concatenated representation defined as ze, 2 = [ ze; Be, 1]. The biomarker concept block uses the same positive-negative embedding construction, with projections defined on the second-level input: 
+
+c+ 
+
+> e,K 1+j
+
+= LeakyReLU( ϕ+ 
+
+> e,K 1+j
+
+(ze, 2)) , c− 
+
+> e,K 1+j
+
+= LeakyReLU( ϕ− 
+
+> e,K 1+j
+
+(ze, 2)) ,pe,K 1+j = σ
+
+
+
+se,K 1+j ([ c+ 
+
+> e,K 1+j
+
+; c− 
+
+> e,K 1+j
+
+]) 
+
+
+
+,
+
+ˆce,K 1+j = pe,K 1+j c+ 
+
+> e,K 1+j
+
++ (1 − pe,K 1+j )c− 
+
+> e,K 1+j
+
++ γres ψe,K 1+j (ze, 2).
+
+The second-level embeddings are then collected in Be, 2 as in Eq. (4) . If a concept level is unavailable for a cohort, the corresponding block and loss are removed by setting the associated Kq to zero. 
+
+K.4 Concept-wise attribution details 
+
+For analyses that summarize expert-pathway support, let αe denote the sample-specific expert weight used to combine expert predictions. If an implementation uses uniform expert averaging, set 
+
+αe = 1 /E . For concept k, the class-agnostic pathway evidence profile is 
+
+ae,k = αepe,k 
+
+P 
+
+> e′∈E
+
+αe′ pe′,k + ε , e ∈ E .
+
+This profile decomposes the predicted activation of concept k across uniqueness, redundancy, and synergy expert pathways. For class-specific explanations, let c be the predicted class or a user-specified class, and let Re denote the representation passed to the expert head ge. Let R¬ke be the same representation with ˆce,k replaced by a neutral concept state. The neutral state is fixed across samples, such as the negative concept embedding or the empirical mean concept embedding. The logit-ablation score is 
+
+∆(c) 
+
+> e,k
+
+= αe
+
+ge,c (Re) − ge,c (R¬ke ) ,
+
+where ge,c is the c-th logit of expert e. Positive values indicate supporting evidence for class c, and negative values indicate suppressive evidence. For visualization, positive evidence can be normalized across pathways: 
+
+¯∆(c) 
+
+> e,k
+
+= max(∆ (c)
+
+> e,k
+
+, 0) 
+
+P 
+
+> e′∈E
+
+max(∆ (c)
+
+> e′,k
+
+, 0) + ε .
+
+The score ae,k measures which pathway activates a concept, while ∆(c) 
+
+> e,k
+
+measures how the pathway-specific concept changes the diagnostic logit. 
+
+K.5 Proof of Proposition 1 
+
+Proof. For a fixed expert, Re, 1 contains Re, 0 = ze as a coordinate subvector, and Re, 2 contains Re, 1
+
+as a coordinate subvector. Hence the sigma-algebra generated by Re, 0 is contained in that generated by Re, 1, which is contained in that generated by Re, 2. By the chain rule for mutual information, 
+
+I(Re, 1; Y ) = I(Re, 0; Y ) + I([ Be, 1; re, 1]; Y | Re, 0) ≥ I(Re, 0; Y ),
+
+and similarly 
+
+I(Re, 2; Y ) = I(Re, 1; Y ) + I(Be, 2; Y | Re, 1) ≥ I(Re, 1; Y ).
+
+This proves the mutual-information ordering. For unrestricted population log-loss, 
+
+R⋆
+
+> log
+
+(R) = inf  
+
+> q
+
+E[− log q(Y | R)] = H(Y | R) = H(Y ) − I(R; Y ),
+
+where the optimum is attained by the true conditional distribution q(y | R) = P(Y = y | R). The mutual-information ordering therefore implies 
+
+R⋆
+
+> log
+
+(Re, 2) ≤ R ⋆
+
+> log
+
+(Re, 1) ≤ R ⋆
+
+> log
+
+(Re, 0).
+
+If the appended concept and residual coordinates are deterministic functions of ze and ze is retained, then Re,j and ze generate the same sigma-algebra. Thus I(Re,j ; Y ) = I(ze; Y ) for j ∈ { 0, 1, 2}.24 For the finite-capacity predictor classes, any head operating on Re, 0 can be represented as a head operating on Re, 1 by setting the weights on the appended coordinates to zero. The same argument embeds any head on Re, 1 into the head class on Re, 2. Therefore F0 ⊆ F 1 ⊆ F 2, and taking the infimum over a larger class cannot increase empirical classification loss: 
+
+inf  
+
+> f∈F 2
+
+bLcls (f ) ≤ inf  
+
+> f∈F 1
+
+bLcls (f ) ≤ inf  
+
+> f∈F 0
+
+bLcls (f ).
+
+K.6 Proof of Theorem 1 
+
+Proof. Let Gτ = ℓcls ◦ H τ . By the standard Rademacher uniform convergence bound for bounded losses, with probability at least 1 − δ,
+
+sup 
+
+> h∈H τ
+
+Rcls (h) − bRcls (h) ≤ 2Rn(Gτ ) + Bℓ
+
+r log(2 /δ )2n . (10) Let the right-hand side be ∆τ . For any h ∈ H τ , empirical optimality of ˆhτ gives 
+
+bRcls (ˆhτ ) ≤ bRcls (h).
+
+Using Eq. (10) on ˆhτ and on the comparator h yields 
+
+Rcls (ˆhτ ) ≤ bRcls (ˆhτ ) + ∆ τ ≤ bRcls (h) + ∆ τ ≤ R cls (h) + 2∆ τ .
+
+Taking the infimum over h ∈ H τ gives 
+
+Rcls (ˆhτ ) ≤ inf 
+
+> h∈H τ
+
+Rcls (h) + 4 Rn(ℓcls ◦ H τ ) + 2 Bℓ
+
+r log(2 /δ )2n .
+
+Since Hτ ⊆ H , monotonicity of Rademacher complexity implies 
+
+Rn(ℓcls ◦ H τ ) ≤ Rn(ℓcls ◦ H ).
+
+Substituting the near-sufficiency condition from Theorem 1 gives the stated finite-sample comparison. 
+
+K.7 Auxiliary-gradient contraction result 
+
+The localization result describes the statistical role of concept supervision. The next proposition gives the complementary optimization statement used in Section 2.4. 
+
+Proposition 2 (Aligned auxiliary gradients improve task-loss contraction) . Let 
+
+La(θ) = λ1LL1 concept (θ) + λ2LL2 concept (θ) + λint Lint (θ),
+
+and define gy = ∇L cls (θ) and ga = ∇L a(θ). Consider the update θ+ = θ − η(gy + ga). Assume that along the training trajectory: (i) Lcls is β-smooth; (ii) Lcls satisfies the Polyak–Łojasiewicz (PL) condition 
+
+∥gy ∥2 ≥ 2μ Lcls (θ) − L ⋆
+
+> cls
+
+; (11) 
+
+(iii) the auxiliary gradient is task-aligned, 
+
+⟨gy , g a⟩ ≥ ρ∥gy ∥2, ρ ≥ 0; 
+
+(iv) the joint gradient norm is controlled, 
+
+∥gy + ga∥2 ≤ B∇∥gy ∥2;
+
+and (v) 1 + ρ − βηB ∇/2 > 0. Then 
+
+Lcls (θ+) − L ⋆ 
+
+> cls
+
+≤
+
+
+
+1 − 2ημ 
+
+
+
+1 + ρ − βηB ∇
+
+2
+
+  Lcls (θ) − L ⋆
+
+> cls
+
+. (12) 
+
+Moreover, this contraction is sharper than the task-only update whenever 
+
+ρ > βη 
+
+2 (B∇ − 1) . (13) 25 Proof. By β-smoothness of Lcls ,
+
+Lcls (θ+) ≤ L cls (θ) − η⟨gy , g y + ga⟩ + βη 2
+
+2 ∥gy + ga∥2
+
+≤ L cls (θ) − η(1 + ρ)∥gy ∥2 + βη 2B∇
+
+2 ∥gy ∥2
+
+= Lcls (θ) − η
+
+
+
+1 + ρ − βηB ∇
+
+2
+
+
+
+∥gy ∥2.
+
+Applying the PL condition in Eq. (11) gives Eq. (12). For the task-only update θ+task = θ − ηg y , the same argument gives the contraction coefficient 
+
+1 − 2ημ 
+
+
+
+1 − βη 
+
+2
+
+
+
+.
+
+The auxiliary update is sharper when 
+
+1 + ρ − βηB ∇
+
+2 > 1 − βη 
+
+2 ,
+
+which is equivalent to Eq. (13). 
+
+L Broader Impacts 
+
+The deployment of multimodal AI in computational pathology carries significant societal and clinical implications. 
+
+Positive Impacts. ConceptM 3oE directly addresses the critical need for transparency in clinical AI. By explicitly mapping heterogeneous inputs (e.g., whole-slide images, pathology reports, and molecular biomarkers) to understandable morphology and biomarker concepts, ConceptM 3oE aligns model decisions with established pathological reasoning. This interpretable design helps bridge the trust gap between black-box deep learning models and medical practitioners. In complex diagnostic domains where decisions are highly reliant on multimodal synthesis, ConceptM 3oE offers a scalable, transparent assistive tool that can help alleviate the workload of clinicians and reduce diagnostic variability. 
+
+Potential Risks. Despite its transparent design, ConceptM 3oE is not immune to the risks inherent in medical AI. First, there is a risk of automation bias , where clinicians might over-rely on the extracted concepts or the model’s final predictions without independent verification, particularly if the model presents its rationale confidently. Second, as with many data-driven models, ConceptM 3oE 
+
+is susceptible to representation bias . If the institutional cohorts used for training lack demographic or geographic diversity, the learned concept representations may not generalize well to underrepresented populations, potentially exacerbating existing healthcare disparities. 
+
+Mitigations and Safe Deployment. To mitigate these risks, we emphasize that ConceptM 3oE is designed strictly as an assistive clinical decision support tool , not an autonomous diagnostic agent. The concept-level attributions are intended to surface relevant evidence for human review, keeping the clinician firmly in the loop. Furthermore, before any clinical deployment, ConceptM 3oE must undergo rigorous, multi-center prospective validation to ensure robustness across diverse patient demographics, varying tissue preparation protocols, and different hardware scanners. We encourage future work to explicitly evaluate the fairness and calibration of concept-guided models across diverse sub-populations. 26

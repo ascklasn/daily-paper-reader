@@ -1,0 +1,638 @@
+Title: Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning
+
+URL Source: https://arxiv.org/pdf/2605.19491v2
+
+Published Time: Tue, 26 May 2026 01:48:09 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+Jiusong Ge 1 Yingkang Zhan 1 Wenjie Zhao 1 Di Zhang 1 Ke Wang 2 Jiashuai Liu 1 Chunze Yang 1
+
+Chengzu Li 3 Jian Zhang 1 Yuxin Dong 4 Ni Zhang 1 Qidong Liu * 1 Mireia Crispin-Ortuzar 5 Huazhu Fu 6
+
+Chen Li * 1 Zeyu Gao * 5 
+
+## Abstract 
+
+Traditional whole slide image (WSI) analysis methods typically rely on the multiple instance learning (MIL) paradigm, which extracts patch-level features at high magnification and aggre-gates them for slide-level prediction. However, such exhaustive patch-level processing is com-putationally expensive, severely limiting the ef-ficiency and scalability of WSI analysis. To ad-dress this challenge, we propose PathCTM (a 
+
+Path ology-oriented Continuous Thought Model) that enables token-efficient scale-space contin-uous reasoning for gigapixel WSIs. PathCTM formulates diagnostic inference as a dynamic se-quential information pursuit. It progressively tran-sitions from low-magnification global to high-magnification local inspection, and adaptively terminates inference when sufficient evidence is gathered to effectively bound decision uncer-tainty. Specifically, it uses conditional computa-tion for dynamic scale switching with attention-guided region pruning, coupled with confidence-aware early stopping. Extensive experiments demonstrate that, compared with standard MIL-based methods, PathCTM reduces the number of required image patches by 95.95% and short-ens inference time by approximately 95.62%, while maintaining AUC without degradation. Code is available at https://github.com/ JSGe-AI/PathCTM .
+
+> 1
+
+School of Computer Science and Technology, Xi’an Jiao-tong University, Xi’an, China 2Department of Transmedia Art, Xi’an Academy of Fine Arts, Xi’an, China 3Language Technol-ogy Lab, University of Cambridge, Cambridge, U.K. 4Moonshot AI 5Department of Oncology, University of Cambridge, Cam-bridge, U.K. 6Institute of High Performance Computing, Agency for Science, Technology and Research, Singapore, Singapore. Cor-respondence to: Zeyu Gao <zg323@cam.ac.uk >, Qidong Liu 
+
+<liuqidong@xjtu.edu.cn >, Chen Li <cli@xjtu.edu.cn >.
+
+Proceedings of the 43 rd International Conference on Machine Learning , Seoul, South Korea. PMLR 306, 2026. Copyright 2026 by the author(s). (a)           
+
+> Input WSI Attention Map
+> MIL Inference
+> 5.79 ms
+> Feature E xtraction
+> 60,289 ms Patch Tiling
+> 56,807 ms
+> MIL
+> (b) MIL inference :only
+> 5×10⁻⁵ of total time
+> Traditional MIL: Exhaustive Processing PathCTM : Progressive Key-Region Reasoning
+> 0
+> 1
+> Low Mag
+> ...
+> Mid Mag
+> High Mag
+> Insufficient Cues
+> Key Regions Only
+> Thinking in Scales
+> or
+> ...
+> ...
+> Thinking in Scales
+> or
+> Full-coverage
+> 20 ×faster without sacrificing accuracy
+> (c)
+
+Figure 1. (a) Traditional MIL pipeline for WSI analysis, along with the time-cost breakdown of each stage. (b) PathCTM’s dynamic multi-scale continuous reasoning process, following a thinking-in-scales paradigm, as the analysis progressively refines from global to local. (c) Performance comparison between PathCTM and existing methods. 
+
+## 1. Introduction 
+
+Whole Slide Image (WSI) analysis represents one of the most demanding tasks in computational pathology. With advances in digital scanning, pathological slides can now be digitized at gigapixel resolution, enabling visualization of both tissue architecture and cellular morphology within a single specimen. However, such ultra–high-resolution input incurs substantial computational and storage overheads, hin-dering the scalability and practical deployment of automated WSI analysis in clinical settings. The prevailing paradigm for WSI analysis (Campanella et al., 2019; Chen et al., 2022; Gao et al., 2023) is based on Multiple Instance Learning (MIL), which divides each WSI into tens of thousands of high-magnification patches for fea-ture extraction and performs one-shot feature aggregation for prediction. While this paradigm has demonstrated strong performance in various downstream tasks, particularly when equipped with pathology foundation models (Vorontsov 1
+
+> arXiv:2605.19491v2 [cs.CV] 24 May 2026 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning
+
+et al., 2024; Xiang et al., 2025; Xu et al., 2024a; Zhang et al., 2026), it relies on exhaustive patch-level processing, resulting in substantial computational overhead and ineffi-cient inference. As illustrated in Figure 1 (a), patch tiling and feature extraction dominate the runtime, yet a large proportion of patches contribute negligibly to the final pre-diction. Therefore, enabling models to adaptively allocate computational resources to diagnostically informative re-gions across scales is crucial for achieving efficient and clinically scalable WSI analysis. Although existing studies (Yu et al., 2024; Dong et al., 2025) accelerate WSI analysis, they often rely on fine-grained an-notations or rigid cascade structures, merely mimicking the procedural form of pathologists “coarse-to-fine” work-flow while lacking continuous, memory-driven reasoning capabilities. As a result, they are limited in scalability and frequently lead to degraded accuracy or marginal efficiency gains. In clinical practice, pathologists conduct multi-scale reasoning in a continuous, progressive, and memory-aware manner. They dynamically integrate cross-scale context and halt inspection once sufficient diagnostic evidence is gath-ered, thereby ensuring both efficiency and reliability. This discrepancy highlights a Reasoning Gap between current methods and the cognitive process of pathologists. Recently, to bridge the gap between AI systems and human cognition, Continuous Thought Machine (CTM) (Darlow et al., 2026) has been proposed, introducing “internal time” for iterative reasoning. It is promising to equip existing methods with continuous reasoning abilities, providing a theoretical alternative. However, standard CTM is limited to reasoning over single-scale conventional static images and cannot be directly applied to gigapixel-level WSI analysis. Its fundamental premise is that extending thinking time on a fixed tensor enables deeper information extraction. In low-resolution WSI scenarios, no amount of internal temporal iterations can “hallucinate” the missing cellular details at coarse scales. Moreover, this framework is unable to lever-age the intrinsic hierarchical structure of WSIs. Overall, existing CTM architecture fails in pathological settings. To address these challenges, we propose PathCTM, an effi-cient continuous-reasoning paradigm for gigapixel pathol-ogy images. PathCTM retains standard “Thinking in Time” as its internal iterative engine, while further introducing a novel “Thinking in Scales” mechanism that aligns iterative reasoning with the multi-magnification hierarchy of the WSI pyramid. This design formulates diagnosis as sequential evidence acquisition across scales and regions, enabling effi-cient, interpretable cross-scale inference with a substantially reduced token budget. As illustrated in Fig. 1(b), our frame-work consists of three core components: (i) Scale-Space Continuous Reasoning: PathCTM performs cross-scale continuous reasoning in the spatial dimension, establish-ing a coherent coarse-to-fine scale-wise inference trajectory. By enforcing state continuity across scale transitions, the model dynamically integrates global context with local fine-grained information; (ii) Attention-Guided Region Prun-ing: This module transforms conventional soft attention into a conditional hard pruning strategy driven by information density. High-resolution features are selectively loaded for informative regions, while error propagation is mitigated through a joint focus filtering mechanism, thereby elimi-nating the inherent speed bottlenecks of WSI analysis; (iii) 
+
+Confidence-Aware Early Stopping: Considering the vary-ing difficulty of diagnostic cases, PathCTM incorporates a confidence-aware early stopping strategy based on entropy minimization. Inference is allowed to terminate immedi-ately once sufficient evidence is accumulated to theoreti-cally bound decision uncertainty, ensuring reliability with minimal computational cost. Moreover, PathCTM is fully compatible with existing pathology foundation models and can be seamlessly integrated into standard MIL pipelines, improving both inference efficiency and interpretability. With these designs, PathCTM enables a paradigm shift that, as illustrated in Figure 1 (c), allows it to far exceed existing methods in inference speed without compromising accuracy. In summary, our main contributions are as follows: • We propose PathCTM, an efficient continuous reasoning framework for WSI, formulated as a dynamic sequential information search process. It emulates the pathologist’s coarse-to-fine reasoning workflow, enables interpretable diagnosis, and can be seamlessly integrated with pathol-ogy foundation models. • We design a progressive multi-scale inference strategy driven by conditional computation and entropy minimiza-tion. This design enables smooth cross-scale transitions, attention-guided focus selection, and confidence-aware termination, integrating global and local cues while mini-mizing redundant computation. • Extensive experiments across four diagnostic tasks show that, compared with standard MIL methods, PathCTM reduces inference time by 95.62% while further improving AUC over the baselines. Analysis and visualization of its inference trajectories further demonstrate PathCTM’s enhanced interpretability and its dynamic, thinking-in-scales reasoning behavior. 
+
+## 2. Related Work 
+
+Multiple Instance Learning. Computational pathology has recently advanced beyond conventional diagnosis toward diverse clinically oriented tasks and reliable AI deployment (Zhang et al., 2025; Yang et al., 2026; Ge et al., 2025; Zhu et al., 2025). In particular, WSI analysis has become a 2Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning      
+
+> Figure 2. Overall framework of PathCTM. Formulating WSI analysis as a dynamic sequential information pursuit, the model executes progressive continuous reasoning from low ( L) to high ( L−1) magnification. If confidence is insufficient at scale L, the model utilizes attention weights from the most confident step to perform Top-K region pruning, guiding the transition to the next scale. Cross-scale consistency is maintained by concatenating synchronization outputs from previous scales. The inference supports confidence-aware early stopping, terminating immediately once the confidence threshold is met to optimize efficiency.
+
+core task in computational pathology, where MIL remains the dominant paradigm. While methods like CLAM (Lu et al., 2021), TransMIL (Shao et al., 2021), and ABMIL (Ilse et al., 2018) have established strong baselines, they suffer from high computational costs due to exhaustive pro-cessing. Recent acceleration attempts, such as hierarchical distillation (Dong et al., 2025), and self-reform focusing (Yu et al., 2024) (which relies on fine-grained annotations for training), have accelerated WSI analysis to a certain extent. Similarly, methods such as ZoomMIL (Thandiackal et al., 2022), HAG-MIL (Xiong et al., 2023), and EAGLE (Neidlinger et al., 2025) attempt to reduce redundant com-putation through multi-scale region selection or key-tile filtering. However, these approaches often fail to address the core bottleneck of feature extraction or suffer from ac-curacy degradation and poor compatibility with foundation models due to their rigid, procedural inference designs. 
+
+Continuous Thought Machines. Recently, dynamic rea-soning and adaptive state modeling have attracted increasing attention in visual AI systems (Yan et al., 2025; Zhu et al., 2026; Ke et al., 2026). While conventional deep learning models (Krizhevsky et al., 2012; He et al., 2016; Vaswani et al., 2017) rely on static feed-forward computation, bi-ologically plausible paradigms like LTCNs (Hasani et al., 2021) have explored continuous temporal dynamics. Build-ing on these, Continuous Thought Machines (Darlow et al., 2026) further introduce neural synchrony to emulate dy-namic thinking processes. Unlike instantaneous response models, CTM processes information through coordinated neural activity over time. However, CTM is designed for single-scale static images and assumes that extending com-putation on a fixed tensor suffices to extract deeper infor-mation. When directly applied to WSIs, this assumption breaks down: low-resolution inputs cannot “hallucinate” the missing cellular details at coarse scales, while multi-step reasoning over full-resolution WSIs is computationally in-tractable. Our work addresses these challenges by develop-ing a scale-aware continuous reasoning framework tailored for WSIs. 
+
+## 3. Method 
+
+3.1. Overview 
+
+The core of PathCTM lies in framing WSI analysis as a dynamic inference process designed to minimize diagnostic uncertainty under computational constraints. Unlike static approaches, it establishes an adaptive framework capable of continuous reasoning across scales. As illustrated in Figure 2, the workflow proceeds through four distinct stages: (1) feature encoding, (2) cross-scale continuous reasoning and synchronization, (3) attention-guided region pruning via conditional computation, and (4) confidence-aware early stopping via entropy minimization. Specifically, PathCTM initializes the reasoning trajectory by extracting low-magnification features from the WSI 
+
+X ∈ RH×W ×3. It then performs neural dynamic reasoning over n consecutive time steps. At each step t, the model evaluates the posterior distribution P (Y |Zt) conditioned on the current latent state Zt, and its associated entropy. If the information gain saturates at the current scale L, the model triggers the multi-scale dynamic switching mecha-nism. To maximize the information-to-compute ratio, the model utilizes the attention distribution from the most confi-3Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+dent time step at scale L as a proxy for information density. It selects K high-value regions (conditional computation) to transition into scale L − 1 for fine-grained evidence ac-cumulation. This progressive process continues until the diagnostic entropy drops below the acceptance margin or the computational budget is exhausted. For optimization, PathCTM employs a composite objective that jointly rewards prediction accuracy and certainty. For each internal time step t ∈ [1 , . . . , T ], the model computes the cross-entropy loss Lt alongside the confidence score Ct
+
+(defined as 1 − normalized entropy ). Across all z scales, for each scale we identify the optimal checkpoints: the minimum-loss point t1 
+
+> l
+
+and the maximum-certainty point t2 
+
+> l
+
+,defined as: 
+
+Ltl = CrossEntropy (ˆ yt, y label ), l ∈ [1 , . . . , z ] (1) 
+
+t1 
+
+> l
+
+= arg min( Ll), t2 
+
+> l
+
+= arg max( Cl) (2) 
+
+Lall = 1
+
+z
+
+> z
+
+X
+
+> l=1
+
+Lt1 
+
+> l
+> l
+
++ Lt2
+
+> l
+> l
+
+2 . (3) This dual-objective loss ensures that the model not only learns to classify correctly (minimizing L) but also learns to recognize when it is certain (minimizing entropy), aligning the latent dynamics with the stopping criterion. 
+
+3.2. Continuous Multi-scale Reasoning via Sequential Information Pursuit Revisiting WSI Analysis as a Dynamic Process. Unlike traditional MIL frameworks that approximate the posterior distribution P (Y |X) via a static, one-shot aggregation of high-magnification patches, we formulate WSI analysis as a dynamic sequential information pursuit. The core objec-tive is to progressively minimize the conditional entropy 
+
+H(Y |Zt) of the diagnosis Y across time steps t and mul-tiple scales, given the evolving latent state Zt. To achieve this, PathCTM constructs a continuous reasoning trajec-tory that transitions from coarse-grained global context to fine-grained local evidence. 
+
+Latent Space Dynamics. We model the reasoning process as a recurrent dynamical system. At each scale L, the model performs continuous reasoning for n time steps. To ensure the temporal continuity of the information flow, the system maintains a persistent memory state that evolves according to the new sensory input and the previous context. Specifi-cally, let et denote the post-activation state and ht denote the pre-activation state at time t, where the initial state e1
+
+is defined as a learnable parameter. The dynamics are gov-erned by a synchronization module fθsyn , which acts as the state transition function: 
+
+ht = fθsyn (concat (et, bt)) ∈ RD , (4) here, bt represents the output of the attention mechanism, and D indicates the dimension of the latent space. To cap-ture long-range temporal dependencies without unbounded memory costs, we employ a First-In-First-Out (FIFO) his-tory mechanism. We maintain three historical records: the pre-activation history Ht = [ ht−M +1 , . . . , ht] ∈ RD×M ,the post-activation history Et = [ e1, . . . , et] ∈ RD×N , and the synchronized output history Slist out = [ S1
+
+> out
+
+, . . . , St
+
+> out
+
+] ∈
+
+RD×N . The pre-activation history Ht stores states from multiple time steps and is updated via FIFO. This ensures that the latent state effectively summarizes the accumulated evidence from the global view down to the current focus. 
+
+Dynamic Scale Switching as Information Maximization. 
+
+The transition between scales is driven by insufficient ev-idence under current resolution constraints. Specifically, when reasoning reaches the maximum time steps n at scale 
+
+L but prediction confidence fails to reach threshold δ, the system triggers Multi-scale Dynamic Switching. This pro-cess queries a new feature subspace at the next higher res-olution to maximize conditional mutual information with the diagnostic target. During transitions, the pre-activation history Ht continues to update following the FIFO rule, preserving temporal continuity across magnifications. 
+
+Information Accumulation via Cross-scale Fusion. Acritical challenge is preventing the “catastrophic forgetting” of global context when the model focuses on local details. To address this, PathCTM adopts a cross-scale fusion strat-egy that combines the synchronized output SL−1,t  
+
+> out
+
+from the current fine scale with the most confident output SL, max out 
+
+from the previous coarse scale: 
+
+ˆyt = MLP ([ SL−1,t  
+
+> out
+
+∥ SL, max out ]) . (5) This fusion mechanism enables the model to continuously leverage the global evidence accumulated from previous reasoning stages during fine-grained inference, rather than relying solely on local information at the current scale. In this way, it effectively mitigates the risk of information loss during focus shifts across regions and scales. 
+
+3.3. Attention-Guided Region Pruning via Conditional Computation Optimization Objective under Budget Constraints. The primary bottleneck in WSI analysis is the computational intractability of processing all high-magnification patches. We formulate this challenge as a conditional computation problem: given a computational budget K (number of allow-able high-resolution patches), we seek to select a subset of regions S that maximizes the expected information gain for the diagnosis Y . Formally, this is an optimization problem: 
+
+S∗ = arg max   
+
+> S⊂X ,|S|≤ K
+
+I(Y ; S| Zt), (6) 4Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+where X denotes the set of candidate patches at the current scale, S∗ represents the optimal subset for detailed analysis, and I(·) denotes mutual information. Since computing mu-tual information for all candidates is infeasible, PathCTM employs an attention-guided region pruning mechanism as a tractable proxy. The attention distribution generated during continuous reasoning approximates local information den-sity, enabling the model to filter redundant, non-informative regions and focus solely on high-value areas. 
+
+Query Generation and Attention Mechanism. To gen-erate the query vector that guides this selection, PathCTM leverages its latent neural dynamics. At the beginning of training, we sample the (m, n ) neurons by randomly se-lecting θout and θaction . These are used to generate two syn-chronized representations at each time step t: St 
+
+> out
+
+∈ Rθout 
+
+and St 
+
+> action
+
+∈ Rθaction . These representations are linearly transformed by matrices Wo and Wi to produce the model output ˆyt and the attention query vector qt, respectively: 
+
+ˆyt = Wo · St
+
+> out
+
+, qt = Wi · St
+
+> action
+
+. (7) Based on these queries, we employ standard cross-attention to compute the attention weight matrix At and the output representation bt:
+
+At, bt = Attn (qt, Encoder (data )) . (8) The resulting bt is concatenated with the synaptic state 
+
+et+1 and used as part of the input for the next time step. Meanwhile, each attention matrix At is stored in a list Alist 
+
+to record the attention distributions across time steps. 
+
+Top-K Selection as Sparse Masking. To address the op-timization problem during scale transitions, we employ an attention-guided greedy selection. Departing from uniform sampling, we enforce spatial sparsity dictated by attention weights. We formalize the validity of this attention-based selection criterion through the following proposition: 
+
+Proposition 1 (Attention as Influence Surrogate). Under bounded feature norms and additive aggregation, attention weights provide a first-order surrogate for the influence of individual patches on the decision loss. In particular, select-ing Top-K patches according to attention scores yields a tractable approximation to gradient-based influence maxi-mization. (Detailed derivation provided in Appendix A.1.) 
+
+Guided by this proposition, we identify the time step t∗ that yields the highest prediction confidence within the current reasoning trajectory. Leveraging the theoretical surrogate relationship established above, we select the indices of the top K patches to form the subset S:
+
+S = {i | At∗ 
+
+> i
+
+∈ Top-K (At∗
+
+)}. (9) Subsequently, high-resolution feature extraction is per-formed exclusively for the indices in S at scale L − 1.This attention-driven strategy effectively acts as a sparse mask, reducing the computational complexity from O(N )
+
+to O(K) (where K ≪ N ). By concentrating FLOPs on the information-dense tail of the distribution, PathCTM maxi-mizes the information-to-compute ratio, achieving efficient layer-wise focusing while preserving diagnostic accuracy. 
+
+Joint Attention Calibration for Suppressing Error Prop-agation. The ambiguity of coarse-grained features often leads to the generation of false positive candidates and the accumulation of errors. To address this, PathCTM intro-duces a joint attention mechanism during scale transitions. Unlike rigid focusing methods that enforce sub-region se-lection for all candidates (including erroneous ones), our method jointly models all regions at each scale and re-calibrates attention. For the selected subset S, after ex-tracting the corresponding fine-grained features FL−1 
+
+> S
+
+=
+
+{f L−1 
+
+> k
+
+}k∈S at scale L − 1, we compute the new weight distribution AL−1 via joint attention: 
+
+AL−1 
+
+> i
+
+= exp( qt · f L−1 
+
+> i
+
+/√D)
+
+P 
+
+> k∈S
+
+exp( qt · f L−1 
+
+> k
+
+/√D) , ∀i ∈ S (10) This ensures the effective elimination of invalid candi-dates without triggering subsequent sub-region selection (as shown by the “error interception” at L − 1 in Figure 2). It continuously filters out noisy errors, propagating only valid regions to the high-resolution analysis stage. 
+
+3.4. Confidence-Aware Early Stopping via Entropy Minimization Adaptive Stopping Formulation. Different diagnostic tasks and instances exhibit varying inherent complexity. To adaptively decouple computational cost from instance difficulty, PathCTM introduces a confidence-aware early stopping mechanism. We formulate the inference duration as a stochastic stopping time τ , aiming to halt computation once the model achieves sufficient certainty. Let ˆyt,L denote the prediction at time step t under the scale L. We quantify the prediction certainty using the confidence score Ct,L ,defined as the complement of the normalized entropy: 
+
+Ct,L = 1 − H(ˆ yt,L )log N , (11) where H(·) is the Shannon entropy and N is the number of classes. The stopping time τ is defined as the first moment when this confidence score exceeds the threshold δ:
+
+τ = min {(t, L ) | Ct,L ≥ δ}. (12) To relate diagnostic uncertainty to the lower bound of clas-sification error, we invoke Fano’s inequality as detailed in the following proposition: 
+
+Proposition 2 (Error Bound via Fano’s Inequality). 
+
+Fano’s inequality establishes an information-theoretic re-lationship between the conditional entropy H(Y | Zt) and 
+
+5Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+Table 1. Summary of experimental results across four diagnostic tasks. The best results are highlighted in bold. AUC scores are presented in percentages (%), and Time is measured in seconds (s). FE denotes the feature extractor. FE MODEL BRACS-3 BRACS-7 RCC-STAGING MUT-SETD2 AUC ↑ NO. P AT . ↓ TIME ↓ AUC ↑ NO. P AT . ↓ TIME ↓ AUC ↑ NO. P AT . ↓ TIME ↓ AUC ↑ NO. P AT . ↓ TIME ↓                                                                                                                                                                                                                                                                        
+
+> CONCH(V1.5)
+> CLAM 92.0 ±1.3 2606 74.43 86.2 ±2.1 2605 74.41 77.3 ±6.0 3517 100.43 73.2 ±3.0 2869 81.92 ABMIL 91.9 ±1.3 2606 74.43 88.6 ±1.3 2605 74.41 74.4 ±8.0 3517 100.43 74.2 ±3.9 2869 81.92 TRANS MIL 90.6 ±0.9 2606 74.44 86.1 ±1.1 2605 74.41 76.9 ±5.8 3517 100.44 70.1 ±4.1 2869 81.93 WIKG 90.4 ±0.9 2606 74.44 84.4 ±1.5 2605 74.41 81.2 ±7.3 3517 100.44 71.1 ±2.0 2869 81.92 DSMIL 90.6 ±1.2 2606 74.43 85.3 ±1.5 2605 74.41 80.0 ±8.7 3517 100.43 69.9 ±3.9 2869 81.92 RRT 91.6 ±1.5 2606 74.44 86.0 ±1.5 2605 74.41 76.3 ±6.5 3517 100.43 73.5 ±4.1 2869 81.92 HDMIL 90.2 ±3.4 1164 33.26 76.9 ±5.4 882 25.21 73.8 ±2.2 1256 35.88 68.9 ±2.1 2087 59.52 HAG-MIL 85.2 ±1.1 875 25.78 75.7 ±3.6 895 26.37 81.3 ±7.3 992 29.23 64.7 ±5.2 907 26.72 ZOOM MIL 92.2 ±1.8 395 11.64 85.5 ±3.0 400 11.79 78.5 ±4.8 455 13.41 68.9 ±3.9 387 11.40 EAGLE 85.9 ±3.3 756 22.28 82.5 ±1.6 756 22.28 71.4 ±10.9 774 22.81 70.5 ±3.4 1465 43.16 PATH CTM 93.1 ±1.6 183 5.34 88.9 ±1.7 224 6.64 82.8 ±2.6 250 7.39 73.9 ±2.6 235 6.93
+> UNI(V2)
+> CLAM 92.0 ±1.2 9484 210.15 87.0 ±1.6 11929 264.33 79.0 ±9.0 15063 333.80 74.1 ±2.3 11229 248.84 ABMIL 91.8 ±2.2 9484 210.17 86.9 ±1.5 11929 264.33 79.7 ±6.6 15063 333.81 73.7 ±3.0 11229 248.85 TRANS MIL 89.1 ±0.9 9484 210.15 85.3 ±1.2 11929 264.34 79.1 ±5.2 15063 333.84 71.6 ±1.7 11229 248.87 WIKG 91.4 ±1.7 9484 210.18 87.1 ±1.4 11929 264.36 81.2 ±7.5 15063 333.90 73.8 ±1.9 11229 248.90 DSMIL 91.3 ±0.5 9484 210.15 86.9 ±1.0 11929 264.33 82.7 ±5.3 15063 333.81 69.7 ±3.0 11229 248.85 RRT 91.6 ±2.4 9484 210.16 87.9 ±0.5 11929 264.34 80.3 ±6.6 15063 333.83 74.7 ±2.8 11229 248.86 HDMIL 90.1 ±2.4 7242 160.50 82.1 ±4.7 3632 80.51 79.8 ±5.1 10709 237.33 68.8 ±3.1 8806 195.16 HAG-MIL 86.7 ±1.0 1486 34.32 75.7 ±3.6 895 20.67 80.2 ±3.9 1752 40.46 68.8 ±2.3 2236 51.64 ZOOM MIL 91.7 ±1.5 912 21.06 86.0 ±1.5 911 21.04 79.5 ±4.0 1143 26.40 73.6 ±4.6 1203 27.78 EAGLE 85.5 ±1.6 935 21.59 80.3 ±1.9 935 21.59 78.0 ±4.5 900 20.79 68.8 ±2.3 2123 49.03 PATH CTM 93.6 ±1.1 349 7.95 89.3 ±1.7 362 8.28 83.0 ±2.6 408 9.33 75.4 ±2.8 392 9.00
+
+the classification error probability Pe. In particular, high conditional entropy necessarily implies a non-negligible lower bound on the achievable error probability, thereby providing a theoretical motivation for confidence-aware early stopping. (Derivation provided in Appendix A.2.) 
+
+By enforcing a lower bound on the potential classification error, this mechanism transforms PathCTM into an adaptive inference framework. It aligns the inference termination criterion with the reliability objective, enabling the model to output reliable predictions during dynamic reasoning. 
+
+Dynamic Reasoning and Efficiency Trade-off. The in-ference proceeds as a sequential hypothesis testing process. If at any step t within scale L, the confidence condition 
+
+Ct,L ≥ δ is met, the system interprets the latent state Zt as capturing sufficient evidence and terminates to output ˆyt,L .Otherwise, the model switches to scale L − 1 to resolve ambiguity. This process iterates until the stopping condi-tion is met or the maximum reasoning budget is exhausted. Through this adaptive strategy, PathCTM optimizes a joint objective of minimizing prediction error and computational FLOPs, effectively balancing accuracy and efficiency by 
+
+allocating minimal resources to “easy” instances while re-serving deep, multi-scale computation for “hard” cases. 
+
+## 4. Experiments 
+
+4.1. Datasets and Implementation Details 
+
+We evaluated the proposed PathCTM framework on four diagnostic tasks across three publicly available datasets: (1) the BRACS (Brancati et al., 2022) dataset, used for breast cancer subtype classification, which includes a high-level category classification task (BRACS-3) and a fine-grained subtype analysis task (BRACS-7); (2) the MUT-HET-RCC (Acosta et al., 2022) dataset, used for gene mutation predic-tion (MUT-SETD2); and (3) the RCC dataset from TCGA project (Weinstein et al., 2013), used for renal cell carci-noma staging (RCC-staging). Detailed dataset information and training configurations are provided in the Appendix. To validate the effectiveness of our method, we system-atically compared PathCTM with several state-of-the-art (SOTA) MIL methods, including CLAM (Lu et al., 2021), ABMIL (Ilse et al., 2018), TransMIL (Shao et al., 2021), WIKG (Li et al., 2024), DSMIL (Li et al., 2021), RRT (Tang et al., 2024), HDMIL (Dong et al., 2025), ZoomMIL (Thandiackal et al., 2022), HAG-MIL (Xiong et al., 2023), and EAGLE (Neidlinger et al., 2025). Notably, SMT (Yu et al., 2024) was excluded as it requires fine-grained anno-tations for training, precluding a fair comparison on these datasets . To ensure a fair comparison, all methods were evaluated using two feature extractors: CONCH (V1.5)(Lu et al., 2024) and UNI(V2)(Chen et al., 2024). For specific details, please refer to Appendix C. Performance was evaluated from three perspectives: (1) macro AUC score; (2) the average number of processed patches per slide (No. Pat.); and (3) the total inference time (Time), which includes patch tiling, feature extraction, and model inference. It should be noted that, in this study, “Patch Tiling” refers to the full data preparation pipeline from the raw WSI to the point just before patches are fed into the encoder. Beyond coordinate generation, this process also includes computationally heavy sliding-window decoding, 6Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning L Top 5 Patches Prob. = 0.97 Confidence = 0.86 L Top 5 Patches Prob. = 0.40 Confidence = 0.13                           
+
+> L - 1 Top 5 Patches Prob. = 0.92 Confidence = 0.82
+> L - 2 Top 5 Patches Prob. = 0.99 Confidence = 0.98 (early stop)
+> L - 3 Top 5 Patches Prob. = 0.99 Confidence = 0.99
+> L - 1 Top 5 Patches Prob. = 0.99 Confidence = 0.99 (early stop)
+> L - 2 Top 5 Patches Prob. = 0.99 Confidence = 0.99
+> L - 3 Top 5 Patches Prob. = 0.99 Confidence = 0.99
+
+Figure 3. Visualization of PathCTM’s adaptive continuous reasoning on a single BRACS slide under varying task difficulties (left: BRACS-3; right: BRACS-7). The top panels display the top-5 attended patches at each scale, focusing on key regions exhibiting architectural distortion and nuclear atypia. The bottom panels track the dynamic trajectory of confidence and class prediction probabilities. 
+
+Figure 4. The distribution of early-stopping scales of PathCTM across four datasets. ( δ = 0.9) 
+
+multi-scale coordinate mapping, and I/O-intensive image patch extraction. In frameworks such as CLAM, these I/O costs are often hidden inside the feature extraction loop, whereas we explicitly separate I/O from model inference to more accurately expose the true end-to-end bottlenecks. A detailed description is provided in Supplementary Figure 8. 
+
+4.2. Performance and Efficiency Analysis 
+
+Table 1 presents a comprehensive comparison with exist-ing SOTA methods. PathCTM outperforms baselines in 7 out of 8 experimental settings, securing an average AUC improvement of 2.3%, while only slightly trailing ABMIL on the MUT dataset (CONCH). Most notably, PathCTM delivers an order-of-magnitude boost in efficiency, reducing inference time by 95.62% compared to standard MIL meth-ods and by 92.46% against acceleration approaches. These efficiency gains are most significant with the UNI extractor. Additionally, we compare PathCTM with existing slide-level foundation models, including CHIEF (Wang et al., 2024), GigaPath (Xu et al., 2024b), PRISM (Shaikovski et al., 2024), and TITAN (Ding et al., 2025). Table 2 reports the results on the BRACS dataset, where PathCTM (using CONCH V1.5) is evaluated against these slide-level models. Similar to MIL-based methods, current slide-level founda-tion models also face notable speed bottlenecks, whereas PathCTM exhibits a substantial advantage in efficiency. Furthermore, PathCTM adapts its computational budget to task difficulty via its confidence-aware early-stopping. On easier tasks such as BRACS-3, many cases can already achieve high confidence at lower magnifications, leading to a much smaller number of required patches (183 patches on CONCH). In contrast, more fine-grained tasks such as BRACS-7 require slightly deeper reasoning (224 patches) to discriminate subtle subtype differences. As shown in Figure 4, a similar trend appears in staging and mutation prediction tasks, where the majority of cases must progress to the highest magnification to achieve sufficient diagnostic certainty. This aligns with clinical characteristics: staging demands examination of tumor–stroma interfaces and inva-sion fronts, while mutation prediction depends on cell-level morphological cues. In comparison, subtype classification relies more heavily on broader tissue-architecture patterns and often converges earlier. Overall, these results show that PathCTM adjusts its inference depth in a thinking-in-scales manner, stopping early on easy cases and reasoning deeper on difficult ones, striking an efficient balance between com-7Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+Table 2. Comparison results of PathCTM with slide-level foundational models, with AUC presented in %. MODEL BRACS-3 BRACS-7 RCC-STAGING MUT-SETD2 AUC ↑ TIME ↓ AUC ↑ TIME ↓ AUC ↑ TIME ↓ AUC ↑ TIME ↓
+
+CHIEF 88.13 ±2.71 20.18 85.17 ±1.59 20.11 76.44 ±5.39 27.23 72.13 ±3.46 22.21 GIGA PATH 85.08 ±2.47 175.79 80.86 ±2.30 221.11 73.39 ±6.16 279.19 72.49 ±2.65 208.13 PRISM 88.96 ±2.38 113.85 85.58 ±1.41 115.52 74.38 ±5.00 144.32 72.20 ±2.83 107.58 TITAN 91.82 ±1.42 74.45 86.72 ±1.18 74.42 79.08 ±5.57 100.45 73.44 ±3.46 81.93 
+
+PATH CTM 93.10 ±1.58 5.34 88.90 ±1.74 6.64 82.84 ±2.55 7.39 73.94 ±2.61 6.93 Top K Top K  
+
+> Impact of Confidence Threshold δ on AUC Score
+> Impact of Confidence K value on AUC Score
+> No. Pat vs. Threshold δ for Different Datasets
+> No. Pat vs. K value for Different Datasets
+> Threshold δ Threshold δ
+> AUC score AUC score
+> Number of Patches Number of Patches
+
+Figure 5. The impact of the selected patch number K and confi-dence threshold δ on prediction accuracy and inference efficiency. 
+
+putational cost and diagnostic accuracy. 
+
+4.3. Visualization and Interpretability Analysis 
+
+Figure 3 visualizes PathCTM’s adaptive inference trajec-tory on a randomly selected BRACS slide under diagnostic tasks of varying difficulty. Morphologically, as the scale advances and the model acquires increasingly rich seman-tic information, both confidence and prediction probability exhibit an upward trend. At each scale, the top-5 patches are precisely localized within epithelial regions and ductal structures. These regions effectively capture architectural distortion and nuclear atypia, which are critical for differen-tiating fine-grained breast cancer subtypes. Behaviorally, PathCTM demonstrates an awareness of task complexity, a capability quantitatively validated by the dy-namics curves. In the simpler lesion-type classification (BRACS-3) task (left), the model determines that coarse-grained features are sufficient. This judgment manifests in the curve as a steep upward trend—confidence rapidly satu-rates and triggers the threshold at the Scale L-1, terminating inference early to avoid redundancy. Conversely, in the more challenging lesion-subtype (BRACS-7) task (right), the model “realizes” the insufficiency of current evidence and advances reasoning to a deeper level (L-2) to capture subtler cellular-level evidence and resolve uncertainty. The curve displays a step-wise growth, particularly characterized by significant jumps in confidence across scale boundaries, 
+
+Table 3. Ablation study of PathCTM components on BRACS-3 using CONCH. I: Attention-guided Region Pruning; II: Multi-scale Synchronous Fusion; III: Confidence-aware Early Stopping. I II III NO. P AT . ↓ ACC ↑ AUC ↑
+
+3529 78 .32 1.03 93 .72 0.44 
+
+✓ 246 76 .28 1.41 93 .07 0.61 
+
+✓ ✓ 246 78 .31 1.48 93 .59 1.14 
+
+✓ ✓ ✓ 183 78 .31 1.48 93 .10 1.58 
+
+proving that fine-grained features are indispensable for elim-inating uncertainty in difficult cases. This dynamic process closely aligns with the “coarse-to-fine” diagnostic logic of pathologists: allocating more attention to complex cases while maintaining efficiency on typical ones. This not only validates the efficiency of PathCTM but also demonstrates the high clinical interpretability of its decision-making pro-cess. Supplementary visualizations for RCC staging are in the Appendix to illustrate the model’s adaptability to cases of varying difficulty within the same task. 
+
+4.4. Ablation Study and Parameter Analysis 
+
+We evaluated the contributions of PathCTM’s core modules on BRACS-3 (Table 3). The baseline suffered from high computational costs. Introducing Attention-guided Region Pruning drastically reduced patch usage with minimal accu-racy trade-off. Subsequent Multi-scale Synchronous Fusion recovered performance by preserving cross-scale context. Finally, Confidence-aware Early Stopping further optimized efficiency by terminating inference at high certainty, main-taining accuracy with minimal computation. PathCTM allows for flexible balancing of inference effi-ciency and accuracy according to specific diagnostic re-quirements. Further parameter analysis (Figure 5) reveals the impact of patch count ( K) and confidence threshold (δ) on this trade-off. Regarding K, while increasing the patch count initially enhances accuracy, gains saturate be-yond K = 10 due to information redundancy; hence, we adopt K = 10 as the default. Similarly, prediction stability is achieved within δ ∈ [0 .8, 1.0] . We recommend setting 
+
+δ = 0 .9, as extending reasoning beyond this point yields negligible accuracy improvements, whereas terminating at 8Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+this threshold effectively optimizes inference speed while ensuring reliable predictions. See Appendix for details. 
+
+## 5. Conclusion 
+
+In this work, we present PathCTM , an efficient continuous reasoning framework for WSI compatible with pathology foundation models. By mirroring the pathologist’s coarse-to-fine workflow via adaptive pruning and confidence-aware stopping, PathCTM dynamically highlights diagnostic re-gions during cross-scale reasoning and substantially accel-erates inference. Experiments show that PathCTM achieves high diagnostic accuracy and significant computational ef-ficiency across multiple datasets, while exhibiting a clear global-to-local diagnostic logic that enhances interpretabil-ity. This paradigm offers a promising direction for scalable, efficient, and clinically aligned WSI analysis. 
+
+## Acknowledgements 
+
+This work was supported by the Shaanxi Province Key R&D Program (2025SF-YBXM-363, 2024SF-GJHX-32), the National Science and Technology Major Project (2025ZD0544802, 2024ZD0527700), the Key Research and Development Program of Ningxia Hui Autonomous Re-gion (2023BEG02023), the “Research on Key Technologies for Full-Chain Intelligent Pathological Diagnosis” project of The First Affiliated Hospital of Xi’an Jiaotong Univer-sity (HX202440), the Post-Doctoral Research Project of Shaanxi Province (31271000000008), the National Natural Science Foundation of China (62506291), the XJTU Re-search Fund for AI Science (2025YXYC004), the Royal Society (RGS \R2 \252688), and GE HealthCare. 
+
+## Impact Statement 
+
+This work contributes to more efficient and scalable com-putational pathology by reducing redundant computation in gigapixel whole slide image analysis. PathCTM can lower inference cost and latency, making computational pathology models more suitable for clinical and research applications. However, this method is intended to assist pathologists rather than replace them, and further validation on diverse clinical datasets is required before deployment. 
+
+## References 
+
+Acosta, P. H., Panwar, V., Jarmale, V., Christie, A., Jasti, J., Margulis, V., Rakheja, D., Cheville, J., Leibovich, B. C., Parker, A., et al. Intratumoral resolution of driver gene mutation heterogeneity in renal cancer using deep learning. Cancer research , 82(15):2792–2806, 2022. Bae, K., Jeon, Y. S., Hwangbo, Y., Yoo, C. W., Han, N., and Feng, M. Data-efficient computational pathology platform for faster and cheaper breast cancer subtype identifications: development of a deep learning model. 
+
+JMIR cancer , 9(1):e45547, 2023. Brancati, N., Anniciello, A. M., Pati, P., Riccio, D., Scog-namiglio, G., Jaume, G., De Pietro, G., Di Bonito, M., Foncubierta, A., Botti, G., et al. Bracs: A dataset for breast carcinoma subtyping in h&e histology images. 
+
+Database , 2022:baac093, 2022. Campanella, G., Hanna, M. G., Geneslaw, L., Miraflor, A., Werneck Krauss Silva, V., Busam, K. J., Brogi, E., Reuter, V. E., Klimstra, D. S., and Fuchs, T. J. Clinical-grade computational pathology using weakly supervised deep learning on whole slide images. Nature medicine , 25(8): 1301–1309, 2019. Chen, R. J., Chen, C., Li, Y., Chen, T. Y., Trister, A. D., Kr-ishnan, R. G., and Mahmood, F. Scaling vision transform-ers to gigapixel images via hierarchical self-supervised learning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 16144– 16155, 2022. Chen, R. J., Ding, T., Lu, M. Y., Williamson, D. F., Jaume, G., Song, A. H., Chen, B., Zhang, A., Shao, D., Shaban, M., et al. Towards a general-purpose foundation model for computational pathology. Nature medicine , 30(3): 850–862, 2024. Darlow, L., Regan, C., Risi, S., Seely, J., and Jones, L. Continuous thought machines. Advances in Neural Infor-mation Processing Systems , 38:21548–21594, 2026. Ding, T., Wagner, S. J., Song, A. H., Chen, R. J., Lu, M. Y., Zhang, A., Vaidya, A. J., Jaume, G., Shaban, M., Kim, A., et al. A multimodal whole-slide foundation model for pathology. Nature Medicine , pp. 1–13, 2025. Dong, J., Jiang, J., Jiang, K., Li, J., and Zhang, Y. Fast and accurate gigapixel pathological image classification with hierarchical distillation multi-instance learning. In Pro-ceedings of the Computer Vision and Pattern Recognition Conference , pp. 30818–30828, 2025. Gao, Z., Mao, A., Wu, K., Li, Y., Zhao, L., Zhang, X., Wu, J., Yu, L., Xing, C., Gong, T., et al. Childhood leukemia classification via information bottleneck enhanced hier-archical multi-instance learning. IEEE Transactions on Medical Imaging , 42(8):2348–2359, 2023. Ge, J., Zhang, D., Zhan, Y., Liu, J., Gong, T., Wu, J., Crispin, M., Li, C., and Gao, Z. Progis: Prototype-guided in-teractive segmentation for pathological images. IEEE Transactions on Medical Imaging , 2025. 9Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+Hasani, R., Lechner, M., Amini, A., Rus, D., and Grosu, R. Liquid time-constant networks. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 35, pp. 7657–7666, 2021. He, K., Zhang, X., Ren, S., and Sun, J. Deep residual learn-ing for image recognition. In Proceedings of the IEEE conference on computer vision and pattern recognition ,pp. 770–778, 2016. Ilse, M., Tomczak, J., and Welling, M. Attention-based deep multiple instance learning. In International conference on machine learning , pp. 2127–2136. PMLR, 2018. Ke, H., Morris, J., Oguchi, K., Cao, X., Liu, Y., Wang, H., and Ding, Y. Mambev: Enabling state space models to learn birds-eye-view representations. In The Thirteenth International Conference on Learning Representations ,2025. Ke, H., Morris, J., Liu, Y., Kitai, S., Oguchi, K., Ding, Y., and Wang, H. Deformba: Vision state space model with adaptive state fusion, 2026. URL https://arxiv. org/abs/2605.21308 .Krizhevsky, A., Sutskever, I., and Hinton, G. E. Imagenet classification with deep convolutional neural networks. 
+
+Advances in neural information processing systems , 25, 2012. Li, B., Li, Y., and Eliceiri, K. W. Dual-stream multiple instance learning network for whole slide image clas-sification with self-supervised contrastive learning. In 
+
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 14318–14328, 2021. Li, J., Chen, Y., Chu, H., Sun, Q., Guan, T., Han, A., and He, Y. Dynamic graph representation with knowledge-aware attention for histopathology whole slide image analysis. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 11323–11332, 2024. Lu, M. Y., Williamson, D. F., Chen, T. Y., Chen, R. J., Bar-bieri, M., and Mahmood, F. Data-efficient and weakly su-pervised computational pathology on whole-slide images. 
+
+Nature biomedical engineering , 5(6):555–570, 2021. Lu, M. Y., Chen, B., Williamson, D. F., Chen, R. J., Liang, I., Ding, T., Jaume, G., Odintsov, I., Le, L. P., Gerber, G., et al. A visual-language foundation model for com-putational pathology. Nature medicine , 30(3):863–874, 2024. Neidlinger, P., Lenz, T., Foersch, S., Loeffler, C. M., Clus-mann, J., Gustav, M., Shaktah, L. A., Langer, R., Dislich, B., Boardman, L. A., et al. A deep learning framework for efficient pathology image analysis. arXiv preprint arXiv:2502.13027 , 2025. Shaikovski, G., Casson, A., Severson, K., Zimmermann, E., Wang, Y. K., Kunz, J. D., Retamero, J. A., Oakley, G., Klimstra, D., Kanan, C., et al. Prism: A multi-modal gen-erative foundation model for slide-level histopathology. 
+
+arXiv preprint arXiv:2405.10254 , 2024. Shao, Z., Bian, H., Chen, Y., Wang, Y., Zhang, J., Ji, X., et al. Transmil: Transformer based correlated multiple instance learning for whole slide image classification. Advances in neural information processing systems , 34:2136–2147, 2021. Tang, W., Zhou, F., Huang, S., Zhu, X., Zhang, Y., and Liu, B. Feature re-embedding: Towards foundation model-level performance in computational pathology. In Pro-ceedings of the IEEE/CVF conference on computer vision and pattern recognition , pp. 11343–11352, 2024. Thandiackal, K., Chen, B., Pati, P., Jaume, G., Williamson, D. F., Gabrani, M., and Goksel, O. Differentiable zoom-ing for multiple instance learning on whole-slide images. In European Conference on Computer Vision , pp. 699– 715. Springer, 2022. Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., Kaiser, Ł., and Polosukhin, I. At-tention is all you need. Advances in neural information processing systems , 30, 2017. Vorontsov, E., Bozkurt, A., Casson, A., Shaikovski, G., Zelechowski, M., Severson, K., Zimmermann, E., Hall, J., Tenenholtz, N., Fusi, N., et al. A foundation model for clinical-grade computational pathology and rare cancers detection. Nature medicine , 30(10):2924–2935, 2024. Wang, X., Zhao, J., Marostica, E., Yuan, W., Jin, J., Zhang, J., Li, R., Tang, H., Wang, K., Li, Y., et al. A pathology foundation model for cancer diagnosis and prognosis prediction. Nature , 634(8035):970–978, 2024. Weinstein, J. N., Collisson, E. A., Mills, G. B., Shaw, K. R., Ozenberger, B. A., Ellrott, K., Shmulevich, I., Sander, C., and Stuart, J. M. The cancer genome atlas pan-cancer analysis project. Nature genetics , 45(10):1113–1120, 2013. Xiang, J., Wang, X., Zhang, X., Xi, Y., Eweje, F., Chen, Y., Li, Y., Bergstrom, C., Gopaulchan, M., Kim, T., et al. A vision–language foundation model for precision oncology. 
+
+Nature , 638(8051):769–778, 2025. Xiong, C., Chen, H., Sung, J. J., and King, I. Diagnose like a pathologist: transformer-enabled hierarchical attention-guided multiple instance learning for whole slide image classification. In Proceedings of the Thirty-Second Inter-national Joint Conference on Artificial Intelligence , pp. 1587–1595, 2023. 10 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+Xu, H., Usuyama, N., Bagga, J., Zhang, S., Rao, R., Nau-mann, T., Wong, C., Gero, Z., Gonz ´alez, J., Gu, Y., et al. A whole-slide foundation model for digital pathology from real-world data. Nature , 630(8015):181–188, 2024a. Xu, H., Usuyama, N., Bagga, J., Zhang, S., Rao, R., Nau-mann, T., Wong, C., Gero, Z., Gonz ´alez, J., Gu, Y., Xu, Y., Wei, M., Wang, W., Ma, S., Wei, F., Yang, J., Li, C., Gao, J., Rosemon, J., Bower, T., Lee, S., Weerasinghe, R., Wright, B. J., Robicsek, A., Piening, B., Bifulco, C., Wang, S., and Poon, H. A whole-slide foundation model for digital pathology from real-world data. Nature ,2024b. Yan, K., Shi, X., Guo, H., Wang, W., Zhang, Z., and Qin, C. Drqa: Dynamic reasoning quota allocation for controlling overthinking in reasoning large language models. arXiv preprint arXiv:2508.17803 , 2025. Yang, C., Zhao, W., Tang, Y., Lu, J., Ge, J., Liu, Q., Gao, Z., and Li, C. Haaf: Hierarchical adaptation and alignment of foundation models for few-shot pathology anomaly detection. In Proceedings of the ACM Web Conference 2026 , pp. 9263–9274, 2026. Yu, X., Luo, H., Hu, J., Zhang, X., Wang, Y., Liang, W., Bei, Y., Song, M., and Feng, Z. Hundredfold accelerating for pathological images diagnosis and prognosis through self-reform critical region focusing. In 33rd Int. Joint Conf. on Artificial Intelligence , pp. 1607–1615, 2024. Zhang, D., Ge, J., Liu, J., Wang, C., Gong, T., Gao, Z., and Li, C. Stadis: Stability distance to detecting out-of-distribution data in computational pathology. Medical Image Analysis , pp. 103774, 2025. Zhang, D., Gong, Z., Pang, X., Liu, J., Lu, J., Cui, H., Ge, J., Zeng, Z., Yi, K., Li, Y., et al. Care: A molecular-guided foundation model with adaptive region model-ing for whole slide image analysis. arXiv preprint arXiv:2602.21637 , 2026. Zhu, C., Lin, Y., Shao, J., Lin, J., and Wang, Y. Pathology-aware prototype evolution via llm-driven semantic disam-biguation for multicenter diabetic retinopathy diagnosis. In Proceedings of the 33rd ACM International Confer-ence on Multimedia , pp. 9196–9205, 2025. Zhu, C., Lin, Y., Chen, S., Wang, Y., and Lin, J. Medeyes: Learning dynamic visual focus for medical progressive diagnosis. In Proceedings of the AAAI Conference on Ar-tificial Intelligence , volume 40, pp. 13916–13924, 2026. 11 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+## A. Theoretical Analysis and Proofs 
+
+In this section, we provide the formal proofs and theoretical derivations for the core mechanisms of PathCTM. Specifically, we detail the mathematical grounding for: (1) Attention-Guided Region Pruning via first-order sensitivity analysis; and (2) Confidence-Aware Early Stopping via error probability bounding. 
+
+A.1. Proof of Proposition 1 (Attention-Guided Region Pruning) Restatement of Proposition 1. Under bounded feature norms and additive aggregation, attention weights provide a first-order surrogate for the influence of individual patches on the decision loss. In particular, selecting Top-K patches according to attention scores yields a tractable approximation to gradient-based influence maximization. 
+
+Derivation. We formalize patch selection as identifying a subset of patches whose removal induces the largest first-order variation in the loss function. Let the aggregated slide-level representation be defined as 
+
+zagg =
+
+> N
+
+X
+
+> j=1
+
+Aj hj , (13) where Aj denotes the attention weight associated with patch j, and hj its corresponding feature embedding. We define the 
+
+influence of a patch xi as the variation of the loss functional L under the perturbation Ai → 0.
+
+Step 1: First-Order Sensitivity Analysis. We treat the loss L(A) as a differentiable function of the attention vector 
+
+A ∈ RN . To estimate the contribution of patch i, we analyze the variation in loss induced by masking its attention weight 
+
+(i.e., setting Ai → 0) while holding other weights constant. This corresponds to the perturbation A′ = A − Aiei, where ei
+
+is the i-th canonical basis vector. 
+
+Remark: For efficient first-order approximation, we treat the attention weights as independent variables during this sensitivity analysis. We do not re-normalize the remaining weights, as strictly enforcing the simplex constraint ( P A = 1 ) would introduce high-order coupling effects via the softmax Jacobian, obscuring the direct contribution of individual patches. 
+
+Applying a first-order Taylor expansion around A yields: 
+
+L(A − Aiei) ≈ L (A) − Ai
+
+∂L
+
+∂A i
+
+. (14) The resulting first-order influence is therefore given by: 
+
+∆Li ≈ − Ai
+
+∂L
+
+∂A i
+
+. (15) 
+
+Step 2: Gradient Decomposition via the Aggregation Layer. Assuming additive aggregation, the gradient with respect to the attention coefficient can be expressed using the chain rule as: 
+
+∂L
+
+∂A i
+
+=
+
+ ∂L
+
+∂z agg 
+
+, ∂z agg 
+
+∂A i
+
+
+
+= ∇z L⊤hi. (16) Substituting this expression into the influence estimate yields: 
+
+|∆Li| ≈ Ai ∇z L⊤hi . (17) 
+
+Step 3: Bounded Influence and Surrogate Justification. We assume that the feature embeddings are norm-bounded, i.e., ∥hi∥2 ≤ Ch, which is typically enforced through normalization layers (e.g., LayerNorm). Furthermore, we assume the loss landscape satisfies local Lipschitz continuity, implying a bounded gradient norm ∥∇ z L∥ 2 ≤ Cg . Applying the Cauchy–Schwarz inequality gives: 
+
+|∆Li| ≤ Ai∥∇ z L∥ 2∥hi∥2 ≤ Ai · (Cg Ch). (18) Under these regularity conditions, the attention coefficient Ai provides an effective upper bound on the first-order influence of patch i. Consequently, selecting patches with the largest attention weights prioritizes those with the highest potential impact on the decision boundary. 12 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+Discussion. We emphasize that the above result does not establish strict rank equivalence between attention scores and gradient-based influence (due to the potential orthogonality between the gradient and feature vectors). Instead, attention-guided Top-K selection serves as a computationally efficient surrogate for first-order sensitivity analysis. This approximation is particularly attractive in large-scale whole-slide image settings, where explicit gradient-based evaluation of all patches is computationally prohibitive. 
+
+A.2. Proof of Proposition 2 (Confidence-Aware Early Stopping) Restatement of Proposition 2. Fano’s inequality establishes an information-theoretic relationship between the conditional entropy H(Y | Zt) and the classification error probability Pe. In particular, high conditional entropy necessarily implies a non-negligible lower bound on the achievable error probability, thereby providing a theoretical motivation for confidence-aware early stopping. 
+
+Derivation. We recall the derivation of Fano’s inequality in the context of multi-class classification. Let Y ∈ { 1, . . . , N }
+
+denote the ground-truth label, ˆY the predicted label, and define the error indicator variable E = I( ˆY̸ = Y ).
+
+Step 1: Entropy Decomposition. Using the chain rule, the joint entropy H(E, Y | ˆY ) can be expanded in two ways: 
+
+H(E, Y | ˆY ) = H(Y | ˆY ) + H(E | Y, ˆY ) = H(E | ˆY ) + H(Y | E, ˆY ). (19) Since E is deterministically determined by Y and ˆY , H(E | Y, ˆY ) = 0 . Thus: 
+
+H(Y | ˆY ) = H(E | ˆY ) + H(Y | E, ˆY ). (20) 
+
+Step 2: Bounding the Conditional Terms. First, conditioning reduces entropy, so H(E | ˆY ) ≤ H(E) = H(Pe), where 
+
+H(Pe) is the binary entropy function ( H(Pe) ≤ 1). Second, we decompose the term H(Y | E, ˆY ):
+
+H(Y | E, ˆY ) = P (E = 0) H(Y | ˆY , E = 0) + P (E = 1) H(Y | ˆY , E = 1) . (21) If E = 0 (correct prediction), Y = ˆY deterministically, so the entropy is 0. If E = 1 (error), Y can be any of the remaining 
+
+N − 1 classes. By the maximum entropy principle, 
+
+H(Y | ˆY , E = 1) ≤ log( N − 1) . (22) 
+
+Step 3: Fano’s Inequality. Combining these bounds yields the classical inequality: 
+
+H(Y | ˆY ) ≤ H(Pe) + Pe log( N − 1) . (23) This inequality implies that the error probability Pe is lower-bounded by the conditional entropy. A simplified lower bound (using H(Pe) ≤ 1) is given by: 
+
+Pe ≥ H(Y | ˆY ) − 1log( N − 1) . (24) 
+
+Connection to Latent Representations. In PathCTM, predictions are derived from a latent state Zt. By the Data Processing Inequality, the latent state contains at least as much information about Y as the final discrete prediction ˆY ,implying 
+
+H(Y | Zt) ≤ H(Y | ˆY ). (25) Substituting this relation into Fano’s inequality shows that high uncertainty in the latent representation necessarily induces a non-negligible lower bound on the achievable classification error. 
+
+Implication for Early Stopping. The analysis above assumes access to the true conditional entropy. In practice, we assume the model is reasonably calibrated, such that the entropy of the predictive distribution H(ˆ ysoftmax ) serves as a proxy for the posterior uncertainty H(Y | Zt). Under this calibration assumption, the stopping criterion 
+
+1 − H(ˆ ysoftmax )log N ≥ δ (26) provides an information-theoretically motivated heuristic for terminating inference under sufficiently low predictive uncer-tainty, rather than a strict guarantee on the resulting error probability. 13 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+## B. Description of datasets and tasks 
+
+We conducted a comprehensive evaluation of the proposed method on four diagnostic tasks across three publicly available pathology datasets. Details are provided as follows: 
+
+BRACS Dataset. BRACS is a large-scale, multi-center public dataset for breast cancer subtype classification, consisting of 547 whole-slide images (WSIs) and 4,539 region-of-interest (ROI) patches. It includes two classification tasks with different granularity levels: a three-class task (BRACS-3) and a more fine-grained seven-class task (BRACS-7). The three-class task provides a fundamental basis for rapid malignancy risk assessment, while the seven-class task further refines the categorization into seven specific subtypes, requiring the model to distinguish subtle morphological differences and therefore posing a more challenging setting. We evaluate PathCTM on both tasks to assess its performance under different levels of diagnostic complexity. The classification categories are shown in Table 4. 
+
+MUT-HET-RCC Dataset. The MUT-HET-RCC dataset was designed for studying molecular mutation heterogeneity in clear cell renal cell carcinoma (ccRCC). It contains 1,291 FFPE-derived H&E-stained WSIs and provides binary mutation labels for several key driver genes, including BAP1 , PBRM1 , and SETD2 . In our experiments, we evaluate all methods on the SETD2 mutation prediction task. 
+
+RCC-Staging Dataset. For the kidney cancer staging task, two senior pathologists re-annotated the RCC dataset by categorizing pT1 and pT2 cases as early-stage, and pT3 and pT4 cases as late-stage, while removing normal and heavily contaminated slides. A total of 376 cases were retained, including 284 early-stage and 92 late-stage cases. This task focuses on assessing the ability of each model to identify tumor progression severity.  
+
+> Table 4. Category distribution of the BRACS dataset.
+
+Lesion type Lesion subtype Percentage Benign Normal 8% Pathological Benign 27% Usual Ductal Hyperplasia 14% Atypical Flat Epithelial Atypia 7% Atypical Ductal Hyperplasia 9% Malignant Ductal Carcinoma in Situ 11% Invasive Carcinoma 24% 
+
+## C. Detailed Experimental Settings 
+
+In this section, we delineate the specific architectural specifications and hyperparameter configurations employed for PathCTM. A comprehensive summary of these settings is provided in Tables 5 and 6, respectively. Experiments were conducted on a workstation with 1 × NVIDIA GeForce RTX 4090 GPU. 
+
+Feature Extraction and Preprocessing. For feature extraction, we strictly adhered to the official configurations of the employed backbone models to ensure optimal representation quality. Specifically, the input patch size was set to 
+
+1024 × 1024 for CONCH and 512 × 512 for UNI. Following the standard protocol established by CLAM, we applied a consistent data preprocessing pipeline across all baseline methods. To empower PathCTM with continuous multi-scale reasoning capabilities, we extracted image patches from four distinct magnification levels: 40 ×, 20 ×, 10 ×, and 5 ×.Consistent with the backbone requirements, these multi-scale patches were resized to 1024 (for CONCH) or 512 (for UNI) prior to feature encoding. 
+
+Evaluation Protocol. To ensure the statistical robustness and reliability of our results, we implemented a 5-fold cross-validation strategy for all experiments. The dataset was randomly partitioned into five subsets at the patient level, ensuring no data leakage between training and testing splits. The final reported metrics represent the average performance aggregated across these five folds. 14 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning  
+
+> Table 5. Detailed parameters of the model architecture and their corresponding values.
+
+Model Architecture Parameters Value Number of internal ticks 80 Number of internal ticks per scale 20 Dimension of the model 4096 Dropout rate 0.05 Dimension of the input 1024 Number of attention heads 16 Synapse depth 12 Number of neurons to use for output synch 150 Number of neurons to use for action synch 150 Protocol for selecting neuron subset Random Number of neurons paired self-to-self 0Length of the pre-activation history 30 Use deep memory TRUE Hidden dimensions of the memory 64 The number of patches selected per layer 10 Confidence threshold 0.9 Number of scales 4The length of the synchronous output history 80 The length of the attention list 80  
+
+> Table 6. Detailed training parameters and their corresponding values.
+
+Training Parameters Value Batch size 1Epochs 50 Learning rate 5e-5 Warmup steps 5000 Use a learning rate scheduler TRUE Type of learning rate scheduler cosine Learning rate scheduler intervals 8000 Learning rate scheduler gamma for multistep 0.1 Weight decay factor 0Gradient quantile clipping value -1 Num workers training 1AMP autocast FALSE 15 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+## D. Detailed Configurations of Slide-level Foundation Models 
+
+In addition to standard MIL approaches, we extended our evaluation to include recent large-scale slide-level foundation models: CHIEF, GigaPath, PRISM, and TITAN. These models currently define the state-of-the-art in WSI analysis but often incur substantial computational overheads. To strictly benchmark PathCTM against these powerful baselines, we conducted experiments using their official pre-trained weights and recommended preprocessing pipelines. Specifically, we aligned the feature extraction process with the original protocols of each model (e.g., using Virchow for PRISM and CTransPath for CHIEF) to ensure their best possible performance. The specific hyper-parameter settings and architectural choices for these models are listed in Table 7. This rigorous setup allows for a direct assessment of whether PathCTM can achieve comparable or superior diagnostic accuracy with significantly improved inference efficiency.  
+
+> Table 7. Detailed configuration of the foundation models.
+
+Model Patch Encoder Patch Size Magnification Embedding Dim. CHIEF Ctranspath 256 10× 768 GigaPath GigaPath 256 20× 1536 PRISM Virchow 224 20× 2560 TITAN CONCH V1.5 512 20× 768    
+
+> Figure 6. Visualization of instance-level adaptive reasoning on the RCC staging task. The figure illustrates inference trajectories for two distinct cases within the same diagnostic task. The top-5 attended patches at each scale consistently focus on tumor-normal interface infiltration, a key pathological feature for staging. (Left) A challenging case where the model accumulates evidence progressively, requiring deep reasoning up to Scale L-3 to reach sufficient confidence (0.96). (Right) A straightforward case where the model achieves reliable confidence ( δ≥0.9) at Scale L-2, triggering early stopping. This demonstrates PathCTM’s capability to dynamically adjust inference depth based on the specific difficulty of individual instances.
+
+## E. Additional Interpretability Analysis on RCC Dataset 
+
+PathCTM demonstrates robust adaptive capabilities across both different diagnostic tasks and varying case difficulties. While Figure 3 in the main text illustrates the model’s adaptability across BRACS tasks, Figure 6 extends this analysis to the RCC staging task, visualizing how PathCTM dynamically adjusts its reasoning depth in response to instance-level difficulty. Morphologically, the model performs a progressive cross-scale reasoning process. As it accesses richer semantic information at higher magnifications, both confidence and classification probability consistently improve. Notably, the top-5 high-confidence patches at each scale are predominantly distributed along tumor margins. These regions effectively capture tumor-normal interface infiltration, a diagnostically critical feature for accurate staging. Behaviorally, the two cases exhibit distinct levels of diagnostic complexity. With the confidence threshold set to 0.9, the 16 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+harder case (left) requires deep reasoning up to the L-3 scale to achieve a reliable prediction. In contrast, the easier case (right) allows for early termination at the L-2 scale without progressing to higher magnifications. These results further corroborate that PathCTM can adaptively allocate computational resources based on the specific complexity of each case, striking an optimal balance between flexibility and inference efficiency. 
+
+## F. Detailed Parameter Discussion 
+
+We conducted a systematic analysis on four datasets using CONCH (V1.5) as the feature extractor to examine how different values of K influence the effect of the confidence threshold δ on prediction accuracy and inference efficiency. The results for 
+
+K = 5 are presented in Table 8, those for K = 15 are shown in Table 9, and the results for K = 20 are reported in Table 10. We observed that, except for the RCC staging task—where prediction accuracy shows slight fluctuations when the confidence threshold approaches 1.0—all other tasks exhibit a consistent trend across different values of K: prediction accuracy tends to stabilize when δ lies within the range of 0.8 to 1.0. This finding is consistent with the results obtained for K = 10 .Overall, the choice of the confidence threshold is largely unaffected by variations in K.It is worth noting that, under the same confidence threshold, prediction accuracy does not increase linearly as K becomes larger, and may even decline in certain cases. This is because, once the model has gathered sufficient patch information, providing additional patches can introduce irrelevant or redundant signals, thereby affecting the accuracy of the diagnosis. These results demonstrate that, in WSI analysis, more patches are not necessarily more beneficial. δ = 0.6 
+
+## δ = 0.8 δ = 0.7 
+
+## δ = 0.5         
+
+> Figure 7. The distribution of early-stopping scales across four datasets under varying confidence thresholds δ∈ { 0.5,0.6,0.7,0.8}. The experiments were conducted using the CONCH feature extractor. The stacked bars illustrate the percentage of samples terminating at each magnification scale (from coarse L to fine L-3). As the threshold δincreases, the model adaptively shifts towards deeper reasoning, resulting in a higher proportion of samples proceeding to finer scales (L-2 and L-3) to satisfy the stricter certainty requirement.
+
+To further investigate the behavioral dynamics controlled by the confidence threshold, Figure 7 visualizes the distribution of early-stopping scales across varying δ ∈ { 0.5, 0.6, 0.7, 0.8}. A clear monotonic trend is observed: as δ increases, the proportion of samples terminating at the coarse scale (L) significantly decreases, while the fraction advancing to the finest scale (L-3) steadily rises. This confirms that δ effectively regulates the depth of reasoning—forcing the model to accumulate fine-grained evidence when higher certainty is demanded. Furthermore, the distribution varies across tasks; for instance, the challenging MUT-SETD2 task consistently requires deeper reasoning frequencies than the simpler BRACS-3 task, 17 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning      
+
+> Table 8. The impact of the confidence threshold δon prediction accuracy and inference efficiency when K= 5 .
+
+Dataset Metric 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+
+BRACS-3 AUC 89.58 90.06 90.91 91.48 92.4 92.69 92.81 92.99 93.12 93.24 No. Pat. 94 102 108 114 119 124 128 132 137 158 BRACS-7 AUC 87.71 87.69 88.3 88.54 89 89.27 89.39 89.37 89.38 89.42 No. Pat. 83 104 114 122 129 134 140 144 147 158 RCC-staging AUC 63.65 67.68 68.04 72.96 77.48 77.78 79.64 79.05 79.21 82.36 No. Pat. 80 88 93 100 105 111 116 123 132 148 MUT-SETD2 AUC 50.61 58.27 66.59 70.2 71.6 72.62 73.07 72.9 73.03 73.03 No. Pat. 76 94 105 115 125 135 144 150 154 158      
+
+> Table 9. The impact of the confidence threshold δon prediction accuracy and inference efficiency when K= 15 .
+
+Dataset Metric 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+
+BRACS-3 AUC 88.88 88.65 89.07 90.28 91.48 91.59 92.35 92.81 93.23 93.91 No. Pat. 94 116 131 142 155 168 176 188 209 327 BRACS-7 AUC 86.22 86.78 87.61 88.04 88.27 88.54 88.82 88.99 89.23 89.42 No. Pat. 112 153 185 209 234 251 266 280 293 333 RCC-staging AUC 69.03 74.04 72.45 74.31 78.43 79.51 80.76 80.41 80.6 81.26 No. Pat. 115 138 162 177 200 212 229 248 282 342 MUT-SETD2 AUC 48.21 58.02 70.5 71.68 72.31 72.92 73.05 73.02 72.98 73.00 No. Pat. 107 156 197 244 266 302 314 325 337 344      
+
+> Table 10. The impact of the confidence threshold δon prediction accuracy and inference efficiency when K= 20 .
+
+Dataset Metric 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 
+
+BRACS-3 AUC 89.13 89.67 90.02 90.59 91.01 92.05 92.4 92.81 93.31 93.62 No. Pat. 121 157 182 203 220 240 259 280 309 410 BRACS-7 AUC 86.11 86.52 86.53 86.9 87.01 87.48 87.77 88.1 88.43 88.79 No. Pat. 118 156 186 218 248 276 303 320 342 413 RCC-staging AUC 73.65 79.09 78.71 77.08 78.87 74.84 76.4 75.63 76.54 81.03 No. Pat. 140 185 221 244 269 290 311 331 357 420 MUT-SETD2 AUC 57.05 63.28 66.97 70.83 72.2 72.42 72.77 72.8 72.8 72.85 No. Pat. 156 213 256 292 325 352 376 393 404 423 demonstrating PathCTM’s ability to adaptively align its computational effort with both instance-level uncertainty and task-level complexity. 
+
+## G. Limitations and Future Work 
+
+Computational efficiency has become a key consideration in recent model development (Bae et al., 2023; Ke et al., 2025). While PathCTM significantly optimizes computational efficiency through the “thinking-in-scales” paradigm, certain limitations remain regarding clinical deployment. The hard attention mechanism introduces an inherent information bottleneck: diagnostic cues lacking salience at low resolutions—such as micrometastases or isolated tumor cells—may be irreversibly pruned, resulting in the loss of valid information. Although our framework effectively blocks the propagation of errors (false positives) to higher scales via joint attention calibration, it currently lacks a mechanism to recall valid regions that were erroneously discarded at earlier stages. This limitation inevitably restricts the completeness of effective diagnostic 18 Thinking in Scales: Accelerating Gigapixel Pathology Image Analysis via Adaptive Continuous Reasoning 
+
+information. In future work, we plan to introduce a dynamic recall mechanism to address this constraint. Additionally, the current inference process employs a fixed number of reasoning steps at each scale; we intend to explore strategies for 
+
+adaptively allocating the computational budget based on information richness to further enhance efficiency and fully exploit potential information. 
+
+## H. Detailed Clarification of Runtime Measurement 
+
+In this paper, “Patch Tiling” is defined as the complete data preparation pipeline from the raw WSI to the stage before patches are fed into the encoder. This process includes not only the generation of patch coordinates, but also computa-tionally expensive sliding-window decoding, multi-scale coordinate mapping, and I/O-intensive image patch extraction. In frameworks such as CLAM, these I/O costs are often hidden within the feature extraction loop. In contrast, this paper explicitly separates I/O operations from model inference, thereby more accurately characterizing the true computational bottleneck of the end-to-end analysis pipeline, as shown in Figure 8. WSI Raw File 
+
+PATCH TILING 
+
+ü Otsu Thresholding 
+
+ü Coordinate Generation 
+
+ü ... 
+
+FEATURE EXTRACTION 
+
+ü Disk I/O 
+
+ü File Access 
+
+ü Patches Reading 
+
+ü Preprocessing 
+
+ü VIT inference ... 
+
+WSI Raw File 
+
+PATCH TILING 
+
+ü Otsu Thresholding 
+
+ü Coordinate Generation 
+
+ü Disk I/O 
+
+ü File Access 
+
+ü Patches Reading... 
+
+FEATURE EXTRACTION 
+
+ü VIT inference ... 
+
+# (a)CLAM Workflow 
+
+# (b)Actual Runtime Profiling Workflow  
+
+> Figure 8. Comparison between the CLAM-style workflow and actual runtime profiling workflow.
+
+19
