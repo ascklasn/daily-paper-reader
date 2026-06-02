@@ -1,0 +1,747 @@
+Title: PMC-InterCPT: Rethinking Biomedical Interleaved Data for Multimodal Continued Pretraining
+
+URL Source: https://arxiv.org/pdf/2606.01049v1
+
+Published Time: Tue, 02 Jun 2026 01:15:19 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+## PMC-InterCPT: Rethinking Biomedical Interleaved Data for Multimodal Continued Pretraining 
+
+Guanghao Zhu 1 Zeyu Liu 1 Zhitian Hou 2 Pengkai Wang 1 Zhijie Sang 3
+
+Minheng Ni 1 Wenjun Wang 1 Yanggan Gu 1 Shuo Cai 1 Congkai Xie 3
+
+Jianmin Wu 1,4 Hongxia Yang 1,3,4*
+
+> 1
+
+The Hong Kong Polytechnic University 
+
+> 2
+
+Sun Yat-sen University 
+
+> 3
+
+InfiX.ai 
+
+> 4
+
+PolyU-Daya Bay Technology and Innovation Research Institute 
+
+Abstract 
+
+Large-scale biomedical image-text datasets ex-tracted from scientific literature provide valu-able resources for medical multimodal model training. These datasets are commonly orga-nized as image-caption pairs; however, figure captions are often short, context-dependent, and only partially informative without the sur-rounding article text. At the same time, large-scale automatic extraction introduces struc-tural noise such as missing captions, resid-ual markup, duplicated context, and incoher-ent multi-paragraph figure descriptions. We revisit data construction for medical multi-modal continued pretraining (CPT) and present PMC-InterCPT, a context-grounded biomedi-cal interleaved corpus that incorporates figure-referencing body text in addition to captions. Our pipeline recovers missing captions, cleans caption and context text, reconstructs coher-ent interleaved image-text samples, and applies LLM-supervised medical relevance and qual-ity classifiers to filter noisy records. We fur-ther reveal strong modality imbalance in the resulting corpus and introduce a four-bucket evidence taxonomy for modality-aware resam-pling. Through CPT followed by supervised fine-tuning (SFT) on Qwen3.5-4B-Base, PMC-InterCPT effectively improves medical and gen-eral multimodal performance while using fewer CPT tokens than the raw source pool. The ex-perimental results also illustrate the comple-mentarity between the data quality and modal-ity for medical multimodal CPT. 
+
+1 Introduction 
+
+Multimodal large language models (MLLMs) have achieved remarkable progress across a wide range of tasks, driven by large-scale multimodal pretrain-ing data (Radford et al., 2021; Chen et al., 2022). In the biomedical domain, such progress holds particular promise: integrating visual and textual   
+
+> *Corresponding author. Email:
+> hongxia.yang@polyu.edu.hk .
+
+knowledge across medical specialties could sup-port clinical decision-making, accelerate research, and improve diagnostic workflows (Lozano et al., 2025). A key enabler of this vision is the availabil-ity of large-scale, high-quality medical multimodal training data, particularly interleaved image-text data that preserves the rich in-context descriptions of figures found in scientific articles. Lozano et al. (2025) introduced BIOMEDICA, currently the largest open biomedical image-text re-source, comprising over 24 million image-text pairs extracted from the PubMed Central Open Access subset. BIOMEDICA provides extensive metadata and image-level annotations, and has been used to train state-of-the-art biomedical CLIP-style mod-els. However, the dataset was constructed with image-caption pairs as the primary output format. This design choice leaves a substantial source of training signal untapped: the body-text paragraphs that inline-reference each figure typically provide richer, more context-dependent descriptions than captions alone. Moreover, we identify several cate-gories of structural noise introduced by BIOMED-ICA’s automatic extraction pipeline and figure-level pair organization: (1) missing captions that can be recovered from PMC XML; (2) residual inline XML markup and short-sentence or near-duplicate repetition in captions and contexts; (3) repeated context strings attached to multiple figures or du-plicate PMC records; and (4) multi-figure context aggregation noise, where body paragraphs shared across multiple figures are redundantly attached to each figure independently. In this work, we address these limitations by proposing a systematic pipeline for cleaning and reconstructing context-grounded interleaved image-text data from BIOMEDICA. Our pipeline recovers missing captions from PMC XML, removes resid-ual markup and repeated text/context, constructs in-terleaved samples that pair images with their figure-specific body-text context, refines non-contiguous 1
+
+> arXiv:2606.01049v1 [cs.CL] 31 May 2026
+
+context sequences, and applies LLM-supervised medical relevance and quality classifiers to filter out non-medical and low-quality samples. We re-fer to the resulting dataset as PMC-InterCPT, a quality-filtered and modality-balanced interleaved corpus for medical multimodal continued pretrain-ing (CPT). We further analyze the resulting data distribution and observe severe modality imbalance. Plots and Charts alone account for 53.7% of tokens in the medical quality-filtered data, while clinically relevant categories such as Clinical Imaging rep-resent only 7.3%. To address this, we propose a taxonomy of four evidence buckets and conduct sys-tematic experiments on modality-aware resampling strategies. We evaluate our approach through CPT plus supervised fine-tuning (SFT) experiments on Qwen3.5-4B-Base across medical, scientific, and general multimodal benchmarks. Our experiments show that PMC-InterCPT improves over full raw BIOMEDICA and that modality-aware resampling provides a useful medical-general tradeoff. Our main contributions are: • A systematic pipeline for cleaning and re-constructing context-grounded interleaved biomedical CPT data from BIOMEDICA, ad-dressing caption errors, context noise, and sample construction quality. • PMC-InterCPT, a high-quality medical mul-timodal CPT dataset of approximately 9.63B tokens (quality ≥1, modality-balanced), with a four-bucket evidence taxonomy for principled resampling. • Comprehensive CPT experiments on Qwen3.5-4B-Base demonstrating that data quality and modality distribution are two orthogonal, complementary dimensions for medical multimodal CPT optimization. 
+
+2 Related Work 
+
+2.1 Medical Multimodal Large Language Models 
+
+Recent years have witnessed rapid development of medical multimodal large language models (MLLMs), including LLaVA-Med (Li et al., 2023), Med-Flamingo (Moor et al., 2023), HuatuoGPT-Vision (Chen et al., 2024), MAIRA-2 (Bannur et al., 2024), and LingShu (Xu et al., 2025), which adapt general-purpose VLMs to clinical and biomedi-cal domains through instruction tuning or domain-adaptive pretraining. Despite strong performance on medical VQA tasks, these models typically rely on small curated instruction datasets or general-domain pretrained weights, without access to large-scale high-quality medical interleaved CPT data. Our work addresses this gap by constructing and validating a CPT dataset specifically designed for this purpose. 
+
+2.2 Biomedical Multimodal Datasets from Scientific Literature 
+
+Several large-scale datasets have been con-structed from PubMed Central, including PMC-15M (Zhang et al., 2023a), Open-PMC-18M (Bagh-banzadeh et al., 2025), and BIOMEDICA (Lozano et al., 2025). These datasets vary in scale, modality coverage, and extraction methodology, but share a common design: image-caption pairs as the pri-mary output. Open-PMC-18M further incorporates subfigure extraction and contextual text enrichment, and demonstrates that precise data curation and alignment outweigh scale for representation learn-ing (Baghbanzadeh et al., 2025). Our work builds on BIOMEDICA and extends it by constructing interleaved samples from body-text context, with systematic noise removal and quality filtering tai-lored for CPT. 
+
+2.3 Interleaved Image-Text Pretraining 
+
+Flamingo (Alayrac et al., 2022) demonstrated that interleaved image-text data enables strong few-shot multimodal generalization. Subsequent work including MMC4 (Zhu et al., 2023) and OBELICS (Laurençon et al., 2023) scaled inter-leaved web data to billions of documents, showing consistent benefits over image-caption pair training. Construction of medical-domain interleaved data remains largely unexplored; our work systemati-cally builds and validates such data from biomedi-cal scientific literature. 
+
+2.4 Data Quality and Mixture for Pretraining 
+
+FineWeb (Penedo et al., 2024), DCLM (Li et al., 2024b), and RefinedWeb (Penedo et al., 2023) have established that careful quality filtering of web text yields substantial gains for general LLM pretrain-ing. DoReMi (Xie et al., 2023) showed that domain reweighting can significantly accelerate pretraining convergence. We extend these principles to medical multimodal CPT by combining LLM-based quality 2filtering with a novel modality-aware resampling strategy, and provide a systematic empirical study of their effects in this setting. 
+
+3 Data Construction Pipeline 
+
+BIOMEDICA provides a large-scale collection of biomedical image-text pairs extracted from the PubMed Central Open Access subset. While it offers significant scale and rich metadata, the au-tomatic extraction process and figure-level pair or-ganization introduce noise that is unsuitable for high-quality CPT. Specifically, we identify four categories of issues: (1) missing or unrecovered captions for figures whose captions can be recov-ered from PMC XML; (2) residual XML markup and short-sentence or near-duplicate repetition in captions and figure-referencing contexts; (3) multi-figure context aggregation noise where the same paragraph is redundantly attached to multiple fig-ures; and (4) incoherent context sequences cre-ated by concatenating non-adjacent paragraphs from different locations in the article. In addition, BIOMEDICA was not designed for interleaved sample construction. The rich body-text context that references each figure was not incorporated into training samples. We address these issues through the pipeline described below. Figure 1 provides an overview of the complete construction process, moving from raw BIOMEDICA records to caption/context cleanup, interleaved sample con-struction and refinement, medical relevance and quality classification, modality-aware resampling, and finally PMC-InterCPT. 
+
+3.1 Caption and Context Cleanup 
+
+We first repair BIOMEDICA entries whose cap-tion field is No caption found . For each affected image, we locate the corresponding PMC XML and match the image filename against <graphic> xlink:href attributes. When a match is found, we ascend the XML tree until the enclosing <fig> or 
+
+<table-wrap> element is reached and extract its descendant caption text. If direct graphic matching fails, we fall back to figure/table identifier matching using common variants such as fig1 , and table1 .We then remove residual XML tags from both captions and image-context fields while preserving their inner text. This step strips common inline markup such as <xref> , <sup> , <sub> , <bold> ,and <italic> , normalizes whitespace, and leaves figure-reference text available for later sample con-struction. The body-text paragraphs associated with each figure also contain both corpus-level and sample-level repetition. We therefore apply context cleaning at two granularities. 
+
+Within-text repetition cleanup. Before inter-leaved construction, we apply sentence-level rep-etition cleanup to captions and figure-referencing contexts in the article JSON files. This step re-moves near-adjacent repeated phrases and near-duplicate sentences while preserving panel-specific sentences when their panel labels differ. The short repetitions arise from automatic flattening of XML paragraphs with inline figure references: when nested inline elements are converted to plain text, partial sentence fragments or caption-like spans can appear more than once in the same context string. 
+
+Repeated context removal. After each context string is cleaned, exact duplicate cleaned con-texts are kept only once within the article-level 
+
+image_context map. When the same PMC record appears more than once in the input shards, we build a single cleaned cache entry keyed by PMC ID and reuse it for all copies. These operations preserve figure-reference an-chors whenever possible, because they are needed to identify which additional figures should be co-included in a multi-image sample. 
+
+3.2 Interleaved Sample Construction and Refinement 
+
+We construct context-grounded interleaved image-text samples from the cleaned article JSON files. Each output row contains aligned images and 
+
+texts arrays, plus a JSON metadata field contain-ing article-level metadata and per-image fields. The sequence alternates image slots with caption/con-text text slots: each image is followed by its caption, and figure-referencing context paragraphs are ap-pended after the relevant image-caption sequence. The majority of samples contain a single image; multi-image samples arise when a context para-graph references additional figures from the same article. Two design decisions address the multi-figure aggregation noise identified above. First, when a context paragraph references multiple figures, we detect those references and co-include the cor-responding images in the same sample wherever possible, rather than attaching the paragraph re-dundantly to each figure independently. This pre-serves cross-figure referential coherence and re-3Raw BIOMEDICA 
+
+Image: 
+
+Caption: 
+
+> The figure shows a 2.9 x 2.7 cm
+> impacted calculus at the neck of the
+> gallbladder (arrow) with adjacent
+> thickened gallbladder wall .
+
+! Training Data " Non -Training Data 
+
+Context with Noise: 
+
+> “< xref ref -type= \"fig \" rid= \"cureus -
+> 0013 -00000015978 -i01 \">1</xref >).”
+
+Residual XML markup: 1
+
+2 Within -text repetition:   
+
+> “Common bile duct measured 0.5 cm ...
+> Common bile duct measured 0.5 cm ...”
+
+3 Incoherent context: 
+
+> Context 1 [gap] Context 2
+
+Caption & Context Cleanup 
+
+1. Recover missing captions  
+
+> “No caption found ”“Sensitivity of pancreatic
+> tumour cells to CD95 -
+> mediated apoptosis.”
+
+2. Strip residual XML tags 
+
+> “Figure <xref ref -
+> type= \"fig \" rid= \"cureus -
+> 0013 -00000015978 -
+> i02 \">2</xref>”
+> “Figure 2”
+
+3. Remove duplicate contexts     
+
+> “Common bile duct
+> measured 0.5 cm ...
+> Common bile duct
+> measured 0.5 cm ...”
+> “Common bile duct
+> measured 0.5 cm ...”
+
+Interleaved Sample 
+
+Construction & Refinement 
+
+1. Construction       
+
+> Figure 1 Captio n1Figure 2 Captio n2Context
+
+2. Refinement 
+
+.. .
+
+References 
+
+1 Figure Numbering Normalization 
+
+2
+
+3
+
+Context Coherence Repair 
+
+Minimum -Length Filtering 
+
+Medical Relevance 
+
+& Quality Classification 
+
+1. LLM annotation 
+
+2. Scalable classifier inference         
+
+> Gemini -3.1 -Pro -
+> Preview API
+> Interleaved
+> Sample s
+> Medical
+> Relevance
+> (0,1)
+> Quality
+> Score
+> (0,1,2)
+> Manual
+> Review
+> Text with
+> Label
+> !Train
+> Qwen3 -1.7B
+> Relevance
+> Classifier
+> Quality
+> Classifier
+> "Inference
+> Medical
+> Relevance
+> (0,1)
+> Quality
+> Score
+> (0,1,2)
+
+Modality -Aware Resampling 
+
+1. Data pool construction            
+
+> Quality ≥ 1
+> data
+> Pool 1
+> High -quality
+> medical
+> (q=2,m=1)
+> Pool 2
+> Medical strong -
+> related supplement
+> (q=1,m=1; core label)
+> Pool 3
+> High -quality
+> general
+> (q=2,m=0)
+> Pool 4
+> Medical weak -related
+> supplement
+> (q=1,m=1; non -core)
+> Pool 5
+> Low -quality
+> general
+> (q=1,m=0)
+> Excluded from
+> pretrainin g
+
+2. Evidence bucket taxonomy     
+
+> Included in
+> source pool
+> Source
+> pool
+> Biomedical Visual
+> Evidence (BVE)
+> Quantitative/Table
+> Evidence (QTE)
+> Mechanism/Structure
+> Evidence (MSE) Auxiliary (AUX)
+
+3. Mixture configurations    
+
+> Natural Balanced BVE -enhanced BVE -only
+> Each configuration: 1B tokens
+
+PMC -InterCPT 
+
+Image 1 Caption 1  
+
+> Figure 1. The figure shows
+> a 2.9 x 2.7 cm impacted
+> calculus at the neck of the
+> gallbladder (arrow) with
+> adjacent thickened
+> gallbladder wall.
+
+! Interleaved training data 
+
+Image 2 Caption 2:  
+
+> Figure 2. The figure shows
+> a lobulated high signal
+> intensity 2.4x 1.4cm
+> hemangioma (arrow) in
+> segment 7 of the liver.
+
+Cleaned interleaved context 
+
+1 2 3
+
+6 5 4
+
+XML    
+
+> BVE QTE MSE AUX
+
+i Only image -caption pairs are               
+
+> used for training.
+> Limitation: caption -only training discards rich context and cross -figure evidence .
+> A large, rounded signal void area near
+> the neck of the gallbladder measuring
+> 2.9 x 2.7cm with adjacent thickened
+> gallbladder wall with edematous
+> changes most likely represents
+> impacted calculus at the neck of the
+> gallbladder ( Figure 1 ).
+> A lobulated high signal intensity 2.4x
+> 1.4cm lesion in segment 7 of the liver
+> was a hemangioma ( Figure 2 ).
+> ...
+> XML removed Repetition removed Context repaired
+> Figure numbering normalize dAll referenced images groupe d
+> Cleaner text
+> supervisio n
+> Stronger
+> image -text
+> grounding
+> Multi -image
+> evidence
+> preserve d
+> Reduced
+> hallucination
+> ris k
+
+Figure 1: Overview of the PMC-InterCPT construction pipeline . Raw BIOMEDICA provides PMC-derived biomedical figures, image-caption pairs, and noisy figure-linked contexts. We clean captions and contexts, construct and refine aligned interleaved samples, filter them with medical relevance and text-quality classifiers, and apply modality-aware resampling to produce the final CPT corpus. 
+
+duces hallucination risk. To facilitate accurate cross-figure referencing, we additionally prepend each image’s actual figure number from the source article to its caption text. Second, within a sin-gle PMC article, each context string is used at most once during sample expansion, eliminating repeated context across samples constructed from the same article. Finally, we enrich each sample with BIOMEDICA’s per-image metadata, includ-ing image_primary_label , panel labels, cluster identifiers, and image size, for downstream modal-ity analysis and token accounting. We apply three sequential refinement steps after initial sample construction. 
+
+Caption numbering normalization. We infer each figure number from the image identifier or im-age filename and rewrite caption prefixes into a con-sistent “Figure n.” format. This makes cross-figure references explicit in the interleaved sequence. 
+
+Context coherence repair. A figure may be referenced by multiple body paragraphs at non-contiguous locations in the paper. For example, once in the Results section and again in the Dis-cussion. Concatenating such paragraphs directly creates an incoherent discourse: there is no natu-ral linguistic transition between paragraphs orig-inally separated by thousands of words, produc-ing artificial topic jumps that introduce spurious co-occurrence patterns harmful to language model training. To avoid this, we check whether consecu-tive context segments are adjacent in the article text. When a break is detected, we prefer the segment that references only the primary figure; if both or neither are primary-figure-only, we keep the earlier segment. After pruning context, we remove extra images and captions that are no longer referenced, while always retaining the primary image. 
+
+Length filtering. Samples below a minimum text threshold are discarded, as they typically lack suf-ficient context for meaningful CPT signal. For non-Chinese samples, we drop rows with fewer than 12 caption tokens and fewer than 30 context tokens. For samples containing CJK characters, we use character thresholds and drop rows with fewer than 40 caption characters and fewer than 120 context characters. 
+
+3.3 Medical Relevance and Quality Classification 
+
+After sample construction, we filter by medical rel-evance and text quality using a two-stage approach. 4Stage 1: LLM annotation. We use gemini-3.1-pro-preview to annotate sampled interleaved records on two dimensions: medical_relevance 
+
+∈ { 0, 1} and quality ∈ { 0, 1, 2}. Annotation is performed with text-only inputs: captions and figure-linked context are provided, while images are withheld. We adopt this design for two reasons. First, in preliminary annotation trials, using images as part of the quality criterion encouraged the an-notator model to over-interpret fine visual details or make erroneous visual judgments, introducing hallucination-like noise into labels that were in-tended to measure corpus quality. Second, because the source records are extracted from PMC articles, the figure-caption and figure-context association is already grounded by the original publication struc-ture. We therefore focus annotation on medical relevance and text purity rather than asking the annotator to re-judge image-text alignment. The quality score measures text purity only, with strict penalties for table dump artifacts, malformed L ATEXfragments, repetitive content, and incoherent text. A score of 2 indicates clean, coherent, low-noise medical text; 1 indicates usable but imperfect text; 0 indicates severe quality problems. We manually review the sampled LLM annotations to remove inconsistent or ambiguous labels before training the scalable classifiers. 
+
+Stage 2: Scalable classifier inference. We use the reviewed annotations to train separate Qwen3-1.7B classifiers for medical relevance and text qual-ity, and run them over the filtered interleaved cor-pus with SGLang. The medical classifier outputs a binary score, while the quality classifier outputs a score in {0, 1, 2}. Classifier outputs are joined back to the original Parquet records by record_id , and the main data pool keeps records with quality score at least 1. Held-out classifier performance and train-ing details are reported in Appendix D. Briefly, the quality classifier obtains 92.3% accuracy on its bal-anced held-out test set, while the medical-relevance classifier obtains 93.4% accuracy. For our filtering objective, the most important distinction is separat-ing severely corrupted records from usable ones; accordingly, the quality classifier is strongest on label 0 and label 2, while the middle label 1 re-mains the expected boundary case between mildly damaged and clean text. This behavior matches the intended use of the labels: quality 0 records are removed, whereas quality 1 records can still contribute useful signal when they are medically             
+
+> Quality Medical Tokens
+> 2Yes 11.67B 2No 2.73B 1Yes 3.69B 1No 0.69B 0—1.02B (filtered)
+> Table 1: Token distribution after medical relevance and quality classification.
+
+relevant and belong to core biomedical visual cate-gories. After running inference over the full dataset, we obtain the following token distribution: 
+
+3.4 Modality-Aware Resampling Data pool construction. After decontaminating against the PMC-VQA benchmark, we partition the quality ≥1 data into five pools based on qual-ity score, medical relevance, and image modality: (1) high-quality medical (quality=2, medical=1); (2) medical strong-related supplement (quality=1, medical=1, label ∈ {Clinical Imaging, Immuno Assays, Laboratory Specimens and Cultures, Mi-croscopy, PCR}); (3) high-quality general (qual-ity=2, medical=0); (4) medical weak-related sup-plement (quality=1, medical=1, non-core labels); and (5) low-quality general (quality=1, medical=0). Pools 4 and 5 are excluded from pretraining: pool 4 contains lower-quality medical samples from weakly related visual categories, while pool 5 con-tributes off-domain content. The source pool for all subsequent experiments therefore consists of pools 1–3: high-quality medical, medical strong-related supplement, and high-quality general. 
+
+Evidence bucket taxonomy. Analysis of the nat-ural token distribution within the source pool re-veals severe imbalance: Plots and Charts account for 51.2% of tokens, while clinically relevant Clin-ical Imaging represents only 7.5%. To enable prin-cipled resampling, we define four evidence buckets 
+
+that group image modalities by their functional role in biomedical communication: • Biomedical Visual Evidence (BVE): Clinical Imaging, Microscopy, Immuno Assays, PCR, Laboratory Specimens and Cultures • Quantitative/Table Evidence (QTE): Plots and Charts, Tables • Mechanism/Structure Evidence (MSE): Il-lustrative Diagrams, Chemical Structures, 5Config BVE QTE MSE AUX                 
+
+> Natural dist. ∼28% ∼52% ∼17% ∼3% Balanced 33% 33% 29% 5% BVE-enhanced 45% 30% 20% 5% BVE-only 100% ———
+> Table 2: Inter-bucket token allocation for the four 1B mixture configurations.
+
+Graphs and Networks, Scientific Formulae and Equations • Auxiliary (AUX): Natural Images, Tools and Materials, Screen Based Visuals, Maps, Am-biguous 
+
+Mixture configurations. We construct four 1B-token datasets with varying inter-bucket allocation to study the effect of modality distribution (Table 2). Within each bucket, samples are drawn proportion-ally to their natural token counts unless otherwise specified. For each configuration, we first compute label-level token quotas from the global modality-token distribution, then select records deterministi-cally within each label until the target token budget is reached. 
+
+3.5 Dataset Scale and Composition 
+
+Figure 2 summarizes how the corpus changes across filtering stages and how the final PMC-InterCPT mixture is composed. The raw BIOMED-ICA source contains 24.04M samples and 13.65B tokens in its image-caption-oriented format. Af-ter interleaved sample construction, the corpus contains 20.16M samples and 19.89B tokens, re-flecting the addition of figure-linked body-text context. Minimum-length filtering removes short, weakly grounded samples while preserving most constructed records, yielding 20.02M samples and 19.80B tokens. Quality filtering retains 19.45M samples with quality score at least 1, correspond-ing to 18.78B tokens, and decontamination against PMC-VQA leaves 19.44M samples and 18.68B tokens. The subsequent pool construction step se-lects the high-quality medical, strong medical sup-plement, and high-quality general pools used for mixture construction, resulting in 16.45M source-pool samples and 15.41B tokens. Finally, modality-aware resampling produces PMC-InterCPT with 10.11M samples and 9.63B tokens. The statistics highlight two aspects of the con-struction process. First, PMC-InterCPT is smaller than both the quality-filtered pool and full raw BIOMEDICA in token count, but it concentrates to-kens into samples that pass quality filtering, decon-tamination, and modality-aware source-pool selec-tion. This supports our central hypothesis that con-tinued pretraining benefits more from high-quality, context-grounded interleaved samples than from raw scale alone. Second, the final corpus remains structurally diverse: 13.2% of final samples con-tain multiple images, which preserves cross-figure evidence that would be unavailable in a caption-only training format. The final label distribution is also not a single-modality corpus: although BVE receives the largest allocation, QTE and MSE to-gether still account for half of the final tokens, maintaining coverage of charts, tables, diagrams, chemical structures, and scientific mechanisms. 
+
+4 Experiments 
+
+4.1 Experimental Setup Model. All CPT experiments use Qwen3.5-VL-4B-Base (Qwen Team, 2026) as the backbone. We use the base variant before a fixed SFT stage so that differences primarily reflect the CPT data source and mixture. 
+
+Evaluation. We evaluate on four medical-oriented benchmarks (MMMU-Med-Test (Yue et al., 2024), MMMU-Pro-Med-10 (Yue et al., 2025), PMC-VQA-clean (Zhang et al., 2023b), and OmniMedVQA (Hu et al., 2024)) and six general or scientific multimodal benchmarks (MMMU-All-Val (Yue et al., 2024), MMMU-Pro-Full-4, MMMU-Pro-Full-10 (Yue et al., 2025), ChartQA (Masry et al., 2022), CharXiv-Val (Wang et al., 2024), and SciVQA (Borisova et al., 2025)). Detailed benchmark descriptions are deferred to Appendix F. For PMC-VQA-clean, we re-move all training samples whose source PMC articles overlap with PMC-VQA test questions. ChartQA, CharXiv-Val, and SciVQA are scored using Qwen2.5-72B-Instruct as an LLM judge; all other benchmarks are scored by rule-based option extraction. 
+
+Training protocol. All experiments use a two-stage CPT+SFT protocol. During CPT, we use a maximum sequence length of 8192 with sequence packing, freeze the ViT encoder, and train for one epoch with cosine learning-rate decay from 
+
+5.0 × 10 −6 to 1.0 × 10 −6, a warmup ratio of 0.05, micro-batch size 2, and global batch size 256. CPT is run on 64 NVIDIA H800 GPUs. After CPT, 6(a) Filtering Funnel (b) Dataset Statistics  
+
+> Raw
+> BIOMEDICA
+
+24.04M samples  
+
+> 13.65B tokens
+> After interleaved
+> sample construction
+
+20.16M samples   
+
+> 19.89B tokens
+> After
+> min -len gth filtering
+
+20.02M samples  
+
+> 19.80B tokens
+> Quality ≥ 1
+
+19.45M samples  
+
+> 18.78B tokens
+> After
+> decontamination
+
+19.44M samples  
+
+> 18.68B tokens
+> After
+> pool construction
+
+16.45M samples 
+
+> 15.41B tokens
+> PMC -InterCPT
+
+1 Panel Type 2 Quality 
+
+3 Top Modalities 4 Evidence Buckets    
+
+> Total
+> 10.11M
+> samples
+> single -image
+> samples
+> 86.8%
+> (8.78M)
+> multi -image
+> samples
+> 13.2%
+> (1.33M)
+> Total
+> 10.11M
+> samples
+> quality score =2
+> 92.3%
+> (9.33M)
+> quality score = 1
+> 7.7%
+> (0.78M)
+
+10.11M samples                        
+
+> 9.63B tokens
+> After mixture
+> 0% 10% 20% 30%
+> Share of final set (%)
+> Plots & Charts 3.07M
+> 30.4%
+> Microscopy 2.07M
+> 20.5%
+> Illustrative Diagrams 1.66M
+> 16.4%
+> Clinical Imaging 1.22M
+> 12.1%
+> Immuno Assays 0.58M
+> 5.7%
+> Chemical Structures 0.53M
+> 5.2%
+> Share of final samples (N = 10.11M)
+> BVE 45.0% QTE 30.0% MSE 20.0%
+> AUX 5.0%
+> 0% 25% 50% 75% 100%
+> Share of final tokens
+> BVE Biomedical Visual
+> Evidence
+> 4.33B tokens 45.0%
+> QTE Quantitative & Tabular
+> Evidence
+> 2.89B tokens 30.0%
+> MSE Method & Structure
+> Evidence
+> 1.93B tokens 20.0%
+> AUX Auxiliary & Other
+> Evidence
+> 0.48B tokens 5.0%
+> Token composition (Total = 9.63B)
+
+Figure 2: Filtering funnel and final dataset statistics for PMC-InterCPT. (a) The funnel tracks sample and token counts from raw BIOMEDICA through interleaved construction, length filtering, quality filtering, decontamination, source-pool construction, and final mixture sampling. (b) The final mixture is dominated by single-image samples, mostly quality-score-2 records, and follows the BVE-enhanced allocation of 45% BVE, 30% QTE, 20% MSE, and 5% AUX by token count. 
+
+all models are supervised fine-tuned on the same 50K examples randomly sampled from LLaVA-OneVision (Li et al., 2024a). During SFT, we train all model parameters for three epochs on 8 NVIDIA H800 GPUs with cosine learning-rate decay from 
+
+2.5 × 10 −6 to 0, a warmup ratio of 0.1, micro-batch size 2, and global batch size 64. 
+
+4.2 Main Results: Effect of Data Quality 
+
+We compare full-scale CPT on raw BIOMEDICA and PMC-InterCPT, followed by the same fixed SFT stage. PMC-InterCPT improves over full BIOMED-ICA by 1.08 points on the medical average and 1.68 points on the general/scientific average, despite containing fewer CPT tokens. The largest medical gain appears on MMMU-Pro-Med-10 (+2.80), sug-gesting that the cleaned interleaved contexts and quality filtering are most helpful for harder medical reasoning settings. The gains are not limited to the medical suite: PMC-InterCPT also improves over full BIOMEDICA on ChartQA (+2.00) and CharXiv (+6.10), while recovering much of the degradation observed on MMMU-All and MMMU-Pro-Full after raw BIOMEDICA CPT. PMC-VQA-clean is the only medical benchmark where full BIOMEDICA is slightly higher (-0.15 for PMC-InterCPT), which suggests that our pipeline is not simply overfitting to PMC-style VQA but improves 
+
+Metric Base + SFT BIOMEDICA PMC-InterCPT 
+
+CPT tokens – 13.65B 9.63B MMMU-Med 58.96 58.62 58.73 MMMU-Pro-Med-10 41.61 37.76 40.56 PMC-VQA 61.40 62.90 62.75 OmniMed 85.37 84.97 86.51 Med Avg. 61.84 61.06 62.14 
+
+MMMU-All 55.11 53.89 55.00 MMMU-Pro-4 54.80 52.89 53.01 MMMU-Pro-10 43.24 40.58 40.81 ChartQA 75.68 75.00 77.00 CharXiv 53.50 47.90 54.00 SciVQA 68.71 66.74 67.29 Gen Avg. 58.51 56.17 57.85 
+
+Table 3: Full-scale CPT+SFT results. All rows use the same 50K-example LLaVA-OneVision SFT stage. Medical average is computed over MMMU-Med-Test, MMMU-Pro-Med-10, PMC-VQA-clean, and Omn-iMedVQA; general average is computed over the six general/scientific benchmarks. ChartQA, CharXiv, and SciVQA are scored by LLM judge; the other bench-marks use rule-based option extraction. 
+
+broader medical and scientific reasoning behavior. 
+
+4.3 Data Mixture Analysis 4.3.1 One-Billion-Token Mixture Configurations 
+
+We train four models, each on a distinct 1B-token dataset drawn from the source pool with different inter-bucket allocations (Table 2). We additionally include a raw BIOMEDICA-1B control sampled to 7Benchmark Natural Balanced BVE-enh. BVE-only BioMed                                                             
+
+> MMMU-Med 60.10 59.42 59.36 59.82 58.39 MMMU-Pro-Med 41.26 39.86 41.96 39.51 42.66 PMC-VQA 61.10 62.80 61.50 61.75 60.90 OmniMed 86.38 85.56 86.19 86.51 86.04 Med Avg. 62.21 61.91 62.25 61.90 62.00 MMMU-All 55.33 55.44 55.44 54.78 54.78 MMMU-Pro-4 54.16 53.29 53.93 54.16 53.58 MMMU-Pro-10 41.97 42.31 43.12 42.25 43.58 ChartQA 77.08 76.92 76.64 77.20 75.88 CharXiv 53.30 52.60 51.60 51.50 48.20 SciVQA 68.60 68.74 67.45 67.88 66.78 Gen Avg. 58.41 58.22 58.03 57.96 57.13
+
+Table 4: Effect of inter-bucket modality allocation on CPT performance (1B tokens each). BioMed denotes a raw BIOMEDICA-1B control trained with the same CPT and SFT hyperparameters. 
+
+the same token budget. All other hyperparameters are held constant. BVE-enhanced achieves the best medical av-erage among the 1B mixtures and the strongest result on MMMU-Pro-Med-10, while remaining close to the natural mixture on the general/sci-entific average. The BIOMEDICA-1B control is competitive on the medical average and ob-tains the highest MMMU-Pro-Med score, but it is consistently weaker on the general/scientific av-erage. All four curated mixtures improve over the BIOMEDICA-1B control on Gen Avg., with the largest gap from the natural mixture (+1.28). This suggests that the cleaned interleaved source pool mainly improves robustness across scientific and chart-oriented benchmarks, while the precise med-ical gains depend on the downstream benchmark and modality allocation. The general benchmark trend is also consistent with the modality alloca-tion: as the mixture shifts from Natural to Bal-anced, BVE-enhanced, and BVE-only, the general average gradually decreases. This is expected be-cause the natural mixture contains a larger share of Quantitative/Table Evidence (QTE), which bene-fits chart- and science-oriented general benchmarks such as CharXiv and SciVQA. At the same time, the detailed results show that increasing BVE is not uniformly harmful to general reasoning: BVE-enhanced improves over Natural on MMMU-All and both MMMU-Pro-Full variants, but loses on CharXiv and SciVQA, where QTE-heavy data is more directly aligned with the benchmark format. These results indicate that modality-aware resam-pling should be treated as an explicit design trade-off rather than a single universally dominant mix-ture.                      
+
+> Benchmark 3×10 −51×10 −55×10 −6
+> MMMU-Med 57.71 59.42 60.10 MMMU-Pro-Med 37.76 41.96 41.26 PMC-VQA 60.70 60.80 61.10 OmniMed 84.67 84.45 86.38 Med Avg. 60.21 61.66 62.21
+
+Table 5: CPT learning-rate ablation on the natural 1B mixture. All settings use the same fixed SFT stage. 
+
+4.3.2 CPT Learning Rate 
+
+We also compare three CPT learning rates on the natural 1B mixture while keeping the SFT stage fixed. As shown in Table 5, reducing the CPT learn-ing rate from 3 × 10 −5 to 1 × 10 −5 improves the medical average, and 5 × 10 −6 gives the strongest overall result. This supports using a conservative CPT update for domain adaptation: the model bene-fits from biomedical interleaved data, but an overly large CPT step can degrade the capabilities already present in the base VLM. 
+
+4.4 Summary 
+
+Our experiments reveal two complementary axes of improvement for medical multimodal CPT. First, PMC-InterCPT improves over full raw BIOMED-ICA despite using fewer CPT tokens, confirming that structural noise in automatically extracted data actively harms CPT quality. Second, modality-aware resampling (§4.3) provides an explicit way to trade off medical visual evidence against broader chart and scientific reasoning coverage. Together, these results suggest that both data quality and modality distribution deserve explicit optimization attention when building medical multimodal CPT pipelines. 
+
+5 Conclusion 
+
+We presented a systematic pipeline for cleaning and reconstructing context-grounded interleaved image-text data from BIOMEDICA, addressing missing captions, residual XML/text noise, duplicated con-text, and incoherent multi-paragraph context se-quences. Combined with LLM-supervised medical relevance and quality filtering and modality-aware resampling, our pipeline produces PMC-InterCPT, a ∼9.63B token high-quality medical multimodal CPT dataset. Experiments on Qwen3.5-VL-4B-Base demonstrate that PMC-InterCPT outperforms full raw BIOMEDICA under the same CPT+SFT protocol, and that evidence-bucket-guided resam-pling exposes a controllable medical-general trade-8off. Our findings establish data quality and modal-ity distribution as two orthogonal dimensions for medical multimodal CPT optimization. 
+
+Limitations 
+
+Our evaluation emphasizes VQA-style benchmarks after a fixed SFT stage, which provides a con-trolled setting for comparing CPT data sources; broader instruction-following and open-ended gen-eration are natural directions for future evalua-tion. PMC-InterCPT is currently constructed from English-language PMC articles, and the same re-construction and filtering pipeline can be extended to multilingual biomedical literature. Finally, the modality mixture ratios we identify are empiri-cally derived on Qwen3.5-VL-4B-Base, while the same evidence-bucket analysis can be revisited for other backbone architectures and target benchmark suites. 
+
+Acknowledgments 
+
+This paper is fully supported by a grant from the Research Grants Council of the Hong Kong Special Administrative Region, China (Project No. T41-517/25-N). 
+
+References 
+
+Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc, Arthur Mensch, Katherine Millican, Malcolm Reynolds, and 1 others. 2022. Flamingo: a visual language model for few-shot learning. Advances in Neural Information Processing Systems , 35:23716– 23736. Negin Baghbanzadeh, Mohammed Saidul Islam, Sajad Ashkezari, Elham Dolatabadi, and Arash Afkanpour. 2025. Open-pmc-18m: A high-fidelity large scale medical dataset for multimodal representation learn-ing. arXiv preprint arXiv:2506.02738 .Shruthi Bannur, Kenza Bouzid, Daniel C Castro, An-ton Schwaighofer, Anja Thieme, Sam Bond-Taylor, Maximilian Ilse, Fernando Pérez-García, Valentina Salvatelli, Harshita Sharma, and 1 others. 2024. MAIRA-2: Grounded radiology report generation. 
+
+arXiv preprint arXiv:2406.04449 .Ekaterina Borisova, Nikolas Rauscher, and Georg Rehm. 2025. Scivqa 2025: Overview of the first scientific visual question answering shared task. In Proceed-ings of the Fifth Workshop on Scholarly Document Processing (SDP 2025) , pages 182–210. Junying Chen, Chi Gui, Ruyi Ouyang, Anningzhe Gao, Shunian Chen, Guiming Hardy Chen, Xi-dong Wang, Ruifei Zhang, Zhenyang Cai, Ke Ji, Guangjun Yu, Xiang Wan, and Benyou Wang. 2024. HuatuoGPT-Vision, towards injecting medical visual knowledge into multimodal llms at scale. arXiv preprint arXiv:2406.19280 .Xi Chen, Xiao Wang, Soravit Changpinyo, Anthony J Piergiovanni, Piotr Padlewski, Daniel Salz, Sebas-tian Goodman, Adam Grycner, Basil Mustafa, Lucas Beyer, and 1 others. 2022. Pali: A jointly-scaled multilingual language-image model. arXiv preprint arXiv:2209.06794 .Yutao Hu, Tianbin Li, Quanfeng Lu, Wenqi Shao, Jun-jun He, Yu Qiao, and Ping Luo. 2024. OmniMed-VQA: A new large-scale comprehensive evaluation benchmark for medical LVLM. Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-tern Recognition , pages 22170–22183. Hugo Laurençon, Lucile Saulnier, Léo Tronchon, Stas Bekman, Amanpreet Singh, Anton Lozhkov, Thomas Wang, Siddharth Karamcheti, Alexander Rush, Douwe Kiela, and 1 others. 2023. OBELICS: An open web-scale filtered dataset of interleaved image-text documents. Advances in Neural Infor-mation Processing Systems , 36:71683–71702. Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Peiyuan Zhang, Yanwei Li, Ziwei Liu, and 1 others. 2024a. Llava-onevision: Easy visual task transfer. arXiv preprint arXiv:2408.03326 .Chunyuan Li, Cliff Wong, Sheng Zhang, Naoto Usuyama, Haotian Liu, Jianwei Yang, Tristan Nau-mann, Hoifung Poon, and Jianfeng Gao. 2023. LLaVA-Med: Training a large language-and-vision assistant for biomedicine in one day. Advances in Neural Information Processing Systems , 36:28541– 28564. Jeffrey Li, Alex Fang, Georgios Smyrnis, Maor Ivgi, Matt Jordan, Samir Gadre, Hritik Bansal, Etash Guha, Sedrick Keh, Kushal Arora, and 1 others. 2024b. DataComp-LM: In search of the next generation of training sets for language models. Advances in Neural Information Processing Systems , 37:14200– 14282. Alejandro Lozano, Min Woo Sun, James Burgess, Liangyu Chen, Jeffrey J Nirschl, Jeffrey Gu, Ivan Lopez, Josiah Aklilu, Anita Rau, Austin Wolf-gang Katzer, and 1 others. 2025. Biomedica: An open biomedical image-caption archive, dataset, and vision-language models derived from scientific litera-ture. In Proceedings of the Computer Vision and Pat-tern Recognition Conference , pages 19724–19735. Ahmed Masry, Do Long, Jia Qing Tan, Shafiq Joty, and Enamul Hoque. 2022. ChartQA: A benchmark for question answering about charts with visual and logical reasoning. In Findings of the Association for Computational Linguistics: ACL 2022 , pages 2263– 2279. 
+
+9Michael Moor, Qian Huang, Shirley Wu, Michihiro Ya-sunaga, Yash Dalmia, Jure Leskovec, Cyril Zakka, Eduardo Pontes Reis, and Pranav Rajpurkar. 2023. Med-Flamingo: a multimodal medical few-shot learner. In Machine Learning for Health (ML4H) ,pages 353–367. PMLR. Guilherme Penedo, Hynek Kydlíˇ cek, Anton Lozhkov, Margaret Mitchell, Colin Raffel, Leandro Von Werra, Thomas Wolf, and 1 others. 2024. The FineWeb datasets: Decanting the web for the finest text data at scale. Advances in Neural Information Processing Systems , 37:30811–30849. Guilherme Penedo, Quentin Malartic, Daniel Hesslow, Ruxandra Cojocaru, Alessandro Cappelli, Hamza Alobeidli, Baptiste Pannier, Ebtesam Almazrouei, and Julien Launay. 2023. The RefinedWeb dataset for falcon LLM: Outperforming curated corpora with web data, and web data only. arXiv preprint arXiv:2306.01116 .Qwen Team. 2026. Qwen3.5: Towards native multi-modal agents. Alibaba Cloud Community Blog. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-try, Amanda Askell, Pamela Mishkin, Jack Clark, and 1 others. 2021. Learning transferable visual models from natural language supervision. In International conference on machine learning , pages 8748–8763. PmLR. Zirui Wang, Mengzhou Xia, Luxi He, Howard Chen, Yitao Liu, Richard Zhu, Kaiqu Liang, Xindi Wu, Haotian Liu, Sadhika Malladi, and 1 others. 2024. Charxiv: Charting gaps in realistic chart understand-ing in multimodal llms. Advances in Neural Informa-tion Processing Systems , 37:113569–113697. Sang Michael Xie, Hieu Pham, Xuanyi Dong, Nan Du, Hanxiao Liu, Yifeng Lu, Percy S Liang, Quoc V Le, Tengyu Ma, and Adams Wei Yu. 2023. DoReMi: Optimizing data mixtures speeds up language model pretraining. Advances in Neural Information Pro-cessing Systems , 36:69798–69818. Weiwen Xu, Hou Pong Chan, Long Li, Mahani Alju-nied, Ruifeng Yuan, Jianyu Wang, Chenghao Xiao, Guizhen Chen, Chaoqun Liu, Zhaodonghui Li, and 1 others. 2025. Lingshu: A generalist foundation model for unified multimodal medical understanding and reasoning. arXiv preprint arXiv:2506.07044 .Xiang Yue, Yuansheng Ni, Kai Zhang, Tianyu Zheng, Ruoqi Liu, Ge Zhang, Samuel Stevens, Dongfu Jiang, Weiming Ren, Yuxuan Sun, and 1 others. 2024. MMMU: A massive multi-discipline multimodal un-derstanding and reasoning benchmark for expert agi. 
+
+Proceedings of the IEEE/CVF Conference on Com-puter Vision and Pattern Recognition , pages 9556– 9567. Xiang Yue, Tianyu Zheng, Yuansheng Ni, Yubo Wang, Kai Zhang, Shengbang Tong, Yuxuan Sun, Botao Yu, Ge Zhang, Huan Sun, and 1 others. 2025. Mmmu-pro: A more robust multi-discipline multimodal un-derstanding benchmark. In Proceedings of the 63rd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 15134– 15186. Sheng Zhang, Yanbo Xu, Naoto Usuyama, Hanwen Xu, Jaspreet Bagga, Robert Tinn, Sam Preston, Ra-jesh Rao, Mu Wei, Naveen Valluri, and 1 others. 2023a. BiomedCLIP: a multimodal biomedical foun-dation model pretrained from fifteen million scientific image-text pairs. arXiv preprint arXiv:2303.00915 .Xiaoman Zhang, Chaoyi Wu, Ziheng Zhao, Weix-iong Lin, Ya Zhang, Yanfeng Wang, and Weidi Xie. 2023b. PMC-VQA: Visual instruction tuning for medical visual question answering. arXiv preprint arXiv:2305.10415 .Lianmin Zheng, Liangsheng Yin, Zhiqiang Xie, Chuyue Sun, Jeff Huang, Cody H Yu, Shiyi Cao, Christos Kozyrakis, Ion Stoica, Joseph E Gonzalez, and 1 oth-ers. 2024a. Sglang: Efficient execution of structured language model programs. Advances in neural infor-mation processing systems , 37:62557–62583. Yaowei Zheng, Richong Zhang, Junhao Zhang, Yanhan Ye, and Zheyan Luo. 2024b. Llamafactory: Unified efficient fine-tuning of 100+ language models. In 
+
+Proceedings of the 62nd annual meeting of the as-sociation for computational linguistics (volume 3: system demonstrations) , pages 400–410. Wanrong Zhu, Jack Hessel, Anas Awadalla, Samir Yitzhak Gadre, Jesse Dodge, Alex Fang, Youngjae Yu, Ludwig Schmidt, William Yang Wang, and Yejin Choi. 2023. Multimodal C4: An open, billion-scale corpus of images interleaved with text. 
+
+Advances in Neural Information Processing Systems ,36:8958–8974. 
+
+10 A Additional Dataset Statistics 
+
+A.1 Raw BIOMEDICA Statistics 
+
+BIOMEDICA is built from the PubMed Cen-tral Open Access subset and provides an article-level archive serialized into image-caption training records (Lozano et al., 2025). The released cor-pus contains over 6M full-text articles, over 24M image-caption pairs, and over 30M figure refer-ences. Each record includes article-level meta-data and image-level annotations, including arti-cle identifiers, title, abstract, journal, license, key-words, MeSH terms, citation metadata, image iden-tifiers, image hashes, panel labels, and global/lo-cal taxonomy labels. Table 6 summarizes the raw BIOMEDICA properties that are most relevant to our pipeline.        
+
+> Property Value
+> Full-text articles 6M+ Image-caption pairs 24M+ Figure references 30M+ Metadata fields 27 Primary format in BIOMEDICA Image-caption pairs Additional signal in our pipeline Figure-referencing text
+
+Table 6: Raw BIOMEDICA statistics reported by Lozano et al. (2025). 
+
+A.2 Cleaned Dataset Statistics 
+
+Table 7 reports the missing-caption recovery statis-tics. We processed 2,537 tar archives contain-ing 72,151,269 files, including 24,050,423 JSON records. Among these JSON records, 1,987,649 were modified during missing-caption recovery, corresponding to an 8.26% modification rate. For records whose caption field required recovery, 6,238,761 captions were successfully recovered and 3,639,453 were not recovered, giving a success rate of 63.2%. No XML files were missing for the affected articles. Most recovered captions corre-spond to table-like figure entries whose captions are available in the PMC XML. Unrecovered cases are largely entries such as graphical abstracts, for-mulae, or other media objects for which the source XML does not provide a caption that can be ex-tracted. Repeated-text cleanup modified 22,844,977 of 24,050,423 JSON records (94.99%). This high modification rate reflects the prevalence of repeated short fragments and duplicated local context spans           
+
+> Statistic Value
+> Processed tar archives 2,537 Processed files 72,151,269 JSON records 24,050,423 JSON records modified 1,987,649 Modification rate 8.26% Captions recovered 6,238,761 Captions unrecovered 3,639,453 Recovery success rate 63.2% Missing XML files 0
+
+Table 7: Missing-caption recovery statistics. The suc-cess rate is computed as recovered captions divided by recovered plus unrecovered captions. 
+
+introduced when PMC XML paragraphs with inline figure references are flattened into plain text. Table 8 summarizes the major scale changes across the later pipeline stages. Interleaved con-struction reduces the number of training records relative to raw BIOMEDICA because it reorganizes article-level figures into context-grounded samples, but increases the token count by adding body-text context. Quality filtering, decontamination, source-pool selection, and final mixture sampling then progressively concentrate the corpus into the final PMC-InterCPT training set.                   
+
+> Stage Samples Tokens
+> Raw BIOMEDICA 24.04M 13.65B After interleaved construction 20.16M 19.89B After minimum-length filtering 20.02M 19.80B Quality score ≥119.45M 18.78B After decontamination 19.44M 18.68B Source-pool construction 16.45M 15.41B PMC-InterCPT final mixture 10.11M 9.63B
+
+Table 8: Dataset scale across the main construction stages. 
+
+A.3 Evidence Bucket Distribution 
+
+Table 9 reports the evidence-bucket distribution af-ter decontamination and source-pool construction, using the decontaminated global cross statistics. The source pool consists of high-quality medical samples, strong medical supplements from core biomedical labels, and high-quality general sam-ples. Although QTE remains the largest bucket under the natural source-pool distribution, the BVE-enhanced final mixture deliberately increases BVE to 45% of tokens while retaining 30% QTE, 20% MSE, and 5% AUX. Table 10 reports the final PMC-InterCPT bucket composition after modality-aware resampling. Compared with the natural source-pool distribution, 11 Evidence bucket Samples Text tokens Image tokens Total tokens Source-pool share                          
+
+> Biomedical Visual Evidence (BVE) 4,036,696 2.07B 2.27B 4.33B 28.13% Quantitative/Table Evidence (QTE) 8,681,434 3.72B 4.30B 8.02B 52.03% Mechanism/Structure Evidence (MSE) 3,117,352 1.18B 1.37B 2.55B 16.54% Auxiliary (AUX) 621,590 0.21B 0.30B 0.51B 3.31% Total 16,457,072 7.18B 8.23B 15.41B 100.00%
+
+Table 9: Evidence-bucket distribution in the decontaminated source pool before final mixture sampling. 
+
+the final mixture increases BVE from 28.13% to 45.0% while reducing QTE from 52.03% to 30.0%. This produces a medical-visual-evidence-enhanced corpus while retaining substantial QTE and MSE coverage.             
+
+> Evidence bucket Tokens Final share
+> BVE 4.33B 45.0% QTE 2.89B 30.0% MSE 1.93B 20.0% AUX 0.48B 5.0% Total 9.63B 100.0%
+
+Table 10: Final evidence-bucket composition of PMC-InterCPT after modality-aware resampling. 
+
+Table 11 gives the corresponding five-pool de-composition. Pools 1–3 are included in the source pool used for all mixture experiments, while pools 4–5 are excluded from pretraining.             
+
+> Pool Samples Tokens
+> Pool 1: HQ medical 12,389,828 11.67B Pool 2: Med-strong supp. 782,139 1.02B Pool 3: HQ general 3,285,105 2.73B Pool 4: Med-weak supp. 2,278,176 2.61B Pool 5: Low-quality general 704,879 0.67B
+
+Table 11: Five quality/medical pools after decontam-ination. HQ denotes high-quality, and supp. denotes supplement. Pools 1–3 form the source pool; pools 4–5 are excluded from pretraining. 
+
+B Sample Construction and Filtering Details 
+
+B.1 Interleaved Sample Format 
+
+Each constructed interleaved sample is serialized as a Parquet row with three top-level fields: images ,
+
+texts , and metadata . The images and texts 
+
+fields are aligned arrays of equal length. An im-age slot stores a base64-encoded image in images 
+
+and null in the corresponding texts position; a text slot stores null in images and the text string in texts . For a single-image sample, the typical sequence is: 
+
+[IMG 1] → [Figure n. caption] 
+
+→ [context paragraph] .
+
+For multi-image samples, additional referenced figures are inserted with their captions before the shared context, so that the context can refer to all figures present in the sequence. The metadata field is a JSON string. It retains article-level fields such as 
+
+article_accession_id , article_title ,
+
+article_journal , article_date ,
+
+article_abstract , and article_mesh_terms ,as well as per-image arrays such as 
+
+image_file_name , image_id , image_path ,
+
+caption , image_hash , image_primary_label ,panel labels, cluster identifiers, and image sizes. Captions are normalized with explicit figure-number prefixes, e.g., Figure 2. , to make later context references unambiguous. 
+
+B.2 Context Coherence Repair and Length Filtering 
+
+Context coherence repair is applied after initial in-terleaved sample construction. For samples with multiple context segments, we locate each normal-ized context string in the full article text and check whether consecutive segments are adjacent in the original article. Two segments are treated as adja-cent when their spans are contiguous after whites-pace normalization; the implementation also uses an edge-anchor fallback that searches for the con-catenation of the previous segment’s ending words and the next segment’s beginning words in the arti-cle text. When two consecutive contexts are not adjacent, we avoid concatenating them into an artificial dis-course. The repair rule compares the two segments using raw figure-reference information from the source image_context . If only one segment refers exclusively to the primary image, that segment is kept. If both segments are primary-image-only, or neither is primary-image-only, the earlier segment 12 is kept. After context pruning, images and captions that are no longer referenced by the kept contexts are removed, while the primary image is always retained. The metadata arrays are subsetted consis-tently with the retained images. Length filtering is applied after context cleanup. For each row, the first caption and all non-caption context segments are counted separately. The script removes tail figure/table-reference fragments from contexts, normalizes repeated whitespace, col-lapses duplicated periods, removes empty paren-theses, and removes extra spaces before punctua-tion. Language is determined by detecting CJK characters in the combined caption and context. For Chinese samples, a row is dropped when both 
+
+caption_chars < 40 and context_chars < 120 .For non-Chinese samples, a row is dropped when both caption_tokens < 12 and context_tokens < 30 .
+
+D Medical Relevance and Quality Classification 
+
+D.1 Annotation Guidelines 
+
+The LLM annotation step uses text-only inputs: captions and figure-linked context are shown to the annotator, while images are withheld. This de-sign makes the two labels conservative measures of textual usefulness for CPT rather than image-text completeness. One practical reason for this choice is that image-conditioned quality annotation was unstable in our preliminary trials: when images were included as part of the quality criterion, the annotator model sometimes over-interpreted subtle visual details or made incorrect judgments about image content, which introduced hallucination-like errors into labels intended to measure corpus qual-ity. In addition, the raw data are sourced from PMC papers, where the figure, caption, and in-text figure references are linked by the original publication structure. We therefore assume a baseline level of image-text association from the source corpus and restrict annotation to the two aspects that still require scalable filtering: medical relevance and text purity. The annotation contains two targets. 
+
+Medical relevance. medical_relevance is bi-nary. A score of 1 indicates that the sample is medi-cally, clinically, or biomedically relevant, including biomedical research, clinical imaging, pathology, laboratory assays, molecular biology, public health, pharmacology, and other life-science evidence. A score of 0 indicates that the text is not medical or biomedical, or is only incidentally related to sci-ence without useful medical-domain content. 
+
+Text quality. quality is a three-level text-purity score. The score does not measure whether the cap-tion fully describes the image, because the annota-tor does not receive the image. Instead, it measures whether the text is clean enough to serve as CPT data: • 0: severe quality problems. The sample has heavy repetition, copy-paste artifacts, severe garbling, major incoherence, mixed unrelated passages, unreadable table dumps, malformed LATEX source fragments, or text dominated by extraction noise. • 1: usable but imperfect. The sample remains mostly understandable, but contains notice-able redundancy, corruption, malformed joins, table-formatting damage, citation clutter, or limited extraction artifacts. • 2: clean and coherent. The sample is low-noise, low-redundancy, readable medical or biomedical text with coherent captions and context. The guidelines deliberately penalize flattened tables and malformed formula extraction. Short, se-mantically meaningful equations or chemical nota-tion are allowed, but raw source fragments such as 
+
+\documentclass , \usepackage , long pasted T EXblocks, duplicated rendered/source equations, and broken table rows lower the quality score. If a table or formula artifact is present but limited, the maxi-mum score is usually 1; if it dominates the sample or makes a large section difficult to read, the score is 0. 
+
+D.2 LLM Annotation Prompt 
+
+We use gemini-3.1-pro-preview with tempera-ture 0 to label sampled interleaved records. The user message concatenates the scoring instruction with a text-only rendering of the sample. The sam-ple rendering separates captions from additional context so that the annotator can distinguish figure captions from body-text evidence. The two high-lighted blocks below show the complete scoring instruction and the text-only sample template used in the annotation request. 13 System-style instruction used in the annotation request. 
+
+You are grading one interleaved text-only sample for medical multimodal pretraining data filtering. 
+
+Important: 
+
+• You will NOT receive images. • Judge ONLY from the provided text. • Do NOT assess completeness because images are unavailable. • The final quality score is just a text purity score. 
+
+You must score TWO dimensions: 
+
+1. medical_relevance : integer in {0,1} 2. quality : integer in {0,1,2} 
+
+Definitions: 1) Medical Relevance: 
+
+• 0: not medical / not biomedical / not clinically relevant. • 1: medically or biomedically relevant. 
+
+2) Quality (text purity only): 
+
+• 0: severe text quality problems. Examples: heavy repetition, obvious copy-paste artifacts, severe garbling, major incoherence, mixed unrelated content, unreadable table dumps, or text dominated by noise. • 1: usable but imperfect. Some redundancy, corruption, noticeable noise, or table-related formatting damage remains. • 2: clean, coherent, low-noise, low-redundancy medical text. 
+
+Very strict penalty rules for tables and readability: 
+
+• If the text contains a flattened table, embedded raw table dump, broken row/column listing, mashed cell values, or missing-space table extraction that noticeably hurts readability, quality must be lowered. • If table artifacts are present but limited and the sample is still mostly readable prose, use quality=1, not 2. • If table artifacts dominate a substantial portion of the sample, or make a large section hard to read, use quality=0. • If the text switches from normal prose into malformed table content, this should usually be treated as at least quality=1 and often quality=0 if the malformed part is long or noisy. • A clean sentence that merely references a table is not a problem. Only penalize when table content itself appears in the text and damages readability. 
+
+Very strict penalty rules for L ATEX / formula artifacts: 
+
+• Clean, short, semantically normal mathematical expressions are acceptable and should NOT be penalized by themselves. Examples of acceptable content include inline or display math such as \(aˆ2 - 4b = mˆ2\) , chemical notation, or brief equations that naturally belong in scientific text. • Penalize strongly when the text contains malformed, dumped, or extraction-corrupted L ATEX/T EX content that hurts readability. Examples include raw preamble or source fragments such as \documentclass , \usepackage , \begin{document} , \end{document} , duplicated rendered formula text, OCR-broken math markup, or long formula-source blocks pasted into prose. • If a malformed L ATEX block appears briefly but the rest of the sample is still understandable, use quality=1. • If malformed L ATEX or formula-source noise occupies a substantial part of the sample, interrupts sentence flow, or makes the sample feel corrupted or unnatural, use quality=0. • When both a human-readable equation and a dumped L ATEX source block appear together, treat this as a formatting artifact and lower quality. 
+
+Other strict penalty rules for quality: 
+
+• Repeated short sentences, repeated clauses, repeated local phrases, or repeated caption fragments should lower quality. • Context that mostly repeats the caption rather than adding useful text should lower quality. • Fragmented text, malformed joins, truncation artifacts, broken sentence boundaries, or mixed unrelated passages should lower quality. • Citation-heavy but still readable text can be acceptable; only penalize if it materially hurts readability or purity. • Be conservative: if unsure whether table artifacts materially reduce readability, choose the lower quality score. 
+
+Output requirements: 
+
+• Return ONLY one JSON object. • No markdown, no extra keys. 
+
+Return this exact schema: 
+
+{"medical_relevance": 0|1, "quality": 0|1|2, "reasons": { "medical_relevance": "one short sentence", "quality": "one short sentence" }}
+
+Text-only sample format. 
+
+Sample texts for evaluation: Captions: - <caption text for each image> Additional context texts: - <figure-linked body-text context> 
+
+14 D.3 Classifier Training Details 
+
+We train two independent Qwen3-1.7B classifiers with LLaMA-Factory (Zheng et al., 2024b): athree-way text-quality classifier and a binary medical-relevance classifier. Both classifiers use full-parameter fine-tuning with the same optimiza-tion hyperparameters: cutoff_len =2048, 
+
+per_device_train_batch_size =4, 
+
+gradient_accumulation_steps =1, learn-ing rate 1 × 10 −5, 6 epochs, cosine learning-rate schedule, warmup ratio 0.1, and bf16 precision. For each classifier, we select the checkpoint with the best validation-set performance.                                
+
+> Split Label 0 Label 1 Label 2 Total
+> Train 408 408 408 1,224 Validation 51 51 51 153 Test 52 52 52 156
+> Table 12: Balanced split for the quality classifier. La-bels 0, 1, and 2 correspond to severe-noise, usable-but-imperfect, and clean text quality.
+> Split Label 0 Label 1 Total
+> Train 1,134 1,134 2,268 Validation 141 141 282 Test 143 143 286
+> Table 13: Balanced split for the medical-relevance clas-sifier. In the classifier training files, label 0 denotes medical and label 1 denotes non-medical; outputs are converted to the paper’s medical_relevance conven-tion during post-processing.
+
+Large-scale classifier inference is run with SGLang (Zheng et al., 2024a). Both classifiers use the same serving configuration: data parallelism 8, tensor parallel size 1, batch size 512, maximum in-put length 4,096 characters, maximum new tokens 4, and temperature 0. The constrained output space is therefore a single label token for each record. 
+
+D.4 Classifier Test-Set Performance Analysis 
+
+Table 14 and Table 15 report held-out test perfor-mance for the two classifiers. The quality classifier reaches 92.3% accuracy and 92.3% macro F1. Per-formance is strongest on label 0 and label 2, with F1 scores of 95.3% and 93.2%, respectively. The lower F1 for label 1 (88.2%) is expected because this middle class is a boundary category: limited table damage, mild repetition, or moderate format-ting noise can be close to either severe-noise label 0 or clean label 2. This error pattern is accept-able for filtering because the main data pool keeps quality ≥1 records; the most important operational distinction is separating severely corrupted samples from usable ones.       
+
+> Metric Value
+> Accuracy 92.3% Macro F1 92.3% Label 0 F1 95.3% Label 1 F1 88.2% Label 2 F1 93.2%
+> Table 14: Quality classifier performance on the held-out test set.
+
+The medical-relevance classifier reaches 93.4% accuracy and 93.7% macro F1. The class-level F1 scores are balanced, with 94.2% for medical samples and 93.1% for non-medical samples. This indicates that the classifier is not merely biased toward the dominant biomedical source domain, and can still identify off-domain or weakly related records introduced by broad PMC extraction.      
+
+> Metric Value
+> Accuracy 93.4% Macro F1 93.7% Medical label F1 94.2% Non-medical label F1 93.1%
+> Table 15: Medical-relevance classifier performance on the held-out test set.
+
+F Evaluation Details 
+
+F.1 Benchmark Descriptions 
+
+MMMU (Yue et al., 2024) is a multi-discipline multimodal reasoning benchmark covering college-level expert subjects. We report MMMU-Med-Test using the Health and Medicine domain, and MMMU-All-Val using the full validation split across disciplines. MMMU-Pro (Yue et al., 2025) is a harder and more robust variant of MMMU with expanded option sets and reduced shortcut cues. We evaluate both the medical subset with 10 op-tions and the full benchmark with 4-option and 10-option configurations. PMC-VQA (Zhang et al., 2023b) is a medical visual question answering benchmark built from PubMed Central figures. We evaluate a cleaned test split, PMC-VQA-clean, and remove CPT samples whose source PMC articles overlap with this bench-mark before training. OmniMedVQA (Hu et al., 15 2024) is a broad medical VQA benchmark span-ning multiple modalities and question categories, including clinical imaging, pathology, charts, and other biomedical visual evidence. ChartQA (Masry et al., 2022) evaluates chart understanding through human-written and machine-augmented questions over chart images. CharXiv (Wang et al., 2024) evaluates reasoning over figures from scientific papers, with our experi-ments using the validation split’s reasoning ques-tions. SciVQA (Borisova et al., 2025) evaluates scientific figure question answering with a mix-ture of multiple-choice and open-ended questions. Together, these general/scientific benchmarks test whether medical CPT improves biomedical reason-ing without collapsing chart, scientific figure, and broad multimodal competence. 
+
+F.2 Evaluation Protocol 
+
+All benchmarks are evaluated with zero-shot prompting unless otherwise stated. For multiple-choice questions, the prompt lists the question fol-lowed by options and instructs the model to answer directly with the option letter: 
+
+> Question: <question> Options: A. <option A> B. <option B> ... Answer with the option’s letter from the given choices directly.
+
+For open-ended questions, the prompt is:        
+
+> <question> Answer the question using asingle word or phrase.
+
+Inference uses deterministic decoding with tem-perature 0. The Medevalkit default generation con-figuration uses maximum new tokens 1024, top-p
+
+0.001, repetition penalty 1.0, presence penalty 2.0. 
+
+Rule-based scoring. MMMU and MMMU-Pro use exact option-letter accuracy. PMC-VQA-clean and OmniMedVQA use rule-based multiple-choice matching against the gold option letter or answer text. No rule-based score is used for ChartQA, CharXiv-Val, or SciVQA in our reported results. 
+
+LLM-judge scoring. For ChartQA, CharXiv-Val, and SciVQA, we use Qwen2.5-72B-Instruct as an LLM judge for all reported scores. The judge receives the question, the standard answer, and the model response, and outputs a binary deci-sion in the format <judge>0</judge> for correct or <judge>1</judge> for incorrect. The judge prompt treats semantically equivalent answers as correct, which is important for open-ended scien-tific and chart questions where surface forms can differ from the reference. 
+
+H Additional Results 
+
+H.1 Per-Benchmark and Per-Subset Breakdown 
+
+Table 16 provides subject-level results for the two MMMU-style medical benchmarks. PMC-InterCPT recovers much of the performance drop caused by raw BIOMEDICA CPT on the harder MMMU-Pro-Medical-10 setting, improving over BIOMEDICA by 2.80 points overall. The largest gains appear in Pharmacy (+8.77) and Public Health (+8.62), while Diagnostics and Labora-tory Medicine also improves over BIOMEDICA on both MMMU-Medical-test and MMMU-Pro-Medical-10. The gains are not uniform across all subjects, which is expected because the final mix-ture is optimized for broad medical multimodal CPT rather than subject-specific overfitting. Table 17 reports OmniMedVQA results by ques-tion type and image modality. PMC-InterCPT im-proves most clearly on Disease Diagnosis (+1.94 over BIOMEDICA) and Lesion Grading (+7.10), two categories that require clinically grounded vi-sual interpretation rather than only recognizing the imaging modality. The modality-level results show a similar pattern: PMC-InterCPT improves over BIOMEDICA on CT (+2.19), MR (+2.81), and Fundus Photography (+1.37), while gains are smaller or do not appear for several other modali-ties. This suggests that the BVE-enhanced mixture strengthens important clinical-imaging categories without uniformly shifting every visual domain. Table 18 gives additional breakdowns for the scientific and chart-oriented benchmarks. PMC-InterCPT improves ChartQA mainly on the human-written split (+3.52), while the augmented split changes only slightly. On SciVQA, PMC-InterCPT improves open-ended questions (+1.20) but slightly decreases multiple-choice accuracy (-1.08), pro-ducing a modest overall gain. The largest scientific-figure improvement appears on CharXiv-Val, where PMC-InterCPT improves every answer-type group and raises the total score by 6.10 points. 16 Benchmark Subset BIOMEDICA PMC-InterCPT 
+
+MMMU-Med Total 58.62 58.73 MMMU-Med Basic Medical Science 66.87 67.18 MMMU-Med Clinical Medicine 62.77 61.23 MMMU-Med Diagnostics and Laboratory Medicine 46.91 48.77 MMMU-Med Pharmacy 60.00 63.49 MMMU-Med Public Health 53.24 50.88 MMMU-Pro-Med-10 Total 37.76 40.56 MMMU-Pro-Med-10 Basic Medical Science 50.00 46.15 MMMU-Pro-Med-10 Clinical Medicine 35.59 32.20 MMMU-Pro-Med-10 Diagnostics and Laboratory Medicine 23.33 26.67 MMMU-Pro-Med-10 Pharmacy 49.12 57.89 MMMU-Pro-Med-10 Public Health 32.76 41.38 
+
+Table 16: Per-subset medical benchmark results. Values are accuracies in percent. 
+
+Group Subset N BIOMEDICA PMC-InterCPT 
+
+Question Modality Recognition 11,565 98.66 98.69 Question Disease Diagnosis 55,387 84.27 86.21 Question Anatomy Identification 16,448 80.74 81.36 Question Lesion Grading 2,098 53.00 60.10 Question Other Biological Attributes 3,498 89.88 91.08 Modality Fundus Photography 5,398 79.49 80.86 Modality Microscopy Images 5,680 84.91 84.37 Modality X-Ray 7,916 87.44 87.41 Modality Dermoscopy 6,679 83.74 82.45 Modality CT 15,809 83.90 86.09 Modality Ultrasound 10,991 80.47 82.08 Modality MR 31,877 86.07 88.88 Modality OCT 4,646 95.72 95.61 
+
+Table 17: OmniMedVQA breakdown by question type and image modality. Values are accuracies in percent. 
+
+Benchmark Subset N BIOMEDICA PMC-InterCPT 
+
+SciVQA Total 4,200 66.74 67.29 SciVQA Multiple choice 1,200 70.25 69.17 SciVQA Open-ended 3,000 65.33 66.53 ChartQA Total 2,500 75.00 77.00 ChartQA Human 1,250 63.76 67.28 ChartQA Augmented 1,250 86.24 86.72 CharXiv-Val Total 1,000 47.90 54.00 CharXiv-Val Answer type 1 440 49.55 55.68 CharXiv-Val Answer type 2 99 63.64 73.74 CharXiv-Val Answer type 3 232 51.29 57.33 CharXiv-Val Answer type 4 229 34.50 38.86 
+
+Table 18: Scientific and chart-oriented benchmark breakdowns. Values are accuracies in percent. 
+
+17
