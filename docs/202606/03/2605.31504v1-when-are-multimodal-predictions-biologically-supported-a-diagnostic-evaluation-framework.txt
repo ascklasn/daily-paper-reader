@@ -1,0 +1,3496 @@
+Title: When Are Multimodal Predictions Biologically Supported? A Diagnostic Evaluation Framework
+
+URL Source: https://arxiv.org/pdf/2605.31504v1
+
+Published Time: Mon, 01 Jun 2026 01:31:47 GMT
+
+Number of Pages: 49
+
+Markdown Content:
+# When Are Multimodal Predictions Biologically Supported? A Diagnostic Evaluation Framework 
+
+Dylan Steiner 1,∗, Gustavo Arango-Argoty 1,†, Gerald Sun 1,†, and Etai Jacob 1,†
+
+> 1
+
+Oncology Data Science & AI, R&D, AstraZeneca, Boston, US 
+
+Abstract 
+
+Multimodal models in oncology can produce accurate predictions, but accurate pre-diction does not reveal whether the model has learned biology that is shared across modalities, biology confined to one modality, or spurious correlations that reflect confounders rather than genuine biology. We introduce DECAT , a model-agnostic post-hoc evaluation framework that classifies multimodal representations into four diagnostic scenarios for a given task and modality, using five null-referenced met-rics and a rule-based decision procedure. The framework operates on learned representations, requires no knowledge of which specific confounder is present, and returns indeterminate when the evidence is insufficient. We validate DECAT on synthetic data across four multimodal model classes (over 2,500 trained repre-sentations) and on real data from 8,979 TCGA patients, evaluating both multimodal embeddings and five pretrained pathology foundation models. Entangled models (e.g., CLIP) achieve near-perfect shared biology detection but falsely claim shared biology in the majority of cases where it is absent on real foundation model embed-dings. This false claim rate increases with confound strength so that larger cohorts and stronger representations produce more confident but still incorrect diagnoses. Applied to both multimodal TCGA embeddings and five pathology foundation models without paired RNA, DECAT detects confounding invisible to AUROC without requiring the confounder labels, as confirmed by post-hoc stratification. 
+
+1 Introduction 
+
+Multimodal foundation models are increasingly applied in oncology to characterize tumor biology and predict patient outcomes [ 1– 5]. These models can produce accurate predictions from a single modality, such as hematoxylin and eosin (H&E) stained histopathology slides, even when trained with multimodal supervision. However, accurate prediction does not reveal whether a model has learned biology that is shared across modalities, biology that is confined to a single modality, or spurious correlations that may not generalize. Histopathology foundation models encode non-biological technical features that persist despite normalization, with better-performing models often encoding stronger features and embeddings clustering more by medical center than by tissue type [ 6 –9]. Scanner-induced domain shifts further mask bias behind stable prediction accuracy [ 10 ], and strong dependencies between biomarkers and clinicopathological variables cause models to rely on correlated features rather than the biomarker itself [ 11 ]. Together, these findings establish that predictive performance is a necessary but insufficient criterion for evaluating multimodal biomarker models: a model can be accurate for the wrong reasons. Tumor biology is inherently multimodal but not uniformly shared across assays [ 12 ]. Some biological programs, such as immune infiltration, manifest across histology, transcriptomics, and proteomics. Others are detectable primarily in specific modalities: chromosomal instability and pathway-level      
+
+> *Contact: dylan.steiner@astrazeneca.com .†Equal advising. Preprint.
+> arXiv:2605.31504v1 [cs.LG] 29 May 2026 H&E
+> encoder
+> RNA
+> encoder
+> ... arbitrary mmodalities
+> Any
+> multimodal
+> model
+> DECAT
+> H&E repr.
+> RNA repr.
+> ... for each modality and prediction task
+> Shared biology
+> Modality-specific
+> biology
+> Spurious signal
+> No signal
+> Indeterminate
+> evaluated on
+> held-out cohorts
+> Multimodal
+> patient data
+
+Figure 1: DECAT framework overview. DECAT takes per-modality embeddings from any multi-modal model and uses a four-stage decision tree to classify the predictive behavior of each modality, for a given task, into one of four scenarios or indeterminate (Figure 6, Appendix G). Scenario classification informs downstream decisions: shared biology (S1) supports cross-modal deployment, modality-specific biology (S4) restricts reliable predictions to the source modality, spurious signal (S2) transfers across cohorts but exhibits composition-dependent instability indicating risk of failure under distribution shift, and no signal (S3) indicates the representation is uninformative for that task. signaling states are robustly characterized by genomic and transcriptomic assays but may lack specific morphological correlates in histopathology. When models are trained with multimodal supervision, predictive signal for such features may originate primarily from the molecular modality, making single-modality predictions from H&E alone unreliable despite appearing accurate in-distribution. Integrating complementary assays can improve clinical predictions [ 1 , 13 , 14 ], though multimodal performance gains may be partially attributable to batch effects [ 15 ], and existing evaluations cannot determine which improvements are driven by shared tumor biology and which by spurious correlations. An evaluation framework must therefore distinguish, for each modality and prediction task independently, among several distinct scenarios: 1. Shared biology. The modality carries predictive signal that is also independently observable in other modalities and transfers stably across cohorts. 2. Spurious signal. The modality carries predictive signal, but it is driven by batch effects, site-specific artifacts, or proxy features. Such predictions may remain accurate when deployment conditions match training, but are at risk of failure under distribution shift. 3. No signal. The modality’s learned representation carries no task-relevant information. 4. Modality-specific biology. The modality carries biologically real predictive signal, but this signal is not independently observable in other modalities. Predictions for the same task from other modalities are not supported. No existing tool provides this diagnostic. Preserved-site cross-validation [ 6 ] and covariate stratifica-tion [ 11 ] detect specific known confounders but require prior knowledge and do not generalize to arbitrary sources of spurious signal. Standard contrastive learning methods [ 16 ] conflate shared and modality-specific signal, while factorized learning methods [ 17 , 18 ] separate them in principle but have not been used as diagnostic tools. We introduce DECAT (Diagnostic Evaluation of Cross-modal Alignment and Transfer), a model-agnostic post-hoc evaluation framework that classifies the predictive behavior of multimodal repre-sentations, for a given task and modality, into the four scenarios above, without requiring knowledge of which specific confounder or artifact is present. Rather than solely evaluating predictive accuracy on held-out data, DECAT determines whether predictive signal is shared across modalities, confined to a single modality, or driven by spurious correlations that may not generalize. The framework operates entirely on learned representations, does not modify or retrain models, and applies to any multimodal method that produces per-modality embeddings, whether entangled (e.g., CCA [ 19 ], 2CLIP-style contrastive learning [ 16 ]) or factorized (e.g., JIVE [ 20 ], DisentangledSSL [ 17 ]), as well as to unimodal foundation models via a subset of its metrics. An overview of the framework is shown in Figure 1. We validate DECAT on synthetic data with controlled ground truth across four model classes (over 2,500 trained representations, nearly 600,000 scenario evaluations) and on real data from 8,979 TCGA patients, evaluating both multimodal embeddings and five pretrained pathology foundation models. Our contributions are: (1) a model-agnostic diagnostic framework that classifies multimodal representations into four scenarios using only learned representations, returning indeterminate when evidence is insufficient; (2) five null-referenced metrics that together distinguish shared biology from spurious signal, modality-specific biology, and noise; (3) a controlled synthetic validation demonstrating that no single architecture reliably diagnoses all scenarios; and (4) real-data validation showing that DECAT detects cancer-type confounding invisible to AUROC on both multimodal and unimodal foundation model embeddings without requiring confounder labels. Extended related work is in Appendix C. 
+
+2 Framework 
+
+2.1 Problem Setting 
+
+We use modality to refer to an independent biological measurement of the same entity (e.g., histopathology and transcriptomics from the same tumor), as distinct from different data types that do not independently measure biology (e.g., clinical notes and billing codes). Consider a multimodal setting with two observed modalities xh ∈ Rdh and xr ∈ Rdr (e.g., histopathology and transcriptomics), generated from unobserved latent variables representing shared biology ( zs), modality-specific biology ( zh, z r ), and batch effects ( b), all in Rk. A binary outcome y ∈ { 0, 1}
+
+depends on a subset of these latent variables through a score, with the source of predictive signal controlled by outcome coefficients αs, α h, α r , α b. A representation model is trained on paired ob-servations from a training cohort and frozen. The frozen encoder maps observations from held-out validation cohorts into a learned representation space. DECAT operates entirely on these learned representations and never accesses ground-truth latent variables, outcome labels during represen-tation learning, or simulator parameters. The goal is to classify the learned representation, for a given outcome task and modality, into one of the four scenarios defined in Section 1 (S1–S4) or as indeterminate when the evidence is insufficient. 
+
+2.2 Synthetic Data Generator 
+
+We construct a minimal simulator that generates paired multimodal observations with known ground-truth scenarios (Appendix D). Each modality is a linear mixture of independent Gaussian latent variables representing shared biology ( zs), modality-specific biology ( zh, z r ), and batch effects ( b), with coefficients β controlling relative signal contributions and Gaussian noise calibrated to a fixed signal-to-noise ratio. Four disjoint cohorts are generated per run: Cohort A (representation training), Cohort A ′ (within-distribution evaluation), and Cohorts B and C (external, with controlled batch-axis shifts of differing magnitude). Binary outcome labels are generated from a latent score with coefficients αs, α h, α r , α b controlling the fraction of task label variance attributable to each source. Setting different α coefficients to zero instantiates each scenario: Scenario 1 ( αs > 0 only), Scenario 2 ( αb > 0, termed S2B for direct confounding, or proxy γ > 0, termed S2A/C/D depending on proxy geometry; Appendix D.4), Scenario 3 (all α = 0 ), Scenario 4 ( αh > 0 or αr > 0 only). Crucially, representation learning uses only Cohort A and is outcome-agnostic. Outcome labels are introduced only during evaluation, enabling many biological scenarios to be evaluated per trained representation without retraining. 
+
+2.3 Representation Models 
+
+We evaluate four model classes spanning a two-by-two grid (Table 1): entangled models (CCA [ 19 ], CLIP [ 16 ]) produce a single embedding per modality without distinguishing shared from modality-specific contributions, while factorized models (a simplified JIVE-style decomposition [ 20 ], Disen-tangledSSL [ 17 ]) explicitly decompose representations into shared and modality-specific components. All models are trained on Cohort A only without outcome labels and frozen before evaluation. Dis-3entangledSSL is evaluated at four disentanglement strengths spanning weak to strong information bottleneck pressure (Appendix E). Table 1: Model classes. Entangled models produce a single unified embedding per modality. Factorized models produce separate shared ( Zc) and modality-specific ( Zs) components.      
+
+> Linear Nonlinear Entangled CCA CLIP
+> Factorized JIVE DisentangledSSL
+
+2.4 Interpretability Metrics 
+
+DECAT evaluates representations through five null-referenced metrics (Table 2). All comparisons are calibrated against permutation null distributions and no hard thresholds are imposed. Metrics are computed on held-out cohorts (A ′, B, C) using outcome labels generated independently of representa-tion learning. No single metric is sufficient for scenario classification. Full metric definitions are in Appendix F. 
+
+2.5 Decision Procedure 
+
+DECAT applies a fixed, deterministic, four-stage decision procedure (Figure 6) with no learned parameters. Stage I checks whether the representation exhibits cross-modal shared structure ( Anorm ,
+
+Bnorm ). Stage II gates on signal presence via a label-permutation test with failure routing to Scenario 3. Stage III localizes signal via ∆shared (factorized models only, skipped for entangled models). Stage IV evaluates cross-cohort stability. Dtask quantile exceeding its null triggers Scenario 2 regardless of localiza-tion, because confounding can appear shared or modality-specific. Checking cross-cohort stability before signal localization is a conservative design choice that prioritizes Scenario 2 detection over Scenario 1 and Scenario 4 sensitivity so that false shared-biology claims are minimized at the cost of routing some ambiguous cases to indeterminate. Among stable representations, Scenario 1 requires shared-dominant localization and significant Ptransfer , while Scenario 4 requires modality-dominant localization with significant Ptransfer . Unresolved cases return indeterminate . Complete decision rules are in Appendix G. 
+
+3 Experimental Design 
+
+On synthetic data, representation learning and scenario evaluation are decoupled so that models are trained once on Cohort A without labels and then evaluated across many prediction tasks defined by outcome coefficients that place signal in shared, modality-specific, or batch latents. We evaluate all four model classes (Table 1) across four measurement regimes that vary the relative strength of shared, modality-specific, and batch signal (Appendix D.2), eight proxy configurations spanning weak to strong proxy entanglement with varying alignment geometry (Appendix H.2), and 48 prediction task configurations covering pure scenarios, mixed-modality scenarios, and transition regimes where identification is not possible (Appendix H.3). Training sample sizes and epoch counts were determined by pre-experiment calibration studies (Appendix H.4). The main experiment comprises 365 synthetic runs, 2,555 trained representations, and 589,050 scenario evaluations across five evaluation sample sizes. We additionally validate DECAT on real data using paired histopathology and transcriptomic founda-tion model embeddings from 8,979 TCGA patients spanning 32 cancer types (Section 4.2; Appendix I). H&E embeddings were obtained from TITAN [ 21 ] and RNA-seq embeddings from the Clinical Transformer [ 22 ]. All four model classes were trained on Cohort A ( N =4 ,938 ) with latent dimen-sionality K=50 . We evaluated two cohort structures: pooled random splits, in which patients are randomly assigned to evaluation cohorts regardless of cancer type (50 seeds, N ≈1,347 per cohort), and extreme-C splits, in which Cohort C is drawn from patients with extreme values of the prediction target while A ′/B retain the natural pan-cancer composition. The extreme pool requires no confounder labels: for continuous labels it consists of patients above the 75th percentile; for binary labels it is defined by the model’s own probe score (top-10% of evaluation patients). Task labels for the pooled evaluation include CCA variates (S1 by construction), JIVE RNA-residual PCs (S4), and random 4Table 2: DECAT evaluation metrics. Structural metrics ( Anorm , Bnorm ) validate representation geometry but cannot distinguish biology from spurious signal. Outcome-directed metrics ( ∆shared ,
+
+Ptransfer , Dtask quantile ) are required for scenario discrimination. Full definitions in Appendix F.                 
+
+> Metric What it measures Calibration Role in scenario assignment
+> Anorm Cross-modal shared latent agreement Permutation (sample identity) Required for S1; guards shared-dominant lo-calization
+> Bnorm Prototype consistency across modalities Permutation (sample identity) Reported but not used in scenario assignment
+> ∆shared Predictive signal localization Permutation (labels) + bootstrap CI Distinguishes S1 from S4. Factorized models only.
+> Ptransfer Cross-cohort predictive agreement Permutation (labels) + bootstrap CI Necessary for S1, S2, S4 (S2 signal transfers but is composition-unstable); insufficient alone to distinguish S1 from S2
+> Dtask quantile Outcome-aligned cohort stability Permutation (cohort B/C labels) Primary S2 discriminator
+
+binary labels (S3). All continuous labels are binarized at the pan-cancer median (Appendix I.5). We characterize confound detection through an α-mixture sweep that varies Cohort C composition from unselected to fully extreme (Appendix I.6), a power curve measuring minimum cohort size for reliable detection (Appendix I.7), and a unimodal comparison applying DECAT Stages II and IV directly to five H&E-only foundation models for predicting the mutation status of 16 driver genes (Appendix I.8). 
+
+4 Results 
+
+4.1 Synthetic Validation 
+
+All synthetic results are reported on the baseline measurement regime at Neval = 1000 unless otherwise noted. Detection rates degrade at smaller evaluation sizes in this equal-cohort setting (Appendix J.3). TCGA cohort size requirements are discussed in Section 5. Measurement regime comparisons are in Appendix J. 
+
+Diagnostic accuracy is model-dependent. Figure 2 shows detection rates stratified by signal strength and model, reported as both strict accuracy (correct scenario assigned; top row) and conserva-tive accuracy (correct or indeterminate, measuring how often the framework avoids misclassification; bottom row). S3 (no signal) is identified at 94–97% strict accuracy across all models (Figure 2d), confirming that the permutation nulls are well-calibrated. For S1 (shared biology), entangled models (CCA, CLIP) achieve 95–98% strict accuracy across all signal strengths (Figure 2a). Factorized models have lower strict accuracy due to the additional localization requirement. At αs ≥ 0.5,JIVE reaches 88–96% and DSSL variants reach 37–86%, with the spread driven by disentangle-ment strength. Conservative accuracy remains above 90% for all factorized models (Figure 2e), indicating that errors are predominantly indeterminate rather than misclassifications. For S2B (direct confounding), CLIP and DSSL variants reach 58–83% strict accuracy at αb ≥ 0.5, while CCA and JIVE lag at 23–45% (Figure 2b). Conservative accuracy reaches 99–100% for all factorized models (Figure 2f), meaning the framework correctly avoids misclassifying confounded signal as shared biology even when it cannot commit to a confident S2 label. For S4, JIVE reaches 92–96% strict accuracy at αh ≥ 0.5 with conservative accuracy near ceiling (Figure 2c,g); DSSL variants range more widely (22–94%) depending on disentanglement strength. Entangled models (CCA, CLIP) achieve exactly zero strict S4 detection at all signal strengths as expected (Figure 2c). Because entangled representations do not expose separate shared and modality-specific components, the localization step is unavailable and all detected signal is attributed to shared structure by default. Their low conservative accuracy (6–28%, Figure 2g) confirms that these are active misclassifications, not indeterminate hedges. At weak signal ( α = 0 .25 , ≈20% outcome variance), strict detection drops substantially for all scenarios, reflecting a statistical power limitation rather than a framework design issue. 50.25 0.50 0.80 1.10                
+
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Strict accuracy
+> a.
+> S1
+> (Shared biology)
+> 0.25 0.50 0.80 1.10
+> b
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> b.
+> S2B
+> (Confounder)
+> 0.25 0.50 0.80 1.10
+> h
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> c.
+> S4h
+> (Modality-specific biology)
+> 0
+> all
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> d.
+> S3
+> (noise)
+> 0.25 0.50 0.80 1.10
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Conservative accuracy
+> e.
+> S1
+> (Shared biology)
+> 0.25 0.50 0.80 1.10
+> b
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> f.
+> S2B
+> (Confounder)
+> 0.25 0.50 0.80 1.10
+> h
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> g.
+> S4h
+> (Modality-specific biology)
+> 0
+> all
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> h.
+> S3
+> (noise)
+> Predictive task signal
+> Predictive task signal
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+
+Figure 2: DECAT detection rate versus predictive task signal per model on synthetic ground truth. Each column varies the task coefficient for one signal source while all others are zero, producing a pure scenario (S3 has all coefficients at zero). Top row: strict accuracy (correct scenario assigned). Bottom row: conservative accuracy (correct or indeterminate). Where conservative accuracy substantially exceeds strict accuracy, the framework is returning indeterminate rather than misclassifying. α ∈ { 0.25 , 0.50 , 0.80 , 1.10 } corresponds to approximately 20%, 50%, 72%, 83% of task label variance from the respective signal source. S1: Scenario 1, S2B: Scenario 2 (direct confounding), S4h: Scenario 4 (H&E-specific latent), S3: Scenario 3. Baseline regime, Neval = 1000 ,95% Clopper–Pearson confidence intervals. Each point aggregates 100 evaluations (50 runs × 2modalities) for S1, S2B, and S3, and 50 evaluations (50 runs × H&E modality only) for S4h. 
+
+Entangled models are unsafe for shared-biology claims. The false shared claim rate (FSCR) measures how often DECAT incorrectly assigns S1 when the ground truth is not shared biology (Figure 3). FSCR increases with both signal strength and sample size for entangled models. CCA rises from 1% at α = 0 .25 to 24% at α = 1 .1 (Figure 3a), and from near zero at Neval = 50 to 22% at Neval = 1000 (Figure 3b). Stronger signal and more data both provide more power to detect predictive structure, but entangled representations cannot distinguish whether that structure is shared, modality-specific, or confounded. Decomposing FSCR by ground-truth scenario reveals that both entangled models misclassify confounded signal as shared biology at substantial rates (CCA 25%, CLIP 20% of S2B cases; Figure 3c). Confounded signal satisfies the S1 criteria for entangled models (cross-modal agreement, predictive transfer) whenever Dtask quantile fails to flag it as S2, and entangled models have no secondary localization check to prevent this misclassification. All factorized models maintain FSCR near zero across all sample sizes and ground-truth scenarios. The ∆shared localization gate prevents false shared-biology claims not by correctly routing confounded signal to S2, but by introducing sufficient uncertainty to return indeterminate rather than a confident S1 assignment. 
+
+The framework hedges under uncertainty and is robust to proxy contamination. Where conservative accuracy substantially exceeds strict accuracy in Figure 2, the framework is returning indeterminate rather than misclassifying. For S2B at strong signal, factorized models reach 99– 100% conservative accuracy while strict accuracy remains at 45–83%. On fundamentally non-identifiable configurations, factorized models return indeterminate in 90–95% of cases while entangled models commit to confident but incorrect assignments in over 90% of cases (Figure 27). On proxy-contaminated representations, S1 detection is largely preserved (drops <5% , conservative accuracy 60.25 0.50 0.80 1.10         
+
+> Predictive task signal ( )
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> FSCR
+> a. FSCR vs signal strength
+> 50 100 200 500 1000
+> Evaluation cohort size ( Neval )
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> FSCR
+> b. FSCR vs evaluation cohort size
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> FSCR
+> c. FSCR by true scenario
+> True scenario
+> S2B
+> S3
+> S4
+
+Figure 3: False shared claim rate (FSCR) on synthetic ground truth. FSCR is the probability that DECAT assigns Scenario 1 (shared biology) when the true scenario is not S1, pooled across all non-S1 scenarios (S2B, S3, S4h, S4r). (a) FSCR versus predictive task signal at Neval = 1000 , with 
+
+α matched by magnitude across non-S1 scenarios. FSCR rises with signal strength for entangled models. (b) FSCR versus evaluation sample size, pooled across all α values and non-S1 scenarios. (c) FSCR decomposed by true ground-truth scenario at Neval = 1000 , pooled across all α values. Entangled models’ FSCR is dominated by S4 to S1 misclassification (brown). Factorized models maintain near-zero FSCR across all conditions. Baseline regime, no proxy, 95% Clopper–Pearson confidence intervals. Each point in (a) aggregates 500 evaluations per model (pooled across runs, modalities, and non-S1 scenarios at each α). Each point in (b) aggregates 1,400 evaluations (pooled across all α values). Each bar in (c) aggregates 400 evaluations for S2B and S4, and 600 for S3. 
+
+>90% ; Figure 22a,d), while proxy-driven S2 detection remains difficult at 5–20% strict accuracy (conservative 60–75% for factorized models; Figure 22b,e). All factorized models maintain near-zero FSCR across all proxy subtypes, while dual-modality proxy induces the highest false S1 rates for entangled models (Figure 22; Appendix J.6). When multiple asymmetric signal sources co-exist, DECAT reports the dominant mechanism per modality rather than decomposing co-occurring sources (Figure 26). 
+
+4.2 TCGA Validation 
+
+We next applied DECAT to 8,979 TCGA patients using H&E embeddings from TITAN [ 21 ] and RNA-seq embeddings from the Clinical Transformer [ 22 ], with all four multimodal model classes trained on a pan-cancer training cohort ( N =4 ,938 , K=50 ). 
+
+Synthetic findings transfer to real embeddings. On TCGA, CCA variate 0 (surrogate for shared signal) was classified as S1 at 97–98% strict accuracy across CCA (positive control), CLIP, and JIVE (Figure 28). S3 null detection was 94–96% across all models. RNA-residual PC 1 (surrogate for modality-specific signal) was classified as S4 at 96% by JIVE (positive control), while entangled models detected S4 at exactly 0% as expected. Full detection rates across all 50 variates/PCs and DSSL disentanglement strengths are in Figure 28 (Appendix K). On S2B tasks, CCA and CLIP misclassified 94% and 92% as S1, respectively, confirming that false shared-biology claims from entangled representations are systematic on real foundation model embeddings (Figure 29; Appendix K.2). 
+
+DECAT detects confounding invisible to AUROC on biologically confounded labels. We evaluated three labels spanning a range of confound strengths with cancer type, quantified by 
+
+η2 (fraction of label variance explained by cancer type): log( TMB +1) (η2=0 .44 ), TP53 somatic mutation status ( η2=0 .34 ), and age at diagnosis ( η2=0 .27 ). We sweep α ∈ [0 , 1] , where α controls the fraction of deployment Cohort C drawn from a label-extreme pool versus from the natural composition (Figure 4). DECAT’s detection of confounding (S2 flag rate) rises with α for all three labels (Figure 4b), saturating at α≈0.4 for TMB, α≈0.5 for TP53, and α≈0.8 for age. Notably, DECAT begins to flag S2 even at α≈0.20 (the observed TCGA cancer type composition), where AUROC remains high and gives no warning of confounding (Figure 4a). Post-hoc stratification by cancer type confirms the AUROC collapse that DECAT detected prospectively (Figure 4c). Additional S2 detection results using CCA variates as surrogate labels are in Figure 28b/f. 70.0 0.2 0.4 0.6 0.8 1.0           
+
+> (fraction of C from
+> target-extreme pool E)
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Probe AUROC (CLIP H&E)
+> TCGA
+> observed
+> a.
+> AUROC on A' (train)
+> vs AUROC on C (test)
+> AUROC on A'
+> AUROC on C
+> TMB ( ²=0.44)
+> TP53 ( ²=0.34)
+> Age ( ²=0.27)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> (fraction of C from
+> target-extreme pool E)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> S2 flag rate (CLIP H&E)
+> TCGA
+> observed
+> b.
+> DECAT S2 flag rate
+> (no confounder label)
+> TMB TP53 Age
+> Prediction target
+> in test cohorts B+C
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Probe AUROC (CLIP H&E)
+> 0.81
+> 0.57
+> 0.79
+> 0.73
+> 0.66
+> 0.58
+> c.
+> Post-hoc: AUROC decreases
+> when stratified by cancer type
+> Pan-cancer
+> Stratified within-cancer type
+
+Figure 4: DECAT detects TCGA cancer-type confounding invisible to AUROC (CLIP, H&E representation). The α-mixture sweep varies the fraction of Cohort C drawn from a label-extreme pool while A ′/B remain random pan-cancer splits; NC ≈300 fixed. Dotted line: mean natural cohort composition across labels ( ≈0.20 ; individually TMB ≈0.25 , TP53 ≈0.10 , Age ≈0.25 ). TMB and Age are binarized at the pan-cancer median; TP53 is already binary. η2 (fraction of label variance explained by cancer type) for each label is shown in the plot legend. 95% CIs aggregate 50 independent cohort splits per α. (a) Linear probe AUROC on A ′ (dashed) versus C (solid). AUROC C
+
+gives false reassurance across α. TP53 AUROC C remains close to training performance until α≈0.6,then declines steeply because E is defined by probe score (top-10% most confident predictions), so at high α most patients in C have similarly high scores, preventing discrimination. (b) S2 strict flag rate, requiring no confounder labels. TMB saturates at α≈0.4, TP53 at α≈0.5, Age at α≈0.8.(c) Pan-cancer AUROC (solid) versus within-cancer-type AUROC (hatched, pair-weighted across cancer types) on identical patients. The collapse magnitude ( ∆=0 .24 TMB, 0.08 Age, 0.06 TP53) reflects how much of the predictive signal is driven by between-cancer-type variation rather than within-type biology. DECAT detects this without cancer-type labels. 
+
+Unimodal H&E foundation model comparison. Applied to five H&E foundation models without paired RNA (TITAN [ 21 ], CONCHv1.5 [ 23 ], UNIv2 [ 24 ], H-Optimus-0 [ 25 ], OpenMidnight [ 26 , 27 ]) using Stages II and IV only, DECAT’s S2 flag rate tracks within-type AUROC collapse across 16 driver genes without requiring confounder labels (Figure 5). The S2 flag rate rises with α for FMs with strong probe directions (CONCH, TITAN), while weaker FMs remain near zero (Figure 5b). The S2 AUC (area under the flag rate vs α curve) shows strong concordance with the post-hoc within-type AUROC collapse ∆ across all gene ×FM combinations (Spearman ρ = 0 .81 –0.94 , p < 0.001 for all FMs) (Figure 5c), indicating that the S2 flag rate identifies the same FM–gene combinations that exhibit confounding-driven overestimation under post-hoc stratification. 
+
+5 Discussion 
+
+Architecture determines diagnostic reliability. Entangled models (CCA, CLIP) reliably confirm shared biology (S1 at 95–98%) but structurally cannot detect modality-specific signal (S4 at 0%), and their FSCR (10–22% synthetic, 83–84% on TCGA) means shared-signal claims from entangled representations should not be trusted without independent validation. Counterintuitively, FSCR increases with both signal strength and sample size meaning more power to detect signal leads to more false shared-biology claims when the representation lacks factorized components. Factorized models enable S4 detection (up to 96%) and substantially reduce false shared claims (FSCR ≈0% on synthetic data; strong disentanglement reduced FSCR to 12% on TCGA, Figure 29), but sacrifice S1 sensitivity due to the localization requirement. This trade-off is configurable: skipping the localization stage would recover entangled-level S1 sensitivity at the cost of losing S4 detection and the FSCR safety guarantee. Note that the inability of entangled representations to avoid confident misclassification of confounded or modality-specific signal as shared biology is a property of the representations themselves, not a limitation of the evaluation. 80.0 0.1 0.2 0.3                                                      
+
+> (pan-cancer within-type AUROC)
+> NF1 (2=0.05)
+> MAP3K1 (2=0.05)
+> CDH1 (2=0.06)
+> GATA3 (2=0.06)
+> RB1 (2=0.08)
+> FBXW7 (2=0.11)
+> ARID1A (2=0.14)
+> CTNNB1 (2=0.15)
+> PIK3CA (2=0.18)
+> PTEN (2=0.24)
+> TP53 (2=0.26)
+> KRAS (2=0.34)
+> APC (2=0.41)
+> BRAF (2=0.55)
+> IDH1 (2=0.58)
+> VHL (2=0.63)
+> a.
+> Within-cancer type AUROC decrease
+> (sorted by 2, low high)
+> Mean
+> 0.00 0.25 0.50 0.75 1.00
+> (fraction of C from
+> target-extreme pool)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> S2 flag rate
+> b.
+> DECAT S2 flag rate for KRAS
+> (no confounder label)
+> 0.0 0.2 0.4 0.6 0.8
+> S2 flag rate AUC
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.30
+> 0.35
+> (within-type decrease, post-hoc)
+> CONCH: r=0.89, p=3.62e-06
+> TITAN: r=0.94, p=9.97e-08
+> H-Optimus-0: r=0.81, p=1.55e-04
+> OpenMidnight: r=0.87, p=1.16e-05
+> UNI: r=0.91, p=7.33e-07
+> n = 16 genes each
+> c.
+> S2 flag rate AUC predicts
+> (all FMs, all genes)
+> FM
+> CONCH
+> TITAN
+> H-Optimus-0
+> OpenMidnight
+> UNI
+
+Figure 5: DECAT’s S2 flag rate predicts within-type AUROC collapse across driver genes (unimodal H&E, Stages II and IV only). (a) Within-type AUROC collapse ∆ = AUROC pan −
+
+AUROC within (median across cancer types) per FM (colored dots) for 16 driver genes sorted by η2
+
+(fraction of mutation prevalence variance explained by cancer type). (b) S2 flag rate versus α for KRAS (50 splits). Extreme pool E defined per FM from probe scores on A ′ (top 10%), requiring no cancer-type labels. (c) S2 AUC (area under the flag rate curve) versus ∆ across all gene ×FM combinations. The concordance (Spearman r, shown) indicates that the S2 flag rate tracks the same FM–gene combinations that exhibit confounding-driven overestimation under post-hoc stratification. 
+
+Power limits interpretability, but errors are conservative. Detection rates for all scenarios improve with signal strength and evaluation sample size. For factorized models, the gap between strict and conservative accuracy confirms that errors are predominantly indeterminate rather than misclassifications. The TCGA power curve (Figure 30) reveals that the primary bottleneck is probe quality in the reference cohorts (A ′/B), not the size of the deployment cohort. Under the vary-C design, TMB is reliably flagged with as few as NC ≈50 patients when A ′/B are held at full size, whereas equal-N designs require N ≈500 . Since the extreme pool comprises 25–33% of patients or cancer types (Appendix K.3), populating C requires an evaluation pool of approximately 3–4 × NC
+
+patients. This implies that DECAT can evaluate smaller deployment populations if a sufficiently large reference cohort is available for stable probe training. 
+
+Proxy detection is the hardest problem. In the synthetic validation, while direct confounding is detectable at moderate-to-strong signal, proxy-driven spurious signal remains difficult at 5–20% strict accuracy, with conservative accuracy reaching 60–75% for factorized models. This reflects a limitation of the linear probe used by Dtask quantile because proxy signal that enters the representation along directions not aligned with the cohort shift between B and C remains hidden to the stability test (Appendix J.6). Improving proxy detection likely requires either larger evaluation cohorts, multiple shifted cohorts that probe different directions of variation, or nonlinear probes that can detect instability along directions inaccessible to linear projections. 
+
+6 Limitations 
+
+DECAT addresses whether predictive signal is supported by cross-modally observable biology without requiring prior knowledge of which confounder is present. This complements rather than replaces existing methods like preserved-site cross-validation [ 6] and covariate stratification [ 11 ]that detect specific known confounders. DECAT requires per-modality embeddings and cannot be directly applied to early-fusion architectures where modalities attend to each other during encoding; extending to early fusion is a natural direction for future work. The unimodal application (Stages II and IV only) can detect confounding but cannot positively confirm shared biology, which by definition requires agreement across at least two independent modalities. The synthetic simulator makes several simplifying assumptions (Appendix A), though key findings transfer to real TCGA embeddings. Finally, DECAT classifies the category of predictive signal but does not identify specific mechanisms or establish causal relationships. An S1 classification indicates cross-modally supported and stable signal, not that the representation has recovered a causal biological process. 97 Conclusion 
+
+We introduced DECAT, a model-agnostic evaluation framework that classifies multimodal represen-tations into four diagnostic scenarios using five null-referenced metrics and a rule-based decision procedure. No single architecture reliably classifies all scenarios, with entangled models hallucinating shared biology when it is absent (FSCR 83–84% on real embeddings) and factorized models enabling safer localization at the cost of reduced sensitivity. On TCGA, DECAT detects cancer-type con-founding invisible to AUROC on both multimodal embeddings and frozen H&E foundation models, without requiring confounder labels. These distinctions were previously unavailable from predictive accuracy alone. 
+
+References 
+
+[1] Richard J. Chen, Ming Y. Lu, Drew F. K. Williamson, Tiffany Y. Chen, Jana Lipkova, Zahra Noor, Muhammad Shaban, Maha Shady, Mane Williams, Bumjin Joo, and Faisal Mahmood. Pan-cancer integrative histology-genomic analysis via multimodal deep learning. Cancer Cell ,40(8):865–878.e6, August 2022. ISSN 1535-6108. doi: 10.1016/j.ccell.2022.07.004. [2] Anurag Vaidya, Andrew Zhang, Guillaume Jaume, Andrew H. Song, Tong Ding, Sophia J. Wagner, Ming Y. Lu, Paul Doucet, Harry Robertson, Cristina Almagro-Perez, Richard J. Chen, Dina ElHarouni, Georges Ayoub, Connor Bossi, Keith L. Ligon, Georg Gerber, Long Phi Le, and Faisal Mahmood. Molecular-driven Foundation Model for Oncologic Pathology, January 2025. arXiv:2501.16652. [3] Juseung Yun, Sunwoo Yu, Sumin Ha, Jonghyun Kim, Janghyeon Lee, Jongseong Jang, and Soonyoung Lee. EXAONE Path 2.5: Pathology Foundation Model with Multi-Omics Alignment, December 2025. arXiv:2512.14019. [4] Yingxue Xu, Yihui Wang, Fengtao Zhou, Jiabo Ma, Cheng Jin, Shu Yang, Jinbang Li, Zhengyu Zhang, Chenglong Zhao, Huajun Zhou, Zhenhui Li, Huangjing Lin, Xin Wang, Jiguang Wang, Anjia Han, Ronald Cheong Kin Chan, Li Liang, Xiuming Zhang, and Hao Chen. A multimodal knowledge-enhanced whole-slide pathology foundation model. Nature Communications , 16(1): 11406, December 2025. ISSN 2041-1723. doi: 10.1038/s41467-025-66220-x. [5] Tianyu Liu, Tinglin Huang, Tong Ding, Hao Wu, Peter Humphrey, Sudhir Perincheri, Kurt Schalper, Rex Ying, Hua Xu, James Zou, Faisal Mahmood, and Hongyu Zhao. Leveraging multi-modal foundation models for analysing spatial multi-omic and histopathology data. 
+
+Nature Biomedical Engineering , pages 1–18, February 2026. ISSN 2157-846X. doi: 10.1038/ s41551-025-01602-6. [6] Frederick M. Howard, James Dolezal, Sara Kochanny, Jefree Schulte, Heather Chen, Lara Heij, Dezheng Huo, Rita Nanda, Olufunmilayo I. Olopade, Jakob N. Kather, Nicole Cipriani, Robert L. Grossman, and Alexander T. Pearson. The impact of site-specific digital histology signatures on deep learning model accuracy and bias. Nature Communications , 12(1):4423, July 2021. ISSN 2041-1723. doi: 10.1038/s41467-021-24698-1. [7] Jonah Kömen, Hannah Marienwald, Jonas Dippel, and Julius Hense. Do Histopathologi-cal Foundation Models Eliminate Batch Effects? A Comparative Study. In AIM-FM Work-shop, Advances in Neural Information Processing Systems (NeurIPS) . arXiv, November 2024. arXiv:2411.05489. [8] Edwin D. de Jong, Eric Marcus, and Jonas Teuwen. Current Pathology Foundation Models are unrobust to Medical Center Differences, February 2025. arXiv:2501.18055. [9] Jonah Kömen, Edwin D. de Jong, Julius Hense, Hannah Marienwald, Jonas Dippel, Philip Naumann, Eric Marcus, Lukas Ruff, Maximilian Alber, Jonas Teuwen, Frederick Klauschen, and Klaus-Robert Müller. Towards Robust Foundation Models for Digital Pathology, July 2025. arXiv:2507.17845. [10] Erik Thiringer, Fredrik K. Gustafsson, Kajsa Ledesma Eriksson, and Mattias Rantalainen. Scanner-Induced Domain Shifts Undermine the Robustness of Pathology Foundation Models, January 2026. arXiv:2601.04163. 10 [11] Muhammad Dawood, Kim Branson, Sabine Tejpar, Nasir Rajpoot, and Fayyaz ul Amir Afsar Minhas. Confounding factors and biases abound when predicting molecular biomarkers from histological images. Nature Biomedical Engineering , pages 1–15, March 2026. ISSN 2157-846X. doi: 10.1038/s41551-026-01616-8. [12] Haotian Cui, Alejandro Tejada-Lapuerta, Maria Brbi´ c, Julio Saez-Rodriguez, Simona Cristea, Hani Goodarzi, Mohammad Lotfollahi, Fabian J. Theis, and Bo Wang. Towards multimodal foundation models in molecular cell biology. Nature , 640(8059):623–633, April 2025. ISSN 1476-4687. doi: 10.1038/s41586-025-08710-y. [13] Rami S. Vanguri, Jia Luo, Andrew T. Aukerman, Jacklynn V. Egger, Christopher J. Fong, Natally Horvat, Andrew Pagano, Jose de Arimateia Batista Araujo-Filho, Luke Geneslaw, Hira Rizvi, Ramon Sosa, Kevin M. Boehm, Soo-Ryum Yang, Francis M. Bodd, Katia Ventura, Travis J. Hollmann, Michelle S. Ginsberg, Jianjiong Gao, Rami Vanguri, Matthew D. Hellmann, Jennifer L. Sauter, and Sohrab P. Shah. Multimodal integration of radiology, pathology and genomics for prediction of response to PD-(L)1 blockade in patients with non-small cell lung cancer. Nature Cancer , 3(10):1151–1164, October 2022. ISSN 2662-1347. doi: 10.1038/ s43018-022-00416-8. [14] Oz Kilim, Orsolya Pipek, Zsofia Sztupinszki, Miklos Diossy, Aurel Prosz, Cristina Naceur-Lombardelli, Selvaraju Veeriah, David Moore, Mariam Jamal-Hanjani, Allan Hackshaw, Janos Fillinger, Judit Moldvay, Istvan Csabai, Charles Swanton, and Zoltan Szallasi. A multimodal AI biomarker PATH-ORACLE improves prediction of recurrence in stage I lung adenocarcinoma, February 2026. medRxiv preprint, doi:10.64898/2026.01.28.26344973. [15] Frederick M. Howard, Jakob Nikolas Kather, and Alexander T. Pearson. Multimodal deep learning: An improvement in prognostication or a reflection of batch effect? Cancer Cell , 41 (1):5–6, January 2023. ISSN 1535-6108, 1878-3686. doi: 10.1016/j.ccell.2022.10.025. [16] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agar-wal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning Transferable Visual Models From Natural Language Supervision. In Pro-ceedings of the 38th International Conference on Machine Learning (ICML) . arXiv, February 2021. arXiv:2103.00020. [17] Chenyu Wang, Sharut Gupta, Xinyi Zhang, Sana Tonekaboni, Stefanie Jegelka, Tommi Jaakkola, and Caroline Uhler. An Information Criterion for Controlled Disentanglement of Multimodal Data. In Proceedings of the International Conference on Learning Representations . arXiv, March 2025. arXiv:2410.23996. [18] Paul Pu Liang, Zihao Deng, Martin Ma, James Zou, Louis-Philippe Morency, and Ruslan Salakhutdinov. Factorized Contrastive Learning: Going Beyond Multi-view Redundancy. In Advances in Neural Information Processing Systems (NeurIPS) . arXiv, October 2023. arXiv:2306.05268. [19] Chenfeng Guo and Dongrui Wu. Canonical Correlation Analysis (CCA) Based Multi-View Learning: An Overview, May 2021. arXiv:1907.01693. [20] Eric F. Lock, Katherine A. Hoadley, J. S. Marron, and Andrew B. Nobel. Joint and individual variation explained (JIVE) for integrated analysis of multiple data types. The Annals of Applied Statistics , 7(1), March 2013. ISSN 1932-6157. doi: 10.1214/12-AOAS597. [21] Tong Ding, Sophia J. Wagner, Andrew H. Song, Richard J. Chen, Ming Y. Lu, Andrew Zhang, Anurag J. Vaidya, Guillaume Jaume, Muhammad Shaban, Ahrong Kim, Drew F. K. Williamson, Harry Robertson, Bowen Chen, Cristina Almagro-Pérez, Paul Doucet, Sharifa Sahai, Chengkuan Chen, Christina S. Chen, Daisuke Komura, Akihiro Kawabe, Mieko Ochi, Shinya Sato, Tomoyuki Yokose, Yohei Miyagi, Shumpei Ishikawa, Georg Gerber, Tingying Peng, Long Phi Le, and Faisal Mahmood. A multimodal whole-slide foundation model for pathology. Nature Medicine , 31(11):3749–3761, November 2025. ISSN 1546-170X. doi: 10.1038/s41591-025-03982-3. 11 [22] Gustavo Arango-Argoty, Elly Kipkogei, Ross Stewart, Gerald J. Sun, Arijit Patra, Ioannis Kagiampakis, and Etai Jacob. Pretrained transformers applied to clinical studies improve predictions of treatment efficacy and associated biomarkers. Nature Communications , 16(1): 2101, March 2025. ISSN 2041-1723. doi: 10.1038/s41467-025-57181-2. [23] Ming Y. Lu, Bowen Chen, Drew F. K. Williamson, Richard J. Chen, Ivy Liang, Tong Ding, Guillaume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, Anil V. Parwani, Andrew Zhang, and Faisal Mahmood. A visual-language foundation model for computational pathology. Nature Medicine , 30(3):863–874, March 2024. ISSN 1546-170X. doi: 10.1038/s41591-024-02856-4. [24] Richard J. Chen, Tong Ding, Ming Y. Lu, Drew F. K. Williamson, Guillaume Jaume, Andrew H. Song, Bowen Chen, Andrew Zhang, Daniel Shao, Muhammad Shaban, Mane Williams, Lukas Oldenburg, Luca L. Weishaupt, Judy J. Wang, Anurag Vaidya, Long Phi Le, Georg Gerber, Sharifa Sahai, Walt Williams, and Faisal Mahmood. Towards a general-purpose foundation model for computational pathology. Nature Medicine , 30(3):850–862, March 2024. ISSN 1546-170X. doi: 10.1038/s41591-024-02857-3. [25] Charlie Saillard, Rodolphe Jenatton, Felipe Llinares-López, Zelda Mariet, David Cahané, Eric Durand, and Jean-Philippe Vert. H-optimus-0, 2024. https://github.com/bioptimus/ releases/tree/main/models/h-optimus/v0 .[26] Daniel Kaplan, Ratna Sagari Grandhi, Connor Lane, Benjamin Warner, Tanishq Mathew Abraham, and Paul S. Scotti. How to Train a State-of-the-Art Pathology Foundation Model with $1.6k, 2025. Sophont Blog, https://sophont.med/blog/openmidnight .[27] Mikhail Karasikov, Joost van Doorn, Nicolas Känzig, Melis Erdal Cesur, Hugo Mark Horlings, Robert Berke, Fei Tang, and Sebastian Otálora. Training state-of-the-art pathology foundation models with orders of magnitude less data, April 2025. arXiv:2504.05186. [28] Guillaume Jaume, Lukas Oldenburg, Anurag Vaidya, Richard J. Chen, Drew F. K. Williamson, Thomas Peeters, Andrew H. Song, and Faisal Mahmood. Transcriptomics-guided Slide Repre-sentation Learning in Computational Pathology. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) . arXiv, May 2024. arXiv:2405.11618. [29] Weiqing Chen, Pengzhi Zhang, Tu N. Tran, Yiwei Xiao, Shengyu Li, Vrutant V. Shah, Hao Cheng, Kristopher W. Brannan, Keith Youker, Li Lai, Longhou Fang, Yu Yang, Nhat-Tu Le, Jun-ichi Abe, Shu-Hsia Chen, Qin Ma, Ken Chen, Qianqian Song, John P. Cooke, and Guangyu Wang. A visual–omics foundation model to bridge histopathology with spatial transcriptomics. Nature Methods , 22(7):1568–1582, July 2025. ISSN 1548-7105. doi: 10.1038/ s41592-025-02707-1. [30] Ian Fischer. The Conditional Entropy Bottleneck. Entropy , 22(9):999, September 2020. ISSN 1099-4300. doi: 10.3390/e22090999. [31] Yijie Zhang, Yiyang Shen, and Weiran Wang. Disentanglement of Variations with Multimodal Generative Modeling, September 2025. arXiv:2509.23548. [32] Yu Gui, Cong Ma, and Zongming Ma. IndiSeek learns information-guided disentangled representations, December 2025. arXiv:2509.21584. [33] Qilong Wu, Yiyang Shao, Jun Wang, and Xiaobo Sun. Learning Optimal Multimodal Infor-mation Bottleneck Representations. In Proceedings of the 42nd International Conference on Machine Learning . arXiv, May 2025. arXiv:2505.19996. [34] Xinyi Zhang, G. V. Shivashankar, and Caroline Uhler. Partially shared multi-modal embedding learns holistic representation of cell state. Nature Computational Science , 6(3):285–300, March 2026. ISSN 2662-8457. doi: 10.1038/s43588-025-00948-w. [35] Till Richter, Eric Zimmermann, James Hall, Fabian J. Theis, Srivatsan Raghavan, Pe-ter S. Winter, Ava P. Amini, and Lorin Crawford. Beyond alignment: Synergistic inte-gration is required for multimodal cell foundation models, March 2026. bioRxiv preprint, doi:10.64898/2026.02.23.707420. 12 [36] Francesco Locatello, Stefan Bauer, Mario Lucic, Gunnar Rätsch, Sylvain Gelly, Bernhard Schölkopf, and Olivier Bachem. Challenging Common Assumptions in the Unsupervised Learning of Disentangled Representations. In Proceedings of the 36th International Conference on Machine Learning (ICML) . arXiv, June 2019. arXiv:1811.12359. [37] Caroline Uhler and Jiaqi Zhang. Causal Structure and Representation Learning with Biomedical Applications, November 2025. arXiv:2511.04790. 13 Appendix A Additional Simulator Limitations 
+
+The measurement model is linear (Appendix D.2), while real biological assays involve highly nonlinear transformations. This likely advantages linear models (CCA, JIVE) because their inductive bias matches the data-generating process, and does not fully challenge nonlinear encoders. The TCGA validation (Section 4.2) confirms that key findings transfer despite this mismatch. Next, latent variables are independent Gaussians, whereas real biology has complex dependencies between shared structure, modality-specific effects, and batch. The orthogonality of zs and b by construction means that S2 detection in our simulator represents an optimistic upper bound. In real data, biology and batch may be correlated along the same directions, making separation harder. The TCGA validation partially addresses this concern, demonstrating that Dtask quantile detects confounding on real embeddings where label prevalence varies substantially across cancer types. Dtask quantile detects spurious signal only when the cohort shift has a component along the outcome-predictive direction. If the shift is orthogonal to the spurious signal, Scenario 2 is undetectable, though in this case the spurious signal does not constitute a generalization risk for the specific evaluation cohorts. In the simulator this alignment is controlled by parameters ( ρb, ρp); in the TCGA validation, the extreme-C design constructs cohort shifts along the label-predictive direction by enriching C for label-extreme patients, ensuring alignment without requiring knowledge of the confounder direction. A variant that discovers the cohort-shift direction from data and measures its alignment with the outcome-predictive direction could address this limitation for deployment cohorts where the shift structure is unknown. Finally, the synthetic experiment uses a single latent dimensionality ( k = 50 ) and sensitivity to latent complexity is not characterized. 
+
+B Broader Impacts 
+
+DECAT is an evaluation framework for multimodal biomedical representations and does not directly make clinical decisions, generate predictions for patients, or process identifiable patient data. Its intended use is as a model diagnostic tool to assess whether learned representations support biological interpretation before downstream use. 
+
+Positive impacts. By making the distinction between transferable shared biology and spurious signal explicit, DECAT may help prevent the deployment of multimodal biomarkers that rely on batch effects or proxy features, reducing the risk of clinical decisions based on models that appear accurate but do not generalize. The framework returns an indeterminate output to provide an explicit signal that the available evidence does not support reliable scenario classification, rather than forcing a potentially incorrect label. 
+
+Potential risks. A false sense of security could arise if practitioners treat DECAT’s Scenario 1 classification as a guarantee of biological validity. Scenario 1 indicates that predictive signal is cross-modally supported and stable across the evaluation cohorts, but it does not establish a causal relationship between the representation and the underlying biology. DECAT’s detection power is limited by evaluation sample size and proxy geometry, and the framework may fail to detect spurious signal under conditions not covered by the evaluation cohorts. Practitioners should interpret DECAT’s output as one component of a broader model validation strategy, not as a standalone certification of biological validity. 
+
+Disclosure. All authors are employees of AstraZeneca and have stock ownership and/or stock options or interests in the company. 
+
+C Related Work 
+
+Multimodal representation learning in pathology. Recent multimodal foundation models inte-grate histopathology with molecular data using contrastive objectives, demonstrating that molecular supervision provides a powerful inductive bias for learning clinically relevant histology represen-tations [ 28 , 1 – 5, 29 ]. These models optimize cross-modal alignment rather than factorization and 14 their embedding spaces may entangle shared biological signal with modality-specific effects, cohort structure, and correlated proxy features. As a result, proximity in an entangled embedding space is difficult to attribute to a specific biological process, and it remains unclear when predictions derived from a single modality, such as H&E alone, are biologically justified. DECAT does not compete with these models but instead evaluates entangled representations post hoc to determine when predictions are biologically supported. 
+
+Disentangled multimodal learning. Contrastive methods such as CLIP implicitly assume multi-view redundancy, i.e., that each modality contains overlapping information about the underlying signal. Factorized contrastive learning [ 18 ] demonstrates that private, modality-specific informa-tion can be predictive, but does not provide a mechanism to determine whether predictive signal is supported by cross-modally shared biology. Recent approaches explicitly separate shared and modality-specific representations using mutual information objectives [ 17 , 30 –33 ] and architectural decompositions with partially shared latent spaces [ 34 ]. Prior work primarily evaluates disentangle-ment in terms of representation quality, reconstruction, or downstream predictive performance. A complementary information-theoretic perspective uses partial information decomposition to quantify synergistic versus redundant contributions of each modality, providing a criterion for when multi-modal integration adds information beyond the strongest unimodal representation [ 35 ]. However, synergistic information may still reflect spurious correlations rather than biology. In contrast, DECAT treats disentangled representations as one input to a diagnostic framework that determines when predictions from partial data are biologically supported, a question that has not been studied in prior disentangled multimodal learning work. 
+
+Batch effects and confounding in computational pathology. Site-specific digital signatures in histology [ 6 ], persistent medical center signatures in foundation model embeddings [ 7 , 8], and scanner-induced domain shifts that are masked by stable prediction accuracy [ 10 ] are well-documented sources of spurious predictive signal. PathoROB [ 9] provides a systematic robustness benchmark measuring the degree to which FM embeddings encode medical center signatures rather than biology, finding substantial robustness deficits across 20 evaluated FMs. Strong dependencies between biomarkers and clinicopathological features further cause models to rely on correlated features rather than the biomarker itself [ 11 ]. These findings extend to the multimodal setting, where approximately 30% of multimodal model performance in one study was attributed to site or institution batch effects rather than biology [ 15 ]. Existing mitigations include preserved-site cross-validation [ 6], color normalization, and domain adaptation, but these are detection or correction methods that identify or reduce specific confounders without providing a general diagnostic for whether learned representations support biological interpretation. DECAT addresses a complementary problem: given a trained representation, determine whether its predictive signal reflects shared biology, spurious signal (which may transfer across cohorts but exhibits composition-dependent instability), modality-specific effects, or noise, without requiring knowledge of which specific confounder is present. 
+
+Identifiability and causal representation learning. Unsupervised disentanglement without induc-tive biases is theoretically impossible [ 36 ], motivating our approach of evaluating representations post hoc rather than attempting to recover ground-truth latent structure. Recent work connects representation learning to causal structure discovery, arguing that representation learning fails at causal tasks without proper structure [ 37 ]. DECAT classifies the category of predictive signal (shared, spurious, noise, modality-specific) without identifying the underlying mechanism or establishing causal relationships. The framework returns indeterminate when statistical evidence is insufficient for confident classification. 
+
+D Simulator Details 
+
+This appendix specifies the synthetic data generator in full. The generator is intentionally minimal. Its goal is not to mimic any specific biological assay, but to construct the smallest latent structure sufficient to instantiate each of the four diagnostic scenarios (S1–S4) with controllable ground truth. All downstream metrics operate only on learned representations. Ground-truth latents, weight vectors, and scenario labels are never observed by representation learning or by the decision procedure. 15 D.1 Latent Variables 
+
+For each patient i, we sample low-dimensional latents zs, z h, z r , b ∈ Rk representing shared biology, H&E-specific biology, RNA-specific biology, and a shared nuisance factor (interpreted operationally as “batch” but covering any shared non-biological source such as institution, cohort, or correlated biological confounders such as tumor purity): 
+
+zs, z h, z r , b i.i.d. 
+
+∼ N (0, I). (1) Independence is imposed by construction so that cross-latent dependence in learned representations reflects the measurement process or model, not the generator. We evaluated k ∈ { 5, 10 , 50 , 100 }
+
+during pre-experiment calibration (Appendix H.4) and use k = 50 throughout the main experiment. 
+
+D.2 Measurement Model 
+
+Each modality is a linear mixture of latents plus Gaussian noise: 
+
+xh = βsAszs + βhAhzh + βbAbb + ϵh, xh ∈ Rdh (2) 
+
+xr = βsBszs + βr Br zr + βbBbb + ϵr , xr ∈ Rdr (3) with default dh = dr = 1024 . The matrices A∗, B ∗ are sampled once per synthetic run and held fixed across all patients in that run, representing the unknown measurement process. 
+
+Block normalization. To prevent accidental scaling artifacts from random matrices, each block matrix M ∈ Rd×k is rescaled so that every latent block contributes unit expected variance per observed dimension before the β scalars are applied:  
+
+> 1
+> d
+
+tr( M M ⊤) = 1 . (4) We draw M from a standard Gaussian and multiply by pd/ tr( M M ⊤). This decouples observed variance from the random matrix magnitude, so the β coefficients fully control the relative contribution of each latent block. 
+
+Fixed-SNR noise calibration. Under block normalization, the per-dimension signal variance for each modality is 
+
+Var signal (xh) ≈ β2 
+
+> s
+
++ β2 
+
+> h
+
++ β2 
+
+> b
+
+, Var signal (xr ) ≈ β2 
+
+> s
+
++ β2 
+
+> r
+
++ β2 
+
+> b
+
+. (5) We fix the signal-to-noise ratio at SNR = 3 across all measurement regimes by setting 
+
+σ2 
+
+> h
+
+= 13 (β2 
+
+> s
+
++ β2 
+
+> h
+
++ β2 
+
+> b
+
+), σ2 
+
+> r
+
+= 13 (β2 
+
+> s
+
++ β2 
+
+> r
+
++ β2 
+
+> b
+
+), (6) so that differences across regimes reflect signal composition rather than overall task difficulty. Table 3 reports the four measurement regimes used in the main experiment.                               
+
+> Regime βsβhβrβbσ2
+> hσ2
+> r
+> Baseline 1.0 1.0 1.0 0.75 0.854 0.854 Shared-dominant 2.0 1.0 1.0 0.75 1.92 1.92 Batch-dominant 1.0 1.0 1.0 1.50 1.42 1.42 Modality-dominant 1.0 2.0 2.0 0.75 1.92 1.92
+
+Table 3: Measurement regimes. Each non-baseline regime doubles exactly one coefficient from its baseline value; noise is re-calibrated to preserve SNR = 3 . Preliminary calibration identified 
+
+βb = 0 .75 as the baseline operating point because at βb = 1 .0, S2B detection becomes trivial. 
+
+D.3 Outcome Generation 
+
+Binary outcomes yi ∈ { 0, 1} are generated from a latent score: 
+
+ri = αs⟨ ¯ws, z s,i ⟩ + αh⟨ ¯wh, z ′
+
+> h,i
+
+⟩ + αr ⟨ ¯wr , z ′
+
+> r,i
+
+⟩ + αb⟨ ¯wb, b i⟩ + ϵy,i , yi = 1(ri > 0) , (7) where ¯w∗ = w∗/∥w∗∥2 are unit-norm weight vectors sampled once per run and ϵy,i ∼ N (0 , σ 2 
+
+> y
+
+)
+
+tunes task difficulty ( σy = 0 .5 in all main experiments). Because ¯w is unit-norm and z ∼ N (0, I),each term ⟨ ¯w, z ⟩ has unit variance, so the coefficients α∗ directly control the fractional variance contribution of each latent source to the outcome. 16 Scenario-to-α mapping. Setting different coefficients to zero instantiates each scenario (Table 4). Scenarios are defined per task and per modality ; for example, a task with αs > 0 alone yields Scenario 1 for both modalities, whereas αh > 0 alone yields Scenario 4 for H&E and Scenario 3 for RNA.                                              
+
+> Scenario Outcome signal location Coefficients
+> S1 (shared biology) Shared latent only αs>0, α h=αr=αb= 0
+> S2 (spurious signal) Confounding or proxy αb>0or (γ > 0and αm>0), αs= 0
+> S3 (no signal) None αs=αh=αr=αb= 0
+> S4 (modality-specific) Modality monly αm>0, α s=αm′=αb= 0 , γ = 0
+
+Table 4: Canonical scenario definitions. Scenario 2 encompasses two distinct mechanisms. Outcome-level confounding ( αb > 0, Scenario 2B in the main text) is controlled via the scenario-to-α
+
+mapping described above. Representation-level proxy ( γ > 0) operates at the feature level and is described in Appendix D.4. These two mechanisms are observationally similar but arise from distinct generative sources. 
+
+D.4 Proxy Entanglement 
+
+To model representation-level proxy signal (e.g., site-specific staining artifacts correlated with outcome), we optionally entangle modality-specific biology with batch structure using a modality-specific contamination coefficient γm :
+
+z′ 
+
+> h,i
+
+= zh,i + γh proxy i, z′ 
+
+> r,i
+
+= zr,i + γr proxy i, (8) where the proxy direction is proxy i = (1 − η) bi + η ˜bi
+
+p(1 − η)2 + η2 , ˜bi ∼ N (0, I). (9) The coefficient γm controls per-modality proxy strength and the misalignment parameter η ∈ [0 , 1] 
+
+controls alignment of proxy signal with the cross-modal batch axis. These two parameters are orthogonal: γ governs magnitude, η governs geometric alignment across cohorts. 
+
+Proxy regimes. Single-modality proxy (γm > 0 for one modality, zero for the other) models artifacts confined to a single assay (e.g., scanner or staining contamination of H&E with γh > 0, γ r = 0 ); 
+
+dual-modality proxy (γh = γr > 0) models site-level batch effects that affect both assays. Separately, 
+
+aligned proxy (η = 0 ) concentrates along the batch axis, which shifts between cohorts. Misaligned proxy (η > 0) spreads off the batch axis. Because the off-axis component does not shift between cohorts it is therefore harder to detect. 
+
+Terminology: confounding vs. proxy. We distinguish two conceptually distinct sources of spurious predictive signal. Outcome-level confounding (αb) occurs when a latent directly influences both the observed features and the outcome (e.g., smoking affecting both tumor morphology and survival). 
+
+Representation-level proxy signal (γh, γ r ) arises when modality-specific latents mix with batch-aligned variation at the feature level, creating label-correlated directions in the learned representation that reflect batch rather than the biology of interest (e.g., hospital-of-care effects that correlate with patient response via treatment differences). Both mechanisms produce high in-distribution AUROC because the spurious signal is genuinely correlated with the outcome in the training population, making them indistinguishable from real biology by standard evaluation metrics. 
+
+D.5 Cohort Structure and Shift Alignment 
+
+Each run produces four disjoint cohorts that differ only in the distribution of the batch latent b:Cohort A : b ∼ N (0, I) (representation training) (10) Cohort A ′ : b ∼ N (0, I) (within-distribution evaluation) (11) Cohort B : b ∼ N (μb, I) (external, shifted) (12) Cohort C : b ∼ N ((1 + ε)μb, I) (external, scaled shift) (13) 17 Here μb ∈ Rk is the cohort-level batch mean shift. For Cohort C we sample using the same mean direction μb as Cohort B with a relative scaling factor ( ε = 0 .2 by default). This ensures that both external cohorts differ from A along the same batch direction, so any patient ordering instability (Appendix F.6) observed between B and C is only due to sensitivity to batch strength rather than to a mean shift in a different direction. Two external cohorts are necessary because a single shifted cohort cannot distinguish changes in patient ordering due to batch strength from those due to sampling variability. 
+
+Batch shift alignment ( ρb). By default, μb is drawn independently of the outcome-predictive batch direction ¯wb (Eq. 7), so the direction that shifts between cohorts is unrelated to the direction of b that predicts the outcome. This does not model outcome-relevant confounding, where batch variation aligns with predictive signal. Therefore, we add a batch alignment parameter ρb ∈ [0 , 1] that controls the degree of alignment between the cohort shift direction μb and the outcome-predictive batch direction ¯wb:
+
+μb = (1 − ρb) ˆ n + ρb ¯wb
+
+∥(1 − ρb) ˆ n + ρb ¯wb∥ · M, (14) where ˆn is a random direction (drawn from a standard Gaussian and normalized to unit length) and 
+
+M is the batch shift magnitude, held fixed (we use M = 2 .0, corresponding to Cohen’s d ≈ 2). The magnitude ∥μb∥ = M is preserved regardless of ρb, so batch alignment controls geometry only. 
+
+Proxy shift alignment ( ρp). In realistic proxy settings, the site-level artifact that contaminates a modality is typically the same axis that differs between institutions (e.g., the staining protocol that varies across hospitals is the one that creates outcome-correlated morphological features). By default, the cohort shift μb is unrelated to the proxy-contaminated direction ¯wm, which is unrealistic for this mechanism. The proxy shift alignment parameter ρp ∈ [0 , 1] controls the degree of alignment between the cohort shift and the proxy direction, extending Eq. 14 with a third term: 
+
+μb = (1 − ρb − ρp) ˆ n + ρb ¯wb + ρp ¯wm
+
+∥(1 − ρb − ρp) ˆ n + ρb ¯wb + ρp ¯wm∥ · M, (15) where the target modality m ∈ { h, r } is the proxy-contaminated modality, with the constraint 
+
+ρb + ρp ≤ 1. When ρp = 0 this reduces to Eq. 14; ρp = 1 with ρb = 0 corresponds to a site signature in which the staining difference between institutions is the one that mimics outcome-predictive morphology. 
+
+Shift configuration used in experiments. Table 5 summarizes the shift alignment used per scenario class. All scenarios use M = 2 .0 and alignment is scenario-dependent so that the cohort shift either probes the confounding direction (S2B), the proxy direction (S2A/C/D), or is independent of both (S1, S3, S4 baselines).                       
+
+> Scenario class ρbρpProxy target
+> Baseline (S1, S3, S4) 0.0 0.0 —S2B (outcome confounding) 1.0 0.0 —S2A/C/D ( γh>0)0.0 1.0 ’h’
+> S2A/C/D ( γr>0)0.0 1.0 ’r’
+> Transition B (confound + proxy) 0.5 0.5 dominant proxy modality
+
+Table 5: Cohort shift alignment per scenario class. The magnitude M = 2 .0 is fixed; ρb and ρp
+
+control geometry only. 
+
+D.6 Ambiguous Configurations 
+
+We do not assume that a single scenario label is always appropriate. Three configurations are explicitly designed to be ambiguous for scenario classification. Transition A (αs ≈ αh ≈ αr > 0) introduces competing biological signal sources with no dominant mechanism. Transition B adds confounding and proxy contamination on top of Transition A ( αb > 0, γ > 0), creating a configuration where multiple signal sources and spurious structure co-exist. Aligned proxy (η = 0 with γ > 0) places proxy perfectly along the shared batch axis, making it indistinguishable from true shared biology via 18 structural geometry alone so that only Dtask quantile with ρp > 0 can detect it, by targeting the outcome-probe direction rather than an arbitrary geometric axis. The correct framework behavior in these configurations is to return indeterminate , not a confident scenario label. These configurations provide ground truth for evaluating whether the decision procedure returns indeterminate when the underlying signal structure is genuinely ambiguous. 
+
+D.7 Structural Assumptions 
+
+The generator makes several simplifying assumptions whose implications are discussed in the main Limitations section: 1. Observations are linear mixtures of latents plus Gaussian noise. Real assays involve nonlin-ear mixing, which the linear simulator does not capture. 2. Latents are independent Gaussians. Real biology has complex dependencies and imposed independence is an optimistic assumption for zs/b separation. 3. Measurement matrices A∗, B ∗ are fixed across cohorts. Real cohorts differ in scanner, protocol, and pre-processing and we do not model measurement-level shifts. 4. Confounding is shared across modalities via a single latent b. Modality-specific artifacts uncorrelated with the shared batch axis are not modeled as a separate latent, though single-modality proxy ( γh > 0, γ r = 0 ) captures a related mechanism. Such artifacts do not generate shared-looking signal and are therefore not the hardest failure mode for S1 misclas-sification. 5. Outcome weight vectors ¯w∗ are fixed across patients and dense (every latent dimension con-tributes). Real biomarkers may be sparse, with phenotype depending on a low-dimensional mechanism embedded in a higher-dimensional latent space. 6. Modalities are treated as symmetric (similar SNR and contamination). In practice, one modality may capture shared biology more reliably than the other. 7. All outcome-relevant structure is encoded in (zs, z h, z r , b ) with no unmodeled confounders. In real data, additional unmeasured factors may influence both the outcome and the observed features. 8. All modalities observe the same patient’s latent state with perfect spatial and temporal correspondence. In real data, different assays may sample different tissue regions or time points, introducing intratumor heterogeneity and sampling variation that the simulator does not model. 
+
+E Model Architectures and Training 
+
+We evaluate four model classes spanning a two-by-two grid of linear vs. nonlinear and entangled vs. factorized. All models are trained exclusively on paired observations from Cohort A without access to outcome labels and encoders are frozen after training. This appendix section specifies each model’s representation structure, training procedure, and hyperparameters. 
+
+E.1 Shared Architecture for Nonlinear Models 
+
+To isolate the effect of factorization among nonlinear models, CLIP and DisentangledSSL share identical encoder and projection architectures. Each modality is mapped to a latent via a two-layer MLP encoder (hidden width 4 × dm (dm = 1024 for both modalities), ReLU activation, L2-normalized output). Architecture, normalization, temperature, initialization, optimizer, and learning rate schedule are held fixed across models. This design ensures that differences in learned representations reflect training objectives (contrastive alignment vs. conditional entropy bottleneck) rather than architectural capacity. Linear baselines (CCA, JIVE) do not share this architecture because they are closed-form. 
+
+Training details. Both nonlinear models are optimized with Adam ( lr = 10 −3, constant schedule, no weight decay). Contrastive losses use a fixed temperature τ = 0 .07 . For the synthetic experiment, batch size is 1024 and CLIP trains for 200 epochs. DisentangledSSL trains in two phases: a 19 shared-latent alignment phase (75–125 epochs, depending on regularization strength) followed by a modality-specific independence phase (50 epochs), each with a separate Adam optimizer at the same learning rate. For the TCGA validation experiment, batch size is 256 and epoch counts are unchanged. No learning rate warmup, weight decay, or gradient clipping is applied. 
+
+E.2 CCA (Linear Entangled) 
+
+Canonical correlation analysis learns paired linear projections Wh ∈ Rdh×K , W r ∈ Rdr ×K that maximize correlation between modalities: 
+
+zHE = W ⊤ 
+
+> h
+
+xHE , zRNA = W ⊤ 
+
+> r
+
+xRNA . (16) The resulting representations are entangled because CCA does not separate shared from modality-specific structure. We retain the top K = 50 canonical components. CCA has no trainable hyperpa-rameters. 
+
+E.3 CLIP (Nonlinear Entangled) 
+
+The CLIP baseline is a standard symmetric contrastive model. Positive pairs are matched patient samples across modalities; negative pairs are mismatched patients within the batch. Training mini-mizes the symmetric InfoNCE loss without any factorization-inducing regularizer. CLIP produces a single joint embedding zm ∈ RK per modality, K = 50 . This embedding conflates shared biology, modality-specific biology, batch effects, and proxy features, and these components are not separable by construction. 
+
+E.4 JIVE (Linear Factorized) 
+
+Our linear factorized model is a simplified variant inspired by JIVE (Joint and Individual Variation Explained) [ 20 ]. Rather than the full iterative JIVE procedure with permutation-based rank selection, we use CCA for joint subspace estimation followed by residual PCA for individual subspaces. This provides a conservative estimate of factorized model performance, since a more sophisticated factorization algorithm would likely improve separation quality. Training is two-step: 1. Joint subspace: compute the SVD of the cross-covariance C = X⊤ 
+
+> h
+
+Xr /(n − 1) with the top K left and right singular vectors Wh, W r defining the joint projection directions. This step is identical to CCA, so JIVE’s joint component matches CCA’s shared representation exactly. 2. Individual subspaces: project out the joint subspace from each modality ( Xres  
+
+> h
+
+= Xh −
+
+XhWhW ⊤ 
+
+> h
+
+, analogously for r), then apply PCA to each residual to obtain K individual components per modality. For evaluation cohorts, the encoder returns the concatenation [Z(h) 
+
+> joint
+
+| Z(h)
+
+> indiv
+
+] ∈ Rn×2K . The first K
+
+dimensions are joint (shared) and the remaining K are individual (modality-specific), which ∆shared 
+
+uses to separate the two components for localization. The original JIVE formulation decomposes each data block as Xi = Ji + Ai + Ei (joint + individual + noise) and uses a permutation test on the noise residual to select ranks. Our implementation fixes 
+
+K=50 for both joint and individual components based on pre-experiment calibration (Appendix H.4) rather than data-driven rank selection. The noise residual Ei is implicitly discarded after projection and does not enter the DECAT evaluation, which operates only on the projected scores. 
+
+E.5 DisentangledSSL (Nonlinear Factorized) 
+
+DisentangledSSL [ 17 ] factorizes each modality’s representation into a shared latent z(m) 
+
+> c
+
+∈ Rdc and a modality-specific latent zm ∈ Rdm via a two-stage training procedure with information-theoretic regularization. 
+
+Stage I: cross-modal alignment with redundancy penalty. A contrastive alignment objective encourages agreement of shared latents across modalities, and a redundancy penalty (weight λ)discourages overlap between the shared latent zc and modality-specific latents zm.20 Stage II: independence enforcement. The shared latent zc is frozen. Modality-specific latents are trained to be independent of zc via a conditional entropy bottleneck penalty of strength βssl .
+
+Hyperparameter grid. We sweep a 4-point diagonal βssl = λ ∈ { 0.01 , 0.1, 1.0, 10 .0}, spanning near-zero disentanglement (where DSSL behavior approaches CLIP) to strong disentanglement (approaching representational collapse). The diagonal βssl = λ is the natural symmetric choice because both modalities operate on the same information scale (Table 6). 
+
+Config βssl λ Interpretation 
+
+DSSL(0.01) 0.01 0.01 Near-zero disentanglement (behavior approaches CLIP) DSSL(0.1) 0.10 0.10 Weak disentanglement DSSL(1.0) 1.00 1.00 Moderate disentanglement DSSL(10.0) 10.00 10.00 Strong disentanglement 
+
+Table 6: DisentangledSSL hyperparameter grid. There is no single optimal (λ, β ssl ) across biologi-cal settings. Reporting the full sweep reveals how diagnostic conclusions depend on factorization strength. 
+
+E.6 Training Protocol 
+
+All representation models are trained on Cohort A only ( Ntrain = 1500 patients, k = 50 latent dimensions, Kmodel = 50 representation dimensions). Training sample size was calibrated via an alignment saturation study (Pre Step A, Appendix H.4) to ensure representation learning is not sample-limited. Nonlinear models (CLIP, DisentangledSSL) were validated for epoch-level convergence via Pre Step A.2, which tracks A∗ 
+
+> norm
+
+on held-out Cohort A ′ at intermediate checkpoints. Closed-form models (CCA, JIVE) require no convergence validation. 
+
+F Metric Definitions 
+
+All metrics operate only on learned representations and are calibrated against permutation null distributions. We use i, j to index patients, m ∈ { HE , RNA } for modality, z(i,m ) 
+
+> c
+
+for the shared representation inferred from modality m, and z(i) 
+
+> m
+
+for the modality-specific latent when the model exposes one. 
+
+F.1 Standardization Convention 
+
+For structural cosine-based metrics ( Anorm , B norm ), representations are z-scored per latent dimension within Cohort A ′, and the same A ′ statistics are applied to both modalities. This prevents arbitrary scale differences (e.g., in CCA canonical variates) from biasing cosine computations. For cross-cohort stability metrics ( Ptransfer , D task quantile ), representations are projected without per-cohort z-scoring. Quantile-based comparisons are anchored to a fixed reference cohort (Cohort A ′ for 
+
+Dtask quantile ). Per-cohort z-scoring is not used because it removes the cohort mean-shift signal, collapsing detection power for Dtask quantile to near zero. This distinction is central to Dtask quantile ’s ability to discriminate S1 from S2. 
+
+F.2 Anorm : Cross-Modal Shared Latent Agreement Diagnostic question. Does the model recover patient-specific shared structure consistently across modalities? 
+
+Definition. For patients with at least two modalities and modality pair (m1, m 2),Agreement obs = Ei
+
+h
+
+cos 
+
+
+
+z(i,m 1) 
+
+> c
+
+, z (i,m 2)
+
+> c
+
+i 
+
+, Agreement null = Ei̸=j
+
+h
+
+cos 
+
+
+
+z(i,m 1) 
+
+> c
+
+, z (j,m 2)
+
+> c
+
+i 
+
+,
+
+(17) and Anorm = Agreement obs − Agreement null .21 Null calibration. A 95% two-sided permutation null interval [null lower , null upper ] is estimated by randomly permuting patient correspondence across modalities. 
+
+Decision rule. Patient-level shared structure is supported when Anorm > null upper for all modality pairs. 
+
+Applicability. All models. The shared representation z(i,m ) 
+
+> c
+
+is defined per architecture: CLIP’s contrastive embeddings, CCA’s canonical variates, JIVE’s joint subspace projections, and Disentan-gledSSL’s shared latents. Note that for modality-anchored architectures where a data-rich modality (e.g., H&E) servers as the reference space, high Anorm may reflect the training objective rather than independently observable shared biology. 
+
+F.3 Bnorm : Prototype Consistency Across Modalities Diagnostic question. Is biological interpretation invariant to which modality was used to infer the shared representation? 
+
+Definition. Let p be a prototype in shared space (constructed via k-means with k = 2 on Cohort A shared latents, anchored to a fixed modality). For each patient, 
+
+∆p(i) = cos( z(i,m 1) 
+
+> c
+
+, p ) − cos( z(i,m 2) 
+
+> c
+
+, p ) , (18) with a null computed by breaking patient correspondence: 
+
+∆p, null = Ei̸=j
+
+h
+
+cos( z(i,m 1) 
+
+> c
+
+, p ) − cos( z(j,m 2) 
+
+> c
+
+, p )
+
+i
+
+, (19) and Bnorm = Ei[∆ p(i)] − ∆p, null .
+
+Null calibration. A 95% two-sided permutation null interval [null lower , null upper ] is estimated by randomly permuting patient correspondence across modalities, matching the procedure for Anorm .
+
+Decision rule. Bnorm < null lower indicates modality-invariant prompting and Bnorm > null upper 
+
+indicates modality-dependent prompting. We use a two-sided null interval with two one-sided tests. 
+
+Applicability. All models. Bnorm is used as a diagnostic of interpretability stability but is not a gate in the decision tree. A representation may encode transferable biological signal while still yielding modality-dependent prompts. 
+
+F.4 ∆shared : Predictive Signal Localization Diagnostic question. Does outcome-relevant signal reside in the shared or modality-specific component? 
+
+Definition. For each modality s, train three linear probes on Cohort A ′ using fixed stratified 5-fold CV: f (s) 
+
+> c
+
+on the shared component, f (s) 
+
+> m
+
+on the modality-specific component, and f (s) 
+
+> both
+
+on their concatenation. Define AUROC (s)max = max {AUROC (fc), AUROC (fm), AUROC (fboth )} and 
+
+∆(s) 
+
+> shared
+
+= AUROC (f (s) 
+
+> c
+
+) − AUROC (f (s) 
+
+> m
+
+). (20) CV fold indices are precomputed once and held fixed so that the null differs from the observed statistic only in label assignment. 
+
+Null calibration. A signal-presence gate is applied first. Estimate a null by permuting out-come labels T = 200 times, retraining all three probes using the same CV folds, and recording AUROC (s,t )max ,null . The permutation p-value uses the standard +1 correction: 
+
+p =1 + PTt=1 1
+
+
+
+AUROC (s,t )max ,null ≥ AUROC (s)max 
+
+
+
+T + 1 . (21) This calibration is essential at high d/n where chance AUROC can exceed 0.5 substantially. If 
+
+p ≥ 0.05 , no reliable signal exists and localization is not attempted. For ∆shared itself, a permutation null (from label permutation with fixed CV folds) provides [null lower , null upper ].22 Decision rule. Inference uses both a bootstrap CI (from B = 200 bootstrap replicates of the full CV procedure) and the permutation null. Classification requires the same CI bound to satisfy two conditions. The result is shared-dominant when CI lower (∆ (s)
+
+> shared
+
+) > null upper and CI lower (∆ (s)
+
+> shared
+
+) > 0,and modality-dominant when CI upper (∆ (s)
+
+> shared
+
+) < null lower and CI upper (∆ (s)
+
+> shared
+
+) < 0. Otherwise localization is indeterminate .
+
+Applicability. Factorized models only (JIVE, DisentangledSSL). For entangled models (CCA, CLIP), ∆shared is not computed and the localization stage is skipped. 
+
+F.5 Ptransfer : Cross-Cohort Predictive Agreement Diagnostic question. Do independently trained outcome predictors induce a consistent patient ordering on a third, held-out cohort? 
+
+Definition. Train probes independently: f (s) 
+
+> A′
+
+on Cohort A ′ and f (s) 
+
+> B
+
+on Cohort B, both using the signal-carrying representation component z(i,s ) 
+
+> sig
+
+selected by Stage III localization outcome (shared zc
+
+as conservative fallback if indeterminate). Evaluate both on Cohort C and compute 
+
+P (s) 
+
+> transfer
+
+= Spearman 
+
+
+
+f (s) 
+
+> A′
+
+(z(i,s ) 
+
+> sig
+
+), f (s) 
+
+> B
+
+(z(i,s ) 
+
+> sig
+
+)
+
+
+
+> i∈C
+
+. (22) 
+
+Null calibration. A one-sided permutation null is estimated by permuting outcome labels within Cohorts A ′ and B, retraining probes, and recomputing P (s) 
+
+> transfer
+
+on Cohort C. The 97.5th percentile defines null upper , and a bootstrap CI ( B = 200 , stratified by outcome on C) captures estimation uncertainty. 
+
+Decision rule. Predictive transfer is supported when CI lower (P (s)
+
+> transfer
+
+) > null upper .
+
+Applicability. All models. The representation component used for probe training is selected by Stage III localization outcome (shared zc if shared-dominant or indeterminate, modality-specific zms 
+
+if modality-dominant, and full representation for non-factorized models). 
+
+F.6 Dtask quantile : Outcome-Aligned Cohort Stability Diagnostic question. Does the outcome-predictive ordering of patients remain stable across cohorts under distributional shift? 
+
+Definition. Dtask quantile reuses probes already fitted in Stages II/III so that no additional probe training is needed. 1. Probe direction ˆw. From the logistic regression coefficients WLR of the selected probe and per-dimension standard deviations ˆσ estimated on A ′:
+
+ˆw = WLR /ˆσ
+
+∥WLR /ˆσ∥2
+
+. (23) Selection follows Stage III: shared-dominant leads to using probe on zc; modality-dominant leads to using probe on zms ; indeterminate leads to using probe on zc (conservative fallback); non-factorized leads to using probe on full representation. 2. Scores. Project representations onto ˆw without per-cohort standardization: s(X) 
+
+> i
+
+=
+
+⟨z(i,s ) 
+
+> sig
+
+, ˆw⟩ for X ∈ { A′, B, C }. Each patient receives a scalar representing their posi-tion along the outcome-predictive direction. 3. A′-referenced quantiles. 
+
+q(X) 
+
+> i
+
+= FA′ (s(X) 
+
+> i
+
+) = |{ j ∈ A′ : s(A′) 
+
+> j
+
+≤ s(X) 
+
+> i
+
+}| |A′| , X ∈ { B, C }. (24) A′ provides a fixed reference scale so that B and C patients are expressed in the same units. Comparing B to C (rather than either to A ′) isolates sensitivity to shift magnitude along the probe direction, since both cohorts share the same shift direction but differ in strength. 23 4. Wasserstein-1 distance. Dtask (s) 
+
+> quantile
+
+= W1(QB , Q C ), where QX = {q(X) 
+
+> i
+
+}i∈X . A large 
+
+W1 indicates that the cohort shift moves patients differentially along the probe direction, suggesting composition-dependent ordering. 
+
+Null calibration. A one-sided permutation null is estimated by shuffling B/C cohort labels (pre-serving sizes); the probe direction ˆw is held fixed across permutations because it is defined from A ′,which is not permuted. With Nperm = 200 , null upper is the 97.5th percentile. Instability is detected when Dtask (s) 
+
+> quantile
+
+> null upper .
+
+Decision rule. Dtask quantile is computed unconditionally and not gated on the signal-presence permuta-tion test. Its permutation null controls false positives independently, and cohort-level shift can be real even when individual-level AUROC is marginal. 
+
+Applicability. All models. Dtask quantile detects instability when the cohort mean shift has a substantial component in the outcome-predictive direction. The metric measures deployment risk for the evaluation cohorts, not abstract confounding severity. 
+
+G Decision Procedure 
+
+The decision procedure is a fixed, rule-based classifier with no learned parameters. It is applied 
+
+per task and per modality s ∈ { HE , RNA } after metric computation. All decisions are expressed as directional comparisons to permutation null intervals (2.5th and 97.5th percentiles) or bootstrap confidence intervals, and no scenario-specific effect-size thresholds are used. Figure 6 provides an overview of the four-stage flow and scenario assignment logic. This section specifies the exact decision rules in full. 24 Stage I: Geometry (task-
+
+independent) 
+
+shared structure exists 
+
+Stage II: Signal Gate (per task, per 
+
+modality) 
+
+permutation p-value on 
+
+Stage III: 
+
+Localization 
+
+> no signal
+> (held until after
+> S2 check)
+> Modality-dominant Shared-dominant
+
+Stage IV: Cross-Cohort Stability (per task, per 
+
+modality)  
+
+> transfer +
+> unstable
+> signal +
+> no transfer
+> Indeterminate
+
+Indeterminate Scenario 2  
+
+> Shared structure +
+> Shared-dominant
+
+Scenario 1  
+
+> Modality-dominant
+
+Scenario 4  
+
+> No signal + no S2
+
+Scenario 3 
+
+> Otherwise
+> transfer +
+> stable
+
+Indeterminate Figure 6: DECAT decision procedure. Four stages are applied sequentially per task and per modality. Stage I checks structural geometry (task-independent). Stage II gates on signal presence. Stage III localizes signal to shared or modality-specific components (factorized models only). Stage IV evaluates cross-cohort stability via Ptransfer and Dtask quantile , with Scenario 2 checked first. Terminal nodes are the four diagnostic scenarios plus indeterminate. 25 G.1 Stage I: Structural Geometry (Task-Independent) 
+
+Computed once per modality on Cohort A ′. Anorm > null upper indicates that patient-specific shared structure exists across modalities (necessary but not sufficient for interpreting predictive signal as shared biology). Bnorm is used as a diagnostic of interpretability stability but is not used in scenario assignment. Stage I outputs a single flag of shared structure for Stages III and IV. 
+
+G.2 Stage II: Predictive Signal Existence (Per Task, Per Modality) 
+
+Compute the signal-presence gate (Appendix F.4, Step 1): the permutation p-value over AUROC max 
+
+across the three probes. If p ≥ 0.05 and Scenario 2 conditions (Stage IV) are not met, assign 
+
+Scenario 3 ; otherwise proceed to Stage III. 
+
+Ordering note: Dtask quantile (Stage IV) is computed unconditionally, and Scenario 2 is evaluated before the signal-gate routes to Scenario 3. This is necessary because cohort-level shift can be real even when individual-level AUROC is marginal. Dtask quantile ’s own permutation null controls false positives independently of the signal gate. 
+
+G.3 Stage III: Predictive Localization (Factorized Models Only) 
+
+For factorized models (JIVE, DisentangledSSL), compute ∆(s) 
+
+> shared
+
+with bootstrap CI and permutation null. Localization requires the same CI bound to satisfy two conditions. The result is shared-dominant when CI lower (∆ (s)
+
+> shared
+
+) > null upper and CI lower (∆ (s)
+
+> shared
+
+) > 0, and modality-dominant when CI upper (∆ (s)
+
+> shared
+
+) < null lower and CI upper (∆ (s)
+
+> shared
+
+) < 0. If shared-dominant, an additional guard requires 
+
+Anorm > null upper . Otherwise the shared-dominant signal is rejected as a factorization artifact and localization is recorded as indeterminate . For non-factorized models (CCA, CLIP), Stage III is skipped. 
+
+G.4 Stage IV: Cross-Cohort Stability (Per Task, Per Modality) 
+
+Stage IV reuses probes and component selections from Stages II/III. 
+
+Representation component. Selected by Stage III outcome. Shared-dominant uses zc, modality-dominant uses zms , and indeterminate falls back to zc as a conservative default. Non-factorized models use the full representation. 
+
+Scenario assignment rules. Applied in order: 1. Scenario 2 (checked first). If CI lower (P (s)
+
+> transfer
+
+) > null upper and Dtask (s) 
+
+> quantile
+
+≥ null upper , predic-tive signal transfers functionally but biological ordering is unstable across cohorts. Assign S2. 
+
+2. Scenario 1. If not S2, and Anorm > null upper , and signal-gate p < 0.05 , and (for factorized models) shared-dominant localization, and CI lower (P (s)
+
+> transfer
+
+) > null upper , and Dtask (s) 
+
+> quantile
+
+<
+
+null upper : Assign S1. 
+
+3. Scenario 4. If not S2 or S1, and signal-gate p < 0.05 , and (for factorized models) modality-dominant localization, and CI lower (P (s)
+
+> transfer
+
+) > null upper , and Dtask (s) 
+
+> quantile
+
+< null upper : Assign S4. 
+
+4. Scenario 3. If signal-gate p ≥ 0.05 and Scenario 2 not assigned: Assign S3. 
+
+5. Indeterminate. Any case not matching the above: Assign ∅.G.5 Cross-Modality Scenario Interactions 
+
+Scenarios are assigned per modality. The framework permits mixed outcomes across modalities for the same task: S1/S1 (both modalities express shared transferable biology), S1/S3 (shared biology exists but one assay does not capture it), S4/S4 (modality-specific biology transfers within each modality), S1/S2 (shared biology in one modality, cohort-specific artifact in the other), S1/S4 (shared 26 biology in one modality, additional modality-specific biology in the other). For non-factorized models, S1 and S4 cannot co-occur across modalities because localization is not available. The procedure distinguishes them operationally via Anorm , which S1 requires and S4 does not. 
+
+H Synthetic Experimental Details 
+
+This section specifies the full synthetic experimental protocol including measurement regimes, proxy configurations, outcome configurations, the pre-experiment calibration, and sample size selection. 
+
+H.1 Two-Phase Experiment Design 
+
+Each synthetic run comprises two decoupled phases: 1. Representation learning (Cohort A only, unsupervised, outcome-agnostic). 2. Outcome-scenario evaluation (linear probes on Cohorts A ′, B, C across multiple outcome configurations). This separation enables evaluating many biological scenarios on a single frozen representation without retraining, improving computational efficiency. 
+
+H.2 Representation-Generating Parameter Space 
+
+Each synthetic run is defined by a joint configuration of measurement regime β and proxy configu-ration (γh, γ r , η ). Proxy parameters affect data generation (and therefore representation learning) while outcome parameters α are introduced only at evaluation. 
+
+Measurement regimes. Four regimes are defined (Appendix D.2, Table 3). Each non-baseline regime doubles exactly one coefficient and the single-parameter-change design isolates the effect of each signal source. 
+
+Proxy configurations. Eight configurations spanning (γh, γ r , η ) (Table 7). Six use single-modality proxy ( γr = 0 , H&E contamination only) and two use dual-modality proxy ( γh = γr > 0) to test Scenario 2D.                                     
+
+> γhγrηScenario coverage Proxy regime
+> 0.3 0.0 0.3 2A weak single-modality, misaligned 0.5 0.0 0.0 2C moderate single-modality, aligned 0.5 0.0 0.3 2A moderate single-modality, misaligned 0.5 0.0 0.6 2A moderate single-modality, strongly misaligned 1.0 0.0 0.0 2C strong single-modality, aligned 1.0 0.0 0.3 2A strong single-modality, misaligned 0.5 0.5 0.0 2D moderate dual-modality, aligned 1.0 1.0 0.0 2D strong dual-modality, aligned
+
+Table 7: Proxy configuration grid. γ controls proxy magnitude; η controls geometric alignment with the shared batch axis ( η = 0 : aligned, non-identifiable via geometry; η > 0: misaligned, detectable via Dtask quantile under aligned cohort shift). 
+
+H.3 Outcome Configurations 
+
+Outcome configurations ( α values) are organized into four groups covering pure global scenarios, transition (indeterminate) regimes, mixed-modality scenarios, and proxy calibration sweeps. All baseline-runs use 27 configurations while proxy-entangled runs use 21 (17 proxy-specific plus 4 Scenario 1 configurations to measure false shared claim rate under proxy contamination). 
+
+Pure global scenarios. Scenario 1: αs ∈ {0.25 , 0.5, 0.8, 1.1} with all other α = 0 and 
+
+γ = 0 (4 configs; explained variance 20–83%). Scenario 2B (outcome-level confounding): αb ∈
+
+27 {0.25 , 0.5, 0.8, 1.1} with all other α = 0 (4 configs). Scenario 2A (feature-level proxy, misaligned): 
+
+αm > 0 with γ = 0 .5, η = 0 .3 (4 configs, 2 per modality). Scenario 2C (aligned proxy): αm = 0 .8
+
+with γ ∈ { 0.5, 1.0}, η = 0 (2 configs). Scenario 2D (dual-modality proxy): αh = αr = 0 .8 with 
+
+γh = γr ∈ { 0.5, 1.0}, η = 0 (2 configs). Scenario 4: αm ∈ { 0.25 , 0.5, 0.8, 1.1} with γ = 0 (4 configs, 2 per modality). Scenario 3: α = 0 (2 resamples). 
+
+Transition regimes. Transition A (biological ambiguity): αs ≈ αh ≈ αr > 0 with αb = 0 , γ = 0 ;magnitudes from {0.4, 0.6} (3 configs). Transition B (confounded ambiguity): Transition A plus 
+
+αb = 0 .3 and γ = 0 .3, η = 0 .3 (3 configs). These configurations test whether DECAT correctly returns indeterminate when ground-truth interpretation is impossible. 
+
+Mixed-modality scenarios. Four mixed types with dominant/secondary signal levels from 
+
+{0.8, 1.1} and {0.3, 0.5} (8 configs total): Mixed A (shared + modality-specific; αs + αh), Mixed B (two modality-specific; αh + αr ), Mixed C (shared + proxy; αs + αh with γ = 0 .5, η = 0 .3), Mixed D (shared + confounding; αs + αb). These induce cross-modal scenario mismatches (e.g., S1 for RNA, S4 for H&E) that test DECAT’s per-modality discrimination. 
+
+Proxy calibration sweep. Four configurations holding αm = 0 .8 fixed while varying (γ, η ):
+
+(0 , 0) , (0 .5, 0) , (0 .5, 0.3) , (0 .5, 0.6) , isolating the effect of proxy alignment from proxy strength. 
+
+H.4 Pre-Experiment Calibration 
+
+Two pre-experiments establish training protocols before the main experiment. 
+
+Pre Step A: alignment saturation. Determine the minimal Ntrain for which A∗ 
+
+> norm
+
+(normalized cross-modal alignment on held-out Cohort A ′) stabilizes. Sweep k ∈ { 5, 10 , 50 , 100 } and Ntrain ∈{10 k, 20 k, 30 k, 40 k, 50 k} across all 7 model configurations (4 DSSL, CLIP, JIVE, CCA) with 5 seeds each. Cohort A is generated once at N max  
+
+> train
+
+= 50 k and smaller sizes are obtained by subsampling without replacement. Saturation is assessed by checking whether consecutive Ntrain values yield overlapping 95% bootstrap CIs of A∗
+
+> norm
+
+. Most models across most regimes satisfy this criterion by 
+
+Ntrain = 30 k, with the modality-dominant regime showing the slowest convergence (see Section J.2). For the main experiment ( k = 50 ), we use Ntrain = 30 k = 1500 .
+
+Pre Step A.2: epoch convergence. Validate that fixed epoch counts for nonlinear models (CLIP, DisentangledSSL) fall in the converged regime at the Ntrain selected above. Train 5 configurations (CLIP + 4 DSSL diagonal) for 5 seeds, tracking A∗ 
+
+> norm
+
+every 25 epochs. Default epoch counts are validated if A∗ 
+
+> norm
+
+plateaus before the final epoch. Closed-form models (CCA, JIVE) require no convergence validation. 
+
+H.5 Sample Sizes and Scenario Identifiability Metrics Evaluation sample size. We sweep Neval ∈ { 50 , 100 , 200 , 500 , 1000 } for each cohort (A ′, B, C). Cohorts are generated at max( Neval ) = 1000 and smaller sizes are obtained by stratified subsampling. All other parameters are held fixed. 
+
+Reporting metrics. Let S∗ denote the ground-truth scenario and ˆS the DECAT-assigned scenario. We report the following as functions of Neval : strict accuracy P(S∗ ∈ ˆS); conservative accuracy 
+
+P(S∗ ∈ ˆS or ˆS = ∅), in which indeterminate is not penalized; false shared claim rate (FSCR) 
+
+P( ˆS = {1} ∧ S∗̸ = 1) , the key safety metric capturing how often the framework assigns shared biology when it is absent; indeterminate sensitivity P( ˆS = ∅ | S∗ = ∅), measuring whether the framework correctly hedges on fundamentally ambiguous configurations; cross-modality resolution accuracy , the probability that both modalities are simultaneously classified correctly on tasks where the two modalities have different ground-truth scenarios. 
+
+H.6 Total Experimental Scale 
+
+Main experiment: R = 365 synthetic runs (125 baseline + 240 proxy-entangled). Each run trains 7 representations (4 DSSL + CLIP + JIVE + CCA), for a total of 2555 representation trainings. 28 Evaluation covers 27 configurations for baseline runs and 21 for proxy runs, across 5 evaluation sizes, yielding 294,525 evaluation calls (589,050 modality-task records). 
+
+I TCGA Validation Experimental Details 
+
+I.1 Dataset and Embeddings 
+
+We applied DECAT to paired histopathology and transcriptomic embeddings from 8,979 TCGA patients spanning 32 cancer types. Only diagnostic (FFPE) slides were used and for patients with multiple diagnostic slides, one was selected at random. Patients without both modalities available were excluded, yielding the 8,979-patient paired cohort used throughout. 
+
+H&E image preprocessing. For each H&E slide, tissue regions were identified using HSV-based colour thresholding and non-tissue tiles were excluded based on a minimum tissue coverage thresh-old of 10% per tile. Tile sizes were matched to each model’s pretraining resolution: 512 × 512 
+
+pixels at 0.5 μm/pixel for TITAN, and 224 × 224 pixels at 0.5 μm/pixel for the four additional pathology foundation models used in the unimodal comparison (Section I.8): CONCHv1.5, UNIv2, H-Optimus-0, and OpenMidnight. For multimodal experiments, H&E embeddings were obtained from TITAN [ 21 ], a slide-level multimodal foundation model whose native aggregation head produces a single 768-dimensional slide-level embedding per patient. For patch-level models (CONCHv1.5, UNIv2, H-Optimus-0, OpenMidnight), per-tile embeddings were mean-pooled across all retained tissue tiles to yield a single per-patient embedding. 
+
+RNA-seq preprocessing. Bulk RNA-seq profiles were processed to log 2(TPM + 1) -normalized expression values across 19,177 protein-coding genes (Ensembl gene IDs). Gene expression values were converted to sample-level embeddings using the Clinical Transformer [ 22 ] (vnBERT architecture, a value-based transformer that encodes each gene as a token–value pair). Values were first normalized per sample using a robust z-score (( x − median )/(MAD + ε)) , then passed through a dual embedding layer (combining a learned token embedding with a linear projection of the scalar value) and a standard transformer encoder, with the [CLS] token’s final hidden state serving as the 1,024-dimensional sample embedding. 
+
+I.2 Representation Learning 
+
+Cohort A (55% of paired patients, N = 4 ,938 ) was used for unsupervised representation learning. The remaining 45% ( N = 4 ,041 ) were reserved as held-out evaluation patients and never used during training. All four model classes (CCA, CLIP, JIVE, and DisentangledSSL at four disentanglement strengths) were trained on Cohort A using the same architecture and hyperparameters as the synthetic experiment, with the only structural difference being that input dimensions are no longer equal across modalities. H&E embeddings have dh = 768 (TITAN) and RNA embeddings have dr = 1 ,024 
+
+(Clinical Transformer), compared to dh = dr = 1 ,024 in the synthetic experiment. For nonlinear models (CLIP, DisentangledSSL), each modality is encoded by a two-layer MLP with hidden width 
+
+4 × dm, ReLU activation, and L2-normalized output, yielding hidden dimensions of 3,072 for H&E and 4,096 for RNA. The output latent dimension is K = 50 for all models and modalities. CCA and JIVE are applied directly to the input embeddings and their projections adapt to the asymmetric input dimensions automatically. Epoch counts, batch size (256), learning rate ( 10 −3), and temperature (τ = 0 .07 ) are unchanged from the synthetic experiment. Encoders were frozen before evaluation. DECAT operates on the K = 50 (or 2K for factorized models) learned latent representations output by each model. The raw foundation model embeddings are used only as input to the representation learning step and are never accessed by the diagnostic metrics. 
+
+I.3 Pooled Random Splits 
+
+Fifty independent splits were drawn from the held-out 45%, each partitioned into Cohort A ′ (15%), Cohort B (15%), and Cohort C (15%) by random sampling from the pan-cancer held-out pool, retaining the natural cancer-type composition. These splits evaluate whether representations learned on Cohort A generalize to independent evaluation cohorts. For the multimodal experiment, expected verdicts are S1 (CCA variates), S4 (JIVE RNA-residual PCs), and S3 (random labels). For the 29 unimodal experiment (Stages II and IV only), task-relevant labels are expected to return Transferable or S2 depending on confound strength. 
+
+I.4 Extreme-C Splits 
+
+To test S2B (confounding signal) detection, we designed an extreme-C cohort structure. Cohorts A ′
+
+and B are drawn randomly from the full held-out pool, retaining the natural pan-cancer composition. Cohort C is drawn from a label-extreme pool E defined without requiring knowledge of cancer type or any other confounder. For continuous labels (e.g., TMB, Age), E is defined by thresholding the prediction variable itself at the patient-level 75th percentile (e.g., patients with log( TMB + 1) above p75). For binary labels (e.g., TP53), E is defined as the top-10% of held-out patients ranked by a logistic regression probe score trained on A ′ representations. Fifty splits were generated per label. Cohort A (training) is held fixed across all splits and only A ′/B/C assignments vary across seeds. 
+
+I.5 Task Labels 
+
+All continuous task labels are binarized at the pan-cancer median to produce binary classification targets for the linear probes. For pooled splits, task labels include CCA variates 1–50 binarized at their respective pan-cancer medians (S1 ground truth by construction), JIVE RNA-residual principal components 1–50 similarly binarized (S4 ground truth by construction), and ten random binary labels (S3). For extreme-C splits, biologically confounded labels include log( TMB + 1) binarized at the pan-cancer median, TP53 somatic mutation status, and age at diagnosis binarized at the pan-cancer median. Labels are introduced only at evaluation. η2 quantifies the fraction of label variance explained by cancer type, serving as a naive estimate of confound strength. MC3 mutation calls were used for TP53 and TMB was calculated as somatic non-synonymous mutations per megabase. 
+
+I.6 α-Mixture Sweep 
+
+To characterize the S1-to-S2 transition as a function of cohort composition, we swept the fraction 
+
+α ∈ { 0.0, 0.1, . . . , 1.0} of Cohort C drawn from the extreme pool E versus the non-extreme pool. The three-way split assigns one-third of held-out patients to A ′, one-third to B, and one-third to a C-pool from which C is sampled. At α = 0 , C is drawn entirely from the non-extreme pool (patients not in E), which deliberately excludes label-extreme patients and is thus slightly more conservative than a fully random draw from the observed pan-cancer cohort composition. NC = min( |E ∩ C-pool |, 300) 
+
+is held fixed across α to equate statistical power. Fifty seeds were used per (label, α) combination. 
+
+I.7 Power Curve 
+
+We measured S2 detection rate as a function of evaluation cohort size N under two comple-mentary designs that address distinct practitioner questions. In the equal-N design, A ′ = B = C = N are varied together, modeling a prospective study where all cohorts are resource-limited. In the vary-C design, A ′ and B are held at their full size while only C = N is varied, model-ing a setting where a large reference cohort exists and only the deployment cohort is limited. 
+
+N ∈ { 25 , 50 , 100 , 150 , 200 , 300 , 500 , 750 , 1000 } with 50 seeds per N .
+
+I.8 Unimodal H&E Foundation Model Comparison 
+
+To assess DECAT’s applicability to unimodal H&E models without paired RNA, we evaluated five pretrained pathology foundation models: TITAN [ 21 ] (slide-level, 768-dim), CONCHv1.5 [ 23 ](mean-pooled over patch-level, 768-dim), UNIv2 [ 24 ] (mean-pooled over patch level, 1536-dim), H-Optimus-0 [ 25 ] (mean-pooled over patch-level, 1536-dim), and OpenMidnight [ 26 , 27 ] (mean-pooled over patch-level, 1536-dim). Note that although CONCHv1.5 is a vision-language pretrained foundation model, and the TITAN architecture uses the CONCHv1.5 patch encoder, we refer to these as "unimodal" since they only encode one direct measurement (H&E) of the biological sample at inference. Unlike the multimodal pipeline, the unimodal comparison applies DECAT directly to foundation model embeddings without an intermediate representation learning step. Stages II and IV are applied to FM embeddings standardized using A ′ statistics (mean and variance estimated on Cohort A ′
+
+30 and applied to all cohorts), and raw unstandardized embeddings are passed to Dtask quantile , which uses A′-referenced quantile positions to preserve cohort mean-shift information. Logistic regression probes are trained on Cohort A ′ embeddings to define the probe direction for Ptransfer and Dtask quantile .This tests DECAT as a practitioner might use it: take an existing frozen FM, apply logistic regression probes, and run the diagnostic metrics with no training overhead beyond the probe itself. Stage I (Anorm , cross-modal agreement) and Stage III ( ∆shared , signal localization) require paired modalities and are omitted. The unimodal decision maps to S2 ( Ptransfer fires and Dtask quantile fires), Transferable (Ptransfer fires, Dtask quantile stable), S3 (signal gate fails), or Indeterminate. We evaluated 16 recurrently mutated driver genes from the MC3 consensus somatic mutation callset, selected by requiring pan-cancer prevalence ≥3% and a minimum of 40 patients with the minority label in at least one cancer type. For each gene, the extreme pool E is defined per FM using that FM’s own linear probe trained on A ′. E consists of the top-10% of evaluation patients by probe score, requiring no knowledge of cancer type. The α-mixture sweep varies the fraction of Cohort C drawn from E across α ∈ { 0.0, 0.2, 0.4, 0.6, 0.8, 1.0} with NC = 300 fixed. Fifty seeds were used per (gene, FM, α) combination. For each split, the S2 flag rate is recorded across α values, and the S2 AUC (area under the flag rate vs α curve) provides a single summary statistic per gene ×FM combination. Post-hoc within-cancer-type AUROC collapse ( ∆ = AUROC pan − AUROC within ,median across cancer types) is computed independently to validate that the S2 flag rate tracks the same FM–gene combinations affected by confounding. 
+
+J Further Synthetic Experimental Results 
+
+This section contains synthetic experimental results that complement the main paper’s focus on scenario classification. 
+
+J.1 Simulator and Metric Validation 
+
+Before evaluating DECAT on scenario classification, we validate that the structural metrics ( Anorm ,
+
+Bnorm ) respond correctly to controlled variation in the simulator’s signal composition. In these experiments, observations are projected into the ground-truth shared latent space using the simulator’s known projection matrices ( A⊤ 
+
+> s
+
+and B⊤ 
+
+> s
+
+), providing an ideal-case baseline independent of any learned representation. Each β coefficient is swept independently while all others are held at zero. Figure 7 shows the representation geometry landscape. Shared signal ( βs) drives the representation strongly into the aligned-structure region, modality-specific signal ( βh, βr ) remains in the no-shared-structure region, and batch signal ( βb) at high values enters the edge of the aligned-structure region, mimicking shared structure. Figure 8 shows the per-β sensitivity curves. Two findings are notable. First, Anorm rises above its null threshold at high βb (Figure 8d): both shared biology and batch signal produce statistically significant cross-modal agreement, though at very different magnitudes. Since the decision tree uses a binary null test rather than a magnitude threshold (which would not be comparable across model architectures), this confirms that structural metrics alone cannot reliably distinguish Scenario 1 from Scenario 2, motivating the outcome-directed metrics ( ∆shared , Ptransfer ,
+
+Dtask quantile ). Second, modality-specific signal ( βh, βr ) does not inflate Anorm even at large values (Figure 8b/c), meaning the S1/S4 distinction cannot be made from geometry alone and requires predictive localization via ∆shared .31 0.0 0.2 0.4 0.6 0.8 1.0 
+
+Anorm (cross-modal shared structure) 
+
+0.150 
+
+0.125 
+
+0.100 
+
+0.075 
+
+0.050 
+
+0.025 
+
+0.000 
+
+0.025 
+
+> Bnorm  (prototype consistency)
+> No shared structure
+
+Aligned structure 
+
+Inconsistent structure 
+
+Contradictory structure 
+
+a. Representation Geometry (Independent Sweeps) 
+
+A_norm null (0.014) 
+
+B_norm null lower (-0.011) 
+
+B_norm null upper (0.011)  
+
+> b
+
+(batch)  
+
+> h
+
+(H&E-specific)  
+
+> r
+
+(RNA-specific)  
+
+> s
+
+(shared) Figure 7: Representation geometry under independent β sweeps. Each curve varies one β
+
+coefficient while holding others at zero; marker size increases with β value. Null thresholds (dashed lines) are the most conservative boundaries across all β conditions (max of per-condition 97.5th percentiles from 200 permutations). Only shared signal ( βs) drives the representation strongly into the aligned-structure region. Modality-specific signal ( βh, βr ) remains in the no-shared-structure cluster. Batch signal ( βb) at high values enters the edge of the aligned-structure region, confirming that strong batch effects can mimic shared structure in these metrics. 0 5 10 15  
+
+> s(shared)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Anorm
+
+a. s (shared)     
+
+> 0510 15
+> h(H&E-specific)
+> 0.010
+> 0.005
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> Anorm
+
+b. h (H&E-specific)     
+
+> 0510 15
+> r(RNA-specific)
+> 0.010
+> 0.005
+> 0.000
+> 0.005
+> 0.010
+> 0.015
+> Anorm
+
+c. r (RNA-specific)     
+
+> 0510 15
+> b(batch)
+> 0.01
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> Anorm
+
+d. b (batch) 
+
+> 0.15
+> 0.10
+> 0.05
+> 0.00
+> Bnorm
+> 0.010
+> 0.005
+> 0.000
+> 0.005
+> 0.010
+> Bnorm
+> 0.010
+> 0.005
+> 0.000
+> 0.005
+> 0.010
+> Bnorm
+> 0.010
+> 0.005
+> 0.000
+> 0.005
+> 0.010
+> Bnorm
+> Anorm
+> A_norm null (0.014)
+> Bnorm
+> B_norm null lower (-0.011)
+> B_norm null upper (0.011)
+> Baseline
+
+Figure 8: Per-β sensitivity of Anorm and Bnorm . Each panel sweeps one β coefficient independently while holding all others at zero. Dashed lines indicate the most conservative null boundary across all 
+
+β conditions (max/min of per-condition percentiles from 200 permutations). (a) βs produces strong 
+
+Anorm response and negative Bnorm . (b/c) βh and βr do not inflate Anorm . The Bnorm curve for βh is noisier than for βr because prototypes are defined from z(h)
+
+c , whose projections shift as βh varies. (d) βb inflates Anorm above null at high values. 32 Figure 9 validates ∆shared by sweeping the outcome mixing parameter αs from 0 (outcome driven entirely by modality-specific signal) to 1 (outcome driven entirely by shared signal), with αr = 1 −αs.Cross-validated linear probes are trained on the ground-truth latents ( zs and zr ) from Cohort A ′, in a clean two-signal setting ( βs = βr = 1 , βh = βb = 0 ). As αs increases, ∆shared transitions smoothly from negative (modality-specific dominant) through the null interval to positive (shared dominant), and the component AUROCs cross over, confirming that the metric correctly tracks the source of predictive signal. 0.00 0.25 0.50 0.75 1.00 
+
+> s
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> shared
+
+a.      
+
+> shared
+> vs outcome mixing
+> Null interval (95%)
+> Decision boundary (Delta=0)
+> shared (mean +/- std)
+> 0.00 0.25 0.50 0.75 1.00
+> s
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> AUROC
+
+b.   
+
+> Component AUROCs
+> vs outcome mixing
+> Chance (0.5)
+> AUROC( zsy) (mean +/- std)
+> AUROC( zry) (mean +/- std)
+
+Figure 9: ∆shared validation via outcome mixing sweep. αs controls the fraction of outcome signal from the shared latent ( αr = 1 − αs). (a) ∆shared transitions from modality-dominant (negative) to shared-dominant (positive) as shared signal increases. Gray band: 95% permutation null interval (200 permutations, averaged across seeds). Error bars: mean ± std across 5 seeds. (b) Component AUROCs cross over, confirming the mechanism. Figure 10 validates Dtask quantile and Ptransfer jointly on ground-truth latents by sweeping three cohort-shift parameters that control S2B detectability. Each panel shows a trajectory through the Ptransfer vs. 
+
+Dtask quantile metric space, with S1 and S4h as stable reference points. As batch alignment ( ρb; Figure 10a), shift magnitude ( M ; Figure 10b), or B–C asymmetry ( ε; Figure 10c) increase, S2B moves from the S1/S4 region (transfer, stable) into the S2 region (transfer, unstable). The batch alignment and magnitude sweeps (Figure 10a,b) exhibit non-monotonic behavior at extreme values due to CDF saturation: when both B and C are pushed far into the tail of A ′, the quantile transform compresses both to ≈ 1 and W1 collapses. This regime corresponds to unrealistically large shifts outside the operating range of the framework. Proxy-driven S2 (S2A) cannot be validated on ground-truth latents because proxy entanglement ( γh) contaminates the observations ( xh) rather than the latents ( zh)directly. On ground-truth latents, the probe sees clean zh with no cohort shift, making S2A metrically indistinguishable from S4h. S2A validation therefore requires learned representations (Figure 22). 33 0.0 0.2 0.4 0.6 0.8 1.0                       
+
+> Ptransfer
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> Dtask quantile
+> S1 / S4
+> (transfer, stable)
+> S2
+> (transfer, unstable)
+> S3
+> (no transfer,
+> stable)
+> Unstable,
+> no transfer
+> P null (0.272)
+> D null (0.0281)
+> a. S2B: b(batch align)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Ptransfer
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> Dtask quantile
+> S1 / S4
+> (transfer, stable)
+> S2
+> (transfer, unstable)
+> S3
+> (no transfer,
+> stable)
+> Unstable,
+> no transfer P null (0.268)
+> D null (0.0278)
+> b. S2B: M(batch shift magnitude)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Ptransfer
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> Dtask quantile
+> S1 / S4
+> (transfer, stable)
+> S2
+> (transfer, unstable)
+> S3
+> (no transfer,
+> stable)
+> Unstable,
+> no transfer P null (0.251)
+> D null (0.0144)
+> c. S2B: (B-C asymmetry)
+> S1 (shared biology) S4h (modality-specific) S2B trajectory
+
+Figure 10: Dtask quantile and Ptransfer validation on ground-truth latents. S2B trajectories through the metric space under three parameter sweeps. Quadrant boundaries are the most conservative permutation null thresholds (max across conditions, 200 permutations per condition). S1 (olive) and S4h (brown) remain in the stable-transfer region. S2B (purple) enters the unstable-transfer region as cohort-shift parameters increase, with non-monotonic behavior at extreme values due to CDF saturation. Mean across 20 seeds per point. 
+
+Dtask quantile is most informatively validated on learned representations for the full S1/S2B discrimination, where the separation is imperfect. Figure 11 provides this validation from the main experiment. Figure 11a shows that S1 and S2B produce overlapping but distinguishable distributions, with S2B exhibiting a heavier right tail past the null threshold. Figure 11b confirms that the S1 false-positive rate remains near the expected 5% across all evaluation sample sizes while S2B detection rises with 
+
+Neval , demonstrating that the permutation null is well-calibrated. Figure 11c shows per-model fire rates: S1 false positives stay below 5% for all models, while S2B detection varies by architecture (40–60% at Neval = 1000 ). 0.00 0.02 0.04 0.06 
+
+> Dtask quantile
+> 0
+> 20
+> 40
+> 60
+> Density
+
+a. Distribution: S1 vs S2B     
+
+> 50 100 200 500 1000
+> Evaluation cohort size ( Neval )
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> P(Dtask quantile  > null)
+
+b. Detection rate vs Neval 
+
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> Rate
+
+c. Dtask quantile fire rate by model 
+
+> S1 (FP rate)
+> S2B (detection)
+
+Figure 11: Dtask quantile discrimination between S1 and S2B on learned representations. (a) Dis-tribution of Dtask quantile values for S1 and S2B at Neval = 1000 , all models pooled. Dashed lines: per-scenario null upper bounds. The bimodal S2B distribution reflects pooling across signal strengths (αb ∈ { 0.25 , 0.5, 0.8, 1.1}). (b) Fire rate (P( Dtask quantile > null)) versus Neval . S1 stays near 5% (well-calibrated null), S2B rises with sample size. (c) Per-model fire rates at Neval = 1000 .Figure 12 extends this analysis to proxy-driven S2 on learned representations (pooled across all proxy configurations). Unlike direct confounding, proxy S2 produces small absolute Dtask quantile values with substantial distribution overlap with S1 (Figure 12a). However, the per-run permutation null is sensitive enough to detect the small but systematic proxy-induced instability and the fire rate (Figure 12c) exceeds 5% for most models. This confirms that proxy S2 detection operates through per-run null sensitivity rather than absolute effect size separation, and that the effect size is smaller than for direct confounding by design. 34 0.00 0.02 0.04          
+
+> Dtask quantile
+> 0
+> 20
+> 40
+> 60
+> Density
+> a. Distribution: S1 vs S2 proxy
+> 50 100 200 500 1000
+> Evaluation cohort size ( Neval )
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> P(Dtask quantile  > null)
+> b. Detection rate vs Neval
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Rate
+> c. Dtask quantile fire rate by model
+> S1 (FP rate)
+> S2 proxy (detection)
+
+Figure 12: Dtask quantile : S1 vs. proxy S2 on learned representations. Same format as Figure 11. (a) Distributions overlap substantially because proxy-induced instability has a smaller absolute effect size than direct confounding. Detection relies on per-run permutation null sensitivity. Pooled across all proxy configurations. Figure 13 shows Ptransfer detection sensitivity for proxy S2. At Neval = 1000 , Ptransfer fires for 61% of proxy S2 runs pooled across all configurations, compared to ≈5% for S3 (Figure 13a). Detectability varies substantially by proxy configuration (Figure 13b): strong aligned proxy ( γh = 1 .0, η = 0 )reaches 87–88%, while weak misaligned proxy ( γh = 0 .3, η = 0 .3) reaches only 37%. Runs where 
+
+Ptransfer does not fire represent proxy contamination that is insufficiently coherent to produce reliable cross-cohort predictive transfer and the framework correctly returns indeterminate or S3 in these cases. 50 100 200 500 1000 
+
+Evaluation cohort size ( Neval )
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> P(Ptransfer  > null)
+
+a. Pooled detection rate vs Neval 
+
+S1 
+
+S3 
+
+S2 proxy 
+
+> h=0.3,  r=0.0,  =0.3
+> h=0.5,  r=0.0,  =0.6
+> h=0.5,  r=0.0,  =0.3
+> h=0.5,  r=0.0,  =0.0
+> h=0.5,  r=0.5,  =0.0
+> h=1.0,  r=0.0,  =0.3
+> h=1.0,  r=0.0,  =0.0
+> h=1.0,  r=1.0,  =0.0
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> P(Ptransfer  > null)
+
+b. 
+
+Per-config P(Ptransfer > null) 
+
+at Neval =1000 
+
+S3 (3%) 
+
+S1 (100%) 
+
+S2 proxy pooled (61%) 
+
+Figure 13: Ptransfer detection sensitivity for proxy S2. (a) Fire rate versus Neval for S1, S3, and proxy S2 (pooled). (b) Fire rate at Neval = 1000 by proxy configuration, sorted by detectability. Baseline regime, all models pooled. 35 J.2 Pre-Experiment Calibration Results 
+
+Figure 14 shows A∗
+
+norm saturation curves from Pre Step A across all four measurement regimes and latent dimensionalities ( k ∈ { 5, 10 , 50 , 100 }). Most models saturate by Ntrain = 30 k (black dashed line). The modality-dominant regime ( βh = βr = 2 .0) shows the slowest saturation due to weaker shared signal relative to modality-specific signal, and some models have not fully plateaued at 30 k
+
+in this regime. We select Ntrain = 30 k (= 1500 for k = 50 ) as a practical compromise because further increasing training size yields diminishing returns for most models and regimes and the modality-dominant regime is designed to stress-test the framework. 50      
+
+> 100
+> 150
+> 200
+> 250
+> 0.8
+> 0.9
+> k = 5
+> A *norm
+> a. Baseline
+> 50
+> 100
+> 150
+> 200
+> 250
+> 0.96
+> 0.98
+> b. Shared-dominant
+> 50
+> 100
+> 150
+> 200
+> 250
+> 0.90
+> 0.95
+> c. Batch-dominant
+> 50
+> 100
+> 150
+> 200
+> 250
+> 375
+> 0.25
+> 0.50
+> 0.75
+> d. Modality-dominant
+> 100
+> 200
+> 300
+> 400
+> 500
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> k = 10
+> A *norm
+> e.
+> 100
+> 200
+> 300
+> 400
+> 500
+> 0.97
+> 0.98
+> 0.99
+> f.
+> 100
+> 200
+> 300
+> 400
+> 500
+> 0.92
+> 0.94
+> 0.96
+> 0.98
+> g.
+> 100
+> 200
+> 300
+> 400
+> 500
+> 750
+> 0.25
+> 0.50
+> 0.75
+> h.
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 0.8
+> 0.9
+> k = 50
+> A *norm
+> i.
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 0.94
+> 0.96
+> j.
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 0.875
+> 0.900
+> 0.925
+> 0.950
+> k.
+> 500
+> 1000
+> 1500
+> 2000
+> 2500
+> 3750
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> l.
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> Ntrain
+> 0.7
+> 0.8
+> k = 100
+> A *norm
+> m.
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> Ntrain
+> 0.88
+> 0.90
+> 0.92
+> n.
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> Ntrain
+> 0.85
+> 0.90
+> o.
+> 1000
+> 2000
+> 3000
+> 4000
+> 5000
+> 7500
+> Ntrain
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> p.
+> CCA
+> JIVE
+> CLIP
+> DSSL (0.01)
+> DSSL (0.1)
+> DSSL (1.0)
+> DSSL (10.0)
+> Regime mean
+> Ntrain = 30× k
+
+Figure 14: Pre Step A: A∗
+
+norm saturation across measurement regimes and latent dimensionalities. 
+
+Thin lines: individual models. Thick lines: mean across all 7 models. Black dashed: Ntrain = 30 k
+
+recommendation used in the main experiment. All models saturate before this threshold across all regimes. Pre Step A.2 validated epoch convergence for CLIP and all four DisentangledSSL configurations across all measurement regimes, confirming that A∗
+
+norm plateaus before the selected epoch counts. The final epoch counts used in the main experiment are: CLIP 200 epochs; DSSL(0.01) and DSSL(0.1) 125 shared + 50 specific epochs; DSSL(1.0) and DSSL(10.0) 75 shared + 50 specific epochs. CCA and JIVE are closed-form and require no epoch selection. 36 J.3 Measurement Regime Effects 
+
+Figures 15–17 replicate the main-body analysis (Figure 2) for the three non-baseline measurement regimes, showing strict and conservative detection rates stratified by signal strength. The shared-dominant regime ( βs = 2 .0, Figure 15) improves S1 detection for factorized models (stronger shared signal aids localization; Figure 15a) but S2B strict detection collapses to near zero across all models because the shared signal overwhelms the batch contribution in the repre-sentation (Figure 15b). However, S2B conservative accuracy for factorized models remains high (60–100% at strong signal; Figure 15f), indicating that the framework returns indeterminate rather than misclassifying confounded signal as shared biology. The batch-dominant regime ( βb = 1 .5,Figure 16) drives S2B strict detection to near 100% across all signal strengths (Figure 16b) because the stronger batch contribution improves probe-shift alignment. However, S1 strict accuracy for factorized models collapses to near zero (Figure 16a) because batch signal contaminates the shared component ( zc), preventing ∆shared from localizing shared biology. The modality-dominant regime (βh = βr = 2 .0, Figure 17) improves S4 detection relative to baseline (Figure 17c) because the stronger modality-specific signal aids localization. Across all regimes, disentanglement strength within DisentangledSSL modulates the trade-off between factorization quality and sensitivity: weaker configurations ( βssl = 0 .01 ) behave more like entangled models, while stronger configurations (βssl = 10 .0) achieve cleaner factorization but can degrade S4 detection at high signal, possibly because aggressive compression of the shared latent discards information needed for localization. 0.25 0.50 0.80 1.10                
+
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Strict accuracy
+> a.
+> S1
+> (Shared biology)
+> 0.25 0.50 0.80 1.10
+> b
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> b.
+> S2B
+> (Confounder)
+> 0.25 0.50 0.80 1.10
+> h
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> c.
+> S4h
+> (Modality-specific biology)
+> 0
+> all
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> d.
+> S3
+> (noise)
+> 0.25 0.50 0.80 1.10
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Conservative accuracy
+> e.
+> S1
+> (Shared biology)
+> 0.25 0.50 0.80 1.10
+> b
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> f.
+> S2B
+> (Confounder)
+> 0.25 0.50 0.80 1.10
+> h
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> g.
+> S4h
+> (Modality-specific biology)
+> 0
+> all
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> h.
+> S3
+> (noise)
+> Predictive task signal
+> Predictive task signal
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+
+Figure 15: Detection rate versus predictive task signal, shared-dominant regime (βs = 2 .0,
+
+βb = 0 .75 ). Same panel layout as Figure 2. S1 detection improves for factorized models; S2B detection is suppressed because the stronger shared signal overwhelms the batch contribution. S1: Scenario 1, S2B: Scenario 2 (direct confounding), S4h: Scenario 4 (H&E-specific latent), S3: Scenario 3. Neval = 1000 , 95% Clopper–Pearson confidence intervals, 100 evaluations per point (S1, S2B, S3) and 50 per point (S4h). 37 0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Strict accuracy
+
+a. 
+
+S1 
+
+(Shared biology) 
+
+0.25 0.50 0.80 1.10 
+
+> b
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+b. 
+
+S2B 
+
+(Confounder) 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+c. 
+
+S4h 
+
+(Modality-specific biology) 
+
+0
+
+all 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+d. 
+
+S3 
+
+(noise) 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Conservative accuracy
+
+e. 
+
+S1 
+
+(Shared biology) 
+
+0.25 0.50 0.80 1.10 
+
+> b
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+f. 
+
+S2B 
+
+(Confounder) 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+g. 
+
+S4h 
+
+(Modality-specific biology) 
+
+0
+
+all 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+h. 
+
+S3 
+
+(noise) 
+
+Predictive task signal 
+
+Predictive task signal 
+
+CCA 
+
+CLIP 
+
+JIVE 
+
+DSSL(0.01) 
+
+DSSL(0.1) 
+
+DSSL(1.0) 
+
+DSSL(10.0) Figure 16: Detection rate versus predictive task signal, batch-dominant regime (βb = 1 .5). Same panel layout as Figure 2. S2B detection approaches 100% at strong signal; S1 localization degrades for factorized models because batch signal contaminates the shared component. S1: Scenario 1, S2B: Scenario 2 (direct confounding), S4h: Scenario 4 (H&E-specific latent), S3: Scenario 3. 
+
+Neval = 1000 , 95% Clopper–Pearson confidence intervals, 100 evaluations per point (S1, S2B, S3) and 50 per point (S4h). 38 0.25 0.50 0.80 1.10                
+
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Strict accuracy
+> a.
+> S1
+> (Shared biology)
+> 0.25 0.50 0.80 1.10
+> b
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> b.
+> S2B
+> (Confounder)
+> 0.25 0.50 0.80 1.10
+> h
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> c.
+> S4h
+> (Modality-specific biology)
+> 0
+> all
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> d.
+> S3
+> (noise)
+> 0.25 0.50 0.80 1.10
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Conservative accuracy
+> e.
+> S1
+> (Shared biology)
+> 0.25 0.50 0.80 1.10
+> b
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> f.
+> S2B
+> (Confounder)
+> 0.25 0.50 0.80 1.10
+> h
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> g.
+> S4h
+> (Modality-specific biology)
+> 0
+> all
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> h.
+> S3
+> (noise)
+> Predictive task signal
+> Predictive task signal
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+
+Figure 17: Detection rate versus predictive task signal, modality-dominant regime (βh = βr =2.0, βb = 0 .75 ). Same panel layout as Figure 2. S4 detection improves relative to baseline because the stronger modality-specific signal aids localization. S1: Scenario 1, S2B: Scenario 2 (direct confounding), S4h: Scenario 4 (H&E-specific latent), S3: Scenario 3. Neval = 1000 , 95% Clopper– Pearson confidence intervals, 100 evaluations per point (S1, S2B, S3) and 50 per point (S4h). 
+
+J.4 Detection Rate vs. Evaluation Sample Size 
+
+Figure 18 shows detection rates versus Neval on the baseline regime, pooled across all signal strengths (α ∈ { 0.25 , 0.50 , 0.80 , 1.10 }). S2B and S4h strict accuracy curves are still rising at Neval = 1000 
+
+(Figure 18b,c), confirming that larger evaluation cohorts would improve diagnostic reliability for these scenarios. Conservative accuracy saturates earlier than strict for most scenario-model combinations (Figure 18e–g), reflecting the framework’s transition from indeterminate to confident classification as sample size grows. Note that this synthetic experiment uses equal-sized cohorts (A ′ = B = C
+
+= Neval ). The TCGA power curve (Figure 30) reveals a more nuanced picture on real data where the primary bottleneck is probe quality in the reference cohorts (A ′/B), and the deployment cohort C can be substantially smaller while still achieving reliable detection. 39 50 100 200 500 1000                             
+
+> Neval
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Strict accuracy
+> a.
+> S1
+> (Shared biology)
+> 50 100 200 500 1000
+> Neval
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> b.
+> S2B
+> (Confounder)
+> 50 100 200 500 1000
+> Neval
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> c.
+> S4h
+> (Modality-specific biology)
+> 50 100 200 500 1000
+> Neval
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> d.
+> S3
+> (noise)
+> 50 100 200 500 1000
+> Neval
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Conservative accuracy
+> e.
+> S1
+> (Shared biology)
+> 50 100 200 500 1000
+> Neval
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> f.
+> S2B
+> (Confounder)
+> 50 100 200 500 1000
+> Neval
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> g.
+> S4h
+> (Modality-specific biology)
+> 50 100 200 500 1000
+> Neval
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> h.
+> S3
+> (noise)
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+
+Figure 18: Detection rate versus evaluation sample size per model. Same panel layout as Figure 2 (top row: strict accuracy, bottom row: conservative accuracy) but with Neval on the x-axis, pooled across all α values. Most metrics are still improving at Neval = 1000 , confirming that larger evaluation cohorts would improve diagnostic reliability. S1: Scenario 1, S2B: Scenario 2 (direct confounding), S4h: Scenario 4 (H&E-specific latent), S3: Scenario 3. Baseline regime, no proxy, 95% Clopper– Pearson confidence intervals. 
+
+J.5 FSCR by Measurement Regime 
+
+Figures 19–21 replicate the FSCR analysis (Figure 3) for the three non-baseline regimes. FSCR patterns differ across regimes in interpretable ways. In the shared-dominant regime (Figure 19), FSCR for entangled models is lower than baseline because the stronger shared signal makes S2B tasks relatively less detectable (the shared signal overwhelms the batch contribution in the representation, so fewer S2B cases pass Ptransfer confidently enough to be misclassified as S1). In the batch-dominant regime (Figure 20), FSCR on S2B is near zero for all models because Dtask quantile fires reliably when batch signal is strong and the S2 check intercepts confounded signal before it can be misclassified as S1. In the modality-dominant regime (Figure 21), FSCR is elevated relative to baseline for entangled models, driven primarily by S4 misclassification. Stronger modality-specific signal provides more detectable predictive structure that entangled models attribute to shared biology. 40 0.25 0.50 0.80 1.10  
+
+> Predictive task signal ( )
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> FSCR
+
+a. FSCR vs signal strength     
+
+> 50 100 200 500 1000
+> Evaluation cohort size ( Neval )
+> 0.00
+> 0.01
+> 0.02
+> 0.03
+> FSCR
+
+b. FSCR vs evaluation cohort size 
+
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> FSCR
+
+c. FSCR by true scenario 
+
+> True scenario
+> S2B
+> S3
+> S4
+
+Figure 19: False shared claim rate (FSCR), shared-dominant regime (βs = 2 .0, βb = 0 .75 ). Same panel layout as Figure 3. (a) FSCR versus predictive task signal. (b) FSCR versus Neval .(c) FSCR decomposed by true scenario. No proxy. 95% Clopper–Pearson confidence intervals. 500 evaluations per point in (a), 1,400 per point in (b), 400 (S2B, S4) and 600 (S3) per bar in (c). 0.25 0.50 0.80 1.10  
+
+> Predictive task signal ( )
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> FSCR
+
+a. FSCR vs signal strength     
+
+> 50 100 200 500 1000
+> Evaluation cohort size ( Neval )
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> FSCR
+
+b. FSCR vs evaluation cohort size 
+
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> FSCR
+
+c. FSCR by true scenario 
+
+> True scenario
+> S2B
+> S3
+> S4
+
+Figure 20: False shared claim rate (FSCR), batch-dominant regime (βb = 1 .5). Same panel layout as Figure 3. (a) FSCR versus predictive task signal. (b) FSCR versus Neval . (c) FSCR decomposed by true scenario. No proxy. 95% Clopper–Pearson confidence intervals. 500 evaluations per point in (a), 1,400 per point in (b), 400 (S2B, S4) and 600 (S3) per bar in (c). 0.25 0.50 0.80 1.10  
+
+> Predictive task signal ( )
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> FSCR
+
+a. FSCR vs signal strength     
+
+> 50 100 200 500 1000
+> Evaluation cohort size ( Neval )
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> FSCR
+
+b. FSCR vs evaluation cohort size 
+
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> FSCR
+
+c. FSCR by true scenario 
+
+> True scenario
+> S2B
+> S3
+> S4
+
+Figure 21: False shared claim rate (FSCR), modality-dominant regime (βh = βr = 2 .0, βb =0.75 ). Same panel layout as Figure 3. (a) FSCR versus predictive task signal. (b) FSCR versus Neval .(c) FSCR decomposed by true scenario. No proxy. 95% Clopper–Pearson confidence intervals. 500 evaluations per point in (a), 1,400 per point in (b), 400 (S2B, S4) and 600 (S3) per bar in (c). 41 J.6 Proxy Detection by Condition 
+
+Figure 22 evaluates DECAT on representations learned from proxy-entangled data. S1 detection is largely preserved relative to clean data (Figure 22a), with most models showing drops of less than 5%. Conservative S1 accuracy remains above 90% for all models (Figure 22d). Proxy S2 strict detection remains low at 5–20% (Figure 22b), consistent with the geometric challenge of detecting instability along proxy-contaminated directions. Conservative rates reach 60–75% for factorized models at strong signal (Figure 22e), indicating that instability is detected but the evidence is insufficient for confident S2 classification. The false proxy claim rate (Figure 22c) stays below 15% across all models and signal strengths. The FSCR decomposition by proxy subtype (Figure 22f) reveals that dual-modality proxy (S2D) induces the highest false S1 rates for entangled models, because proxy signal entering both modalities along the same direction mimics shared biological structure. All factorized models (JIVE and DSSL) maintain near-zero FSCR across all proxy subtypes (Figure 22f), confirming that the ∆shared localization gate prevents false shared-biology claims even under proxy contamination. 0.25 0.50 0.80 1.10              
+
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Strict accuracy
+> a.
+> S1 detection
+> on proxy representation
+> 0.25 0.50 0.80 1.10
+> h
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> b.
+> Proxy S2 detection
+> on proxy representation
+> 0.25 0.50 0.80 1.10
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> c.
+> False proxy claim
+> on proxy representation
+> 0.25 0.50 0.80 1.10
+> s
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Conservative accuracy
+> d.
+> S1 detection
+> on proxy representation
+> 0.25 0.50 0.80 1.10
+> h
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> e.
+> Proxy S2 detection
+> on proxy representation
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> FSCR
+> f. FSCR by true proxy scenario
+> Predictive task signal
+> Predictive task signal
+> Model
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> True scenario
+> S2A
+> S2C
+> S2D
+
+Figure 22: DECAT behavior on proxy-contaminated representations. (a/d) S1 detection rate on proxy-contaminated representations versus αs (shared signal strength). (b/e) Proxy S2 detection rate versus αh (H&E-specific signal strength through the proxy-contaminated pathway). (c) False proxy claim rate versus αs, measuring how often genuine shared biology is falsely flagged as spurious. (f) FSCR decomposed by proxy subtype. S2A: misaligned single-modality proxy, S2C: aligned single-modality proxy, S2D: dual-modality proxy. Top row: strict rates. Bottom row: conservative rates (a/d, b/e). Baseline regime, Neval = 1000 , pooled across all 8 proxy configurations, 95% Clopper–Pearson confidence intervals. (a/d) and (c): 128 evaluations per point. (b/e): 128 evaluations per point except αh = 0 .80 (640 evaluations). (f): 512 (S2A), 256 (S2C), 256 (S2D) evaluations per model. Figures 23 and 24 stratify the proxy results from Figure 22 by individual proxy condition ( γ, η), providing a detailed view of how proxy strength and alignment geometry affect S1 detection and proxy S2 detection respectively. 42 0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Strict accuracy
+
+a. 
+
+Weak 
+
+(gamma=0.3,eta=0.3) 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+b. 
+
+Moderate 
+
+(gamma=0.5,eta=0.3) 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+c. 
+
+Strong 
+
+(gamma=1.0,eta=0.3) 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+d. 
+
+Aligned 
+
+(gamma=0.5,eta=0) 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+e. 
+
+Dual-modal 
+
+(gamma=0.5/0.5) 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Conservative accuracy
+
+f. 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+g. 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+h. 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+i. 
+
+0.25 0.50 0.80 1.10 
+
+> s
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+j. 
+
+CCA 
+
+CLIP 
+
+JIVE 
+
+DSSL(0.01) 
+
+DSSL(0.1) 
+
+DSSL(1.0) 
+
+DSSL(10.0) Figure 23: S1 detection on proxy-contaminated representations, stratified by proxy condition. 
+
+Columns: proxy conditions varying in strength ( γ) and alignment ( η). Same format as Figure 2 (top: strict, bottom: conservative). 0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Strict accuracy
+
+a. 
+
+Weak 
+
+(gamma=0.3,eta=0.3) 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+b. 
+
+Moderate 
+
+(gamma=0.5,eta=0.3) 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+c. 
+
+Strong 
+
+(gamma=1.0,eta=0.3) 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+d. 
+
+Aligned 
+
+(gamma=0.5,eta=0) 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+e. 
+
+Dual-modal 
+
+(gamma=0.5/0.5) 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Conservative accuracy
+
+f. 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+g. 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+h. 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+i. 
+
+0.25 0.50 0.80 1.10 
+
+> h
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+j. 
+
+CCA 
+
+CLIP 
+
+JIVE 
+
+DSSL(0.01) 
+
+DSSL(0.1) 
+
+DSSL(1.0) 
+
+DSSL(10.0) 
+
+Figure 24: Proxy S2 detection stratified by proxy condition. Columns: proxy conditions. Detection rates remain low (5–35%) across all conditions, with stronger proxy ( γ = 1 .0) producing the highest detection rates. 
+
+J.7 Cross-Modality Resolution 
+
+Figure 25 shows cross-modality resolution accuracy, the probability that both modalities are correctly classified simultaneously when they have different ground-truth scenarios (S4h: H&E=S4, RNA=S3 and vice versa for S4r). These are pure global scenario configurations (not mixed-mechanism), where each modality independently has a well-defined ground truth. Factorized models (JIVE at 60–68%, DSSL variants at 35–62%) achieve meaningful cross-modality resolution at Neval = 1000 , while entangled models remain near zero because they cannot localize modality-specific signal. Resolution accuracy is still rising at Neval = 1000 for all factorized models. 43 50 100 200 500 1000 
+
+Evaluation cohort size ( Neval )
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Cross-modality resolution accuracy
+
+a. 
+
+S4h 
+
+(GT: H&E=S4, RNA=S3) 
+
+50 100 200 500 1000 
+
+Evaluation cohort size ( Neval )
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Cross-modality resolution accuracy
+
+b. 
+
+S4r 
+
+(GT: H&E=S3, RNA=S4) 
+
+CCA 
+
+CLIP 
+
+JIVE 
+
+DSSL(0.01) 
+
+DSSL(0.1) 
+
+DSSL(1.0) 
+
+DSSL(10.0) Figure 25: Cross-modality resolution accuracy versus Neval . Probability that both modalities are correctly classified simultaneously. (a) S4h (H&E=S4, RNA=S3). (b) S4r (H&E=S3, RNA=S4). Factorized models achieve meaningful resolution; entangled models cannot resolve different scenarios across modalities. 44 J.8 Asymmetric Mixed and Transition Scenario Behavior 
+
+When multiple signal sources co-exist in the same task (mixed configurations), DECAT classifies each modality independently. Figure 26 shows per-modality scenario classification for mixed-type configurations on the baseline regime at Neval = 1000 .For Mixed A ( αs > α h, ground truth: RNA=S1, H&E=S4; Figure 26a/e), RNA is correctly classified as S1 in the majority of cases across all models. However, H&E is also routed to S1 rather than S4 because the shared signal ( αs ∈ { 0.8, 1.1}) dominates the modality-specific signal ( αh ∈ { 0.3, 0.5})in the learned representation. For Mixed B ( αh + αr , no shared signal, ground truth: both S4; Figure 26b/f), H&E is correctly classified as S4 by factorized models, but the RNA-specific signal is too weak for reliable localization, producing mostly S3 or indeterminate classifications for RNA. Mixed C ( αs + αh with proxy γh > 0, η = 0 .3, ground truth: RNA=S1, H&E=S2; Figure 26c/g) tests whether DECAT can distinguish shared biology from proxy-driven signal across modalities. Mixed D ( αs + αb, ground truth: both shared biology and confounding co-exist; Figure 26d/h) tests behavior when a prediction is partially real and partially confounded. In this case DECAT should ideally return S2 (since confounding is present) or indeterminate, but not S1. Strict mixed-scenario resolution accuracy (both modalities simultaneously correct) is near zero for Mixed A and B due to signal asymmetries. CCA 
+
+> CLIP
+> JIVE
+> DSSL
+> median
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> H&E
+> Fraction
+> a.
+> Mixed A
+> (GT: RNA=S1, H&E=S4)
+> CCA
+> CLIP
+> JIVE
+> DSSL
+> median
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> b.
+> Mixed B
+> (GT: H&E=S4, RNA=S4)
+> CCA
+> CLIP
+> JIVE
+> DSSL
+> median
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> c.
+> Mixed C
+> (shared + proxy, eta=0.3)
+> CCA
+> CLIP
+> JIVE
+> DSSL
+> median
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> d.
+> Mixed D
+> (shared + confounding)
+> CCA
+> CLIP
+> JIVE
+> DSSL
+> median
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> RNA
+> Fraction
+> e.
+> CCA
+> CLIP
+> JIVE
+> DSSL
+> median
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> f.
+> CCA
+> CLIP
+> JIVE
+> DSSL
+> median
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> g.
+> CCA
+> CLIP
+> JIVE
+> DSSL
+> median
+> 0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1
+> h.
+> Predicted
+> scenario
+> S1
+> S2
+> S3
+> S4
+> indet.
+
+Figure 26: Per-modality scenario classification on asymmetric mixed-signal tasks. Base-line regime, Neval = 1000 . Top row: H&E modality. Bottom row: RNA modality. Columns: (a/e) Mixed A, (b/f) Mixed B, (c/g) Mixed C, (d/h) Mixed D. All mixed configurations use asymmet-ric signal strengths ( αs > α h or αs > α b). Bars show predicted scenario distribution per model. The inability to resolve Mixed A as S1/S4 reflects the asymmetric signal design ( αs ≫ αh), in which shared signal dominates the H&E representation and the modality-specific contribution is too weak for ∆shared to localize. In deployment, distinguishing S1 from S4 per modality matters because it determines whether a single-modality prediction is independently supported by cross-modal biology or relies on modality-specific features. Figure 27 shows indeterminate sensitivity on transition configurations, which are designed to be fundamentally non-identifiable ( αs ≈ αh ≈ αr > 0, with no dominant signal source). Factorized models (JIVE, DSSL) correctly return indeterminate in 90–95% of cases at Neval = 1000 , with sensitivity increasing as sample size grows. Larger samples make ∆shared decisive enough to reveal that signal does not cleanly localize to either component, correctly routing to indeterminate. Entangled models (CCA, CLIP) show a non-monotonic pattern: indeterminate sensitivity rises briefly at moderate Neval (200–500) then falls to 0–10% at Neval = 1000 . At small Neval , insufficient power means the decision tree cannot classify at all, producing indeterminate by default. At moderate 
+
+Neval , some metrics fire while others remain ambiguous, generating genuine indeterminate hedging. At large Neval , entangled models have sufficient power to fire the signal gate, Ptransfer , and Dtask quantile 
+
+confidently, and the non-factorized pathway uses Anorm for the S1/S4 distinction, committing to a 45 specific scenario even when the ground truth is ambiguous. This is the same mechanism that drives increasing FSCR with sample size for entangled models (Figure 3): more data provides more power, but without factorization that power produces overconfidence rather than appropriate uncertainty. 50 100 200 500 1000     
+
+> Evaluation cohort size ( Neval )
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> P(predicted=indeterminate)
+> a.
+> Transition A
+> (biological ambiguity)
+> 50 100 200 500 1000
+> Evaluation cohort size ( Neval )
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> P(predicted=indeterminate)
+> b.
+> Transition B
+> (spurious signal ambiguity)
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+
+Figure 27: Indeterminate sensitivity on transition configurations. (a) Transition A (biological ambiguity, no proxy or confounding). (b) Transition B (confounded ambiguity, with proxy and confounding overlaid). Factorized models increasingly return indeterminate with more data (correct behavior on non-identifiable tasks) while entangled models become more overconfident. 
+
+K Further TCGA Experimental Results 
+
+K.1 TCGA Detection Rate Curves and CCA Variate Extreme-C 
+
+Figure 28 shows detection rates across all designed label types on TCGA. CCA variate 0 (the direction of maximal cross-modal correlation) serves as a positive control for S1 detection under pooled evaluation, and is classified as S1 at ≥97% (Figure 28a). Under extreme-C splits, it is reclassified as S2 at ∼100% by CCA and JIVE but at 0% by CLIP (Figure 28b). For the CCA variate extreme-C design, the extreme pool E consists of patients above the 75th percentile of CCA variate 0 score. Because CCA variate 0 is strongly correlated with cancer type (high η2), this enrichment implicitly creates a cancer-type-biased Cohort C without requiring cancer-type labels. The 0% strict accuracy for S2 by CLIP may be because CLIP’s contrastive training objective distributes confound-correlated variance across a high-dimensional nonlinear manifold, making the cohort shift undetectable along the linear probe direction used by Dtask quantile . A nonlinear probe extension may address this (Section 5). DSSL at moderate-to-strong disentanglement ( β≥1.0) detected S2 at 92–97%, while weak disentanglement ( β≤0.1) detected S2 near 0%, mirroring entangled behavior. 46 010 20 30 40 49                 
+
+> Variate index k(weak strong)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Strict accuracy
+> a.
+> S1
+> (Binned CCA variate,
+> pooled cancer types)
+> variate 0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> b.
+> S2B
+> (Binned CCA variate,
+> extreme-C splits)
+> 010 20 30 40 49
+> PC index k(weak strong)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> c.
+> S4r
+> (Binned RNA-residual PC,
+> pooled cancer types)
+> all k
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> d.
+> S3
+> (noise)
+> 010 20 30 40 49
+> Variate index k(weak strong)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Conservative accuracy
+> e.
+> S1
+> (Binned CCA variate,
+> pooled cancer types)
+> variate 0
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> f.
+> S2B
+> (Binned CCA variate,
+> extreme-C splits)
+> 010 20 30 40 49
+> PC index k(weak strong)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> g.
+> S4r
+> (Binned RNA-residual PC,
+> pooled cancer types)
+> all k
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> h.
+> S3
+> (noise)
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+
+Figure 28: TCGA detection rates by variate index . Top row: strict accuracy (correct scenario assigned). Bottom row: conservative accuracy (correct or indeterminate). All continuous labels are binarized at the pan-cancer median. 95% Clopper–Pearson confidence intervals. (a/e) S1: CCA canonical variates ( k=0 –49 ), pooled random splits. Variate 0 carries the strongest shared signal (maximal cross-modal correlation) and performance degrades for weaker variates. (b/f) S2B: CCA variate 0 only, extreme-C splits. Only variate 0 is shown because the extreme-C cohort was constructed by enriching C for cancer types with extreme variate-0 scores. Variates 1–49 are orthogonal to this axis by construction (CCA orthogonality constraint), so the cohort shift is invisible to their probe directions. (c/g) S4r: JIVE RNA-residual PCs, pooled random splits, RNA modality only. JIVE RNA-residual PCs are orthogonal to the shared CCA subspace by construction. Entangled models return 0% S4 at all indices. (d/h) S3: random binary labels, pooled random splits. All models return S3 at 94–97% strict accuracy. 
+
+K.2 TCGA False Shared Claim Rate 
+
+Figure 29 decomposes FSCR on TCGA pooled random splits by ground-truth scenario and model. Ground-truth S4r labels are JIVE RNA-residual PCs (modality-specific by construction, regardless of evaluation design). Ground-truth S2B labels are CCA variates, which are confounded with cancer type but the confounding is only detectable under extreme-C evaluation. Under the pooled random evaluation shown here, Dtask quantile rarely fires because cohort compositions are similar (no systematic enrichment of label-extreme patients in C), so most S2B tasks are classified as S1, counting as FSCR even though the framework’s behavior is expected given the evaluation design. JIVE and DSSL at strong disentanglement ( β≥1.0) exhibited zero or near-zero FSCR on S4r tasks, while DSSL at weak disentanglement ( β≤0.1) showed nonzero S4r FSCR because insufficient bottle-neck pressure allows modality-specific signal to leak into the shared latent. JIVE showed substantial FSCR on S2B tasks (72%), where its shared component (identical to CCA by construction) captures cancer-type-driven cross-modal correlation (different cancer types have correlated morphological and transcriptomic profiles, creating cross-modal agreement that reflects tissue-of-origin rather than within-type biology). Because JIVE’s shared component is the CCA projection, claiming S1 for CCA variate labels under pooled random evaluation is architecturally expected rather than a genuine false claim. DSSL at weak disentanglement ( β≤0.1) also exhibited substantial FSCR (29–32%), driven primarily by S2B false claims, while strong disentanglement ( β≥1.0) reduced FSCR to 12%. This exceeds the near-zero observed synthetic FSCR for factorized models and likely reflects the correlation between cancer-type confounding and genuine shared biology in TCGA. The synthetic 47 simulator enforces orthogonality between shared signal and batch ( zs ⊥ b), whereas in real data the information bottleneck at weak β is insufficient to exclude confound-correlated variance from the shared latent. In summary, the S4r component of FSCR represents unambiguous misclassification (modality-specific signal wrongly called shared), while the S2B component reflects the fundamental limitation that confounding cannot be detected without a composition shift in the evaluation cohorts. The extreme-C design (Section 4.2, Figure 4) provides the composition shift needed to convert S2B FSCR into correct S2 detection. 010 20 30 40 49       
+
+> Variate / PC index k(weak strong)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> FSCR
+> a. FSCR vs index k
+> CCA
+> CLIP
+> JIVE
+> DSSL(0.01)
+> DSSL(0.1)
+> DSSL(1.0)
+> DSSL(10.0)
+> CCA
+> CLIP
+> JIVE
+> DSSL (0.01)
+> DSSL (0.1)
+> DSSL (1.0)
+> DSSL (10.0)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> FSCR
+> b. FSCR by true scenario
+> True scenario
+> S2B
+> S3
+> S4r
+
+Figure 29: False shared claim rate (FSCR) on TCGA pooled random splits. (a) FSCR by variate index for S4r tasks (RNA-modality residual PCs). (b) FSCR decomposed by ground-truth scenario (S2B, S3, S4r). Entangled models (CCA, CLIP) systematically misclassify non-shared signal as shared biology. Factorized models (JIVE, DSSL at β≥1.0) eliminate false S4r claims. 
+
+K.3 Power Curve for S2 Detection 
+
+Figure 30 measures the minimum cohort size required for reliable S2 detection under the extreme-C design (C drawn entirely from the label-extreme pool E, i.e. α=1 ), pooled across all seven models, with two cohort-sizing strategies. For TMB and Age, the extreme pool E is defined as patients above the 75th percentile of probe score (top 25%), requiring ∼4 × NC evaluation patients to populate C. For TP53, E is defined as cancer types above the 67th percentile of TP53 mutation prevalence (top 33% of types), because TP53 status is binary and a patient-level quantile is not meaningful. This yields a ∼3 × NC multiplier. The vary-C design (Figure 30a) holds A ′/B at full size ( ∼1,465 patients each) and varies only NC , isolating the deployment cohort size requirement. The equal-N design (Figure 30b) varies all cohorts together (A ′=B=C=N ), revealing the additional bottleneck from probe quality when reference cohorts are small. 48 50      
+
+> 200
+> 500
+> 1000
+> N (cohort size per arm)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> S2 flag rate
+> a.
+> A'=B=C=N (total sample size)
+> 50
+> 200
+> 500
+> 1000
+> N (cohort size per arm)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> S2 flag rate
+> b.
+> A'/B fixed, C=N (deployment cohort)
+> TMB ( ²=0.44)
+> TP53 ( ²=0.34)
+> Age ( ²=0.27)
+
+Figure 30: Power curve for S2 detection (C drawn entirely from extreme pool E, α=1 ). S2 detection rate versus evaluation cohort size N under two designs: (a) vary-C (A ′/B held at full size, only NC varied) and (b) equal-N (all cohorts varied together, A ′=B=C=N ). The gap between panels shows the value of large reference cohorts for probe quality. For example, under vary-C, TMB reaches 80% detection at NC ≈50 , whereas under equal-N the same detection requires N ≈500 . E is the top 25% of patients by probe score for TMB and Age ( ∼4 × NC evaluation patients needed), or the top 33% of cancer types by mutation prevalence for TP53 ( ∼3 × NC ). 
+
+L Compute and Reproducibility 
+
+Hardware. All experiments were run on a single node with 8 ×NVIDIA A10 GPUs, 178 CPU cores, and 740 GB RAM. 
+
+Compute budget. Main experiment total wall time is approximately 22 hours on the above hardware. Representation training ( ∼15h) comprises 2,555 representation trainings (365 runs × 7 model configurations) parallelized across 8 GPUs. Closed-form models (CCA, JIVE) contribute negligible time and the majority is CLIP and DisentangledSSL training. Evaluation ( ∼7h) comprises 294,525 evaluation calls (589,050 modality-task records) via a CPU process pool with up to 100 concurrent workers. 
+
+Code and data availability. The full DECAT implementation will be released on a public repository upon manuscript acceptance. All synthetic data used in the synthetic validation experiments is regenerable from seeds. For the TCGA validation experiments, publicly available whole-slide images and bulk RNA-seq data were downloaded from the Genomic Data Commons (GDC). Somatic mutation labels were derived from the MC3 consensus mutation callset (mc3.v0.2.8.PUBLIC.maf.gz). 49

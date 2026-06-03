@@ -6,94 +6,79 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-02
-- 运行时间：2026-06-02 23:02:53 UTC
+- 最新运行日期：2026-06-03
+- 运行时间：2026-06-03 22:41:16 UTC
 - 运行状态：成功
-- 本次总论文数：24
-- 精读区：12
+- 本次总论文数：19
+- 精读区：7
 - 速读区：12
 
 ### 今日简报（AI）
-今日24篇论文聚焦病理基础模型与空间生物学，精读两篇9分重磅研究。
-最值得关注的是病理基础模型的空间域理解基准测试，以及多分辨率癌症细胞共定位分析。
-建议优先精读这两篇高分论文，速读可关注空间生物学长期验证基准。
-- 详情：[/202606/02/README](/202606/02/README)
+今日精选19篇论文，精读7篇，重点聚焦3D空间免疫图谱与病理图像生成。  
+最值得关注的是10分的《Volumetric Cyclic Immunofluorescence》实现人体组织3D免疫结构分析，以及9分的《PathAR》提出结构优先的病理图像自回归合成。  
+建议优先研读这两篇高分论文，并速读8分的无训练细胞分割与AI智能体分析技术以拓展思路。
+- 详情：[/202606/03/README](/202606/03/README)
 
 ### 精读区论文标签
-1. [Benchmarking Pathology Foundation Models for Spatial Domain Understanding](/202606/02/2605.25764v1-benchmarking-pathology-foundation-models-for-spatial-domain-understanding)  
+1. [Volumetric Cyclic Immunofluorescence for 3D Spatial Profiling of Immune Structures in Human FFPE Tissue](/202606/03/biorxiv-10-64898-2026-05-17-725158-v2-volumetric-cyclic-immunofluorescence-for-3d-spatial-profiling-of-immune-structures-in-human-ffpe-tissue)  
+   标签：评分：10.0/10、query:spatialprot
+   evidence：人类FFPE组织中免疫结构的三维空间蛋白质组分析
+2. [PathAR: Structure-First Autoregressive Synthesis of Multimodal Pathology Images](/202606/03/2606.01543v1-pathar-structure-first-autoregressive-synthesis-of-multimodal-pathology-images)  
    标签：评分：9.0/10、query:pm
-   evidence：病理基础模型空间域理解基准测试
-2. [MoSAIC: Multi-Resolution Spatial Regression Analysis of Cellular Colocalizations in Cancer Imaging](/202606/02/2605.30287v1-mosaic-multi-resolution-spatial-regression-analysis-of-cellular-colocalizations-in-cancer-imaging)  
+   evidence：结构优先自回归合成多模态病理图像
+3. [A spatial single-cell type multiplex map of human spermatogenesis](/202606/03/biorxiv-10-1101-2024-10-21-619380-v3-a-spatial-single-cell-type-multiplex-map-of-human-spermatogenesis)  
    标签：评分：9.0/10、query:spatialprot
-   evidence：多分辨率空间回归用于癌症成像中细胞共定位分析
-3. [CodeCytos: AI-assisted spatial molecular imaging analysis via code-augmented agent action space](/202606/02/2606.00472v1-codecytos-ai-assisted-spatial-molecular-imaging-analysis-via-code-augmented-agent-action-space)  
+   evidence：整合scRNA-seq与多重IHC实现空间蛋白图谱
+4. [SpatialDataAgent: Autonomous Spatial Omics Data Curation at Decade Scale](/202606/03/biorxiv-10-64898-2026-05-27-727615-v1-spatialdataagent-autonomous-spatial-omics-data-curation-at-decade-scale)  
    标签：评分：9.0/10、query:spatialprot
-   evidence：AI辅助空间分子成像分析，通过代码增强的智能体实现
-4. [A spatial single-cell type multiplex map of human spermatogenesis](/202606/02/biorxiv-10-1101-2024-10-21-619380-v3-a-spatial-single-cell-type-multiplex-map-of-human-spermatogenesis)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：使用scRNA-seq和mIHC的空间单细胞蛋白质图谱
-5. [Basal gland localization and focal distribution of OLFM4-expressing cells in increasing severity of gastric intestinal metaplasia](/202606/02/biorxiv-10-64898-2026-05-14-725297-v2-basal-gland-localization-and-focal-distribution-of-olfm4-expressing-cells-in-increasing-severity-of-gastric-intestinal-metaplasia)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：使用免疫组化和空间转录组研究胃癌前病变的空间蛋白组学
-6. [SpatialClaw: A Memory-Augmented Autonomous Ecosystem for Spatial Omics Analysis](/202606/02/biorxiv-10-64898-2026-05-21-723451-v1-spatialclaw-a-memory-augmented-autonomous-ecosystem-for-spatial-omics-analysis)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：统一的空间组学分析AI平台
-7. [Distinct senescent β-cell senotypes differentially drive islet aging and dysfunction](/202606/02/biorxiv-10-64898-2026-05-25-727705-v1-distinct-senescent--cell-senotypes-differentially-drive-islet-aging-and-dysfunction)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：对人类胰腺进行单细胞分辨率的空间蛋白质组学分析
-8. [Cycle-consistent deep generative modeling unifies cellular states across unpaired spatial and single-cell modalities](/202606/02/biorxiv-10-64898-2026-05-25-727736-v1-cycle-consistent-deep-generative-modeling-unifies-cellular-states-across-unpaired-spatial-and-single-cell-modalities)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：使用循环一致生成模型整合空间转录组和蛋白质组
-9. [A cell type-resolved proteomic atlas of the human body](/202606/02/biorxiv-10-64898-2026-05-26-727663-v1-a-cell-type-resolved-proteomic-atlas-of-the-human-body)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：基于深度视觉蛋白质组学的细胞类型水平蛋白质组图谱
-10. [Decoding Hierarchical Cell-Cell Communication in Spatial Multi-Omics with CellSTIC](/202606/02/biorxiv-10-64898-2026-05-27-728114-v1-decoding-hierarchical-cell-cell-communication-in-spatial-multi-omics-with-cellstic)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：包含蛋白组学的空间多组学中细胞通讯分析的框架
-11. [UMITIC: An unsupervised framework for the joint characterization of cellular phenotypes and spatial neighborhoods in multiplex and hyperplex immunofluorescence imaging data](/202606/02/biorxiv-10-64898-2026-05-29-728633-v2-umitic-an-unsupervised-framework-for-the-joint-characterization-of-cellular-phenotypes-and-spatial-neighborhoods-in-multiplex-and-hyperplex-immunofluorescence-imaging-data)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：用于多重成像中细胞表型和空间邻域联合表征的无监督框架
-12. [Vermeer: Autoregressive generative modeling of microscopy predicts protein localization](/202606/02/biorxiv-10-64898-2026-06-01-729395-v1-vermeer-autoregressive-generative-modeling-of-microscopy-predicts-protein-localization)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：显微镜蛋白质定位预测生成模型
+   evidence：自主整理空间转录组与组织学数据，促进癌症研究中的空间多组学整合
+5. [VITAL: Visual-Semantic Dual Supervision for Enhanced and Interpretable Latent Reasoning in Medical MLLMs](/202606/03/2605.28422v1-vital-visual-semantic-dual-supervision-for-enhanced-and-interpretable-latent-reasoning-in-medical-mllms)  
+   标签：评分：8.0/10、query:pm
+   evidence：医学多模态大语言模型的潜在推理
+6. [Multi-Sample and Multi-Group Spatial Colocalization Analysis Using PANORAMIC](/202606/03/biorxiv-10-1101-2025-09-18-677135-v3-multi-sample-and-multi-group-spatial-colocalization-analysis-using-panoramic)  
+   标签：评分：8.0/10、query:spatialprot
+   evidence：空间共定位分析及不确定性量化
+7. [Whole slide image analysis of the endometrial decidual reaction reveals multiscale perturbations associated with miscarriage](/202606/03/biorxiv-10-64898-2026-05-22-727262-v1-whole-slide-image-analysis-of-the-endometrial-decidual-reaction-reveals-multiscale-perturbations-associated-with-miscarriage)  
+   标签：评分：8.0/10、query:pm
+   evidence：全切片图像图神经网络分析蜕膜反应
 
 ### 速读区论文标签
-1. [Evi-Steer: Learning to Steer Biomedical Vision-Language Models through Efficient and Generalizable Evidential Tuning](/202606/02/2605.26292v1-evi-steer-learning-to-steer-biomedical-vision-language-models-through-efficient-and-generalizable-evidential-tuning)  
+1. [One Click per Cell Type Suffices: Training-free Group Interaction for Cell Instance Segmentation](/202606/03/2605.29429v1-one-click-per-cell-type-suffices-training-free-group-interaction-for-cell-instance-segmentation)  
    标签：评分：8.0/10、query:pm
-   evidence：生物医学视觉语言模型的参数高效置信调优
-2. [Evi-Steer: Learning to Steer Biomedical Vision-Language Models through Efficient and Generalizable Evidential Tuning](/202606/02/2605.26292v2-evi-steer-learning-to-steer-biomedical-vision-language-models-through-efficient-and-generalizable-evidential-tuning)  
+   evidence：用于组织病理学细胞分割的基础模型SAM
+2. [Deep Learning for Generating Computational PIN-4 Immunohistochemistry Staining from Prostate Biopsy H&E Images](/202606/03/2606.01871v1-deep-learning-for-generating-computational-pin-4-immunohistochemistry-staining-from-prostate-biopsy-he-images)  
    标签：评分：8.0/10、query:pm
-   evidence：生物医学视觉语言模型不确定性微调
-3. [Verifiable Benchmarking of Long-Horizon Spatial Biology](/202606/02/2605.28065v1-verifiable-benchmarking-of-long-horizon-spatial-biology)  
+   evidence：深度学习从H&E全切片图像生成IHC染色
+3. [Agentic-J: An AI Agent for Biological Microscopy Image Analysis](/202606/03/2606.02080v1-agentic-j-an-ai-agent-for-biological-microscopy-image-analysis)  
+   标签：评分：8.0/10、query:pm
+   evidence：多智能体AI助手支持自然语言指定显微镜图像分析任务，实现病理学多模态分析
+4. [MORPHE: Bridging Image Generation and Spatial Omics for Tissue Synthesis](/202606/03/biorxiv-10-64898-2026-03-03-709377-v2-morphe-bridging-image-generation-and-spatial-omics-for-tissue-synthesis)  
    标签：评分：8.0/10、query:spatialprot
-   evidence：涵盖多种空间平台（包括蛋白质组）的长时序空间生物学基准
-4. [Consistent Bayesian Local Spatial Feature Selection with Application to Spatial Multimodal Omics](/202606/02/2605.30658v1-consistent-bayesian-local-spatial-feature-selection-with-application-to-spatial-multimodal-omics)  
+   evidence：从空间组学数据合成组织结构的AI框架
+5. [Multi-resolution Spatial Graphical Regression Models for Hierarchical Spatial Transcriptomics Data](/202606/03/biorxiv-10-64898-2026-05-12-724724-v3-multi-resolution-spatial-graphical-regression-models-for-hierarchical-spatial-transcriptomics-data)  
    标签：评分：8.0/10、query:spatialprot
-   evidence：用于空间多组学的贝叶斯局部空间特征选择
-5. [CNNs, Transformers, Hybrid, and Vision Language Models for Skin Cancer Detection](/202606/02/2605.26294v1-cnns-transformers-hybrid-and-vision-language-models-for-skin-cancer-detection)  
-   标签：评分：7.0/10、query:pm
-   evidence：对视觉语言模型在皮肤癌检测中的统一评估，与病理学视觉语言模型需求相关
-6. [SpCAST: Decoding spatial transcriptomics at single-cell resolution with fast and interpretable analysis](/202606/02/2605.26904v1-spcast-decoding-spatial-transcriptomics-at-single-cell-resolution-with-fast-and-interpretable-analysis)  
+   evidence：空间转录组层次化建模用于癌症
+6. [Verifiable Benchmarking of Long-Horizon Spatial Biology](/202606/03/2605.28065v1-verifiable-benchmarking-of-long-horizon-spatial-biology)  
    标签：评分：7.0/10、query:spatialprot
-   evidence：单细胞空间转录组分析的KAN方法
-7. [Single-Channel Tissue Segmentation via Cross-Modal Distillation from Foundation Models](/202606/02/2606.00928v1-single-channel-tissue-segmentation-via-cross-modal-distillation-from-foundation-models)  
+   evidence：覆盖多种空间组学技术的长时程空间生物学基准测试
+7. [When Are Multimodal Predictions Biologically Supported? A Diagnostic Evaluation Framework](/202606/03/2605.31504v1-when-are-multimodal-predictions-biologically-supported-a-diagnostic-evaluation-framework)  
    标签：评分：7.0/10、query:pm
-   evidence：使用基础模型跨模态蒸馏进行组织分割
-8. [Multi-Sample and Multi-Group Spatial Colocalization Analysis Using PANORAMIC](/202606/02/biorxiv-10-1101-2025-09-18-677135-v3-multi-sample-and-multi-group-spatial-colocalization-analysis-using-panoramic)  
+   evidence：多模态AI评估框架，应用于肿瘤学
+8. [MIA: A Visual Analytics System for Multimodal Spectral Imaging Data](/202606/03/2606.00874v1-mia-a-visual-analytics-system-for-multimodal-spectral-imaging-data)  
    标签：评分：7.0/10、query:spatialprot
-   evidence：空间共定位分析方法，适用于空间蛋白组学
-9. [A multifractal-based masked auto-encoder: an application to medical images](/202606/02/2605.26287v1-a-multifractal-based-masked-auto-encoder-an-application-to-medical-images)  
+   evidence：多模态光谱成像分析，用于空间分辨数据
+9. [GC-MoE: Genomics-Guided Cell-Type-Specific Mixture of Experts for Histology-Based Single-Cell Spatial Transcriptomics](/202606/03/2606.02424v1-gc-moe-genomics-guided-cell-type-specific-mixture-of-experts-for-histology-based-single-cell-spatial-transcriptomics)  
+   标签：评分：7.0/10、query:spatialprot
+   evidence：基于组织学的单细胞空间转录组深度学习
+10. [Automatic Bevacizumab Response Prediction in Ovarian Cancer from Digital Pathology Images via Novel AI-based Computational Pipeline](/202606/03/biorxiv-10-64898-2026-04-29-721782-v2-automatic-bevacizumab-response-prediction-in-ovarian-cancer-from-digital-pathology-images-via-novel-ai-based-computational-pipeline)  
    标签：评分：6.0/10、query:pm
-   evidence：基于多重分形的掩码自编码器用于医学图像分类
-10. [MORI-Seg: Learning Morphological Geometry for Instance Segmentation without Instance Annotations](/202606/02/2605.28261v1-mori-seg-learning-morphological-geometry-for-instance-segmentation-without-instance-annotations)  
-   标签：评分：6.0/10、query:pm
-   evidence：用于肾脏病理图像的深度学习实例分割
-11. [Parameter-Efficient Subspace Decoupling ViT for Mitigating Multi-Task Negative Transfer in Histological Scoring](/202606/02/2605.29852v2-parameter-efficient-subspace-decoupling-vit-for-mitigating-multi-task-negative-transfer-in-histological-scoring)  
-   标签：评分：6.0/10、query:pm
-   evidence：深度学习用于组织切片评分
-12. [PMC-InterCPT: Rethinking Biomedical Interleaved Data for Multimodal Continued Pretraining](/202606/02/2606.01049v1-pmc-intercpt-rethinking-biomedical-interleaved-data-for-multimodal-continued-pretraining)  
-   标签：评分：6.0/10、query:pm
-   evidence：基于上下文的生物医学交错语料库用于多模态持续预训练
+   evidence：基于数字病理全切片图像的深度学习药物反应预测流水线
+11. [Atlas-Level Single-Cell and Spatial Transcriptomics Data Integration via PRIME](/202606/03/biorxiv-10-64898-2026-05-20-726698-v2-atlas-level-single-cell-and-spatial-transcriptomics-data-integration-via-prime)  
+   标签：评分：6.0/10、query:spatialprot
+   evidence：空间转录组整合方法
+12. [GAE-Δ: A Graph-Learning Framework for Gene Network Rewiring and Clinical Outcome Prediction from Multi-Omics Data](/202606/03/biorxiv-10-64898-2026-05-21-726880-v1-gae--a-graph-learning-framework-for-gene-network-rewiring-and-clinical-outcome-prediction-from-multi-omics-data)  
+   标签：评分：6.0/10、query:spatialprot
+   evidence：多组学图学习用于癌症基因网络
 
 
 <div class="dpr-home-promo-card">
