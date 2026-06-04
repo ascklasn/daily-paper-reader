@@ -6,79 +6,100 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-03
-- 运行时间：2026-06-03 22:41:16 UTC
+- 最新运行日期：2026-05-26 ~ 2026-06-04
+- 运行时间：2026-06-04 11:20:27 UTC
 - 运行状态：成功
-- 本次总论文数：19
-- 精读区：7
-- 速读区：12
+- 本次总论文数：26
+- 精读区：15
+- 速读区：11
 
 ### 今日简报（AI）
-今日精选19篇论文，精读7篇，重点聚焦3D空间免疫图谱与病理图像生成。  
-最值得关注的是10分的《Volumetric Cyclic Immunofluorescence》实现人体组织3D免疫结构分析，以及9分的《PathAR》提出结构优先的病理图像自回归合成。  
-建议优先研读这两篇高分论文，并速读8分的无训练细胞分割与AI智能体分析技术以拓展思路。
-- 详情：[/202606/03/README](/202606/03/README)
+本周聚焦可穿戴健康数据与医学多智能体，两篇满分论文表现亮眼。  
+最值得看的两个方向：VitalAgent实现主动+反应式生理监测；异构多智能体范式强调专科模型仍不可替代。  
+建议关注工具增强与专家知识融合的医疗AI，探索其在临床决策中的可靠性提升路径。
+- 详情：[/20260526-20260604/README](/20260526-20260604/README)
 
 ### 精读区论文标签
-1. [Volumetric Cyclic Immunofluorescence for 3D Spatial Profiling of Immune Structures in Human FFPE Tissue](/202606/03/biorxiv-10-64898-2026-05-17-725158-v2-volumetric-cyclic-immunofluorescence-for-3d-spatial-profiling-of-immune-structures-in-human-ffpe-tissue)  
-   标签：评分：10.0/10、query:spatialprot
-   evidence：人类FFPE组织中免疫结构的三维空间蛋白质组分析
-2. [PathAR: Structure-First Autoregressive Synthesis of Multimodal Pathology Images](/202606/03/2606.01543v1-pathar-structure-first-autoregressive-synthesis-of-multimodal-pathology-images)  
-   标签：评分：9.0/10、query:pm
-   evidence：结构优先自回归合成多模态病理图像
-3. [A spatial single-cell type multiplex map of human spermatogenesis](/202606/03/biorxiv-10-1101-2024-10-21-619380-v3-a-spatial-single-cell-type-multiplex-map-of-human-spermatogenesis)  
+1. [VitalAgent: A Tool-Augmented Agent for Reactive and Proactive Physiological Monitoring over Wearable Health Data](/20260526-20260604/2605.29483v1-vitalagent-a-tool-augmented-agent-for-reactive-and-proactive-physiological-monitoring-over-wearable-health-data)  
+   标签：评分：10.0/10、query:agent
+   evidence：工具增强的Agent框架，用于可穿戴健康数据的反应式和主动式生理监测
+2. [Why Specialist Models Still Matter: A Heterogeneous Multi-Agent Paradigm for Medical Artificial Intelligence](/20260526-20260604/2605.29744v1-why-specialist-models-still-matter-a-heterogeneous-multi-agent-paradigm-for-medical-artificial-intelligence)  
+   标签：评分：10.0/10、query:agent
+   evidence：异构多Agent框架用于医疗临床决策支持
+3. [Mind the Tool Failures: Achieving Synergistic Tool Gains for Medical Agents](/20260526-20260604/2605.26691v1-mind-the-tool-failures-achieving-synergistic-tool-gains-for-medical-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：医学代理工具失败研究
+4. [SafeRx-Agent: A Knowledge-Grounded Multi-Agent Framework for Safe and Explainable Medication Recommendation](/20260526-20260604/2605.29146v1-saferx-agent-a-knowledge-grounded-multi-agent-framework-for-safe-and-explainable-medication-recommendation)  
+   标签：评分：9.0/10、query:agent
+   evidence：用于药物推荐的多智能体框架
+5. [SafeRx-Agent: A Knowledge-Grounded Multi-Agent Framework for Safe and Explainable Medication Recommendation](/20260526-20260604/2605.29146v2-saferx-agent-a-knowledge-grounded-multi-agent-framework-for-safe-and-explainable-medication-recommendation)  
+   标签：评分：9.0/10、query:agent
+   evidence：用于安全药物推荐的多代理框架
+6. [SURGENT: A Surgical Multi-Agent Assistance System Across the Perioperative Workflow](/20260526-20260604/2605.29368v1-surgent-a-surgical-multi-agent-assistance-system-across-the-perioperative-workflow)  
+   标签：评分：9.0/10、query:agent
+   evidence：围手术期工作流的多智能体系统
+7. [Counterfactual Evaluation Reveals Hidden Capability Profiles in Clinical LLMs and Agents](/20260526-20260604/2605.30590v1-counterfactual-evaluation-reveals-hidden-capability-profiles-in-clinical-llms-and-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：临床LLM和代理的反事实评估方法
+8. [Healthcare Mechanisms from Policy-as-Code Search under Strategic Provider Response](/20260526-20260604/2605.30680v1-healthcare-mechanisms-from-policy-as-code-search-under-strategic-provider-response)  
+   标签：评分：9.0/10、query:agent
+   evidence：医疗机制设计的多agent模拟器Medi-Sim
+9. [CAREAgent: Clinical Agent with Structured Reasoning and Tool-Integrated for Order Generation](/20260526-20260604/2606.01094v1-careagent-clinical-agent-with-structured-reasoning-and-tool-integrated-for-order-generation)  
+   标签：评分：9.0/10、query:agent
+   evidence：用于医嘱生成的临床智能体，具备结构化推理和工具集成
+10. [AutoMedBench: Towards Medical AutoResearch with Agentic AI Models](/20260526-20260604/2606.01961v1-automedbench-towards-medical-autoresearch-with-agentic-ai-models)  
+   标签：评分：9.0/10、query:agent
+   evidence：面向医学自主研究流程的代理基准测试
+11. [ClinEnv: An Interactive Multi-Stage Long Horizon EHR Environment for Agents](/20260526-20260604/2606.02568v1-clinenv-an-interactive-multi-stage-long-horizon-ehr-environment-for-agents)  
+   标签：评分：9.0/10、query:agent
+   evidence：交互式临床决策支持环境
+12. [An AI-agent-orchestrated grey-box Transformer framework for sparse pharmacokinetic curve reconstruction and pharmacometric model initialization](/20260526-20260604/biorxiv-10-64898-2026-05-23-727373-v1-an-ai-agent-orchestrated-grey-box-transformer-framework-for-sparse-pharmacokinetic-curve-reconstruction-and-pharmacometric-model-initialization)  
+   标签：评分：9.0/10、query:agent
+   evidence：AI Agent编排的框架用于药代动力学曲线重建，直接相关医学AI Agent
+13. [A Multi-Agent RAG Framework for Biomedical Literature Analysis](/20260526-20260604/biorxiv-10-64898-2026-05-26-727050-v1-a-multi-agent-rag-framework-for-biomedical-literature-analysis)  
+   标签：评分：9.0/10、query:agent
+   evidence：多Agent RAG框架用于生物医学文献分析，辅助临床医生和研究者
+14. [From unsupervised clustering to atlas-guided annotation in cohort-scale spatial omics with HiCAT](/20260526-20260604/biorxiv-10-64898-2026-05-27-728266-v1-from-unsupervised-clustering-to-atlas-guided-annotation-in-cohort-scale-spatial-omics-with-hicat)  
    标签：评分：9.0/10、query:spatialprot
-   evidence：整合scRNA-seq与多重IHC实现空间蛋白图谱
-4. [SpatialDataAgent: Autonomous Spatial Omics Data Curation at Decade Scale](/202606/03/biorxiv-10-64898-2026-05-27-727615-v1-spatialdataagent-autonomous-spatial-omics-data-curation-at-decade-scale)  
+   evidence：空间组学注释框架
+15. [CodeCytos: AI-assisted spatial molecular imaging analysis via code-augmented agent action space](/20260526-20260604/biorxiv-10-64898-2026-05-30-728935-v1-codecytos-ai-assisted-spatial-molecular-imaging-analysis-via-code-augmented-agent-action-space)  
    标签：评分：9.0/10、query:spatialprot
-   evidence：自主整理空间转录组与组织学数据，促进癌症研究中的空间多组学整合
-5. [VITAL: Visual-Semantic Dual Supervision for Enhanced and Interpretable Latent Reasoning in Medical MLLMs](/202606/03/2605.28422v1-vital-visual-semantic-dual-supervision-for-enhanced-and-interpretable-latent-reasoning-in-medical-mllms)  
-   标签：评分：8.0/10、query:pm
-   evidence：医学多模态大语言模型的潜在推理
-6. [Multi-Sample and Multi-Group Spatial Colocalization Analysis Using PANORAMIC](/202606/03/biorxiv-10-1101-2025-09-18-677135-v3-multi-sample-and-multi-group-spatial-colocalization-analysis-using-panoramic)  
-   标签：评分：8.0/10、query:spatialprot
-   evidence：空间共定位分析及不确定性量化
-7. [Whole slide image analysis of the endometrial decidual reaction reveals multiscale perturbations associated with miscarriage](/202606/03/biorxiv-10-64898-2026-05-22-727262-v1-whole-slide-image-analysis-of-the-endometrial-decidual-reaction-reveals-multiscale-perturbations-associated-with-miscarriage)  
-   标签：评分：8.0/10、query:pm
-   evidence：全切片图像图神经网络分析蜕膜反应
+   evidence：通过代理框架的AI辅助空间分子成像分析
 
 ### 速读区论文标签
-1. [One Click per Cell Type Suffices: Training-free Group Interaction for Cell Instance Segmentation](/202606/03/2605.29429v1-one-click-per-cell-type-suffices-training-free-group-interaction-for-cell-instance-segmentation)  
-   标签：评分：8.0/10、query:pm
-   evidence：用于组织病理学细胞分割的基础模型SAM
-2. [Deep Learning for Generating Computational PIN-4 Immunohistochemistry Staining from Prostate Biopsy H&E Images](/202606/03/2606.01871v1-deep-learning-for-generating-computational-pin-4-immunohistochemistry-staining-from-prostate-biopsy-he-images)  
-   标签：评分：8.0/10、query:pm
-   evidence：深度学习从H&E全切片图像生成IHC染色
-3. [Agentic-J: An AI Agent for Biological Microscopy Image Analysis](/202606/03/2606.02080v1-agentic-j-an-ai-agent-for-biological-microscopy-image-analysis)  
-   标签：评分：8.0/10、query:pm
-   evidence：多智能体AI助手支持自然语言指定显微镜图像分析任务，实现病理学多模态分析
-4. [MORPHE: Bridging Image Generation and Spatial Omics for Tissue Synthesis](/202606/03/biorxiv-10-64898-2026-03-03-709377-v2-morphe-bridging-image-generation-and-spatial-omics-for-tissue-synthesis)  
-   标签：评分：8.0/10、query:spatialprot
-   evidence：从空间组学数据合成组织结构的AI框架
-5. [Multi-resolution Spatial Graphical Regression Models for Hierarchical Spatial Transcriptomics Data](/202606/03/biorxiv-10-64898-2026-05-12-724724-v3-multi-resolution-spatial-graphical-regression-models-for-hierarchical-spatial-transcriptomics-data)  
-   标签：评分：8.0/10、query:spatialprot
-   evidence：空间转录组层次化建模用于癌症
-6. [Verifiable Benchmarking of Long-Horizon Spatial Biology](/202606/03/2605.28065v1-verifiable-benchmarking-of-long-horizon-spatial-biology)  
-   标签：评分：7.0/10、query:spatialprot
-   evidence：覆盖多种空间组学技术的长时程空间生物学基准测试
-7. [When Are Multimodal Predictions Biologically Supported? A Diagnostic Evaluation Framework](/202606/03/2605.31504v1-when-are-multimodal-predictions-biologically-supported-a-diagnostic-evaluation-framework)  
-   标签：评分：7.0/10、query:pm
-   evidence：多模态AI评估框架，应用于肿瘤学
-8. [MIA: A Visual Analytics System for Multimodal Spectral Imaging Data](/202606/03/2606.00874v1-mia-a-visual-analytics-system-for-multimodal-spectral-imaging-data)  
-   标签：评分：7.0/10、query:spatialprot
-   evidence：多模态光谱成像分析，用于空间分辨数据
-9. [GC-MoE: Genomics-Guided Cell-Type-Specific Mixture of Experts for Histology-Based Single-Cell Spatial Transcriptomics](/202606/03/2606.02424v1-gc-moe-genomics-guided-cell-type-specific-mixture-of-experts-for-histology-based-single-cell-spatial-transcriptomics)  
-   标签：评分：7.0/10、query:spatialprot
-   evidence：基于组织学的单细胞空间转录组深度学习
-10. [Automatic Bevacizumab Response Prediction in Ovarian Cancer from Digital Pathology Images via Novel AI-based Computational Pipeline](/202606/03/biorxiv-10-64898-2026-04-29-721782-v2-automatic-bevacizumab-response-prediction-in-ovarian-cancer-from-digital-pathology-images-via-novel-ai-based-computational-pipeline)  
-   标签：评分：6.0/10、query:pm
-   evidence：基于数字病理全切片图像的深度学习药物反应预测流水线
-11. [Atlas-Level Single-Cell and Spatial Transcriptomics Data Integration via PRIME](/202606/03/biorxiv-10-64898-2026-05-20-726698-v2-atlas-level-single-cell-and-spatial-transcriptomics-data-integration-via-prime)  
-   标签：评分：6.0/10、query:spatialprot
-   evidence：空间转录组整合方法
-12. [GAE-Δ: A Graph-Learning Framework for Gene Network Rewiring and Clinical Outcome Prediction from Multi-Omics Data](/202606/03/biorxiv-10-64898-2026-05-21-726880-v1-gae--a-graph-learning-framework-for-gene-network-rewiring-and-clinical-outcome-prediction-from-multi-omics-data)  
-   标签：评分：6.0/10、query:spatialprot
-   evidence：多组学图学习用于癌症基因网络
+1. [MedGuideX: Internalizing Decision Logic from Executable Guidelines into Large Language Models for Clinical Reasoning](/20260526-20260604/2605.26567v1-medguidex-internalizing-decision-logic-from-executable-guidelines-into-large-language-models-for-clinical-reasoning)  
+   标签：评分：8.0/10、query:agent
+   evidence：使用可执行指南的临床决策支持LLM
+2. [EHRBench: An Automated and Reliable EHR-based Benchmark for Clinical Decision Making with LLMs](/20260526-20260604/2605.30637v1-ehrbench-an-automated-and-reliable-ehr-based-benchmark-for-clinical-decision-making-with-llms)  
+   标签：评分：8.0/10、query:agent
+   evidence：基于EHR的LLM临床决策能力评估基准
+3. [A Machine-to-Machine Knowledge-Guided LLM Agent for Generalizable Radiotherapy Treatment Planning](/20260526-20260604/2606.00922v1-a-machine-to-machine-knowledge-guided-llm-agent-for-generalizable-radiotherapy-treatment-planning)  
+   标签：评分：8.0/10、query:agent
+   evidence：用于自动放疗计划的LLM代理
+4. [Agentic-J: An AI Agent for Biological Microscopy Image Analysis](/20260526-20260604/2606.02080v1-agentic-j-an-ai-agent-for-biological-microscopy-image-analysis)  
+   标签：评分：8.0/10、query:agent
+   evidence：用于生物显微图像分析的多代理AI助手，涵盖细胞核分割与细胞追踪
+5. [Beyond One-shot: AI Agents for Learning in Field Experiments](/20260526-20260604/2606.02458v1-beyond-one-shot-ai-agents-for-learning-in-field-experiments)  
+   标签：评分：8.0/10、query:agent
+   evidence：工具增强的代理AI用于医疗处方消息现场实验
+6. [MedMisBench: Measuring Epistemic Resilience of LLMs Under Misleading Medical Context](/20260526-20260604/biorxiv-10-64898-2026-05-25-727671-v1-medmisbench-measuring-epistemic-resilience-of-llms-under-misleading-medical-context)  
+   标签：评分：8.0/10、query:agent
+   evidence：在误导性医疗上下文下测量LLM韧性
+7. [POIROT: Interrogating Agents for Failure Detection in Multi-Agent Systems](/20260526-20260604/2606.02282v1-poirot-interrogating-agents-for-failure-detection-in-multi-agent-systems)  
+   标签：评分：7.0/10、query:agent
+   evidence：多Agent故障检测方法，可应用于医学Agent评估
+8. [Automatic Bevacizumab Response Prediction in Ovarian Cancer from Digital Pathology Images via Novel AI-based Computational Pipeline](/20260526-20260604/biorxiv-10-64898-2026-04-29-721782-v2-automatic-bevacizumab-response-prediction-in-ovarian-cancer-from-digital-pathology-images-via-novel-ai-based-computational-pipeline)  
+   标签：评分：7.0/10、query:hmm
+   evidence：利用数字病理图像进行卵巢癌药物反应预测
+9. [Agyn: An Open-Source Platform for AI Agents with Scalable On-Demand Execution, Agent Definition as a Code, and Zero-Trust Access](/20260526-20260604/2605.27575v2-agyn-an-open-source-platform-for-ai-agents-with-scalable-on-demand-execution-agent-definition-as-a-code-and-zero-trust-access)  
+   标签：评分：6.0/10、query:agent
+   evidence：AI代理开源平台
+10. [C-MIG: Multi-view Information Gain-based Retrieval-Augmented Generation for Clinical Diagnosis Reasoning](/20260526-20260604/2605.27860v1-c-mig-multi-view-information-gain-based-retrieval-augmented-generation-for-clinical-diagnosis-reasoning)  
+   标签：评分：6.0/10、query:agent
+   evidence：临床诊断推理框架
+11. [SafeMed-R1: Clinician-Audited Safety and Ethics Alignment for Medical Large Language Models](/20260526-20260604/2605.28338v1-safemed-r1-clinician-audited-safety-and-ethics-alignment-for-medical-large-language-models)  
+   标签：评分：6.0/10、query:agent
+   evidence：医学大语言模型安全对齐
 
 
 <div class="dpr-home-promo-card">

@@ -1,0 +1,855 @@
+Title: CAREAgent: Clinical Agent with Structured Reasoning and Tool-Integrated for Order Generation
+
+URL Source: https://arxiv.org/pdf/2606.01094v1
+
+Published Time: Tue, 02 Jun 2026 01:18:38 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# CAREAgent: Clinical Agent with Structured Reasoning and Tool-Integrated for Order Generation 
+
+Ruihui Hou ♢, Ziyue Huai ♢, Chennuo Zhang ♢, Ziyan Liu ♢, Siran Zhao ♢,Yao Yu ♣, Jie Zhai ♢*, Tong Ruan ♢*
+
+♢East China University of Science and Technology, Shanghai, China, 
+
+♣Zhongshan Hospital, Fudan University, Shanghai, China. 
+
+Abstract 
+
+Clinical order generation serves as a critical bridge between clinical decision-making and real-world practice, translating medical deci-sions into concrete and executable orders. Ex-isting agents mainly focus on coarse-grained decisions and overlook the fine-grained, exe-cutable information required for clinical orders. To address this gap, we propose CAREAgent, an agent for clinical order generation. To sup-port its training, we introduce a two-stage agen-tic reasoning data construction method. First, we design an agent framework that constructs verifiable reasoning trajectories aligned with re-alistic clinical tool usage. Second, we filter rea-soning trajectories by format compliance, order validity, and clinical plausibility. Building on the constructed data, the model is first trained via supervised fine-tuning to acquire funda-mental reasoning formats and medical knowl-edge, and is subsequently optimized through reinforcement learning with multi-dimensional reward functions to enhance complex clinical reasoning capabilities. Experiments on multi-ple benchmarks demonstrate the effectiveness of CAREAgent. On ClinicalBench (unseen during training), CAREAgent improves the F1 score by 5.05%, 2.09%, and 0.86% over the single-agent, multi-agent, and agentic reason-ing methods, respectively. 
+
+1 Introduction 
+
+Large language models (LLMs) have achieved no-table progress in clinical decision-making tasks, including clinical diagnosis (Dou et al., 2024; Wu et al., 2024) and treatment recommendation (Hsu et al., 2025; Liu et al., 2025b). However, most existing work focuses on coarse-grained clinical guidance, with limited attention to translating med-ical decisions into concrete and executable clinical orders, such as order names, drug dosages, routes of administration, and frequency (Schwarz et al., 
+
+> *
+
+Corresponding authors Medication Order Non -Medication O rder                             
+
+> It is concrete and
+> executable.
+> Output of Prior Task
+> It is coarse -grained
+> clinical guidance.
+> Input
+> Electronic Medical Record
+> Historical Medical Information
+> Recent Clinical Presentations
+> Laboratory Test Results
+> Prior Clinical Orders
+> Execution Feedback
+> Treatment Plan (o nly order name )
+> Surgical Procedures
+> Medications
+> Examinations
+> Output of Clinical Order Generation
+> Order Name
+> e.g., Aspirin
+> Duration Days e.g., 7.0
+> Frequency
+> e.g., Once daily
+> Drug D osage e.g., 1 tablet
+> Rationale
+> e.g., .. coronary artery stent
+> implantation .. requires
+> antiplatelet therapy ..
+> Priority e.g., P2
+> Route of Administration
+> e.g., Oral
+> Order Name
+> e.g., Routine electrocardiogram
+> Duration Type e.g., one -time
+> Frequency
+> e.g., Immediately (STAT)
+> Rationale
+> e.g., .. chest tightness .. palpita -
+> tions; an electrocardiogram ..
+> Priority e.g., P2
+> Order Type
+> e.g., Diagnostic test
+
+Figure 1: Comparison between clinical order generation and prior treatment recommendation tasks. 
+
+2024). Clinical order generation serves as a criti-cal interface between clinical decision-making and real-world clinical execution, and its correctness directly impacts treatment outcomes (Qiu et al., 2025; Musen et al., 2021). The clinical order generation task aims to pro-duce a set of concrete and executable clinical orders, along with appropriate priority rankings, based on patients’ current clinical information (e.g., symptoms and laboratory test results) as well as prior examinations, historical orders, and their ex-ecution feedback (Schwarz et al., 2024). Each or-der can be categorized as either a medication or a non-medication order, both of which contain fine-grained attributes such as the order name, rationale, and frequency. In addition, medication orders spec-ify attributes including duration days, drug dosage, and route of administration, while non-medication orders further include the duration type and order 1
+
+> arXiv:2606.01094v1 [cs.AI] 31 May 2026
+
+type. As illustrated in Figure 1, the output of this task is a collection of clinical orders with explicit execution details and priority constraints. Existing research on medical decision-making can be broadly categorized into three paradigms: single-agent, multi-agent, and agentic reasoning methods (Wang et al., 2025). Single-agent ap-proaches primarily rely on the medical knowledge and reasoning capabilities of LLMs (Wu et al., 2024; Chen et al., 2025b). Consequently, they struggle to capture the multi-stage reasoning pro-cesses and constraints inherent in real-world clini-cal decision-making, limiting their ability to gener-ate fine-grained clinical orders. Multi-agent meth-ods achieve collaborative decision-making through role decomposition and interaction (Yan et al., 2024; Tang et al., 2024), which facilitates task decomposition but often depends on manually de-signed role assignments and coordination protocols, thereby limiting generalization. Agentic reasoning approaches model clinical decision-making as a multi-stage process and are commonly trained via cold-start supervised fine-tuning (SFT) (Chen et al., 2025a) or direct reinforcement learning (RL) (Yu et al., 2025; Zheng et al., 2025). However, SFT methods primarily rely on template-based synthetic data, which lack realistic clinical tool invocation processes. Furthermore, directly applying RL often fails to achieve fast and stable convergence due to insufficient medical knowledge in the model. In this paper, we propose CAREAgent , a clin-ical agent with structured reasoning and tool-integrated for order generation. To support its train-ing, we develop a two-stage agentic reasoning data construction method that produces high-quality clinical reasoning trajectories with real tool invo-cations. In the first stage, we build a summariza-tion agent that converts incremental daily patient records into summaries. Building on this, we de-sign an agent framework that integrates structured reasoning templates with real external clinical tool calls, yielding reasoning trajectories that closely follow real-world clinical workflows and are highly verifiable. In the second stage, we apply a multi-step data filtering process to ensure data quality, in-cluding rule-based format validation, LLM–based trajectory evaluation, and order validity checking. The filtered samples are divided based on reasoning success: those where the agent successfully com-pletes the reasoning process are used to construct the cold-start SFT dataset, while the remaining challenging samples are set aside for the RL stage. Under this two-stage training paradigm, the model first acquires fundamental reasoning formats, tool usage conventions, and essential medical knowl-edge via SFT, and is subsequently optimized with RL using multi-dimensional rewards that promote format compliance, reasoning coherence, and or-der correctness. This strategy enables the model to generate clinical order reasoning trajectories that are structurally valid and logically consistent. Our contributions are summarized as follows: • We design a two-stage agentic reasoning data construction method that generates high-quality clinical reasoning trajectories with real tool invocations, without manual annotation. • We train an order generation agent using a two-stage agentic post-training framework that combines SFT and agentic RL to enable struc-tured reasoning, effective tool usage, and the generation of clinically executable orders. • Extensive experiments on three benchmarks demonstrate the effectiveness of CAREAgent. On ClinicalBench, which is unseen dur-ing training, CAREAgent improves the F1
+
+score by 5.05%, 2.09%, and 0.86% over the strongest Single-Agent, Multi-Agent, and Agentic Reasoning baselines, respectively. 
+
+2 Related Work 
+
+2.1 Clinical Order Generation 
+
+The clinical order generation task aims to auto-matically produce concrete and executable clinical intervention recommendations from patients’ clin-ical records. To improve decision performance, prior work has introduced LLMs into clinical de-cision tasks (Singhal et al., 2023). However, due to limited medical knowledge coverage and de-layed knowledge updates, such approaches strug-gle to handle complex clinical scenarios. To ad-dress these issues, some studies incorporate ex-ternal medical knowledge sources (e.g., clinical guidelines) to enhance knowledge grounding (Hsu et al., 2025; Lu et al., 2024; Quigley et al., 2024), while recent work further explores multi-agent col-laboration frameworks that leverage role decom-position and information exchange to improve rea-soning capability and stability (Liu et al., 2025a; Yan et al., 2024). Nevertheless, these approaches primarily focus on clinical reasoning and informa-tion integration, without systematically modeling 2the structured representation and executability re-quirements of clinical orders. In parallel, another line of research focuses on optimal treatment selec-tion, including decision-making under conflicting outcomes (Bellos, 2023), predictive-factor–based treatment selection (Polley and van der Laan, 2009), and optimal treatment assignment strategies (Lou et al., 2018). Overall, while LLM-based methods excel at multi-source clinical information under-standing and complex reasoning, existing research generally lacks explicit modeling of fine-grained order attributes and order priority ranking, which are core challenges in clinical order generation. 
+
+2.2 Medical Agent Reasoning 
+
+Existing medical agent reasoning can be catego-rized into three types: single-agent, multi-agent, and agentic reasoning methods (Wang et al., 2025). Single-agent methods primarily rely on the inher-ent medical knowledge and reasoning capabilities of LLMs, using prompt engineering or limited tool invocation to generate clinical diagnosis (Wu et al., 2024; Zhao et al., 2025; Chen et al., 2025b), treat-ment recommendations (Hsu et al., 2025; Liu et al., 2025b), or risk prediction (Jin et al., 2025; Zhu et al., 2025). However, these methods struggle to model the multi-stage clinical reasoning, leading to inconsistent generation of fine-grained clinical orders with complete fields and explicit execution constraints. Multi-agent methods address medical tasks by coordinating multiple agents with distinct roles (e.g., surgeons, internists), which interact and collaborate to produce a final decision (Kim et al., 2024; Tang et al., 2024; Schmidgall et al., 2024). However, these methods often depend on manu-ally designed role assignments and coordination protocols, thereby limiting generalization. Agentic reasoning methods typically model clinical prob-lems as multi-stage decision processes, updating patient states during the perception stage, planning and reasoning during the cognition stage, and exe-cuting clinical decisions or tool invocations during the action stage. In terms of training, these methods mainly rely on SFT with end-to-end synthesized data (Chen et al., 2025a; Schick et al., 2023) or di-rect RL (Zheng et al., 2025; Yu et al., 2025). How-ever, end-to-end synthesized data fails to faithfully capture real tool invocation processes, resulting in unreliable execution trajectories. Moreover, direct RL often leads to slow convergence and unstable training due to insufficient domain knowledge. 
+
+3 Methodology 
+
+3.1 Task Definition 
+
+Given a patient’s Electronic Medical Record (EMR) D = ( E, H ), where E denotes the current clinical information (e.g., clinical presentation and laboratory test results) and H represents historical medical information, including prior examinations, executed orders, and their execution feedback. This task aims to generate a set of subsequent clinical orders C = {c1, c 2, . . . , c n}, where n represents the number of orders. Each order ci corresponds to a specific clinical intervention and can be catego-rized as either a medication or a non-medication order. A medication order is represented as ci =
+
+{order name , duration days , frequency , drug dosage ,
+
+route of administration , rationale , priority }, while a non-medication order is represented as ci =
+
+{order name , order type , duration type , frequency ,
+
+rationale , priority }. As shown in Figure 1, the medication order “Aspirin” has a duration of 7.0 days, a frequency of once daily, a dosage of 1 tablet, an oral route of administration, a clinical rationale of “. . . coronary artery stent implantation . . . requires antiplatelet therapy . . . ”, and a priority level of P2. The non-medication order “Routine electrocardiogram” is categorized as a diagnostic test, with a one-time duration type and an immediate frequency. Its clinical rationale is “. . . chest tightness . . . palpitations; an electrocardiogram . . . ”, and the priority is P2. 
+
+3.2 Two-stage Agentic Reasoning Data Construction 
+
+In this section, we present our pipeline for con-structing agentic reasoning data, aiming to en-able automated and scalable construction of high-quality tool-use datasets, as illustrated in Figure 2. 
+
+3.2.1 Agentic Data Construction 
+
+During hospitalization, clinicians continuously add daily progress notes, examination results, and treat-ment records to the EMR. As the length of stay increases, these records accumulate and the overall EMR may exceed the maximum context length that the model can process. To address this issue, we de-sign an EMR summarization agent that incremen-tally summarizes newly generated daily records into structured representations. These summaries are then used as the primary input for subsequent processing, enabling the system to maintain essen-tial clinical information while keeping the input 3A. Two -stage Agentic R easoning Data Construction 
+
+> EMR
+
+Stage 1: Agentic Data Construction Stage 2: Data Filtering    
+
+> Format
+> Filtering
+> a. Multi -Step
+> Filtering
+> Answer
+> Filtering
+> LLM -based
+> Trajectory
+> Filtering
+> Cold -Start
+> SFT Data
+> RL Data
+> b. Agentic Reason
+> Classification
+> Summary
+> Advanced
+> LLM
+
+B. Two -stage Agentic Post -training               
+
+> …
+> Rollout 1
+> Rollout 2
+> Rollout N
+> Clinical Condition
+> Assessment
+> Diagnosis and Dis -
+> ease Stratification
+> Clinical Order
+> Generation
+> Clinical Order
+> Priority Ranking
+> Final Clinical
+> Order
+> Format Reward: 𝑟 !"#$%&
+> Reason Reward: 𝑟 '(%)"*
+> Answer Reward: 𝑟 +*),(#
+> 0.8
+> 0.4
+> 0.2
+> ……
+> 𝑅 =𝜆 -𝑟 !"#$%& +𝜆 .𝑟 '(%)"* +𝜆 /𝑟 +*),(#
+> Instruct -LLM
+> SFT -LLM
+
+Stage 1: SFT Stage 2: Agentic Reinforcement Learning                 
+
+> Reward Calculation Reward 𝑅
+> CAREAgent
+> Think
+> Advanced
+> LLM
+> If Action is
+> Answer Final
+> Clinical
+> Order
+> Related Documents
+> Tool Response
+> Clinical
+> Condition
+> Assessment
+> Clinical
+> Order
+> Generation
+> Scale Scoring Results
+> Update
+> Tool
+> Response
+> AT
+> AT
+> Environment
+> Search Clinical
+> Scale …
+> …
+> Document
+> Summary
+> Agent -Based
+> Trajectory
+> (AT)
+> If Action
+> is Tool
+> Call
+> Diagnosis and
+> Disease
+> Stratification
+> a. EMR
+> Summarization
+> b. Agent -Based Trajectory Synthesis
+> Clinical
+> Order Priority
+> Ranking
+
+Figure 2: Overview of our framework. The upper part illustrates the two-stage agentic reasoning data construction process, while the lower part presents the two-stage agentic post-training procedure. 
+
+length manageable. The detailed summarization workflow is described in Appendix A.9. Based on the summarized EMR, we construct an agent-based interactive environment to collect clinical reasoning trajectories that involve realistic tool usage. Specifically, the framework proceeds through four sequential stages: clinical condition assessment, diagnosis and disease stratification, clinical order generation, and clinical order priority ranking. Within each stage, the LLM performs step-by-step reasoning and may invoke external clinical tools when additional evidence is required. Tool invocations are generated using special tags (e.g., <tool_call>. . . </tool_call>), which are parsed by the agent framework to call the corresponding ex-ternal tools. The returned results are then incorpo-rated into the context and used for subsequent rea-soning. This reasoning–tool interaction may occur multiple times during a stage and continues until a predefined maximum number of steps is reached or the model produces a final answer using the tag <answer>. . . </answer>. Through this iterative reasoning and tool interaction process, the frame-work constructs clinical reasoning trajectories that closely mimic real-world diagnostic workflows. 
+
+3.2.2 Data Filtering and Classification 
+
+To select high-quality reasoning trajectories for SFT and RL, we perform systematic data filter-ing and selection. (1) Data Filtering . We employ a three-step filtering pipeline to ensure well-formed reasoning trajectories, valid tool invocations, and accurate final answers. Specifically: (i) Format Filtering . We remove samples with structural er-rors, including duplicated decision stages within a trajectory, consecutive tool calls with identical names and parameters, or malformed control tags (e.g., <thought>, <tool_call>, <answer>). (ii) An-swer Filtering . We use a task-specific prompt to validate clinical order names and discard samples containing invalid or incorrect orders. (iii) LLM-based Trajectory Filtering . We further evaluate LLM-generated reasoning trajectories by assess-ing tool invocation appropriateness and key reason-ing steps, including clinical condition assessment, diagnosis and stratification, clinical order genera-tion, and clinical priority ranking. This pipeline ensures that the final dataset contains only high-quality, concise, and executable reasoning trajec-tories. (2) Data Classification. To support the learning paradigm from easy to difficult (Dong et al., 2024) and enhance the model’s reasoning ability, we partition the filtered data into two cate-gories: data for SFT and data for RL. For samples where the agent framework successfully completes the reasoning process, we retain the corresponding trajectories to construct a cold-start SFT dataset, 
+
+DSFT . Samples that remain challenging are treated 4as hard examples and reserved for the RL stage, forming the dataset DRL . This design enables the model to acquire fundamental tool-usage skills dur-ing cold-start SFT and progressively extend to more complex scenarios (e.g., multi-tool collaboration) during RL, thereby facilitating gradual learning and capability enhancement. 
+
+3.3 Two-stage Agentic Post-training 
+
+In this section, we propose a two-stage collabo-ration training framework. In the SFT stage, the framework enhances the model’s understanding of format and foundational clinical knowledge. In the RL stage, it further improves the model’s ability to perform complex clinical reasoning. 
+
+3.3.1 Supervised Fine-tuning 
+
+To enable the LLM to learn predefined formats and acquire domain-specific clinical knowledge, we perform SFT on the backbone model Pθ with parameters θ using samples (xi, y i) ∈ DSFT . The training objective is defined as: 
+
+L(θ) = − X
+
+> (xi,y i)∈DSFT
+
+log Pθ(yi | xi), (1) where xi denotes the i-th input instance. Through this process, we obtain an LLM equipped with fundamental reasoning formats, tool usage conven-tions, and essential medical knowledge. 
+
+3.3.2 Agentic Reinforcement Learning 
+
+After completing SFT, the model is able to generate clinical reasoning trajectories that include tool calls. To further enhance its reasoning ability, we perform RL training on challenging samples to improve the model’s performance in complex clinical scenarios. 
+
+Reward Design. To encourage the model to generate trajectories with correct formatting, sound reasoning, and accurate answers, we design reward functions along three dimensions. Specifically, for the i-th sample, the metric rFormat  
+
+> i
+
+computes the reward for format correctness, assigning −1 to in-valid formats and +1 to valid formats. The metric 
+
+rReason  
+
+> i
+
+evaluates the logical soundness of the rea-soning chain by assessing four reasoning steps, as-signing −1 to logically flawed trajectories and +1 
+
+to logically correct ones. The metric rAnswer  
+
+> i
+
+mea-sures answer accuracy, assigning −1 to incorrect answers and +1 to correct answers. The correct-ness of reasoning and answers is evaluated using task-specific prompts in conjunction with an LLM, with detailed prompts provided in Appendix A.12. Finally, the overall reward Ri is computed as: 
+
+Ri = λ1rFormat  
+
+> i
+
++ λ2rReason  
+
+> i
+
++ λ3rAnswer  
+
+> i
+
+, (2) where λ1 = 0 .1, λ2 = 0 .3, and λ3 = 0 .6 denote the weighting coefficients for the format, reason chain, and the answer, respectively. 
+
+Policy Optimization Objective. We employ the Group Relative Policy Optimization (GRPO) algo-rithm (Shao et al., 2024) to train the model using mixed final rewards. Formally, at each training step, given a patient’s EMR C, the model generates a set of candidate responses O = {O1, O 2, . . . , O G},where G denotes the group size. Each response comprises two components: (1) a structured rea-soning chain and (2) the corresponding tool invo-cations. These responses are then evaluated us-ing reward functions, producing a set of rewards 
+
+{R1, R 2, . . . , R G}. The policy πθ is then opti-mized by maximizing the clipped GRPO objective: 
+
+LGRPO (θ) = EC∼DRL ,{Oi}Gi=1 ∼πθold (O|C)
+
+"
+
+1
+
+G
+
+> G
+
+X
+
+> i=1
+
+min 
+
+ πθ(Oi | C)
+
+πθold (Oi | C) Ai,
+
+clip 
+
+ πθ(Oi | C)
+
+πθold (Oi | C) , 1 − ε, 1 + ε
+
+
+
+Ai
+
+
+
+− β D KL 
+
+ πθ πref 
+
+#
+
+,
+
+(3) where ε and β are hyperparameters that define the clipping range for policy updates and control the strength of the KL divergence penalty, respec-tively (Shao et al., 2024). The KL divergence term constrains the updated policy, preventing excessive deviation from a reference model πref , which typ-ically corresponds to the initial model before RL begins. Ai represents the relative advantage of the 
+
+i-th response, which is computed as follows: 
+
+Ai = Ri − mean ({R1, R 2, . . . , R G})
+
+std ({R1, R 2, . . . , R G}) , (4) where mean (.) and std (.) represent the mean and standard deviation of the rewards, respectively. 
+
+4 Experiment 
+
+In this section, we first conduct extensive experi-ments to evaluate the effectiveness of our proposed model. Next, we provide a detailed analysis to offer deeper insights into our proposed model. 5Model MedChain Private ClinicalBench Precision Recall F1 Precision Recall F1 Precision Recall F1                                                                         
+
+> Single-Agent Methods
+> ReAct 26.69 23.03 21.84 17.39 17.61 14.53 24.31 11.56 13.78 ReflecTool 28.73 38.96 29.91 21.47 29.15 21.27 31.39 28.69 26.81
+> Multi-Agent Methods
+> MedAgents 18.85 36.28 21.82 18.29 30.19 18.69 22.49 26.33 21.22 MDAgents 27.62 45.18 30.30 19.12 32.50 19.79 32.38 36.13 29.77 AgentClinic 21.13 21.25 18.97 14.68 16.32 12.86 26.00 14.48 16.53
+> Agentic Reasoning Methods
+> Tongyi DeepResearch 32.15 35.79 24.13 17.92 30.34 18.71 31.10 38.94 30.31 MedResearcher-R1 37.88 40.09 30.31 21.63 33.34 21.19 37.54 33.59 31.00 CAREAgent (Ours) 26.78 51.73 31.75 22.92 39.81 23.75 32.52 40.01 31.86
+
+Table 1: Main Result. The best and second best results are highlighted in bold and underline. 
+
+4.1 Training Datasets 
+
+We use the training split of MedChain (Liu et al., 2025a) as the primary data source, containing 8,514 patient records, and further incorporate a private dataset from the emergency department of a Grade III-A hospital, consisting of 3,000 patient records. For patients with multiple courses, we decompose them into multiple single-step instances and sum-marize the diagnostic and treatment history into the contextual information to preserve essential clini-cal context. Since the original MedChain data is designed for treatment recommendation, we first re-label it as a clinical order generation task using the method described in Appendix A.1. We then split the data into training, validation, and test sets with a ratio of 7:1:2. After a three-stage data filtering process, we finally construct 21,971 high-quality samples with real tool usage for SFT and 3,509 challenging samples for RL training. 
+
+4.2 Evaluation Setup Benchmarks. To comprehensively evaluate model performance, we use the test splits of MedChain and the private dataset, containing 1,050 and 1,098 samples, respectively. To further assess generaliza-tion ability, we additionally evaluate on Clinical-Bench, a benchmark designed to evaluate the end-to-end performance of medical agents and LLMs in multi-specialty clinical scenarios. ClinicalBench is not used during training, providing an additional evaluation of model generalization. Specifically, we select the treatment recommendation task and re-annotate it as a clinical order generation task using the method described in Appendix A.1. 
+
+Baselines. Our baselines fall into three cat-egories: single-agent, multi-agent, and agen-tic reasoning methods. The single-agent base-lines include ReAct (Yao et al., 2023) and Re-flecTool (Liao et al., 2025), while the multi-agent baselines include MedAgents (Tang et al., 2024), MDAgents (Kim et al., 2024), and Agent-Clinic (Schmidgall et al., 2024). For the single-agent and multi-agent methods, we adopt Qwen2.5-7B-Instruct (Yang et al., 2024) as the base model. The agentic reasoning baselines include Tongyi DeepResearch (Team et al., 2025) and MedResearcher-R1 (Yu et al., 2025). 
+
+Metrics. To evaluate the overall performance of order generation, we use qwen3-next-80b-instruct 1
+
+as the evaluation model to assess clinical order generation, measuring the consistency between pre-dicted orders and reference orders, and computing 
+
+P recision , Recall , and F 1 scores. The detailed evaluation prompt is provided in Appendix A.12. Moreover, we employ different evaluation methods for various attributes of the orders. For the name, spec, and frequency attributes in both medication and non-medication orders, we use an LLM to as-sess the accuracy of attribute matching. All other attributes are evaluated using strict matching to compute Accuracy . Detailed experimental results are provided in Appendix A.3. 
+
+Implementations. We adopt Qwen2.5-7B-Instruct as the backbone model. During the SFT stage, we employ the SWIFT framework 2 for full-parameter training of the model, with a learning rate of 1e-5, a batch size of 4, and 3 epochs. The maximum response length is 8,192 tokens. In the RL stage, we also use SWIFT, with a learning rate of 5e-5, a warmup ratio of 0.05, and four genera-tions per sample. The maximum generation length is 8,192 tokens. The KL regularization coefficient 
+
+> 1https://qwen.ai/apiplatform
+> 2https://github.com/modelscope/ms-swift
+
+6Accuracy 
+
+> Completeness
+> Feasibility
+> Safety
+> Average
+
+MedChain 
+
+> 1.5
+> 2.5
+> 3.5
+> 4.5
+> Accuracy
+> Completeness
+> Feasibility
+> Safety
+> Average
+
+Private 
+
+> 1.5
+> 2.5
+> 3.5
+> 4.5
+> Accuracy
+> Completeness
+> Feasibility
+> Safety
+> Average
+
+ClinicalBench 
+
+> Tongyi DeepResearch
+> MedResearcher-R1
+> ReAct
+> Reflectool
+> MedAgents
+> MDAgents
+> AgentClinic
+> CAREAgent(Ours)
+> 1.5
+> 2.5
+> 3.5
+> 4.5
+
+Figure 3: Human Evaluation Results on Completeness, Feasibility, Accuracy, and Safety. 
+
+is set to β = 0 .05 . All training experiments are con-ducted on a cluster of four NVIDIA A800 80GB GPUs. All experimental results are averaged over three runs. 
+
+4.3 Main Results 
+
+To evaluate the effectiveness of the proposed model, we conduct systematic comparisons with all base-line methods across three benchmarks. The experi-mental results are presented in Table 1. From the table, we conclude that: 1) Over-all performance across three benchmarks. Our model achieves the best performance across all three benchmarks. Specifically, on MedChain, our method improves the F 1 score by 1.84%, 1.45%, and 1.44% compared with the strongest Single-Agent, Multi-Agent, and Agentic Reasoning base-lines, respectively. On ClinicalBench, it achieves further improvements of 5.05%, 2.09%, and 0.86%. These gains mainly stem from the proposed agent framework, which constructs high-quality and ver-ifiable reasoning trajectories and leverages them during SFT, thereby improving the model’s abil-ity to capture domain-specific medical knowledge and clinical tool usage patterns. In addition, the incorporation of RL further enhances the model’s clinical reasoning capability and cross-dataset gen-eralization. 2) Significant improvements in recall. Our method also achieves notable improvements in 
+
+recall . On MedChain, the recall score increases by 12.77%, 6.55%, and 11.64% compared with the strongest Single-Agent, Multi-Agent, and Agen-tic Reasoning baselines, respectively. Similarly, on ClinicalBench, recall improves by 11.32%, 3.88%, and 1.07%. This improvement mainly arises from explicitly modeling the disease treatment decision process in the reasoning trajectory, enabling the model to systematically analyze treatment strate-gies for each disease and generate a more compre-hensive set of medical orders. 
+
+4.4 Human Evaluation 
+
+In this section, we introduce a human evaluation to further validate the clinical effectiveness and safety of the model’s outputs. Specifically, we compare the proposed framework with the best-performing single-agent method (ReflecTool) and multi-agent method (MDAgents). We randomly selected 100 samples and asked a clinician to eval-uate them based on a unified set of criteria. The evaluation covers four clinically meaningful dimen-sions: Completeness , Feasibility , Accuracy , and 
+
+Safety , each with a maximum score of 1. Complete-ness assesses whether the orders cover all necessary clinical information; Feasibility measures whether the orders are executable in real clinical practice; 
+
+Accuracy checks whether the orders align with cur-rent medical knowledge and clinical guidelines; 
+
+Safety evaluates the safety of the orders, including attributes such as dosage, route, and potential risks like allergies or priority misclassification. The ex-perimental results are shown in Fig. 3. From the figure, it is clear that our model significantly outper-forms the baseline methods across all four dimen-sions. This advantage stems from the structured, multi-stage reasoning process within our frame-work, which includes clinical condition assessment, diagnosis, disease stratification, order generation, and prioritization. By defining these stages and basing each decision on comprehensive evidence, our model ensures highly interpretable, logically sound, and clinically relevant recommendations. 7Model MedChain Private ClinicalBench Precision Recall F1 Precision Recall F1 Precision Recall F1                                                                                                                               
+
+> Remove Different Module of Agent Framework
+> w/o Tool 27.30 30.03 24.72 22.60 24.56 19.11 21.53 12.94 14.09
+> w/o 4-stage reasoning 29.60 28.16 25.57 21.81 20.91 17.92 28.95 15.27 17.49
+> w/o Tool & 4-stage reasoning 31.41 26.33 24.86 28.23 24.37 21.66 31.86 13.85 16.76
+> Training with Template-Based Synthetic Data
+> w/o SFT 24.05 33.01 24.49 15.82 22.66 15.48 24.76 22.24 19.69
+> w/o RL 9.27 27.64 12.83 11.89 31.99 14.02 18.97 36.48 22.51 SFT+RL 9.32 28.87 12.98 10.98 31.61 13.35 19.24 35.25 22.35
+> Training with Full Data
+> w/o SFT 29.61 35.46 28.38 22.33 25.93 19.96 25.16 17.45 18.08
+> w/o RL 26.08 48.14 30.72 23.64 39.82 23.67 28.69 34.83 27.97 SFT+RL 25.53 48.16 30.16 21.01 35.46 21.71 30.27 36.89 29.58
+> Training with Agent-Based Synthetic Data
+> Qwen2.5-7B-Instruct 29.43 35.44 28.22 21.60 25.80 19.56 24.79 17.05 17.68
+> w/o SFT 25.27 33.56 25.83 16.51 23.21 16.22 24.36 19.75 18.64
+> w/o RL 25.63 46.78 29.99 22.47 38.58 23.24 28.87 35.46 28.29 SFT+RL 26.78 51.73 31.75 22.92 39.81 23.75 32.52 40.01 31.86
+
+Table 2: Ablation study on agent framework, agentic reasoning data construction, and post-training strategies. 
+
+4.5 Ablation Study 
+
+To validate the effectiveness of the proposed agent framework, data construction method, and post-training strategy, we conduct a series of ablation studies. For the agent framework, we conduct ab-lation studies by removing the tool-use module, the four-stage reasoning process, and both compo-nents simultaneously, to assess their contributions to overall performance. For the agentic reasoning data construction method, we further design two variants: (1) template-based synthetic trajectories and (2) a hybrid approach that combines template-based synthetic trajectories with agent-based syn-thesized trajectories (denoted as Full Data). In ad-dition, we separately ablate SFT and RL to assess the contribution of each post-training component. The experimental results are reported in Table 2. From the table, we conclude that: 1) Sequentially removing components from the agent framework consistently reduces performance, demonstrating the effectiveness of both the tool-use module and the four-stage reasoning process. On MedChain, 
+
+F 1 drops from 31.75 to 24.72 without the tool and to 25.57 without the reasoning stages, further de-clining to 24.86 when both are removed. This is because the tool integrates external clinical knowl-edge, while four-stage reasoning enables system-atic patient assessment, diagnosis, order generation, and prioritization, supporting precise and appropri-ate decisions. 2) Agent-based synthetic trajectories outperform template-based ones. On MedChain, training with SFT and RL on agent-based data improves F 1 by 18.77% and 1.59% over models trained on template-based and full data, respec-tively. This advantage arises because agent-based synthesis captures authentic, complete reasoning trajectories, whereas template-based methods are constrained by predefined patterns. 3) Removing components from the post-training pipeline leads to performance degradation. On MedChain, di-rectly applying RL to Qwen2.5-7B decreases F 1
+
+by 2.39%, while incorporating SFT yields a 1.77% gain; combining SFT with RL further increases 
+
+F 1 by 3.53%. This reflects that the base model’s limited medical knowledge and reasoning under-standing makes direct RL unstable, whereas SFT provides foundational knowledge and format un-derstanding, enabling RL to effectively enhance reasoning capability. 
+
+5 Conclusion 
+
+This paper introduces CAREAgent, which enables LLMs to autonomously invoke multiple external tools during step-by-step reasoning. To construct training data, we design a two-stage agentic data construction pipeline that first collects real reason-ing trajectories within an agent framework and then applies filtering and selection to obtain high-quality data for SFT and RL. During training, the model is first fine-tuned via SFT to learn structured reason-ing and tool usage patterns, and is subsequently op-timized with RL to further enhance its clinical rea-soning capabilities. Extensive experiments across three benchmarks demonstrate the effectiveness and robustness of CAREAgent. 8Limitations and Future Work 
+
+Although the proposed method demonstrates strong effectiveness, several limitations remain and war-rant further investigation. First, the overall per-formance of CAREAgent still falls short of that of experienced clinical practitioners. Therefore, it is better suited as a clinical decision-support tool rather than a fully autonomous clinical decision-making system. Second, CAREAgent currently integrates only two external tools, Search and Clin-ical_Assessment. Given the rapidly expanding tool ecosystem, incorporating additional tools, such as vision–language models, could further enhance medical image understanding and multimodal clin-ical reasoning. In future work, we plan to continue expanding the range of integrated tools to advance multi-tool collaborative reasoning. Finally, due to limited computational resources and the high cost of multi-tool reasoning, this work primarily focuses on 7B-parameter models. In future research, we aim to extend our experiments to larger models (e.g., 32B) to evaluate performance on more com-plex tasks and assess the generalizability of our approach across model scales. 
+
+Ethics Consideration 
+
+MedChain and ClinicalBench are publicly avail-able datasets and do not involve any private or sen-sitive personal information. For the private data used in this study, all EHRs and associated codes were processed in strict accordance with relevant guidelines, undergoing double de-identification by both an ethics committee and domain experts, and have been approved by the institutional review board of our partner hospital. During data pro-cessing, we implemented rigorous anonymization procedures to ensure that no protected health in-formation or identifiable patient data is included. As all datasets used are either publicly available or fully de-identified, and contain no personally iden-tifiable information, we further conducted careful assessments of the potential impacts and risks of this work to prevent misuse or unintended harm. Therefore, this study fully complies with applicable ethical standards. 
+
+References 
+
+Ioannis Bellos. 2023. Multicriteria decision-making methods for optimal treatment selection in network meta-analysis. Medical Decision Making , 43(1):78– 90. Junying Chen, Zhenyang Cai, Ke Ji, Xidong Wang, Wanlong Liu, Rongsheng Wang, and Benyou Wang. 2025a. Towards medical complex reasoning with LLMs through medical verifiable problems. In Find-ings of the Association for Computational Linguistics: ACL 2025 , pages 14552–14573, Vienna, Austria. As-sociation for Computational Linguistics. Junying Chen, Chi Gui, Anningzhe Gao, Ke Ji, Xidong Wang, Xiang Wan, and Benyou Wang. 2025b. CoD, towards an interpretable medical agent using chain of diagnosis. In Findings of the Association for Compu-tational Linguistics: ACL 2025 , pages 14345–14368, Vienna, Austria. Association for Computational Lin-guistics. Guanting Dong, Hongyi Yuan, Keming Lu, Chengpeng Li, Mingfeng Xue, Dayiheng Liu, Wei Wang, Zheng Yuan, Chang Zhou, and Jingren Zhou. 2024. How abilities in large language models are affected by supervised fine-tuning data composition. In Proceed-ings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Pa-pers) , pages 177–198, Bangkok, Thailand. Associa-tion for Computational Linguistics. Chengfeng Dou, Ying Zhang, Zhi Jin, Wenpin Jiao, Haiyan Zhao, Yongqiang Zhao, and Zhengwei Tao. 2024. Integrating physician diagnostic logic into large language models: Preference learning from pro-cess feedback. In Findings of the Association for Computational Linguistics: ACL 2024 , pages 2453– 2473, Bangkok, Thailand. Association for Computa-tional Linguistics. Hsin-Ling Hsu, Cong-Tinh Dao, Luning Wang, Zitao Shuai, Thao Nguyen Minh Phan, Jun-En Ding, Chun-Chieh Liao, Pengfei Hu, Xiaoxue Han, Chih-Ho Hsu, Dongsheng Luo, Wen-Chih Peng, Feng Liu, Fang-Ming Hung, and Chenwei Wu. 2025. Med-Plan: A two-stage RAG-based system for person-alized medical plan generation. In Proceedings of the 63rd Annual Meeting of the Association for Com-putational Linguistics (Volume 6: Industry Track) ,pages 1072–1082, Vienna, Austria. Association for Computational Linguistics. Qiao Jin, Zhizheng Wang, Yifan Yang, Qingqing Zhu, Donald Wright, Thomas Huang, Nikhil Khandekar, Nicholas Wan, Xuguang Ai, W John Wilbur, et al. 2025. Agentmd: Empowering language agents for risk prediction with large-scale clinical tool learning. 
+
+Nature Communications , 16(1):9377. Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik Siu Chan, Xuhai Xu, Daniel McDuff, Hyeonhoon Lee, Marzyeh Ghassemi, Cynthia Breazeal, and Hae Won Park. 2024. Mdagents: An adaptive collaboration of llms for medical decision-making. In Advances in Neural Information Processing Systems , volume 37, pages 79410–79452. Curran Associates, Inc. Yusheng Liao, Shuyang Jiang, Yanfeng Wang, and Yu Wang. 2025. ReflecTool: Towards reflection-aware tool-augmented clinical agents. In Proceed-ings of the 63rd Annual Meeting of the Association 
+
+9for Computational Linguistics (Volume 1: Long Pa-pers) , pages 13507–13531, Vienna, Austria. Associa-tion for Computational Linguistics. Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, et al. 2024. Deepseek-v3 technical report. arXiv preprint arXiv:2412.19437 .Jie Liu, Wenxuan Wang, Zizhan Ma, Guolin Huang, SU Yihang, Kao-Jung Chang, Haoliang Li, Linlin Shen, Michael Lyu, and Wenting Chen. 2025a. Med-chain: Bridging the gap between LLM agents and clinical practice with interactive sequence. In The Thirty-ninth Annual Conference on Neural Informa-tion Processing Systems Datasets and Benchmarks Track .Sheng Liu, Oscar Pastor-Serrano, Yizheng Chen, Matthew Gopaulchan, Weixing Liang, Mark Buyy-ounouski, Erqi Pollom, Quynh-Thu Le, Michael Gen-sheimer, Peng Dong, et al. 2025b. Automated ra-diotherapy treatment planning guided by gpt-4vision. 
+
+Physics in Medicine & Biology , 70(15):155002. Zhilan Lou, Jun Shao, and Menggang Yu. 2018. Op-timal treatment assignment to maximize expected outcome with multiple treatments. Biometrics ,74(2):506–516. Yuxing Lu, Xukai Zhao, and Jinzhuo Wang. 2024. Clini-calRAG: Enhancing clinical decision support through heterogeneous knowledge retrieval. In Proceedings of the 1st Workshop on Towards Knowledgeable Language Models (KnowLLM 2024) , pages 64–68, Bangkok, Thailand. Association for Computational Linguistics. Mark A. Musen, Blackford Middleton, and Robert A. Greenes. 2021. Clinical Decision-Support Systems ,pages 795–840. Springer International Publishing, Cham. Eric C Polley and Mark J van der Laan. 2009. Selecting optimal treatments based on predictive factors. In 
+
+Design and Analysis of Clinical Trials with Time-to-Event Endpoints , pages 459–472. Chapman and Hall/CRC. Pengcheng Qiu, Chaoyi Wu, Shuyu Liu, Weike Zhao, Zhuoxia Chen, Hongfei Gu, Chuanjin Peng, Ya Zhang, Yanfeng Wang, and Weidi Xie. 2025. Quantifying the reasoning abilities of llms on real-world clinical cases. arXiv preprint arXiv:2503.04691 .Keegan Quigley, Teddy Koker, Jonathan Taylor, Vince Mancuso, and Laura Brattain. 2024. Designing retrieval-augmented language models for clinical de-cision support. In AI for Health Equity and Fairness: Leveraging AI to Address Social Determinants of Health , pages 159–171. Springer. Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta Raileanu, Maria Lomeli, Eric Hambro, Luke Zettle-moyer, Nicola Cancedda, and Thomas Scialom. 2023. Toolformer: Language models can teach themselves to use tools. Advances in Neural Information Pro-cessing Systems , 36:68539–68551. Samuel Schmidgall, Rojin Ziaei, Carl Harris, Eduardo Reis, Jeffrey Jopling, and Michael Moor. 2024. Agentclinic: a multimodal agent benchmark to eval-uate ai in simulated clinical environments. arXiv preprint arXiv:2405.07960 .Thomas Schwarz, Cecilia Casolo, and Niki Kilber-tus. 2024. Uncertainty-aware optimal treatment selection for clinical time series. arXiv preprint arXiv:2410.08816 .Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 .Karan Singhal, Shekoofeh Azizi, Tao Tu, S. Sara Mahdavi, Jason Wei, Hyung Won Chung, Nathan Scales, Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl, Perry Payne, Martin Seneviratne, Paul Gam-ble, Chris Kelly, Abubakr Babiker, Nathanael Schärli, Aakanksha Chowdhery, Philip Mansfield, Dina Demner-Fushman, Blaise Agüera y Arcas, Dale Web-ster, Greg S. Corrado, Yossi Matias, Katherine Chou, Juraj Gottweis, Nenad Tomasev, Yun Liu, Alvin Ra-jkomar, Joelle Barral, Christopher Semturs, Alan Karthikesalingam, and Vivek Natarajan. 2023. Large language models encode clinical knowledge. Nature ,620(7972):172–180. Xiangru Tang, Anni Zou, Zhuosheng Zhang, Ziming Li, Yilun Zhao, Xingyao Zhang, Arman Cohan, and Mark Gerstein. 2024. MedAgents: Large language models as collaborators for zero-shot medical rea-soning. In Findings of the Association for Com-putational Linguistics: ACL 2024 , pages 599–621, Bangkok, Thailand. Association for Computational Linguistics. Tongyi DeepResearch Team, Baixuan Li, Bo Zhang, Dingchu Zhang, Fei Huang, Guangyu Li, Guoxin Chen, Huifeng Yin, Jialong Wu, Jingren Zhou, et al. 2025. Tongyi deepresearch technical report. arXiv preprint arXiv:2510.24701 .Wenxuan Wang, Zizhan Ma, Zheng Wang, Chenghan Wu, Jiaming Ji, Wenting Chen, Xiang Li, and Yix-uan Yuan. 2025. A survey of LLM-based agents in medicine: How far are we from baymax? In 
+
+Findings of the Association for Computational Lin-guistics: ACL 2025 , pages 10345–10359, Vienna, Austria. Association for Computational Linguistics. Jiageng Wu, Xian Wu, and Jie Yang. 2024. Guiding clinical reasoning with large language models via knowledge seeds. IJCAI ’24. 
+
+10 Weixiang Yan, Haitian Liu, Tengxiao Wu, Qian Chen, Wen Wang, Haoyuan Chai, Jiayi Wang, Weishan Zhao, Yixin Zhang, Renjun Zhang, et al. 2024. Clini-callab: Aligning agents for multi-departmental clin-ical diagnostics in the real world. arXiv preprint arXiv:2406.13890 .An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jian-hong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang, Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li, Mingfeng Xue, Pei Zhang, Qin Zhu, Rui Men, Runji Lin, Tian-hao Li, Tingyu Xia, Xingzhang Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru Zhang, and Zihan Qiu. 2024. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 .Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan Cao. 2023. React: Synergizing reasoning and acting in language models. In The Eleventh International Conference on Learning Representations .Ailing Yu, Lan Yao, Jingnan Liu, Zhe Chen, Jiajun Yin, Yuan Wang, Xinhao Liao, Zhiling Ye, Ji Li, Yun Yue, et al. 2025. Medresearcher-r1: Expert-level medical deep researcher via a knowledge-informed trajectory synthesis framework. arXiv preprint arXiv:2508.14880 .Xuejiao Zhao, Siyan Liu, Su-Yin Yang, and Chun-yan Miao. 2025. Medrag: Enhancing retrieval-augmented generation with knowledge graph-elicited reasoning for healthcare copilot. In Proceedings of the ACM on Web Conference 2025 , WWW ’25, page 4442–4457, New York, NY, USA. Association for Computing Machinery. Qiaoyu Zheng, Yuze Sun, Chaoyi Wu, Weike Zhao, Pengcheng Qiu, Yongguo Yu, Kun Sun, Yanfeng Wang, Ya Zhang, and Weidi Xie. 2025. End-to-end agentic rag system training for traceable diagnostic reasoning. arXiv preprint arXiv:2508.15746 .Yakun Zhu, Shaohang Wei, Xu Wang, Kui Xue, Shaot-ing Zhang, and Xiaofan Zhang. 2025. MeNTi: Bridg-ing medical calculator and LLM agent with nested tool calling. In Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Asso-ciation for Computational Linguistics: Human Lan-guage Technologies (Volume 1: Long Papers) , pages 5097–5116, Albuquerque, New Mexico. Association for Computational Linguistics. 
+
+11 A Appendix 
+
+A.1 Clinical Order Annotation Process 
+
+In this section, we detail the annotation process for clinical orders. For medication orders, we use DeepSeek-V3.1 (Liu et al., 2024) to extract key at-tributes from the raw medical records, including or-der names , duration days , frequency , drug dosage ,and route of administration . For non-medication orders, we extract attributes such as order name ,
+
+order type , duration type , and frequency . To miti-gate hallucinations, we explicitly instruct the model to retain only information explicitly stated in the medical records and strictly prohibit any fabricated content. For the priority of order, we categorize the priority levels into six grades, from P1 to P6, and have developed a two-step annotation process. Specifically, the first step involves hard constraints, where the highest priority (P1) is assigned to inter-ventions for critical conditions (such as ventilation, vasopressors, hemostasis, and correction of life-threatening disturbances). The second step involves soft constraints, where we use the DeepSeek-V3.1 model to score each clinical order based on four dimensions: Urgency, Impact, SafetyBuffer, and EffortFactor. The specific scoring criteria are as follows: • Urgency: Measures the time sensitivity and clinical urgency of the clinical order, with a score range of 0-1. • Impact: Assesses the actual impact of the order on the patient’s condition, prognosis, and treatment path, with a score range of 0-1. • SafetyBuffer: Represents the allowable time deviation or delay when executing the or-der. The smaller the safety buffer (indicating higher risk), the higher the score, with a score range of 0-1. • EffortFactor: Represents the cost or effort required to execute the order, with a score range of 0-1. Subsequently, we assign different weights to each score and calculate the total priority score: 
+
+P riority = 0 .45 × Urgency + 0 .35 × Impact 
+
++0 .15 × SafetyBuffer + 0 .05 × EffortFactor .
+
+(5) Based on this score, clinical orders are assigned to priority levels ranging from P1 to P6. An overview                              
+
+> Level Name Clinical Meaning Response Time
+> P1 Critical or STAT Immediate life-saving interventions for acute instability or imminent threat to life Immediate ( ≤
+> 5 min) P2 Emergent or Ur-gent Critical Sup-port Core treatments re-quired to maintain vital functions or prevent rapid deterioration
+> ≤30 min P3 Important Mon-itoring and Follow-up Dynamic assessment of treatment efficacy or monitoring of key risk indicators Execute within ≤2 h (dependent) P4 Routine Ther-apeutic and Maintenance Care Scheduled execution of routine or maintenance therapeutic interven-tions Same day ( ≤
+> 6 h) P5 Nursing and Pro-phylactic Care Nursing operations or preventive interventions
+> ≤8 h P6 Planned or Non-Urgent Care Deferrable interventions executed according to planned conditions Plan or exe-cute within ≤
+> 24 h
+
+Table 3: Definitions of Clinical Order Priority Levels. 
+
+of each priority level is provided in Table 3. The priority score takes into account factors such as urgency, impact, safety buffer, and execution cost, enabling a more nuanced adjustment of priorities. For the rationale of order, clinical doctors initially constructed three seed templates. We then used the DeepSeek-V3.1 model to generate the correspond-ing Reason for each clinical order. Finally, 20% of the annotated data is randomly sampled for quality checks, and any samples with accuracy below 95% are manually corrected by the clinical doctors. To assess the quality of our data annotation, we conducted a clinician consistency evaluation. We randomly sampled 100 cases and asked experi-enced clinicians to independently annotate the data. The results show a high level of agreement with our constructed labels, with Cohen’s kappa scores of 0.64 for MedChain and 0.71 for ClinicalBench. 
+
+A.2 Analysis of Different Priority Levels 
+
+To analyze the model’s performance across dif-ferent clinical order priorities, we group orders by priority and evaluate overall order generation performance for each level from P1 to P6. The experimental results are shown in Figure 4. As ob-served, the model performs substantially better on high-priority orders (P1–P3) than on lower-priority ones (P4–P6). This result indicates that, in clini-cal scenarios involving patient safety and urgent interventions, the model demonstrates a strong abil-ity to identify critical information and make more appropriate high-priority decisions. 12 10.04 9.19 9.18       
+
+> 3.74
+> 0.97 0.66
+> 0.00
+> 5.00
+> 10.00
+> 15.00
+> P1 P2 P3 P4 P5 P6
+
+ClinicalLab        
+
+> 27.77
+> 16.20
+> 11.28
+> 2.70 1.40 0.22
+> 0.00
+> 5.00
+> 10.00
+> 15.00
+> 20.00
+> 25.00
+> 30.00
+> P1 P2 P3 P4 P5 P6
+
+MedChain 
+
+> 20.00
+> 15.00
+> 10.00
+> 5.00
+> 0.00
+> 15.00
+> 10.00
+> 5.00
+> 0.00
+
+Figure 4: F1 Score by Different Order Priority Level. 
+
+A.3 Analysis of Clinical Order Attributes 
+
+To further analyze the model’s performance across different clinical order attributes, we select the best-performing baseline for each method in the main experiment as reference. For both medica-tion and non-medication orders, the order name, drug dosage, and frequency attributes are eval-uated via LLM-based semantic matching, while the remaining attributes are evaluated via strict ex-act matching. The results are reported in Table 4 and Table 5. The experimental results show that our model achieves notable improvements on sev-eral key attributes for both medication and non-medication orders, particularly Order Name, Fre-quency, and Drug Dosage. For medication or-ders, Order Name demonstrates the largest gain, increasing from 43.95 to 51.37 on MedChain and from 47.71 to 55.97 on ClinicalBench. For non-medication orders, Frequency exhibits the most substantial improvement, rising from 8.52 to 18.02 on MedChain and from 13.96 to 18.0 on Clinical-Bench. Other attributes, including Duration and Route, generally benefit from our method, although some attributes such as Order Priority and certain Route/Drug Dosage entries may still be outper-formed by specific baselines in certain datasets. These improvements primarily stem from two fac-tors. First, the four-stage reasoning process enables the model to analyze each attribute at finer gran-ularity, enhancing core content accuracy. Second, retrieval-augmented generation provides rich back-ground knowledge and similar-case information, improving understanding of specific attributes and enabling more precise output generation. 
+
+A.4 Analysis of Clinical Order Types 
+
+To evaluate model performance across clinical or-der types, we categorize orders into medication 
+
+and non-medication orders, with the latter further divided into laboratory tests, examinations, treat-                                              
+
+> Attributes Reflectool MDAgents MedResearcher-R1 Ours
+> Medication Order
+> Order Name 38.78 43.95 34.24 51.37 Duration Days 4.54 0.37 4.27 12.12 Frequency 9.99 9.33 9.71 16.64 Drug Dosage 8.23 7.95 7.25 12.49 Route of Administration 17.2 16.64 11.57 24.02 Order Priority 16.88 19.52 11.95 15.24
+> Non-medication Order
+> Order Name 45.33 60.16 49.23 59.47 Order Type 12.89 16.53 16.68 24.2 Duration Type 11.19 16.07 16.74 23.38 Frequency 4.52 8.52 10.88 18.02 Order Priority 10.83 13.91 13.86 17.56
+
+Table 4: Accuracy of Clinical Order Attributes on Med-Chain.                                               
+
+> Attributes Reflectool MDAgents MedResearcher-R1 Ours
+> Medication Order
+> Order Name 38.4 47.71 31.17 55.97 Duration Days 4.79 0.05 9.82 10.63 Frequency 17.05 18 12.9 21.84 Drug Dosage 17.68 22.1 15.78 17.3 Route of Administration 24.62 30.39 20.03 28.29 Order Priority 12.99 16.29 8.74 9.76
+> Non-medication Order
+> Order Name 24.39 38.23 23.71 39.32 Order Type 10.03 18.33 13.61 18.53 Duration Type 9.7 21.47 12.22 21.22 Frequency 9.01 13.96 12.3 18 Order Priority 5.82 6.91 4.87 5.72
+
+Table 5: Accuracy of Clinical Order Attributes on Clini-calBench. 
+
+Type MedChain ClinicalBench P R F1 P R F1 
+
+Medication Order 
+
+Medication 75.62 41.31 39.48 64.86 40.65 37.28 
+
+Non-medication Order 
+
+Laboratory Test 65.51 37.98 31.74 87.96 27.41 28.99 Examination 72.27 25.92 25.07 75.21 15.08 15.85 Treatment 68.29 23.39 22.07 51.03 14.61 13.89 Operation 82.65 45.16 41.67 93.81 55.52 54.06 Nursing Care 23.26 22.50 13.15 41.92 21.97 17.21 Nutrition 25.00 14.29 10.00 34.78 11.94 10.00 
+
+Table 6: Results for Each Order Type. “P” and “R” denote “Precision” and “Recall”. 
+
+ments, operations, nursing care, and nutrition. The results are summarized in Table 6. As shown in the table, performance varies across order types. The model achieves relatively high precision but low recall on medication orders. For non-medication orders, it performs more consistently and achieves better overall results on laboratory test, examina-tion, and operation orders, while performance on nursing care, nutrition, and other orders is compar-atively weaker. 13 Frequency MedChain ClinicalBench P R F1 P R F1                                
+
+> 0–1 23.80 42.20 28.17 29.42 30.32 26.84 2–3 26.00 47.48 30.38 28.80 35.63 28.30 4–9 3.97 9.01 5.29 9.08 10.33 8.86
+> Table 7: Results by Tool Invocation Frequency.
+> # Courses Precision Recall F1
+> 1–3 24.55 46.66 29.28 4–6 27.71 51.53 31.81
+> >725.74 42.01 28.82
+> Table 8: Performance under Different Numbers of Courses.
+
+A.5 Analysis of Tool Invocation Frequency 
+
+To analyze the impact of tool invocation frequency within trajectories on model performance, we eval-uate the model under different numbers of tool calls. Based on statistics collected from the MedChain and ClinicalBench, the maximum number of tool invocations per trajectory is 9. We therefore group tool invocation frequency into three ranges: 0–1, 2–3, and 4–9 times. The experimental results are presented in Table 7. From the table, we observe that tool invocation frequency has a clear impact on model performance. In both MedChain and Clin-icalBench, trajectories containing 2–3 tool calls achieve the best overall performance, indicating that moderate tool usage helps the agent obtain sufficient external evidence while maintaining co-herent reasoning. In contrast, trajectories with 0–1 tool calls show slightly lower performance, sug-gesting that insufficient tool interaction may limit the model’s access to necessary clinical knowledge. Meanwhile, when the number of tool invocations increases to 4–9 times, performance drops signifi-cantly across all metrics. This indicates that exces-sive tool usage may introduce redundant or noisy in-formation and disrupt the reasoning process. Over-all, these results suggest that a moderate number of tool interactions is most beneficial for clinical de-cision generation, while overly frequent tool calls may negatively affect reasoning stability. 
+
+A.6 Analysis of Multiple Courses 
+
+To analyze the impact of the number of courses on model performance, we evaluate the model across different courses counts. As most samples in the ClinicalBench dataset contain only a single course, our analysis primarily focuses on the MedChain          
+
+> Dataset Total Samples Avg. Tokens Inference Time (min) F1
+> ClinicalBench 1500 2056.68 37 31.86 MedChain 1050 1647.70 26 31.75
+> Table 9: Inference efficiency and performance across different datasets.
+
+dataset. We partition samples into three groups based on the number of courses: 1–3, 4–6, and more than 7 courses. The experimental results are presented in Table 8. As shown in the table, the number of courses has a clear impact on model performance. The model achieves the best results when the number of courses is 4–6, obtaining the highest Precision, Recall, and F1 scores. This in-dicates that the framework benefits from a mod-erate amount of longitudinal clinical information, where multiple courses provide sufficient evidence for understanding disease progression and generat-ing appropriate medical orders. When the number of courses is 1–3, performance is slightly lower, which is likely due to the limited temporal infor-mation available for clinical reasoning. In contrast, when the number of courses exceeds 7, the per-formance shows a moderate decline. This is ex-pected because longer clinical trajectories typically involve more complex patient conditions and intro-duce additional reasoning difficulty. Notably, the performance degradation remains relatively lim-ited, suggesting that the case summarization agent effectively compresses newly added course infor-mation and mitigates context growth, allowing the framework to maintain stable reasoning even under long clinical histories. 
+
+A.7 Analysis of Efficiency 
+
+To analyze the efficiency of our framework, we evaluate inference time and performance on two datasets with different sample sizes and input lengths. The results are shown in Table 9. As shown in the table, the framework processes the ClinicalBench and MedChain datasets in 37 and 26 minutes, respectively, covering 2550 samples in total. Despite differences in average token length (1647–2056 tokens), the inference time scales proportionally with the dataset size, indicat-ing stable efficiency across datasets with varying input lengths. In terms of performance, the model achieves comparable F1 scores on both datasets, demonstrating that the framework maintains con-sistent effectiveness while handling relatively long 14 Weights MedChain Private ClinicalBench P R F1 P R F1 P R F1  
+
+> Variant 1 25.67 47.99 30.36 22.37 35.54 22.74 28.76 34.60 27.86 Variant 2 24.65 48.17 29.57 22.56 37.00 22.93 28.34 34.38 27.69 Ours 26.78 51.73 31.75 22.92 39.81 23.75 32.52 40.01 31.86
+
+Table 10: Training Performance of Agentic RL under Different Reward Weights. 
+
+clinical contexts. Overall, these results show that the proposed method provides stable inference effi-ciency and good scalability for real-world clinical decision support tasks. 
+
+A.8 Analysis of Reward Weights in RL 
+
+To investigate the influence of reward weights on Agentic RL performance, we performed a weight sensitivity analysis. The reward function is divided into three components: Format, Reasoning, and Answer. In addition to the original weights (1:3:6), we considered two alternatives: Variant 1 (1:1:1) and Variant 2 (1:6:3). The results are shown in Table 10. The results show that Ours consistently outperforms both variants across all three datasets. On MedChain, Private, and ClinicalBench, the F1 scores of Ours are 31.75, 23.75, and 31.86, rep-resenting improvements of 1.39, 1.01, and 4.00 over Variant 1, and 2.18, 0.82, and 4.17 over Vari-ant 2, respectively. Variant 1 distributes reward weights uniformly during RL, yet its effect is lim-ited. This suggests that, once format and basic rea-soning are mastered in the SFT stage, RL should focus on complex reasoning and answer optimiza-tion. Variant 2 assigns more weight to the reasoning component but achieves suboptimal performance, indicating that for tasks where answer accuracy is the final metric, overemphasis on reasoning re-wards can generate superficially coherent reason-ing chains that undermine actual answer quality. In contrast, our weight configuration effectively im-proves answer accuracy while preserving reasoning quality, achieving the highest performance across all datasets. 
+
+A.9 Workflow of the Summarization Agent 
+
+In this section, we provide a detailed explanation of the workflow of the summary agent. We have devel-oped a two-stage approach for summarization. The first stage is patient condition categorization, where the goal is to classify the patient’s daily medical records and test results into predefined condition categories. The second stage is treatment summary generation, where we aim to select the appropriate summary template based on the condition category and generate a summary of the patient’s daily med-ical records and test results. Through statistical analysis of the patient’s daily clinical records, we identified six common condition categories and de-veloped corresponding summary templates for each category. The detailed categories and templates are shown in Table 11. 
+
+A.10 Details of Tool Design 
+
+To provide a more detailed description of the tool design and usage guidelines, we present the imple-mentation details and usage specifications of the Search and Clinical Scoring tools used in this work. • Search Tools: Provide vector-based retrieval over clinical guidelines, medical literature cor-pora, and authoritative medical textbooks, en-abling efficient and accurate medical knowl-edge acquisition for clinical decision support. Specifically, we collect a total of 250 doc-uments as the knowledge base and deploy them using the RAGFlow 3 framework. The knowledge base consists of 250 documents, including 186 in Chinese and 64 in other lan-guages, with file types comprising 113 PDFs, 99 DOCX files, and 38 DOC files. These doc-uments cover the period from 2009 to 2023. • Clinical Scoring Tools: Support the compu-tation of a wide range of clinical scale scores, risk assessment metrics, and disease sever-ity indices through dedicated computational modules or standalone clinical calculators. Specifically, these tools include mean arterial pressure (MAP), HEART score, Wells score for pulmonary embolism, PERC rule for pul-monary embolism, CURB-65, QTc correction (Bazett and Fridericia), CKD-EPI (or Cock-croft–Gault), anion gap (with albumin cor-rection), EDACS score, Geneva score, PESI score, YEARS score, and the aortic dissection risk score (ADRS). 
+
+A.11 Case Study 
+
+To clearly illustrate how CAREAgent performs clinical reasoning through tool invocation, we con-duct a case study that explicitly demonstrates its reasoning process. The model’s thought process is enclosed within the <thought> and </thought> tags; 
+
+> 3https://github.com/infiniflow/ragflow
+
+15 tool calls and their parameters are presented within  
+
+> <tool_call>
+
+and </tool_call> ; the results returned by the tools are included within <observation> and  
+
+> </observation>
+
+; and the final generated output is provided within <answer> and </answer> . The clinical records and corresponding reference or-ders from ClinicalBench are presented in Table 12, and the reasoning trajectory of CAREAgent on this example is shown in Table 13. The clinical records and reference orders from MedChain are provided in Table 14. As this dataset contains multiple courses for each patient, we select a single course as an illustrative example; accordingly, the record includes a summary of the patient’s prior clinical history. The reasoning trajectory of CAREAgent for this example is shown in Table 15. 
+
+A.12 Prompt Design for Evaluation and Data Filtering 
+
+In this section, we describe the prompts used for evaluation and data filtering. Specifically, Prompt A is designed to assess the accuracy of model-generated clinical orders by comparing them against the reference orders, while Prompt B is used to evaluate the medical rationale of these orders. Prompt C is used to evaluate Agent-based synthe-sized trajectories, and Prompt D is used to assess the matching between order names extracted from the trajectories and the corresponding standard or-der names. 16 Category Category Description Summary Template 
+
+Sudden Deterioration / Acute Exacerbation of the Patient’s Condition This category is primarily used to document acute changes in a pa-tient’s condition or sudden clinical events (such as respiratory distress, altered consciousness, or abrupt changes in vital signs), as well as the emergency interventions undertaken in response to these abnormalities. When a patient presents with abnormal clinical signs (e.g., sudden dyspnea, altered consciousness, or decreased oxy-gen saturation), physical examination and relevant tests (such as blood gas analysis, imaging, or lab results) reveal corresponding abnormalities. A comprehensive assessment suggests these changes may be linked to underlying causes or pathophysiological mechanisms (e.g., infection progres-sion or respiratory failure). In response, emergency inter-ventions are promptly initiated, including airway suction-ing, oxygen therapy, endotracheal intubation, mechanical ventilation, and enhanced anti-infective or supportive treat-ment. Following these measures, the patient’s condition may improve, stabilize, or remain under observation. The patient’s condition remained stable / im-proved / recovered on that day. This category is used to describe improvement or recovery in the pa-tient’s symptoms, physical findings, or examination results following treatment, with no significant new abnormalities identified. It also doc-uments any subsequent adjustments to the treatment plan. After receiving treatments (e.g., anti-infective therapy, res-piratory support, and nutritional support), the patient’s symptoms have improved, signs are stable, and laboratory markers show progress. As the patient’s condition stabi-lizes or improves, the original treatment plan will continue, with gradual reduction or discontinuation of specific med-ications or interventions as needed. The patient will be closely monitored, and measures to prevent complications will remain in place. Important Examinations / Results Update This category is used to highlight updates on newly available key lab-oratory, imaging, or other diagnos-tic test results, and to document any corresponding adjustments to the di-agnosis or treatment plan. To assess the patient’s condition and treatment effective-ness, today’s examinations (e.g., chest X-ray, CT scan, blood gas analysis, biochemistry, complete blood count) re-vealed key findings (e.g., worsening bilateral lung effusion, elevated white blood cell count, reduced pleural effusion, improved cardiac function). Based on these results, the impact on the diagnosis and treatment plan was evaluated (e.g., infection control, antibiotic adjustments, need for enhanced support). As a result, decisions were made to adjust, continue, or discontinue specific treatments, and a follow-up plan or re-examination schedule was set. Department Transfer / Level of Care Change / Consultation / Nursing-Related Care This category is used to document instances where a patient is trans-ferred to another department or mon-itoring unit due to their condition or treatment needs, or when consul-tations with relevant specialists or enhanced nursing measures are re-quired. Given the patient’s condition and treatment needs (e.g., advanced monitoring, specialist evaluation, or nursing in-terventions), a decision was made to transfer the patient to the appropriate department or ICU, request specialist consultations, or enhance nursing care. This will facilitate better monitoring, further treatment, and additional diag-nostic tests. Recommendations, such as enhanced suction-ing, pain management, psychological support, and special positioning, have been implemented and are continuously assessed for effectiveness. New Diagnosis Estab-lished / Diagnosis Up-dated This category is used to establish new diagnoses, revise previous di-agnoses, or identify comorbidities, and to adjust the treatment strategy accordingly. Based on the latest clinical presentation, laboratory results, imaging data, and specialist consultations, the patient has been diagnosed with a new or revised diagnosis (e.g., sec-ondary infection, atelectasis, psychiatric disorder, etc.). This diagnosis suggests possible underlying pathological mechanisms or prognostic implications, prompting adjust-ments to the treatment plan, including the addition or mod-ification of medications or interventions (e.g., antifungal therapy, anticoagulation, psychiatric medications, etc.). A follow-up plan and further examinations have been sched-uled to assess treatment efficacy and monitor changes in the patient’s condition. Other Matters (e.g., spe-cial situations, family communication, and in-formed consent) This category is used for docu-menting important situations that in-volve communication with family members, informed consent, spe-cial events (such as critical illness, refusal or discontinuation of treat-ment, etc.), or other significant cir-cumstances that do not fall under the categories mentioned above. Throughout diagnosis and treatment, given the patient’s special circumstances (e.g., critical illness, treatment deci-sions, complications, financial concerns), timely commu-nication with the family was made to explain the patient’s condition, treatment risks, and expected outcomes. With the family’s consent, specific measures were agreed upon (e.g., consent for intubation, discontinuation of treatments, signing the informed consent form), and all necessary pro-cedures were completed. The patient’s condition and the family’s wishes will continue to be closely monitored. 
+
+Table 11: Six Types of Medical Condition Categories and Their Corresponding Summary Templates. 
+
+17 Example #1 from ClinicalBench Dataset EMR: 
+
+“clinical_department”: “Department of Cardiology”, “principal_diagnosis”: “Acute Myocardial Infarction”, “preliminary_diagnosis”: “1. Comminuted intertrochanteric fracture of the left femur (four-part fracture); 2. Grade 3 hypertension (high risk); 3. Acute myocardial infarction; 4. Severe osteoporosis.”, “diagnostic_basis”: “1. The patient presented with left hip pain and limited mobility for 3 hours following a fall. 2. Physical examination findings support the diagnosis: physiological spinal curvature was preserved with no tenderness over the spinous processes; assessment of spinal mobility in the supine position could not be performed due to poor cooperation. Mild swelling was observed in the left hip, with external rotation and shortening deformity of the left lower limb (approximately 80° of external rotation). There was tenderness around the left hip, and the patient refused palpation and movement due to pain. Movement of the left knee, ankle, and toes was preserved. Pulses of the left dorsalis pedis and posterior tibial arteries were palpable. No obvious abnormalities were observed in both upper limbs or the contralateral lower limb. 3. Imaging findings support the diagnosis: echocardiography revealed segmental wall motion abnormalities, left ventricular enlargement, mild interventricular septal thickening, slight dilation of the main pulmonary artery, globally reduced left ventricular function, moderate mitral regurgitation, mild aortic regurgitation, and a small amount of pericardial effusion. 4. Laboratory findings support the diagnosis: complete blood count showed decreased red blood cell count, hemoglobin, and hematocrit, increased red cell distribution width, and elevated C-reactive protein.”, “differential_diagnosis”: “The diagnosis is definitive, and no differential diagnosis is required.” 
+
+Labeled Answer: 
+
+{“name”: “Complete Blood Count”, “type”: “Laboratory Test”, “duration_type”: 2, “frequency”: “None”, “reason”: “Given the patient’s acute myocardial infarction and comminuted intertrochanteric fracture of the left femur, along with decreased red blood cell count, hemoglobin, and hematocrit, and elevated C-reactive protein levels, this test is required to assess the degree of anemia and inflammatory status.”, “priority”: “P3” }, { “name”: “Biochemical Panel”, “type”: “Laboratory Test”, “duration_type”: 2, “frequency”: “None”, “reason”: “Due to the presence of acute myocardial infarction and grade 3 hypertension, this test is necessary to evaluate liver and renal function as well as electrolyte balance.”, “priority”: “P3” }, { “name”: “Coagulation Function Test”, “type”: “Laboratory Test”, “duration_type”: 2, “frequency”: “None”, “reason”: “As the patient requires surgical treatment for the comminuted intertrochanteric fracture of the left femur, coagulation status must be assessed preoperatively.”, “priority”: “P2” }, { “name”: “Pre-transfusion Testing”, “type”: “Laboratory Test”, “duration_type”: 2, “frequency”: “None”, “reason”: “Given the decreased hemoglobin level and the potential need for blood transfusion, pre-transfusion compatibility testing is required.”, “priority”: “P3” }, { “name”: “Urinalysis”, “type”: “Laboratory Test”, “duration_type”: 2, “frequency”: “None”, “reason”: “Considering the patient’s hypertension and possible need for surgical intervention, renal function should be evaluated.”, “priority”: “P5” }, { “name”: “Chest CT”, “type”: “Imaging Examination”, “duration_type”: 2, “frequency”: “None”, “reason”: “Due to the presence of acute myocardial infarction and pericardial effusion, chest CT is required to assess pulmonary status and cardiac size.”, “priority”: “P3” }, { “name”: “Coronary CT Angiography (CTA)”, “type”: “Imaging Examination”, “duration_type”: 2, “frequency”: “None”, “reason”: “Given the diagnosis of acute myocardial infarction, coronary CTA is necessary to evaluate the condition of the coronary arteries.”, “priority”: “P2” }, { “name”: “Electrocardiogram (ECG)”, “type”: “Imaging Examination”, “duration_type”: 2, “frequency”: “None”, “reason”: “As the patient has acute myocardial infarction, continuous assessment of cardiac electrical activity is required.”, “priority”: “P2” }
+
+Table 12: An example from the ClinicalBench dataset. 
+
+18 CAREAgent’s trajectory for Example #1. 
+
+<thought> ## 1. Clinical Assessment. The patient presents with acute myocardial infarction complicated by a comminuted intertrochanteric fracture of the left femur, severe osteoporosis, and grade 3 high-risk hypertension. Cardiovascular event risk and bleeding risk must be assessed to guide antiplatelet therapy, anticoagulation, and fracture management. - Cardiovascular risk: Given the confirmed AMI, the HEART score should be calculated, incorporating age, risk factors, ECG changes, and cardiac biomarkers. -Bleeding risk: The intertrochanteric femoral fracture necessitates evaluation of fall and bleeding risk. Although the HAS-BLED score is primarily designed for atrial fibrillation, components such as hypertension and coagulation parameters can be referenced. Therefore, the HEART score assessment tool is invoked first. </thought> 
+
+<tool_call> {“name”: “Clinical_Assessment”, “parameters”: {“Scale_Type”: “HEART”}} </tool_call> 
+
+<observation> ## HEART Score. 1 . History: 0 points (mild suspicion / non-specific presentation). 2. Electrocardiogram (ECG): 0 points (normal). 3. Age: 0 points (age not provided; defaulted to 0). 4. Risk Factors: 1 point (one risk factor present [1–2]: hypertension). 5. Troponin: 2 points (significantly elevated, based on clinical records). Total HEART Score: 3 Clinical Interpretation: Low risk (estimated MACE ˜ 2.5%); discharge may be considered. </observation> 
+
+<thought> ## 2. Diagnosis and Stratification. The current diagnoses include: (1) acute ST-segment elevation myocardial infarction (STEMI), Killip class I with mild aortic regurgitation and a small pericardial effusion; (2) comminuted intertrochanteric fracture of the left femur (AO/OTA 31-A3) with severe osteoporosis; (3) uncontrolled grade 3 hypertension (high-risk group); and (4) severe osteoporosis (WHO FRAX ≥ 30%). Risk stratification is performed as follows. Cardiovascular risk : although a HEART score of 3 suggests low risk, the confirmed diagnosis of AMI places the patient at high risk in practice; further assessment using the GRACE or TIMI score is recommended, with preference for GRACE. Fracture risk : the high-risk intertrochanteric femoral fracture necessitates prompt decision-making regarding surgical fixation versus conservative management. Bleeding risk : hypertension combined with antiplatelet therapy increases bleeding risk; the HAS-BLED score may be referenced, with emphasis on blood pressure control and coagulation status. To ensure alignment with current evidence-based guidelines, additional information is retrieved regarding antiplatelet and anticoagulation therapy in STEMI patients with femoral fractures, perioperative blood pressure management in hypertensive patients undergoing hip surgery, and optimal surgical timing with perioperative thromboprophylaxis strategies. </thought> 
+
+<tool_call> {“name”: “Search”, “parameters”: {“query”: “STEMI patient with acute coronary syndrome undergoing hip fracture surgery antithrombotic therapy guideline”}} </tool_call> 
+
+<observation> For STEMI patients with acute coronary syndrome undergoing hip fracture surgery, antithrombotic therapy recom-mendations include the use of P2Y12 receptor inhibitors such as prasugrel or ticagrelor, with clopidogrel as an alternative if these are unavailable or contraindicated. Dual antiplatelet therapy (DAPT) should be resumed post-surgery for at least 12 months if stopped for surgical reasons. Pre-treatment with glycoprotein IIb/IIIa antagonists or routine P2Y12 inhibitors before invasive management is not rec-ommended. Anticoagulant therapy should be carefully considered based on patient-specific factors and bleeding risk. </observation> 
+
+<thought> ## 3. Preliminary Order Formulation. Based on the confirmed diagnoses (STEMI, comminuted intertrochanteric fracture of the left femur, severe osteoporosis, and grade 3 hypertension) and perioperative antiplatelet and anticoagulation guidelines, we propose the following preliminary orders: (1) antiplatelet therapy with a P2Y12 inhibitor (ticagrelor preferred; clopidogrel if contraindicated) combined with aspirin; (2) intravenous unfractionated heparin during coronary intervention, with postoperative LMWH bridging as appropriate; (3) ACEI/ARB-based blood pressure management targeting a systolic pressure below 140 mmHg while avoiding excessive reduction; (4) early surgical fixation of the hip fracture within 48–72 hours after cardiovascular stabilization; (5) bisphosphonate therapy with calcium and vitamin D supplementation; and (6) supportive care including VTE prophylaxis and close monitoring of ECG, cardiac biomarkers, renal function, and bleeding status. Additional guideline retrieval is required for perioperative blood pressure management and thromboprophylaxis in hip fracture patients. ## 4. Order Conflict Checking and Priority Assignment. Potential drug–drug interactions, bleeding risks, and conflicts with the patient’s medical history are systematically evaluated. Antiplatelet agents require temporary discontinuation before surgery and timely resumption after adequate hemostasis; ACEI/ARB therapy necessitates electrolyte monitoring; bisphosphonates should be administered in the fasting state; and LMWH dosing should be adjusted perioperatively according to bleeding risk. Based on clinical urgency and therapeutic objectives, orders are prioritized from acute life-threatening interventions (P1), to key perioperative treatments (P2), monitoring and supportive care (P3), long-term chronic disease management (P4), and nursing or preventive measures (P5). The finalized clinical orders are presented below. </thought> 
+
+<answer> 
+
+{ “name”: “Ticagrelor”, “duration_days”: 365, “frequency”: “Twice daily”, “spec”: “90 mg PO BID”, “route”: “Oral”, “reason”: “Dual antiplatelet therapy is required in STEMI patients to reduce the risk of recurrent myocardial infarction.”, “priority”: “P1” }, { “name”: “Aspirin”, “duration_days”: 365, “frequency”: “Once daily”, “spec”: “100 mg PO QD”, “route”: “Oral”, “reason”: “Foundational antiplatelet agent for secondary prevention.”, “priority”: “P1” }, { “name”: “Lisinopril”, “duration_days”: 30, “frequency”: “Once daily”, “spec”: “10 mg PO QD”, “route”: “Oral”, “reason”: “Blood pressure control with a target systolic pressure <140 mmHg to reduce perioperative cardiovascular risk.”, “priority”: “P2” }, { “name”: “Enoxaparin”, “duration_days”: 7, “frequency”: “Once daily”, “spec”: “40 mg SC QD”, “route”: “Subcutaneous”, “reason”: “Perioperative deep vein thrombosis prophylaxis to reduce the incidence of VTE.”, “priority”: “P2” }, { “name”: “Alendronate”, “duration_days”: 365, “frequency”: “Once weekly”, “spec”: “70 mg PO weekly”, “route”: “Oral”, “reason”: “Treatment of severe osteoporosis to reduce the risk of recurrent fractures.”, “priority”: “P4” }, { “name”: “Laboratory tests: complete blood count, coagulation profile, electrolytes, renal function, cardiac enzymes”, "type": “Laboratory monitoring”, "duration_type": 2, “frequency”: “Once daily”, “reason”: “To monitor bleeding risk, renal function, and myocardial injury, and to guide medication dose adjustments.”, “priority”: “P3” }, { “name”: “Fall prevention and positioning care”, "type": “Nursing care”, "duration_type": 1, “frequency”: “As needed (pro re nata)”, “reason”: “To prevent recurrent falls and related fracture or bleeding complications.”, “priority”: “P5” } 
+
+</answer> 
+
+Table 13: CAREAgent’s trajectory for Example #1, with special symbols used in thought content, tool call, returned results, and final answer highlighted with purple box , green box , blue box , and red box , respectively. 
+
+19 Example #2 from MedChain Dataset EMR: 
+
+“history ”: {“key_findings”: “1. WBC: 3.48 × 10 9/L, below normal and decreased compared with prior results; 2. Absolute neutrophil count: 1.04 × 10 9/L, markedly decreased (neutropenia), with further decline from baseline; 3. AST: 55 U/L, mildly elevated with fluctuating trend.”, “clinical_actions”: “1. To clarify the patient’s condition and evaluate treatment efficacy, antiviral therapy was initiated, consisting of pegylated interferon-α2b administered subcutaneously once weekly and ribavirin administered orally once daily. Given the diagnosis of chronic hepatitis C and recurrent abnormalities in liver function, standardized antiviral therapy was considered necessary to control viral replication; therefore, this regimen was started with planned regular monitoring of liver function and HCV RNA levels. 2. To assess therapeutic response and potential adverse drug effects, repeat complete blood count and liver function tests were performed. The results demonstrated significant decreases in WBC and neutrophil counts, suggesting bone marrow suppression likely induced by pegylated interferon-α2b. Consequently, the interferon injection for the current week was withheld, and close hematologic monitoring was planned, with dose-adjusted therapy to be resumed after neutrophil recovery.”, “current_status”: “The patient is diagnosed with chronic hepatitis C and is currently clinically stable, but has developed treatment-related neutropenia.” }, “Current course of disease ”: “## Chief Complaint: No specific discomfort. ## Physical Examination: No significant positive findings. ## Laboratory Tests: WBC 2.36 × 10 9/L; absolute neutrophil count 0.92 × 10 9/L; platelet count 190 × 10 9/L; hemoglobin 95 g/L; ALT 8 U/L; AST 22 U/L; HCV RNA 1.488 × 10 2 IU/mL.” 
+
+Labeled Answer: 
+
+{“name”: “Ribavirin”, “duration_days”: null, “frequency”: “Once daily”, “spec”: “800 mg”, “route”: “Oral”, “reason”: “Although the patient has a low hemoglobin level (95 g/L), ongoing antiviral therapy necessitates continuation of ribavirin to control hepatitis C virus infection.”, “priority”: “P4” }, {“name”: “Recombinant Human Granulocyte Colony-Stimulating Factor”, “duration_days”: null, “frequency”: “As needed”, "spec": null, “route”: “Subcutaneous”, “reason”: “Given the marked reduction in white blood cell count ( 2.36 × 10 9/L) and absolute neutrophil count ( 0.92 × 10 9/L), indicating drug-induced neutropenia, this therapy is required to increase leukocyte counts and reduce the risk of infection.”, “priority”: “P2” }
+
+Table 14: An example from the MedChain dataset. 
+
+20 CAREAgent’s trajectory for Example #2. <thought> ## 1. Clinical Assessment. The patient has chronic hepatitis C virus (HCV) infection and has initiated an antiviral regimen consisting of subcutaneous pegylated interferon-α2b combined with oral ribavirin. Current laboratory findings are as follows: white blood cell count 2.36 × 10 9/L (below the lower limit of normal); absolute neutrophil count 0.92 × 10 9/L (markedly reduced, suggesting bone marrow suppression); hemoglobin 95 g/L (mild anemia); platelet count within normal range; liver function tests showing ALT 8 U/L and AST 22 U/L (both within normal limits); and HCV RNA 1.488 × 10 2 IU/mL (low viral load, suggesting a favorable virologic response). Clinically, the patient reports no significant discomfort, and physical examination reveals no positive findings. Overall assessment indicates that drug-induced neutropenia (absolute neutrophil count 
+
+< 1.0 × 10 9/L) represents moderate-to-severe bone marrow suppression, requiring evaluation of infection risk and consideration of interferon dose reduction or temporary discontinuation. The reduced hemoglobin level warrants monitoring for progression of anemia, while the marked decline in viral load suggests that the antiviral therapy is effective. To guide subsequent management, it is necessary to consult the latest Guidelines for the Diagnosis and Treatment of Chronic Hepatitis C (2023) issued by the Chinese Society of Hepatology, as well as recommendations on dose adjustment for interferon-associated bone marrow suppression. 
+
+</thought> 
+
+<tool_call> {“name”: “Search”, “parameters”: {“query”: “chronic hepatitis C interferon dose adjustment bone marrow suppression guideline 2023”}} </tool_call> 
+
+<observation> Snippet 3 notes that common adverse effects of pegylated interferon-α (Peg-IFN-α) include bone marrow suppression: when the absolute neutrophil count is ≤ 0.75 × 10 9/L and/or the platelet count is < 50 × 10 9/L, dose reduction of interferon is recommended. In cases where a significant decline in neutrophil count occurs within 1–2 weeks, treatment with granulocyte colony-stimulating factor (G-CSF) or granulocyte–macrophage colony-stimulating factor (GM-CSF) may be considered. However, this information reflects general management of interferon-related adverse reactions rather than dose-adjustment recommendations specific to chronic hepatitis C. Moreover, the retrieved snippets do not provide details on interferon treatment regimens, dosing strategies, or updated guideline recommendations for chronic hepatitis C published in 2023. </observation> 
+
+<thought> ## 2. Diagnosis and Stratification. The patient has a confirmed diagnosis of chronic hepatitis C and is currently receiving combination therapy with pegylated interferon-α2b and ribavirin. Laboratory results show an absolute neutrophil count of 0.92 × 10 9/L ( < 1.0 × 10 9/L), meeting the criteria for drug-induced neutropenia consistent with interferon-α–associated bone marrow suppression. According to retrieved recommendations on interferon-related adverse effects, dose reduction is advised when the neutrophil count is ≤ 0.75 × 10 9/L, while temporary discontinuation with consideration of granulocyte colony-stimulating factor (G-CSF) is recommended when the count declines to ≤ 0.5 × 10 9/L or when fever or infection occurs. Although the patient currently has no signs of infection, the neutrophil count is close to the suspension threshold, indicating the need for timely dose adjustment or temporary interruption of interferon therapy. The overall assessment includes chronic hepatitis C with a low viral load (HCV RNA 1.488 × 10 2 IU/mL), grade 2–3 interferon-associated neutropenia based on NCCN/ESMO criteria, mild anemia (hemoglobin 95 g/L), and largely preserved liver function. 
+
+## 3. Preliminary Order Formulation. Based on these findings, pegylated interferon-α2b should be suspended for the current week ( stat ), with reassessment after hematologic recovery. If the absolute neutrophil count remains below 1.0 × 10 9/L in the following week, G-CSF therapy may be initiated (filgrastim 300 μg subcutaneously every 24 hours) until recovery to 
+
+≥ 1.5 × 10 9/L. Ribavirin should be continued once daily to maintain antiviral efficacy, with consideration of dose reduction or discontinuation after further virologic follow-up. Infection surveillance should be intensified with daily monitoring of vital signs, and empiric antibiotics should be initiated promptly if fever ≥ 38 .5◦C or focal infection signs develop. Laboratory follow-up is recommended, including complete blood count every three days and liver function tests with HCV RNA weekly. If hemoglobin persistently falls below 80 g/L, iron supplementation or blood transfusion should be considered. 
+
+## 4. Order Conflict Checking and Priority Assignment. Suspension of interferon does not result in pharmacological interactions with continued ribavirin therapy; however, hemoglobin levels should be closely monitored due to ribavirin-associated hemolysis. G-CSF has no direct interaction with ribavirin but should be used cautiously because of the potential risk of bone marrow fibrosis. All proposed orders are consistent with the patient’s allergy history and known contraindications. Priority assignment reflects clinical urgency, with interferon suspension as the highest priority (P1), followed by infection surveillance (P2), hematologic monitoring (P3), continuation of ribavirin (P4), and anemia management (P5). The finalized clinical orders are presented in the subsequent section. </thought> 
+
+<answer> 
+
+{ “name”: “Pegylated Interferon-α2b“, “duration_days”: 0, “frequency”: “Immediate (stat)“, “spec”: “Suspend current week injection“, “route”: “Subcutaneous“, “reason”: “The absolute neutrophil count is 0.92 × 10 9/L, below the safety threshold (≤ 1.0×10 9/L), indicating a high risk of infection; immediate discontinuation is required to prevent severe infection.“, “priority”: “P1” }, { “name”: “Filgrastim“, “duration_days”: 5, “frequency”: “Once daily“, “spec”: “300 μg SC“, “route”: “Subcutaneous“, “reason”: “If the absolute neutrophil count remains < 1.0 × 10 9/Lin the following week, G-CSF should be administered to promote neutrophil recovery to a safe level ( ≥ 1.5 × 10 9/L).“, “priority”: “P3” }, { “name”: “Ribavirin“, “duration_days”: 30, “frequency”: “Once daily“, “spec”: “500 mg PO“, “route”: “Oral“, “reason”: “Antiviral therapy should be continued to maintain treatment efficacy despite the reduced viral load; hemoglobin levels should be monitored due to the potential hemolytic effect of ribavirin.“, “priority”: “P4” }, { “name”: “Complete Blood Count (including ANC) + Platelet Count + Hemoglobin“, “type”: “Laboratory Test“, “dura-tion_type”: 2, “frequency”: “Every 3 days“, “reason”: “To monitor recovery from bone marrow suppression and progression of anemia, enabling timely adjustment of subsequent treatment plans.“, “priority”: “P3” } 
+
+</answer> 
+
+Table 15: CAREAgent’s trajectory for Example #2, with special symbols used in thought content, tool call, returned results, and final answer highlighted with purple box , green box , blue box , and red box , respectively. 
+
+21 Prompt A: Clinical Order Accuracy Evaluation 
+
+## Instruction: 
+
+You are a clinical physician. Your task is to compare the model-generated list of clinical orders with the reference list of standard clinical orders and assess whether each model-generated order can be matched to a corresponding item in the reference list. Reasonable substitutions are allowed, including synonymous terms, therapeutically equivalent medications, or appropriate adjunctive treatments. However, completely unmatched orders or those that violate clinical plausibility are not permitted. 
+
+## Task Definition: 
+
+I will provide two lists: - model_predict_order: the list of clinical orders generated by the model. - golden_order: the reference list of standard clinical orders. Your task is to evaluate each model-generated order one by one and return an integer for each order indicating whether it can be matched to an item in the reference list. You should make your decisions according to the following rules: 
+
+## Rules: 1. Return format. You must return an integer list whose length is exactly the same as model_predict_order (i.e., List[int] ). 
+
+2. Matching rules. If a model-generated order can be matched to an item in the reference order list, return the 0-based index of the matched item in golden_order_names . If the model-generated order does not match any reference item and cannot be reasonably mapped via synonym substitution, therapeutic-class substitution, or appropriate adjunctive treatment, return -1 .
+
+3. Synonyms, therapeutic equivalents, and reasonable adjunctive care. Reasonable mappings are allowed for synonymous terms, therapeutically equivalent medications, or examination and test items with different naming conventions but equivalent clinical meaning. 
+
+4. Preference for the most direct match. If multiple reference orders could match a model-generated order, return the index of the most reasonable and clinically direct match. 
+
+5. Name mismatch tolerance. Differences in naming alone should not be considered sufficient grounds for rejection; as long as the clinical purpose is consistent and medically plausible, the orders may still be regarded as a match. 
+
+## Output Format: 
+
+{“answer”: [0, -1, 2, . . . ]} 
+
+## Example: Reference Order List: 
+
+[{ "idx_type": "order_medication","name": "Cefuroxime","duration_days": 7.0, "frequency": "Three times daily (TID)","spec": "1 g × 1 vial","route": "Intravenous infusion" },{ "idx_type": "order_medication","name": "Levofloxacin","duration_days": 7.0, "frequency": "Once daily (QD)","spec": "500 mg × 1 vial","route": "Intravenous infusion" },{ "idx_type": "order_non_medication","name": "Physical cooling","type": "Therapy", "duration_type": 2.0,"status": "Ongoing","frequency": "Once every 2 hours" }] 
+
+Model-Predicted Order List: 
+
+[{ "idx_type": "order_medication","name": "Cefazolin","duration_days": 7.0, "frequency": "Three times daily (TID)","spec": "1 g × 1 vial","route": "Intravenous infusion" },{ "idx_type": "order_non_medication","name": "Physical cooling","type": "Therapy", "duration_type": 2.0,"status": "Ongoing","frequency": "Once every 2 hours" },{ "idx_type": "order_medication","name": "Vitamin C","duration_days": 5.0, "frequency": "Twice daily (BID)","spec": "500 mg × 1 vial","route": "Intravenous infusion" }] 
+
+Output: 
+
+{“answer”: [0, 2, -1]} 
+
+## Input Data: Patient Information: {patient_input} 
+
+Reference Order List: {golden_order} 
+
+Model-Predicted Order List: {model_predict_order} 
+
+22 Prompt B: Clinical Order Reason Evaluation 
+
+## Instruction: 
+
+You are a licensed physician with extensive clinical experience. Based on the patient’s medical record, and using the reason provided in the reference clinical order as the benchmark, evaluate the medical plausibility of the reason given for the model-generated clinical order. Assess whether the rationale is clinically sound, logically consistent, and appropriate for the patient’s current condition. 
+
+## Task Definition: 
+
+Evaluate the model-generated reason along the following four dimensions. Each dimension should be scored with an integer from 0 to 5, for a total score of 20. ### 1. Soundness (Medical Plausibility) - Whether the rationale conforms to medical knowledge and clinical guidelines - Whether there are medical or logical errors - Whether it is appropriate for the patient’s condition Scoring reference: - 0: Clearly incorrect or medically unreasonable - 3: Generally reasonable but with medical or logical flaws - 5: Fully consistent with medical standards and clinical reasoning ### 2. Completeness - Whether the medical rationale is sufficiently explained - Whether key clinical conditions or examination findings are missing Scoring reference: - 0: Almost no meaningful explanation - 3: Partially reasonable but incomplete - 5: Comprehensive and sufficiently detailed ### 3. Relevance - Whether the rationale closely aligns with the reason of the corresponding reference order - Whether it contains irrelevant or overly generic content Scoring reference: - 0: Largely unrelated to the clinical order - 3: Partially relevant with noticeable deviation - 5: Highly relevant and well targeted ### 4. Consistency - Whether the rationale is consistent with the patient’s medical record - Whether it is logically consistent with the reference order’s reason - Whether there are internal contradictions Scoring reference: - 0: Clearly contradictory or conflicting - 3: Generally consistent with minor inconsistencies - 5: Fully consistent with no apparent contradictions 
+
+## Rules: 
+
+1. Evaluate only the clinical rationale (reason) itself, and do not assess whether the clinical order content is correct. 
+
+## Output Requirements (Strict Compliance): 
+
+- Output only JSON; do not include any explanatory text. - All scores must be integers in the range 0–5. - The JSON output must strictly follow the structure below: 
+
+{"answer": { "soundness": 0, "completeness": 0, "relevance": 0, "consistency": 0 }}
+
+## Input Data: Patient Medical Record: {patient_input} 
+
+Reference Clinical Order (with rationale): {golden_order_item} 
+
+Model-Generated Clinical Order (with rationale): {model_order_item} 
+
+23 Prompt C: Clinical Order Trajectory-level Filtering 
+
+## Instruction: 
+
+You are a clinical physician who strictly adheres to the principles of evidence-based medicine, responsible for reviewing the clinical reasoning trajectory generated by the model. 
+
+## Concept Overview: 
+
+The task scenario is as follows: based on the patient’s clinical condition, clinical orders are to be issued for the patient. The trajectory structure is: (think , tool_call ) → (think , tool_call ) → · · · → (think , answer ).The model’s task consists of four components: 1. Clinical condition assessment 2. Diagnosis and disease stratification 3. Clinical order generation 4. Clinical order priority ranking 
+
+## Task Description: 
+
+You are required to first evaluate the large language model’s capability in tool usage, and then separately assess the quality of completion of the above four tasks within the reasoning chain. There are a total of five evaluation dimensions, each scored from 0–5, with a total score of 25. 
+
+### 1. Tool Use Evaluation (Tool Use) :Evaluate whether the think → tool_call invocations are necessary, sufficient, and appropriate: - There must be a clear causal logic between think and tool_call. - If a subtask requires external information (such as scores, scales, diagnostic criteria, dosages, or guideline evidence), the corresponding tool must be called first. Specifically: if a scale/score/formula is needed, call Clinical_Assessment; if guidelines or evidence-based searches are needed, call Search. - Tools should not be called, nor should redundant or ineffective calls be made, when external information is not required. 
+
+### 2. Clinical condition assessment :Within each think step, clinical information should be systematically organized and evaluated, including but not limited to: - Symptoms, signs, past medical history, medication history, allergy history, family history, risk factors, and laboratory results. - Determination of whether there are critical or life-threatening conditions requiring immediate intervention. - Clear identification of disease severity, with structured and well-organized conclusions. 
+
+### 3. Diagnosis and disease stratification :- If there is no definitive diagnosis yet: - Propose differential diagnoses based on clinical data and scale/score results, and rank them by likelihood. - Specify additional examinations needed and their priorities. - Clearly define the primary diagnosis, subtype/stage, risk level, and complications/comorbidities. - If a definitive diagnosis has already been provided in previous dialogue: - Directly output in think: “## Diagnosis and Classification. \n The current diagnosis is XXX.” 
+
+### 4. Clinical order generation :- Provide a relatively complete list of clinical orders based on the diagnosis and disease severity, including both pharmacological and non-pharmacological interventions. - Explain the clinical goal or intent of each order (e.g., symptom relief, infection control, complication prevention). 
+
+### 5. Clinical order priority ranking :Conduct a systematic review and grading of the above orders: 1. Conflict and Inappropriate Medication Checks - Assess potential drug–drug interactions. - Identify duplicate or mutually conflicting orders. - Evaluate whether dosage, route, and frequency of administration are appropriate. - Check for conflicts with contraindications, allergy history, or major comorbidities. 2. Priority Classification Based on importance and urgency, classify each order as: - P1: Measures that directly affect vital sign stability or survival probability and must be executed immediately. - P2: Core treatments that prevent disease progression. - P3: Measures used to monitor key therapeutic effects or high-risk adverse events. - P4: Maintenance treatments during stable phases or for chronic diseases. - P5: Nursing care, rehabilitation, and preventive measures. - P6: Orders that can be appropriately delayed, depend on prerequisite conditions, or are planned interventions. 
+
+## Unified Scoring Criterion (0–5): 
+
+- 5 (Excellent): Complete, well-structured, and logically rigorous reasoning; critical information is accurately identified, conclusions are well supported, and actions are appropriate and safe. - 4 (Good): Generally correct and coherent reasoning, with only minor omissions or lapses that do not materially affect validity or safety. - 3 (Fair): Partially correct reasoning with notable omissions, weak organization, or insufficient justification; conclusions require further refinement or verification. - 2 (Poor): Reasoning includes multiple significant errors or omissions, resulting in questionable conclusions or potentially unsafe actions. - 1 (Very Poor): Severely flawed reasoning with major misinterpretations and largely incorrect or unsafe conclusions. - 0 (Invalid): No valid reasoning, or content is fundamentally incorrect or irrelevant. 
+
+## Output Format: 
+
+{"Tool_Use": 0-5, "Assessment": 0-5, "Diagnosis": 0-5, "Orders": 0-5, "Conflict_Priority": 0-5 }
+
+## Below is the clinical reasoning trajectory generated by the model: {trajectory} 
+
+24 Prompt D: Clinical Order Answer-level Filtering 
+
+## Instruction: 
+
+You are a medical quality control expert. You are required to compare the [model-generated order name list] with the [standard order name list]. For each order name generated by the model, determine whether a corresponding item can be found within the scope of the standard orders (allowing for synonyms, substitutions with drugs of the same class, and clinically reasonable adjunctive therapies). 
+
+## Task Description: 
+
+I will provide a “model_order_names” list and a “golden_order_names” list. You must evaluate each model-generated order one by one and return an integer for each. The output must be an integer list (List[int]), and its length must exactly match the length of “model_order_names” .The meaning of the value at each position is as follows: - ≥ 0: Indicates that the model-generated order can be matched to an item in the standard order list. Return the corresponding index in “golden_order_names” (starting from 0). - -1: Indicates that the model-generated order does not exist in the standard orders at all, and is not a synonym, a same-class drug substitution, or a clinically reasonable adjunctive therapy; it should be considered an error, overtreatment, or hallucination. 
+
+## Notes: 
+
+- If a model-generated order can match multiple standard orders, return the most reasonable and most direct standard order index. - Reasonable mappings such as “synonyms”, “same-class drugs”, and “different naming conventions for the same examination or test” are allowed. - Do not assign -1 simply because the names are not exactly the same. 
+
+## Output Format (Strict JSON): 
+
+{“answer”: [0, -1, 2, ...]} 
+
+## Example: 
+
+Standard order name list: [“Cefuroxime”, “Levofloxacin”, “Physical cooling”] 
+
+Model order name list: [“Cefazolin”, “Physical cooling”, “Vitamin C”] 
+
+Output: {“answer”: [0, 2, -1]} 
+
+Explanation: - Cefazolin and Cefuroxime are both cephalosporin antibiotics → matched to index 0 - Physical cooling is an exact match → matched to index 2 - Vitamin C is not included in the standard orders and is not essential → -1 
+
+## Input Data: 
+
+Patient information: {patient_input} 
+
+Standard order name list: {golden_names} 
+
+Model order name list: {model_names} 
+
+25

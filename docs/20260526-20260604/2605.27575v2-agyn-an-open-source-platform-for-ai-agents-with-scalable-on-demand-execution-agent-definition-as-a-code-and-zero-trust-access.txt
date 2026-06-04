@@ -1,0 +1,118 @@
+Title: Agyn: An Open-Source Platform for AI Agents with Scalable On-Demand Execution, Agent Definition as a Code, and Zero-Trust Access
+
+URL Source: https://arxiv.org/pdf/2605.27575v2
+
+Published Time: Tue, 02 Jun 2026 02:14:23 GMT
+
+Number of Pages: 8
+
+Markdown Content:
+# Agyn: An Open-Source Platform for AI Agents with Scalable On-Demand Execution, Agent Definition as a Code, and Zero-Trust Access 
+
+Nikita Benkovich and Vitalii Valkov 
+
+Agyn, Inc.; Mila AI e-Lab 
+
+{benkovich,vitalii}@agyn.io 
+
+Abstract. As organizations move toward production deployments of AI agents, which execute non - deterministic workflows, maintain stateful sessions, and often operate with privileged access to internal services, the engineering challenge shifts from building individual agents to operating them at scale with proper isolation, governance, and security. In this paper we present Agyn, an open - source platform designed around three key principles tailored for agent workloads: a signal - driven, stateful serverless runtime on Kubernetes; a Terraform provider for agent and harness definition; and a security model grounded in zero - trust and least - privilege principles. Agyn is agent-agnostic, model-agnostic, and cloud-agnostic. 
+
+Keywords: Agentic AI Systems · AI Agent Orchestration · Serverless ·
+
+Infrastructure-as-Code · Zero-trust Networking. 
+
+## 1 Introduction 
+
+Recent advances in tool-augmented large language models (LLMs) have enabled agentic systems capable of autonomous planning, action execution, and com-munication [ 19 ]. As these capabilities mature, organizations are increasingly deploying large numbers of task-specific agents that operate as first-class orga-nizational identities with access to internal enterprise systems. Consequently, the central challenge is shifting from constructing individual agents to operating large populations of such agents reliably and securely at organizational scale. A desirable deployment model is emerging in which agent definitions are centrally managed and shared across teams, while each running instance is bound to a single user and a single task. Under this model, a single agent definition may spawn many concurrent short-lived instances. This pattern — many agents, many short lived instances per user, and ambient access to internal services — exposes three crucial requirements that existing infrastructure cannot satisfy simultaneously: 1. Efficient on-demand execution. It is not practical to reserve dedicated computing resources for each agent definition ahead of time. Doing so would lead to large amounts of idle compute that are paid for but never used.  
+
+> arXiv:2605.27575v2 [cs.AI] 31 May 2026 2N. Benkovich, V. Valkov
+
+Instead, the platform must allocate compute only when an agent actually runs, and immediately reclaim any compute that becomes idle so that it can be reused for other tasks. 2. Agent definition as a code. Agent definitions (prompt, tools, secrets, resource bounds) reflect important operational decisions with production impact. So, the teams should manage agents with the same governance and safety practices they already use for the rest of their infrastructure. Namely, the definitions shall be subject to version control, and undergo peer review before changes are accepted and applied. 3. Zero-trust access to internal services. Access must be per-identity, deny-by-default, and credentials must never be exposed to the model. The platform must not assume that the agent or the AI model is trustworthy just because it runs inside the network. Instead, every request to an internal service (such as a database, an API, or a message queue) must be authorized individually. This prevents the model from leaking credentials or misusing them, even if it behaves unexpectedly or is compromised. Existing systems address these requirements only partially. Serverless plat-forms such as Knative and AWS Lambda provide elastic execution but lack native support for stateful conversational sessions and agent-oriented triggers. Infrastructure-as-Code (IaC) frameworks provide declarative resource manage-ment but lack abstractions tailored to agent workloads. Zero-trust networking systems require manual identity lifecycle management that does not align with ephemeral agent execution. Consequently, no existing platform provides an inte-grated solution for all three requirements. This paper presents Agyn [ 1], an open-source platform for operating organiza-tional scale agentic systems. In Agyn , each agent is defined once as a reusable declarative configuration encapsulating prompts, tools, secret bindings, resource limits, operational policies, etc. These definitions are centrally managed and shared across teams, while each execution instance remains isolated and bound to a single user and task (e.g., a conversational thread). The same agent definition may give rise to many such instances concurrently, each with its own state, identity, and life cycle, isolated from all others. 
+
+Agyn combines: (1) a signal-driven stateful serverless runtime built on Kuber-netes, (2) a Terraform provider for agent and harness management, and (3) a zero-trust security architecture based on least-privilege principles. The platform is agent-agnostic, model-agnostic, and cloud-agnostic. The remainder of this paper presents the background and motivation, system architecture, design decisions, implementation details, limitations, related work, and concluding remarks. 
+
+## 2 Architecture Overview 
+
+Agyn is a platform for running AI agents that collaborate with humans through natural conversation. Users interact with agents via threads : creating a new Agyn: A Scalable Open-Source Platform for AI Agents Runtime 3 
+
+> Fig. 1. Agyn system architecture. External clients (web chat, console, custom connectors) interact with the platform via the Gateway. The control plane manages agent definitions, orchestration, and tenant state. Agent pods communicate with platform services exclusively through the OpenZiti overlay network (mTLS). The data plane elements (filled in green) handle runtime events and agent pod life cycle.
+
+thread with an agent spawns a dedicated instance for that user and task. Threads can be created through the built-in web chat interface or via the platform API, which allows building custom connectors to external chat applications (Slack, Teams, etc.). Agents can also create threads with other agents, enabling multi-agent collaboration. A web console provides administrators with organisation configuration, access and secret management, and usage observability. The platform’s core functionality is organised into three areas, detailed in the following subsections. 4 N. Benkovich, V. Valkov 
+
+2.1 Runtime: Signal-Driven Stateful Serverless Agents 
+
+A naive deployment assigns one long-running worker per agent definition, wasting compute on idle definitions. Assigning one per instance is impossible because instance count is user-driven and unbounded. Traditional FaaS solves scale-to-zero for HTTP workloads [ 13 , 12 ] but the agent workload differs: the trigger is a conversational message, the unit of work is multi-minute, and state must survive across spawns. Agyn treats every instance as ephemeral compute with durable state: spawned on demand, kept alive while active, reclaimed when idle, enabling efficient horizontal scaling without pre-provisioning. 
+
+Signal-driven spawn. When a message arrives on a thread, the Notifications service publishes an event (Fig. 1). The Agents Orchestrator subscribes to these events, determines which agent needs to be running for that thread, and reconciles: it resolves the agent’s secrets, requests an OpenZiti identity, and instructs the k8s-runner to create a Kubernetes Pod. The pod mounts the agent’s persistent volume (preserving workspace state from prior sessions) and receives the thread context, so the agent resumes where it left off rather than starting fresh. 
+
+Idle reclamation. While active, the agent emits keep-alives every 10 s. When the idle timeout elapses (default 5 min), the Orchestrator stops the pod and deletes its network identity. The persistent volume and thread history remain intact; the next message spawns a new instance with the same state reattached. 
+
+2.2 Configuration: Agents and Harnesses as Code 
+
+Once an agent has production responsibility, its prompt, tools, secrets, and resource bounds are operational decisions that should be reviewable, versionable, and rolled back like any other infrastructure [ 18 ]. Managed platforms expose these through vendor consoles, invisible to code review and tied to one vendor. Agyn exposes the entire agent definition and its harness (the surrounding infrastructure reattached on every spawn: MCP servers, volumes, secrets, network identity) through a Terraform provider 1 [11]. 
+
+Provider. The provider declares the agent and its full harness: agent container, workspace configuration, system prompt, model, secrets, MCP servers, persistent volumes, and others. The platform ships three pre-built agent images (Claude Code [ 4], OpenAI Codex [ 16 ], and Agyn’s own agent-loop implementation); or-ganisations can also bring any custom container. Terraform’s module structure allows organisations to package common harness patterns (e.g. an MCP with its secrets) as shared modules reusable across agents, avoiding duplication and ensuring consistency. On terraform apply , definitions resolve through the Gate-way into the Agents Service (see Fig. 1); subsequent messages spawn pods from the updated definition without a restart.   
+
+> 1https://cf-registry.tf-registry-prod-use1.terraform.io/providers/ agynio/agyn/latest Agyn: A Scalable Open-Source Platform for AI Agents Runtime 5
+
+2.3 Security: Zero-Trust and Least Privilege 
+
+Agents must reach internal systems that enforce identity-aware access. The cluster’s service mesh is too coarse, and tunnelling credentials through the LLM context is unsafe given indirect prompt injection [ 10 ,6 ]. Agyn enforces zero-trust and least privilege through three composing mechanisms. 
+
+Per-container isolation. Every agent pod’s main container hosts the agent process; sidecar containers host MCP servers [ 3]. Each has a separate filesystem and process tree; only the loopback interface is shared. A compromised MCP has no view of the agent or other MCPs [ 22 ]. Compute isolation is a runner-config concern, not part of the agent definition. Secrets are injected only into the container that needs them (typically the MCP sidecar), never into the agent container whose process drives the LLM. 
+
+Zero-trust overlay. Agents need to reach platform services without exposing credentials to the LLM. Agyn solves this with OpenZiti [ 15 ]: every agent receives its own x509 identity at spawn, establishing who is calling at the mTLS handshake before application code runs (Fig. 1). The Gateway extracts this identity and propagates it through the call chain, so every downstream service knows which agent is making the request. ABAC policies then restrict each agent to only the services it needs; no agent can reach anything not explicitly permitted. 
+
+Relationship-based authorisation (ReBAC). Above the network layer, Open-FGA [ 7] (inspired by Zanzibar [ 17 ]) enforces fine-grained permissions via graph traversal. Per-agent roles (owner, maintainer, participant) scope who can configure or interact with each agent; thread access is participant-scoped. 
+
+2.4 Implementation and Limitations 
+
+Technologies. Platform services are written in Go. PostgreSQL serves as the sole durable store; Redis provides pub/sub for event fan-out. The OpenZiti Go SDK is embedded directly in infrastructure services (avoiding Istio sidecar conflicts); agent pods use a Ziti TPROXY sidecar for transparent overlay access. Three identity lifecycle patterns coexist: ephemeral per-workload agent identities (created at spawn, deleted on stop), ephemeral per-pod service identities (self-enrolled with lease), and persistent runner/app/device identities (service-token provisioned). A Ziti Management service encapsulates Controller API calls and runs lease-based garbage collection. 
+
+Installation and setup. The full stack is packaged as a Helm chart and deployable on any Kubernetes cluster. A bootstrap repository provides a single-command setup that provisions the OpenZiti Controller and installs platform services. Detailed instructions are available in the project README. 6 N. Benkovich, V. Valkov 
+
+## 3 Related Work 
+
+This section reviews existing work on agent orchestration, focusing on closed -source platforms, open -source runtimes, and framework -level isolation, and positions 
+
+Agyn with respect to each. A systematic comparison of these platforms is provided in Table 1. 
+
+3.1 Closed Platforms 
+
+AWS Bedrock AgentCore [ 2] is AWS’s managed agent platform: security and configuration are pieced together from AWS services (IAM, VPC, Bedrock), not shipped out of the box. Closest to Agyn but AWS-locked. Anthropic’s Claude Managed Agents [ 5] runs Claude in Anthropic’s cloud: narrow-scoped security features (Vaults, MCP Tunnels, API allowlists) live inside Anthropic’s product, not as defaults. 
+
+3.2 Open-Source Platforms 
+
+Google AX [ 9 ] is a Kubernetes-native distributed agent runtime with A2A agent integration; the open-source distribution lacks credential isolation and zero-trust networking. Platform kagent [8] models agents as Kubernetes CRDs with strong declarative configuration, but runs them as always-on deployments and mounts model credentials as Pod environment variables. 
+
+3.3 Frameworks and Isolation 
+
+LangGraph [ 14 ], AutoGen [ 21 ], and CrewAI are libraries for building agents; 
+
+Agyn operates agents regardless of framework. IsolateGPT [ 22 ] demonstrates per-tool isolation at the API level; Agyn applies the principle at the container level. BeyondCorp [ 20 ] established per-device identity; OpenZiti [ 15 ] extends it across trust boundaries as an overlay. 
+
+## 4 Conclusion and Future Work 
+
+We presented Agyn, an open -source platform for operating LLM -based agents at organisational scale. Agyn addresses three core requirements that existing systems fail to satisfy simultaneously: efficient on -demand execution, agent definition as a code, and zero-trust access to internal services. First, Agyn introduces a signal -driven, stateful serverless runtime that spawns agent instances only when a conversational message arrives and reclaims resources after an idle timeout, while preserving persistent state across cold starts. This combines the elasticity of FaaS with the conversational, stateful nature of agent workloads. Second, Agyn exposes agent definitions and their full harness (MCP servers, secrets, volumes, network identities) through a Terraform provider, enabling version control, peer review, and repeatable deployment – the same Agyn: A Scalable Open-Source Platform for AI Agents Runtime 7                                     
+
+> Table 1. Comparison of agent operations platforms (symbol “ ✓” indicates that a feature is present, “ ✗” indicates it is absent, and “ –” is for partial support or unknown status). Self-hostable Multi-vendor agents MCP isolation Declarative config Serverless Credential isolation Zero-trust
+> Agyn [1] ✓✓✓✓✓✓✓
+> AgentCore [2] ✗✓––✓––
+> Claude Managed Agents [5] ✗✗✗–✓––
+> Google AX [9] ✓–✗–✓✗✗
+> kagent [8] ✓✗–✓✗✗✗
+
+governance practices already used for infrastructure. Third, Agyn enforces least privilege through per -container secret injection, ephemeral x509 identities via OpenZiti, and ReBAC authorisation, ensuring that even a compromised LLM cannot leak credentials or access unauthorised services. Our evaluation (Table 1) shows that Agyn is the only platform among surveyed systems (AWS Bedrock AgentCore, Claude Managed Agents, Google AX, kagent) that simultaneously provides self -hosting, pre -built coding agents such as Claude Code and Codex, MCP servers isolation, agent-as-a-code configuration, serverless execution, credential isolation, and zero-trust networking. Limitations remain. Per -exposure Dial-policy scoping, hard spend-cap enforce-ment, and extending ReBAC coverage. Ongoing work addresses these gaps. The platform is released under AGPL -3.0 and available at https://github. com/agynio . We invite the community to extend the catalogue of agents, and policy patterns that vary across industries. 
+
+Acknowledgments 
+
+We extend our deepest gratitude to Rostislav Yavorskiy (Un Minuto Para Saber), our Research and Education advisor. Day after day, Rosti reads our first drafts with the patience of a saint and the red pen of a gentle perfectionist. 
+
+## References        
+
+> 1. Agyn Inc.: Agyn Platform, https://github.com/agynio/platform
+> 2. Amazon Web Services: Amazon Bedrock AgentCore. https://aws.amazon.com/ bedrock/agentcore/ (2024), accessed 2026-05-22 3. Anthropic: Model context protocol specification. https://modelcontextprotocol. io/specification (2024), accessed 2026-05-22
+
+8 N. Benkovich, V. Valkov 4. Anthropic: Claude Code: An agentic coding tool. https://docs.anthropic.com/ en/docs/claude-code (2025), accessed 2026-05-24 5. Anthropic: Claude Managed Agents. https://platform.claude.com/docs/en/ managed-agents (2026), public beta, April 2026. Accessed 2026-05-31 6. Chhabra, A., Datta, S., Nahin, S.K., Mohapatra, P.: Agentic AI security: Threats, defenses, evaluation, and open challenges. arXiv preprint arXiv:2510.23883 (2025) 7. Cloud Native Computing Foundation: OpenFGA: A relationship-based access control system. https://openfga.dev/ (2024), accessed 2026-05-22 8. CNCF: kagent: Kubernetes-native AI agent platform. https://github.com/ kagent-dev/kagent (2025), accessed 2026-05-24 9. Google: AX: A distributed agent runtime. https://github.com/google/ax (2025), accessed 2026-05-24 10. Greshake, K., Abdelnabi, S., Mishra, S., Endres, C., Holz, T., Fritz, M.: Not what you’ve signed up for: Compromising real-world LLM-integrated applications with indirect prompt injection. In: Proceedings of the 16th ACM Workshop on Artificial Intelligence and Security (2023) 11. HashiCorp: Terraform: Infrastructure as code. https://www.terraform.io/ (2024), accessed 2026-05-22 12. Hellerstein, J.M., Faleiro, J., Gonzalez, J.E., Schleier-Smith, J., Sreekanti, V., Tumanov, A., Wu, C.: Serverless computing: One step forward, two steps back. In: Proceedings of the Conference on Innovative Data Systems Research (CIDR) (2019) 13. Jonas, E., Schleier-Smith, J., Sreekanti, V., Tsai, C.C., Khandelwal, A., Pu, Q., Shankar, V., Carreira, J., Krauth, K., Yadwadkar, N., et al.: Cloud program-ming simplified: A Berkeley view on serverless computing. In: arXiv preprint arXiv:1902.03383 (2019) 14. LangChain: LangGraph: A library for building stateful, multi-actor applications with LLMs. https://github.com/langchain-ai/langgraph (2024), accessed 2026-05-22 15. NetFoundry: OpenZiti: A zero-trust networking platform. https://openziti.io/ 
+
+(2024), accessed 2026-05-22 16. OpenAI: OpenAI Codex: An agentic coding tool. https://github.com/openai/ codex (2025), accessed 2026-05-31 17. Pang, R., Caceres, R., Burrows, M., Chen, Z., Dave, P., Germer, N., Golynski, A., Graney, K., Kang, N., Kissner, L., et al.: Zanzibar: Google’s consistent, global authorization system. In: 2019 USENIX Annual Technical Conference (USENIX ATC) (2019) 18. Rahman, A., Mahdavi-Hezaveh, R., Williams, L.: A systematic mapping study of Infrastructure as Code research. Information and Software Technology 108 , 65–77 (2019) 19. Sang, J., Xiao, J., Han, J., Chen, J., Chen, X., Wei, S., Sun, Y., Wang, Y.: Beyond pipelines: A survey of the paradigm shift toward model-native agentic AI. arXiv preprint arXiv:2510.16720 (2025) 20. Ward, R., Beyer, B.: BeyondCorp: A new approach to enterprise security. In: ;login: The USENIX Magazine. vol. 39 (2014) 21. Wu, Q., Bansal, G., Zhang, J., Wu, Y., Zhang, S., Zhu, E., Li, B., Jiang, L., Zhang, X., Wang, C.: AutoGen: Enabling next-gen LLM applications via multi-agent conversations. In: arXiv preprint arXiv:2308.08155 (2023) 22. Wu, Y., Ma, S., Feng, Y., Tao, G., Xu, X., Zhang, X.: IsolateGPT: LLM-based agents with least-privilege isolation. In: Proceedings of the 32nd Network and Distributed System Security Symposium (NDSS) (2025)

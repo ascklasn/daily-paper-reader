@@ -1,0 +1,917 @@
+Title: MedGuideX: Internalizing Decision Logic from Executable Guidelines into Large Language Models for Clinical Reasoning
+
+URL Source: https://arxiv.org/pdf/2605.26567v1
+
+Published Time: Wed, 27 May 2026 00:36:47 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+## MedGuideX: Internalizing Decision Logic from Executable Guidelines into Large Language Models for Clinical Reasoning 
+
+Yuhao Shen 1,2 * Lang Cao 1* Simo Du 3 Yuqing Wang 3
+
+Juexiao Zhou 2 Hao Peng 1 Yue Guo 1
+
+> 1
+
+University of Illinois Urbana-Champaign 
+
+> 2
+
+The Chinese University of Hong Kong, Shenzhen 
+
+> 3
+
+Albert Einstein College of Medicine 
+
+Abstract 
+
+Clinical practice guidelines (CPGs) encode evidence-based decision logic that clinicians apply by evaluating patient variables, con-ditional criteria, and recommendation rules. However, existing methods often use CPGs as free-text training data or retrieval sources, underutilizing their procedural decision struc-ture. To better exploit this structure, we in-troduce a guideline-derived training pipeline that transforms CPG recommendations into ex-ecutable clinical decision logic and uses it to generate factual and counterfactual question-answering data. Theses data teach models both guideline-supported decisions and how decisions change under different patient con-ditions. Post-training a medical LLM on the generated data yields MedGuideX . Across four clinical reasoning benchmarks, MedGuideX 
+
+achieves a 10.28% relative improvement in average accuracy. Physician evaluation fur-ther shows that MedGuideX better recovers clinician-authored reasoning steps and pro-duces physician-preferred rationales in faithful-ness, validity, completeness, and clarity. Over-all, our results show that executable decision logic from CPGs can be transformed into scal-able supervision for building reliable medical LLMs. 
+
+1 Introduction 
+
+Large language models (LLMs) (Singh et al., 2025; Yang et al., 2025) have shown strong potential in medical domain, including electronic health records understanding, clinical case reasoning, and medical decision support (Cao et al., 2026; Wu et al., 2025b; Lai et al., 2025). However, reli-able clinical reasoning remains challenging. It re-quires models to integrate heterogeneous patient evidence, apply domain knowledge, compare plau-sible clinical decisions, handle uncertainty, and fol-low evidence-based decision logic (Bowen, 2006; 
+
+> *Equal contribution.
+
+Nendaz and Perrier, 2012; Sox et al., 2024). Ex-isting medical LLM training often relies on large-scale medical corpora, clinical notes, or case re-ports (Chen et al., 2023; Han et al., 2023; Labrak et al., 2024; Garcia-Gasulla et al., 2025; Wu et al., 2025b). While useful, these data sources provide reasoning supervision only implicitly: they are of-ten noisy, heterogeneous, incomplete, and weakly aligned with the explicit decision procedures clin-icians use in practice(Chen et al., 2024; Lai et al., 2025; Gu et al., 2025; Li et al., 2026; Yoo and Woo, 2025; Yang et al., 2024). As a result, models may acquire broad medical knowledge without learning stable and generalizable clinical decision logic. Clinical practice guidelines (CPGs) offer a natu-ral source of such decision logic. In clinical prac-tice, clinicians apply guidelines by identifying pa-tient variables, evaluating conditional criteria, and following recommendation rules. Thus, beyond textual medical knowledge, CPGs encode proce-dural decision structures for diagnosis, treatment, and disease management. However, existing CPG-based methods often underutilize this structure. Retrieval-augmented or prompting-based methods treat CPGs as external knowledge sources (Schu-bert et al., 2025; Deng et al., 2026; Oniani et al., 2024; Li et al., 2023a), while direct training on guideline text exposes models to the content but does not explicitly represent the variables, condi-tions, and decision rules that make guidelines op-erational (Staniek et al., 2025; Chen et al., 2023). Therefore, the internal decision logic of CPGs re-mains underexploited as scalable supervision for medical LLMs (More related work in Appendix B). To better exploit this structure, we propose a guideline-grounded training pipeline for building LLMs with stronger clinical reasoning ability. We first collect high-quality, publicly available CPGs and transform their recommendations into exe-cutable functions that represent structured clinical decision logic. Each function operates over pa-1
+
+> arXiv:2605.26567v1 [cs.AI] 26 May 2026
+
+tient variables and produces guideline-consistent decisions, enabling controlled data generation and automatic verification. Based on these functions, we generate factual and counterfactual question-answering instances. Factual instances teach mod-els guideline-supported decisions, while coun-terfactual instances teach how decisions should change when key patient conditions are modified. This design follows prior findings that counterfac-tual reasoning can improve model reasoning ability and expose failures that standard QA evaluation may miss (Chen et al., 2025; You et al., 2026; Vashishtha et al., 2025). Using this pipeline, we train MedGuideX , a medical LLM designed to internalize guideline-grounded clinical decision logic. Specifically, we post-train the base model with supervised fine-tuning (SFT) and reinforcement learning (RL) on the generated factual and counterfactual data. Ex-periments on four clinical reasoning benchmarks show that MedGuideX substantially improves over its base model and achieves strong performance among open-source medical LLMs. Compared with Qwen3.5-9B (Yang et al., 2025), MedGuideX -9B achieves relative improvements of 26 .64% ,
+
+9.45% , 4.41% , and 10 .51% on MedCaseReason-ing (Wu et al., 2025b), MedQA (Jin et al., 2021), MIMIC-CDM-FI (Hager et al., 2024), and ER-Reason (Mehandru et al., 2025), respectively. No-tably, the larger relative gains appear on the lower-accuracy benchmarks, MedCaseReasoning and ER-Reason, suggesting that guideline-derived super-vision is particularly useful for challenging rea-soning settings. Physician evaluation further show that MedGuideX better recovers clinician-authored reasoning steps and produces physician-preferred rationales in faithfulness, validity, completeness, and overall quality. In summary, our contributions are: • We propose a guideline-derived post-training pipeline that transforms CPGs into executable clinical decision logic and uses it to generate factual and counterfactual QA supervision. • We train MedGuideX , a medical LLM that in-ternalizes guideline-grounded clinical decision logic through SFT and RL. • We conduct experiments on four medical rea-soning benchmarks, showing that MedGuideX 
+
+improves over the base model and similarly sized medical LLMs, while producing higher-quality clinical rationales. 
+
+2 Preliminary 
+
+We define a guideline recommendation as an action-able clinical decision rule extracted from a com-plete CPG. A recommendation specifies how a clin-ical decision should be made under certain patient conditions, such as diagnosis, treatment, screen-ing, or disease management. For example, a rec-ommendation may state that a patient with severe symptoms should be referred for further evaluation. We formalize each guideline recommendation as a function 
+
+Y = f (X), f : X → Y , (1) where X = ( x1, . . . , x n) ∈ X denotes a vector of clinical variables, f denotes the conditional deci-sion logic encoded by the recommendation, and 
+
+Y ∈ Y is the guideline-prescribed output. We instantiate f as a finite decision tree Tf , whose internal nodes are atomic predicates a ∈ A f over 
+
+X and whose leaves are outputs in Y. Each pred-icate takes the form ai = 1[gi(X)] , where gi is a guideline-defined condition, such as age ≥ 65 or 
+
+eGFR < 30 .Given an input X, executing Tf activates a path 
+
+πf (X) = ( ai1 , a i2 , . . . , a ik ) ⊆ A f , (2) whose predicates jointly select the leaf output Y =
+
+f (X). This path is the verifiable unit of guideline logic that we aim for the model to internalize: it should not only predict the correct output, but also reason through a path consistent with πf (X).We next describe how we collect CPGs and con-struct factual and counterfactual QA data from them (§ 3), followed by how we train MedGuideX 
+
+using SFT and RL (§ 4). Figure 1 illustrates the full pipeline. 
+
+3 Data Preparation 
+
+The central artifact of data preparation is an exe-cutable implementation of f , whose control flow mirrors the decision tree Tf . This executable form enables downstream supervision by deterministi-cally labeling synthesized questions through direct execution and verifying model predictions during training by re-executing f on the model-stated in-termediate variables. In this formulation, the inputs correspond to structured patient information and clinical scenarios, while the executable function f
+
+represents structured clinical reasoning grounded in guideline decision logic. 2LLM TRAINING 
+
+Supervised Fine -Tuning 
+
+From Stage 5 
+
+Clinical Practice 
+
+Guideline (CPG) 
+
+ADA recommends the use of 
+
+any of the following four criteria 
+
+for diagnosing diabetes: 
+
+1) A1C ≥ 6.5% 
+
+2) Fasting PG ≥126 mg 
+
+3) Classic symptoms of hyperglycemia 
+
+💡 In the absence of 
+
+unequivocal hyperglycemia, 
+
+the first two criteria should 
+
+be confirmed by repeat 
+
+testing. 
+
+Decision Tree / Logic Executable Python 
+
+Function                                      
+
+> 1def Diabetes_diagnosis_criteria (a1c, fpg ,two_hr_pg ,
+> 2classic_symptoms ,hyperglycemic_crisis ,rand_pg ,
+> 3unequivocal_hyperglycemia ):
+> 4actions =[]
+> 5if a1c >= 6.5 :
+> 6actions.append( "Diagnose based on A1C ≥6.5%." )
+> 7if not unequivocal_hyperglycemia :
+> 8actions.append ("Confirm 1 or 2 by repeat testing." )
+> 9if fpg >= 126 :
+> 10 actions.append ("Diagnose based on FPG ≥126 mg/dL." )
+> 11 if not unequivocal_hyperglycemia :
+> 12 actions.append ("Confirm 1 or 2 by repeat testing." )
+> 13
+> 14
+> 15
+> if classic_symptoms:
+> actions.append ("Diagnose based on classic symptoms ")
+> return actions if actions else ["No specific action triggered" ]
+
+Execute Function &
+
+Generate Supervision 
+
+Sample clinical variables (X) 
+
+& execute f(X) 
+
+Variable Value  
+
+> A1C (%)
+
+6.8  
+
+> Fasting PG (mg/dL)
+
+98  
+
+> Classic symptoms
+
+No  
+
+> Unequivocal hyperglycemia
+
+No 
+
+Executed output (Y) 
+
+Path trace πᶠ(X) 
+
+☑ A1C ≥ 6.5? Yes 
+
+☑ Diagnose diabetes Yes 
+
+☑ Need repeat testing? Yes 
+
+5 Guideline -Grounded 
+
+QA Pair s      
+
+> Q: A 52 -year -old woman has A1 C6.8% ,
+> fasting PG 98 .No classic symptoms, no
+> unequivocal hyperglycemia . What does the
+> guideline recommend?
+> A: Diagnose diabetes based on A1C ≥ 6.5% . If
+> unequivocal hyperglycemia is absent ,
+> confirm criterion 1or 2 by repeat testing .
+
+Factual QA 
+
+Counterfactual QA       
+
+> Q: A 52 -year -old woman, A1 C5.7% ,no
+> symptoms, no unequivocal hyperglycemia .
+> Current output: no specific action triggered.
+> What if A1C were 6.8% instead?
+> A: Diagnose diabetes based on A1C ≥ 6.5% .
+> Confirm by repeat testing.
+
+Start 
+
+A1C ≥ 6.5? Yes Diagnose    
+
+> diabetes
+> No
+> Classic symptoms? Yes Diagnose
+> diabetes
+> No specific action
+> triggered
+> Yes Diagnose
+> diabetes
+> No
+> Fasting PG
+> ≥126 mg/dL?
+
+1 32 4
+
+Reinforcement Learning 
+
+Factual QA Counterfactual QA Factual QA 
+
+Format invalid 
+
+Format valid but answer incorrect 
+
+Correct answer checked by executing f(X) 
+
+-1
+
+0
+
+1
+
+DATA PREPARATION: From Clinical Guidelines to QA Pairs 
+
+Type 
+
+𝑋 !"# 
+
+𝑋 $!% 
+
+𝑋 &'( 
+
+𝑋 &'( Figure 1: Overview of MedGuideX . Top : We transform raw CPGs into executable Python functions f via an intermediate decision tree, then sample clinical variables X and execute f (X) to deterministically label both factual and counterfactual QA instances. Bottom : We post-train an LLM with SFT on the mixed QA and RL on factual QA, where re-executing f provides the reward. This design turns each guideline into an executable verifier that grounds both labels and rewards in its decision logic. 
+
+3.1 Guideline Curation 
+
+Our initial guideline source is an open CPG col-lection based on the corpus used to train MED-ITRON (Chen et al., 2023). However, many doc-uments in this collection are noisy, low quality, or near-duplicate guidelines, which can substantially degrade the quality of downstream QA data. We therefore apply a curation pipeline to retain high-quality guidelines. We first restrict the corpus to guidelines from U.S.-based sources, since clinical recommenda-tions may vary across countries, healthcare sys-tems, and organizations. Specifically, we retain guidelines from the Centers for Disease Control and Prevention (CDC) 1 and PubMed 2. We then use an LLM to extract structured metadata for each guideline, including the disease or drug, target age group, race, gender, and publication date. Guide-lines with identical metadata are treated as dupli-cates, and only the most recent version is retained. In addition, we instruct the LLM to discard incom-plete documents directly. After curation, we obtain a filtered subset of CPGs. 
+
+3.2 Executable Transformation Recommendation Extraction. We first split each document into recommendation-oriented chunks, where each chunk contains one or more 
+
+1https://www.cdc.gov/ 
+
+2https://pubmed.ncbi.nlm.nih.gov/ 
+
+complete guideline recommendations. This pro-duces a set of guideline recommendation passages. An LLM extractor then identifies recommendation candidates from each chunk. For each candidate, we ask the extractor to identify the target popula-tion, clinical condition, recommended action, rel-evant exceptions, and evidence grade, when avail-able. We then validate these candidates and retain only usable recommendations. Specifically, we dis-card candidates that do not describe a concrete clin-ical action or cannot be expressed as a condition-action rule. We also remove near-duplicates, where multiple recommendations describe highly similar populations, conditions, and actions. 
+
+Decision-Tree Validation. Each retained recom-mendation is converted into a decision tree Tf ,which specifies the required input variables, de-cision conditions, and final outputs. An LLM val-idator then checks whether the tree is complete, whether each condition is clear, whether every branch leads to an output, and whether all variables are supported by the source guideline. 
+
+Compilation to Executable Function. Each val-idated tree is compiled into an executable Python function that takes the variables X as input and re-turns the guideline output f (X). We further check whether the function is syntactically correct, exe-cutable on sampled inputs, and consistent with the original decision tree. 33.3 QA Synthesis Factual QA Synthesis. For each executable func-tion f , we sample complete clinical variable as-signments X and execute f to obtain the guideline output Yobs = f (X). A naive sampling strategy would produce too many easy or default cases, such as no-action recommendations. To avoid this im-balance, we enforce two constraints: (1) Path cov-erage : the generated data should cover all decision conditions in the tree, and (2) Output balance : no-diagnosis outputs, meaning that no diagnosis is recommended for the current inputs, should not dominate the dataset. After applying the coverage and balancing con-straints, we obtain the factual QA set. For each sample, we user an LLM to generate a step-by-step reasoning trace from the underlying Python func-tion f , input variables X, and executed output Yobs .The reasoning trace verbalizes the executed deci-sion path πf (X) and is stored alongside the QA pair for SFT training. 
+
+Counterfactual QA Synthesis. We further gen-erate counterfactual QA data to train the model to reason about hypothetical changes in patient con-ditions. For each counterfactual example, we first sample a complete variable assignment X over the inputs of f and execute f to obtain the factual out-come Yobs = f (X). We then partition the variables into three disjoint parts: • Xobs : observed variables that are shown and re-main unchanged. • Xhid : hidden variables that are not shown. • xint : a single observed variable modified by the intervention, meaning that its value is changed while all other observed variables are held fixed. We write ˆxint for the value of xint after inter-vention. Only xint changes, while Xobs and Xhid 
+
+are held fixed. The factual and counterfactual out-comes can be written as 
+
+Yobs = f  Xobs , X hid , x int 
+
+,
+
+ˆYcf = f  Xobs , X hid , ˆxint 
+
+. (3) By construction, Yobs and ˆYcf differ only through the intervention on xint .The model receives Xobs , the identity of the hid-den variables, the original and intervened values 
+
+xint and ˆxint , and the factual outcome Yobs . It must then predict ˆYcf through three steps: 1. Abduction. Infer hidden values Xhid that are consistent with the observed context and repro-duce Yobs when executed through f .2. Intervention. Replace xint with ˆxint while keep-ing Xobs and Xhid fixed. 3. Prediction. Execute f on the resulting complete input to obtain the counterfactual outcome ˆYcf .At the data level, we execute f on the factual input, apply the intervention, and execute f again to generate interventional scenarios. We retain only cases where the intervention changes the outcome and discard those with unchanged outputs. Each counterfactual sample is paired with a reasoning trace generated by an LLM, which verbalizes the three steps of abduction, intervention, and predic-tion over the executable function f . Overall data pipeline statistics are shown in Appendix C. 
+
+4 Model Training 
+
+We post-train MedGuideX using prepared factual and counterfactual QA sets. 
+
+Optimization objectives. For each guideline rec-ommendation, we obtain an executable function f .Given a complete patient scenario X, the function returns the guideline output 
+
+Y = f (X). (4) A factual QA instance asks the model to deter-mine the guideline output for the complete patient scenario X. For factual examples, each oracle tra-jectory contains the patient scenario, the executed guideline output, and a rationale that explains why the scenario leads to that output Y .For counterfactual QA examples, each trajec-tory follows an abduction–intervention–prediction structure. The prompt provides Xobs , the original value xint , the intervened value ˆxint , and the factual guideline output Yobs ; the hidden variable is not shown to the model. The model must first infer a hidden value that makes the factual observation consistent with the executable guideline, then apply the intervention while keeping the inferred hidden value fixed, and finally predict the counterfactual guideline output ˆYcf .The optimization objective is to train the model so that its predicted guideline output ˆY matches the oracle output Y as closely as possible in both factual and counterfactual QA, thereby improving its ability to perform clinical reasoning aligned with the CPGs from which the synthetic data are derived. 4SFT. The SFT stage trains the model to imi-tate oracle trajectories synthesized from the exe-cutable guideline functions. This stage serves as a cold start for subsequent RL training by injecting guideline-grounded clinical knowledge and expos-ing the model to a structured clinical reasoning framework. 
+
+RL. After SFT, we apply GRPO (Shao et al., 2024) to optimize the model on its own sampled re-sponses. For a sampled response o, we define a for-mat reward rfmt (o) and an answer reward ranswer (o).The format reward checks whether o satisfies the required response format, while the answer reward checks whether the parsed answer is correct. The final reward is 
+
+r(o) = 
+
+(
+
+−1, rfmt (o) = −1,ranswer (o), rfmt (o) = 0 . (5) Here, rfmt (o) = −1 indicates an invalid response format, rfmt (o) = 0 indicates a valid format, and 
+
+ranswer (o) ∈ {0, 1} indicates whether the task-specific correctness check passes. For factual prompts, correctness depends only on the final guideline output. Let ˆY (o) denote the final answer parsed from a sampled response o. We define the factual answer reward as 
+
+rF(o) = 1
+
+h ˆY (o) ≡ Y ⋆i
+
+. (6) For counterfactual prompts, correctness requires more than the final answer. Let ˆXhid (o) denote the hidden value inferred by the model, and let 
+
+ˆYcf (o) denote its final counterfactual answer. The response is counted as correct only if the inferred hidden value matches the intended hidden state, the inferred hidden value together with the origi-nal factual context reproduces Yobs , and the final counterfactual answer matches the executed coun-terfactual label: 
+
+rCF (o) = 1
+
+h ˆXhid (o) = X⋆
+
+> hid
+
+i
+
+· 1
+
+h
+
+f  Xbase , ˜xint , ˆXhid (o) = Yobs 
+
+i
+
+· 1
+
+h ˆYcf (o) = Y ⋆
+
+> cf
+
+i
+
+.
+
+(7) Thus, the counterfactual reward requires the model to recover the intended hidden value and predict the correct counterfactual output. 
+
+Training procedure. We perform SFT on the bal-anced factual and counterfactual QA mixture, then initialize GRPO from the SFT checkpoint. The reward implementation supports both factual and counterfactual QA. Our final MedGuideX configu-ration uses mixed factual and counterfactual SFT followed by factual GRPO, as selected by the ab-lation study in Section F . Counterfactual GRPO is evaluated as an alternative configuration in the same ablation. 
+
+5 Experiments 
+
+5.1 Experimental Setup 
+
+We evaluate MedGuideX on four clinical reason-ing benchmarks spanning medical exam questions and real-world case-based diagnostic reasoning: MedQA (Jin et al., 2021), MedCaseReasoning (Wu et al., 2025b), MIMIC-CDM-FI (Hager et al., 2024), and ER-Reason (Mehandru et al., 2025). These four benchmarks differ in data source, task format, reasoning depth, and difficulty, enabling a more comprehensive evaluation of MedGuideX .Details and examples of these benchmarks are pro-vided in Appendix D. Notably, none of the training sets from these benchmarks are used during the training of MedGuideX .We compare MedGuideX with three groups of baselines, with sources listed in Table 1 . Fron-tier LLMs include strong proprietary or large-scale general-purpose models and serve as an upper-performance reference. To comply with institu-tional data governance requirements, all proprietary model inference is conducted through Azure AI. 
+
+Open-source Medical LLMs are models specialized for the medical domain through medical pretrain-ing or fine-tuning, and constitute the most directly comparable baselines to MedGuideX at a similar scale. Base models are the untuned Qwen3.5-4B and Qwen3.5-9B backbones used by MedGuideX .We also compare against methods that leverage CPGs in different ways (Appendix H). The main results report final-answer accuracy, measured by exact match or LLM-as-a-judge evaluation. Ad-ditional experimental details are provided in Ap-pendix E. 
+
+5.2 Main Results 
+
+Table 1 reports accuracy on four clinical reason-ing benchmarks. Overall, MedGuideX consistently improves performance at both model scales. At the 9B scale, MedGuideX improves over Qwen3.5-9B by 26 .64% , 9.45% , 4.41% , and 11 .67% on MedCaseReasoning, MedQA, MIMIC-CDM-FI, 5Model MedCaseReasoning MedQA MIMIC-CDM-FI ER-Reason Average                                                                                                                                   
+
+> Frontier LLM
+> GPT-5.0 (Singh et al., 2025) 54.96 87.43 85.10 33.70 65.30 DeepSeek-V4 (Liu et al., 2024) 52.51 88.92 90.10 24.00 63.88 Kimi-2.6 (Team et al., 2025) 23.63 79.26 74.60 34.40 52.97 Claude-Haiku-4.5 (Anthropic, 2025) 40.02 48.08 81.60 34.30 51.00
+> Open-source Medical LLM
+> Clinical-R1-3B (Gu et al., 2025) 13.60 52.55 62.30 19.10 36.89 MediPhi-Instruct-4B (Corbeil et al., 2025) 17.06 53.34 72.60 22.20 41.30 MedGemma-1.5-4B (Sellergren et al., 2025) 16.39 67.79 80.10 20.80 46.27 Hulu-Med-7B (Jiang et al., 2025b) 31.22 72.98 78.70 22.20 51.28 Lingshu-7B (Xu et al., 2025) 23.86 64.49 78.00 26.20 48.14 Llava-Med-v1.5-7B (Li et al., 2023b) 16.72 44.78 60.10 21.20 35.70 MedAlpaca-7B (Han et al., 2023) 12.26 38.81 41.00 11.00 25.77 BioMistral-7B (Labrak et al., 2024) 17.28 45.80 35.60 24.80 30.87 HuatuoGPT-o1-8B (Chen et al., 2024) 19.29 71.09 68.10 22.00 45.12 Llama-Aloe-Beta-8B (Garcia-Gasulla et al., 2025) 21.18 64.65 80.80 29.10 48.93 MedReason-8B (Wu et al., 2025a) 27.76 70.86 73.00 22.40 48.51
+> Base LLM & Standard Baselines
+> Qwen3.5-4B (Yang et al., 2025) 28.65 72.43 80.40 23.60 51.27 + RAG with Guidelines 28.54 73.45 81.90 26.30 52.55 + 3-Shot In-Context Learning 28.65 71.41 81.40 26.10 51.89 Qwen3.5-9B (Yang et al., 2025) 32.66 73.21 81.60 25.70 53.29 + RAG with Guidelines 31.88 74.71 82.50 27.40 54.12 + 3-Shot In-Context Learning 33.11 74.94 80.10 28.20 54.08 + CPGPrompt (Deng et al., 2026) 14.16 59.15 67.60 19.90 40.20 + Fine-tuning with CPG 28.87 65.04 78.40 21.50 48.45 + RL with CPG-Derived Process Rewards 37.68 75.73 83.40 27.80 56.15
+> Ours MedGuideX -4B 35.34 +23.35% 77.06 +6.39% 82.40 +2.49% 25.90 +9.75% 55.18 +7.63%
+> MedGuideX -9B 41.36 +26.64% 80.13 +9.45% 85.20 +4.41% 28.70 +11.67% 58.77 +10.28%
+
+Table 1: Main results on four clinical reasoning benchmarks (accuracy, %). Bold marks the best score in each column, and italics indicate the second-best score among open-source medical LLMs. Relative gains over the corresponding base model are shown in green. MedGuideX achieves strong performance across benchmarks. 
+
+and ER-Reason, respectively, increasing the aver-age score by 10 .28% . The 4B model shows the same trend, with relative improvements of 23 .35% ,
+
+6.39% , 2.49% , and 9.75% , and an average-score improvement of 7.63% . These results show that guideline-derived post-training provides a consis-tent improvement signal across both model scales. The relative gains are largest on MedCaseRea-soning and ER-Reason, the two benchmarks where the backbone accuracy is lowest. This suggests that guideline-derived decision supervision is particu-larly useful in more challenging reasoning settings. At the same time, the gains on MIMIC-CDM-FI are smaller, likely because this benchmark already has high backbone performance and requires ad-ditional abilities beyond guideline decision logic, such as synthesizing noisy EHR evidence and map-ping clinical findings to benchmark-specific labels. Thus, MedGuideX improves broadly, but the mag-nitude of improvement depends on how directly each benchmark matches the decision-logic super-vision used in training. Compared with open-source medical LLMs, 
+
+MedGuideX achieves strong performance. 
+
+MedGuideX -9B obtains the best average score among all open-source medical LLMs in the table and is the strongest open-source model on MedCaseReasoning, MedQA, and MIMIC-CDM-FI, while remaining competitive on ER-Reason. 
+
+MedGuideX -4B also exceeds the average perfor-mance of all listed open-source medical LLMs, showing that the proposed training pipeline is effective even at a smaller scale. Although 
+
+MedGuideX -9B remains below the strongest proprietary systems on average, it narrows the gap substantially while using a compact open model. The guideline-based baselines further clarify the importance of executable supervision. Retrieval-augmented guideline prompting and in-context guideline demonstrations provide only modest im-6Backbone                 
+
+> SFT only
+> RL only
+> SFT + RL
+> Qwen3.5 (untuned)
+> Continued pretraining on raw guidelines
+> SFT: Factual
+> SFT: Counterfactual
+> SFT: Factual Counterfactual
+> SFT: Counterfactual Factual
+> SFT: Mixed
+> RL: Factual
+> RL: Counterfactual
+> RL: Factual Counterfactual
+> RL: Counterfactual Factual
+> SFT: Counterfactual + RL: Counterfactual
+> SFT: Factual + RL: Counterfactual
+> SFT: Factual + RL: Factual
+> SFT: Counterfactual + RL: Factual
+> SFT: Mixed + RL: Counterfactual
+> SFT: Mixed + RL: Factual
+> 4202468
+> -5.5
+> +0.5
+> +1.0
+> -0.6
+> -0.4
+> +2.1
+> +6.2
+> +4.1
+> +1.1
+> +3.0
+> +4.5
+> +5.9
+> +6.8
+> +6.5
+> +6.0
+> +8.7
+> MedCaseReasoning
+> 4202468
+> -8.2
+> +1.9
+> -0.1
+> +2.0
+> +2.4
+> +3.1
+> +3.7
+> +3.5
+> +2.7
+> +3.4
+> +5.0
+> +5.2
+> +5.3
+> +4.6
+> +5.6
+> +6.9
+> MedQA
+
+Figure 2: Training strategy ablation on data composition and training phases. Each group of bars corresponds to a configuration specifying the data used in the SFT and RL phases. Mixed denotes a jointly trained corpus with equal factual and counterfactual proportions, and A → B denotes applying data type A before data type B within a single phase. The best overall configuration uses mixed-data SFT followed by factual RL. 
+
+provements over Qwen3.5-9B, increasing the aver-age score by 1.56% and 1.48% , respectively. These methods expose the model to guideline text or guideline-style examples at inference time, but do not train the model to internalize the underlying decision logic. CPGPrompt (Deng et al., 2026), which constructs a decision-tree prompt from re-trieved guideline recommendations, performs sub-stantially worse in our setting, decreasing the av-erage score by 24 .56% . Direct fine-tuning on raw CPG text also leads to negative transfer, decreasing the average score by 9.08% , suggesting that tex-tual exposure to guidelines alone is insufficient for learning operational clinical decision rules. The strongest guideline-based baseline is RL with CPG-derived process rewards, which im-proves the average score by 5.37% over Qwen3.5-9B. However, it still underperforms MedGuideX ,whose average relative improvement is 10 .28% .This baseline uses an LLM judge to assess con-sistency with retrieved guideline recommendations, but it does not execute guideline functions or ver-ify counterfactual decision behavior. The gap be-tween this baseline and MedGuideX suggests that executable guideline functions provide a more pre-cise and effective supervision signal than retrieval-based or judge-only uses of CPGs. A controlled qualitative case study of MedGuideX with GPT-5.0 and MedReason-8B is presented in Appendix I. 
+
+Ablation study Detailed ablations are reported in Appendix F. The best configuration applies mixed factual/counterfactual SFT followed by factual RL, yielding gains of 8.7 points on MedCaseReason-ing and 6.9 points on MedQA over Qwen3.5-9B.                                      
+
+> Scale Benchmark Corrected Regressed Unchanged Net Gain
+> 4B MedCaseReasoning 87 27 783 +60
+> MedQA 76 17 1,180 +59
+> MIMIC-CDM-FI 20 0980 +20
+> ER-Reason 23 0977 +23
+> 9B MedCaseReasoning 133 55 709 +78
+> MedQA 110 22 1,141 +88
+> MIMIC-CDM-FI 42 6952 +36
+> ER-Reason 40 10 950 +30
+
+Table 2: Paired answer transition analysis between Qwen3.5 and MedGuideX . Corrected denotes cases where MedGuideX changes a wrong Qwen3.5 answer into a correct one, while Regressed denotes the opposite transition. Unchanged denotes cases with no change in correctness status. Net Gain is computed as Corrected minus Regressed. 
+
+This configuration is used for MedGuideX -9B, sup-porting our design choice of converting guideline decision logic into executable QA supervision and training strategies. 
+
+5.3 Paired Answer Transition Analysis 
+
+To better understand the source of the performance gains, we conduct a paired comparison between 
+
+MedGuideX and its Qwen3.5 backbone on the same test instances. For each benchmark, we categorize answer transitions into three groups: Corrected ,
+
+Regressed , Unchanged .As shown in Table 2 , MedGuideX consistently produces positive net gains across all bench-marks and both model scales. At the 4B scale, 
+
+MedGuideX corrects substantially more backbone errors than it introduces regressions, yielding net gains of 60 on MedCaseReasoning, 59 on MedQA, 20 on MIMIC-CDM-FI, and 23 on ER-Reason. 7Metric Score          
+
+> Reasoning Recall
+> GPT-5.0 50.78
+> MedGuideX -9B 62.77
+> Physician Pairwise Win Rate: MedGuideX-9B over GPT-5.0
+> Faithfulness 85.00
+> Validity 79.31
+> Completeness 92.31
+> Clarity 51.52
+> Overall 76.86
+> Table 3: Clinical reasoning evaluation comparing
+> MedGuideX -9B and GPT-5.0 (%). Reasoning recall is the fraction of clinician-authored reference reasoning steps recovered in the model rationale on MedCaseRea-soning, scored by an LLM judge. Physician pairwise win rates report blinded non-tie preference rates of
+> MedGuideX -9B over GPT-5.0 on 30 case annotations.
+
+The same trend holds at the 9B scale. These re-sults indicate that guideline-derived post-training improves performance primarily by correcting backbone errors rather than by introducing unpre-dictable answer shifts. 
+
+5.4 Clinical Reasoning Process Evaluation 
+
+Final-answer accuracy does not directly measure whether a model reaches its answer through clin-ically sound reasoning. We therefore evaluate ra-tionale quality using two complementary proto-cols: automatic reasoning recall against clinician-authored reference traces and a blinded physician preference study. 
+
+Reasoning recall. MedCaseReasoning includes clinician-authored reasoning traces for each case, which allows us to measure reasoning recall : the fraction of salient reference reasoning steps recov-ered in the model generated rationale, scored by an LLM judge following the paper’s protocol (Ap-pendix D). As reported in Table 3 , MedGuideX -9B achieves a reasoning recall of 62 .77% , com-pared with 50 .78% for GPT-5.0. This suggests that MedGuideX -9B recovers more clinically rele-vant intermediate reasoning steps, indicating that guideline-derived post-training improves not only answer prediction but also the coverage of clinician-aligned reasoning. 
+
+Blinded physician evaluation. We conduct a blinded pairwise physician evaluation on 30 Med-CaseReasoning cases where both MedGuideX -9B and GPT-5.0 produce the correct final diagnosis. This design controls for final-answer correctness and focuses the comparison on rationale qual-ity. Two practicing physicians each annotate 20 
+
+cases. For each case, the physician compares two anonymized responses shown in randomized order and judges four dimensions: evidence faithfulness, reasoning validity, reasoning completeness, and reasoning clarity. We treat Same as a tie and report non-tie win rates of MedGuideX -9B over GPT-5.0. As shown in Table 3 , MedGuideX -9B is pre-ferred in faithfulness ( 85 .00% ), validity ( 79 .31% ), completeness ( 92 .31% ), and clarity ( 51 .52% ), with an overall non-tie win rate of 76 .86% . The largest advantages appear in completeness and faithful-ness, suggesting that MedGuideX -9B provides more complete reasoning and better grounding in case evidence. The clarity score is close to par-ity, indicating that MedGuideX -9B maintains com-parable presentation quality while improving the clinically substantive dimensions of rationale qual-ity. These results show that the proposed training improves reasoning quality in ways that are visi-ble to practicing physicians and not captured by final-answer accuracy alone. 
+
+6 Conclusion 
+
+Inspired by clinical practice, we introduced 
+
+MedGuideX , a medical LLM trained to internalize decision logic from CPGs for clinical reasoning. Instead of treating guidelines merely as unstruc-tured textual knowledge, we transform high-quality guidelines into executable and structured training supervision, including both factual and counterfac-tual QA instances that expose models to evidence-based clinical decision rules. Through SFT and RL post-training, experiments on four benchmarks show that MedGuideX substantially improves over the base model and outperforms similarly sized medical LLMs. Further human evaluations demon-strate that MedGuideX not only improves diagnos-tic accuracy, but also generates more clinically grounded, coherent, and reliable rationales. These results suggest that CPGs can serve as a valuable source of scalable supervision for building more reliable medical reasoning models. Overall, our work highlights the value of moving beyond surface-level medical knowledge toward structured, executable clinical decision logic. We believe guideline-derived supervision provides a promising direction for developing medical LLMs that reason more consistently with evidence-based clinical practice. 8Limitations 
+
+While our work demonstrates promising results, it still has limitations. MedGuideX should be viewed as a research system for supporting studies of medi-cal reasoning rather than as a substitute for clinical professionals. Further validation, safety evalua-tion, regulatory review, and integration with clin-ical workflows are needed before deployment in production environments or real-world clinical use. 
+
+References 
+
+Anthropic. 2025. Claude haiku 4.5 [large language model]. https://claude.ai/ . Released October 15, 2025. Judith L Bowen. 2006. Educational strategies to pro-mote clinical diagnostic reasoning. New England Journal of Medicine , 355(21):2217–2225. Lang Cao. 2024. Graphreason: Enhancing reasoning capabilities of large language models through a graph-based verification approach. In Proceedings of the 2nd Workshop on Natural Language Reasoning and Structured Explanations (@ ACL 2024) , pages 1–12. Lang Cao, Qingyu Chen, and Yue Guo. 2026. Ehr-rag: Bridging long-horizon structured electronic health records and large language models via enhanced retrieval-augmented generation. arXiv preprint arXiv:2601.21340 .Lang Cao, Jingxian Xu, Hanbing Liu, Jinyu Wang, Mengyu Zhou, Haoyu Dong, Shi Han, and Dong-mei Zhang. 2025. Formula-r1: Incentivizing llm reasoning over complex tables with numerical com-putation via formula-driven reinforcement learning. 
+
+arXiv preprint arXiv:2505.23667 .Junying Chen, Zhenyang Cai, Ke Ji, Xidong Wang, Wanlong Liu, Rongsheng Wang, Jianye Hou, and Benyou Wang. 2024. Huatuogpt-o1, towards med-ical complex reasoning with llms. arXiv preprint arXiv:2412.18925 .Yuefei Chen, Vivek K Singh, Jing Ma, and Ruxiang Tang. 2025. Counterbench: A benchmark for coun-terfactuals reasoning in large language models. arXiv preprint arXiv:2502.11008 .Zeming Chen, Alejandro Hernández Cano, Angelika Romanou, Antoine Bonnet, Kyle Matoba, Francesco Salvi, Matteo Pagliardini, Simin Fan, Andreas Köpf, Amirkeivan Mohtashami, and 1 others. 2023. Meditron-70b: Scaling medical pretraining for large language models. arXiv preprint arXiv:2311.16079 .Jean-Philippe Corbeil, Amin Dada, Jean-Michel At-tendu, Asma Ben Abacha, Alessandro Sordoni, Lu-cas Caccia, François Beaulieu, Thomas Lin, Jens Kleesiek, and Paul Vozila. 2025. A modular ap-proach for clinical slms driven by synthetic data with pre-instruction tuning, model merging, and clinical-tasks alignment. In Proceedings of the 63rd An-nual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 19352– 19374. Ruiqi Deng, Geoffrey Martin, Tony Wang, Gongbo Zhang, Yi Liu, Chunhua Weng, Yanshan Wang, Justin F Rousseau, and Yifan Peng. 2026. Cpg-prompt: Translating clinical guidelines into llm-executable decision support. arXiv preprint arXiv:2601.03475 .Dario Garcia-Gasulla, Jordi Bayarri-Planas, Ashwin Ku-mar Gururajan, Enrique Lopez-Cuena, Adrian Tor-mos, Daniel Hinjos, Pablo Bernabeu-Perez, Anna Arias-Duart, Pablo Agustin Martin-Torres, Marta Gonzalez-Mallo, and 1 others. 2025. The aloe fam-ily recipe for open and specialized healthcare llms. 
+
+arXiv preprint arXiv:2505.04388 .Boyang Gu, Hongjian Zhou, Bradley Max Segal, Jinge Wu, Zeyu Cao, Hantao Zhong, Lei Clifton, Fenglin Liu, and David A Clifton. 2025. Clinical-r1: Empow-ering large language models for faithful and compre-hensive reasoning with clinical objective relative pol-icy optimization. arXiv preprint arXiv:2512.00601 .Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, and 1 others. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 .Paul Hager, Friederike Jungmann, Robbie Holland, Ku-nal Bhagat, Inga Hubrecht, Manuel Knauer, Jakob Vielhauer, Marcus Makowski, Rickmer Braren, Geor-gios Kaissis, and 1 others. 2024. Evaluation and mitigation of the limitations of large language mod-els in clinical decision-making. Nature medicine ,30(9):2613–2622. Tianyu Han, Lisa C Adams, Jens-Michalis Papaioannou, Paul Grundmann, Tom Oberhauser, Alexei Figueroa, Alexander Löser, Daniel Truhn, and Keno K Bressem. 2023. Medalpaca–an open-source collection of medi-cal conversational ai models and training data. arXiv preprint arXiv:2304.08247 .Pengcheng Jiang, Jiacheng Lin, Lang Cao, Runchu Tian, SeongKu Kang, Zifeng Wang, Jimeng Sun, and Jiawei Han. 2025a. Deepretrieval: Hacking real search engines and retrievers with large language models via reinforcement learning. arXiv preprint arXiv:2503.00223 .Songtao Jiang, Yuan Wang, Sibo Song, Tianxiang Hu, Chenyi Zhou, Bin Pu, Yan Zhang, Zhibo Yang, Yang Feng, Joey Tianyi Zhou, and 1 others. 2025b. Hulu-med: A transparent generalist model towards holis-tic medical vision-language understanding. arXiv preprint arXiv:2510.08668 .Bowen Jin, Hansi Zeng, Zhenrui Yue, Jinsung Yoon, Sercan Arik, Dong Wang, Hamed Zamani, and Jiawei 
+
+9Han. 2025. Search-r1: Training llms to reason and leverage search engines with reinforcement learning. 
+
+arXiv preprint arXiv:2503.09516 .Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. 2021. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Ap-plied Sciences , 11(14):6421. Leslie Pack Kaelbling, Michael L Littman, and An-drew W Moore. 1996. Reinforcement learning: A survey. Journal of artificial intelligence research ,4:237–285. Yanis Labrak, Adrien Bazoge, Emmanuel Morin, Pierre-Antoine Gourraud, Mickael Rouvier, and Richard Dufour. 2024. Biomistral: A collection of open-source pretrained large language models for medical domains. In Findings of the association for computa-tional linguistics: acl 2024 , pages 5848–5864. Yunghwei Lai, Kaiming Liu, Ziyue Wang, Weizhi Ma, and Yang Liu. 2025. Doctor-r1: Mastering clinical inquiry with experiential agentic reinforcement learn-ing. arXiv preprint arXiv:2510.04284 .Binbin Li, Tianxin Meng, Xiaoming Shi, Jie Zhai, and Tong Ruan. 2023a. Meddm: Llm-executable clinical guidance tree for clinical decision-making. arXiv preprint arXiv:2312.02441 .Bingxuan Li, Simo Du, and Yue Guo. 2026. Joint optimization of reasoning and dual-memory for self-learning diagnostic agent. arXiv preprint arXiv:2604.07269 .Chunyuan Li, Cliff Wong, Sheng Zhang, Naoto Usuyama, Haotian Liu, Jianwei Yang, Tristan Nau-mann, Hoifung Poon, and Jianfeng Gao. 2023b. Llava-med: Training a large language-and-vision assistant for biomedicine in one day. Advances in Neural Information Processing Systems , 36:28541– 28564. Wenliang Li, Rui Yan, Xu Zhang, Li Chen, Hongji Zhu, Jing Zhao, Junjun Li, Mengru Li, Wei Cao, Zihang Jiang, and 1 others. 2025. Macd: Multi-agent clinical diagnosis with self-learned knowledge for llm. arXiv preprint arXiv:2509.20067 .Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harri-son Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe. 2024. Let’s verify step by step. In International Conference on Learning Representations , volume 2024, pages 39578–39601. Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, and 1 others. 2024. Deepseek-v3 technical report. arXiv preprint arXiv:2412.19437 .Nikita Mehandru, Niloufar Golchini, David Bamman, Travis Zack, Melanie F Molina, and Ahmed Alaa. 2025. Er-reason: A benchmark dataset for llm-based clinical reasoning in the emergency room. arXiv preprint arXiv:2505.22919 .Niklas Muennighoff, Zitong Yang, Weijia Shi, Xi-ang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi, Luke Zettlemoyer, Percy Liang, Emmanuel Candès, and Tatsunori B Hashimoto. 2025. s1: Simple test-time scaling. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing ,pages 20286–20332. Mathieu Nendaz and Arnaud Perrier. 2012. Diagnostic errors and flaws in clinical reasoning: mechanisms and prevention in practice. Swiss medical weekly ,142(4344):w13706–w13706. David Oniani, Xizhi Wu, Shyam Visweswaran, Sumit Kapoor, Shravan Kooragayalu, Katelyn Polanska, and Yanshan Wang. 2024. Enhancing large language models for clinical decision support by incorporat-ing clinical practice guidelines. In 2024 IEEE 12th International Conference on Healthcare Informatics (ICHI) , pages 694–702. IEEE. Marc Cicero Schubert, Stella Soyka, Wolfgang Wick, and Varun Venkataramani. 2025. Guideline-incorporated large language model-driven evaluation of medical records using medcheckllm. JMIR For-mative Research , 9:e53335. Andrew Sellergren, Sahar Kazemzadeh, Tiam Jaroensri, Atilla Kiraly, Madeleine Traverse, Timo Kohlberger, Shawn Xu, Fayaz Jamil, Cían Hughes, Charles Lau, and 1 others. 2025. Medgemma technical report. 
+
+arXiv preprint arXiv:2507.05201 .Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, and 1 others. 2024. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 .Yuhao Shen, Zhangtianyi Chen, Yuanhao He, Yan Xu, Shuping Zhang, Liyuan Sun, Zijian Wang, Ying-hao Zhu, Yuyuan Yang, Jiahe Qian, Ziwen Wang, Xinyuan Zhang, Wenbin Liu, Zongyuan Ge, Tao Lu, Siyuan Yan, and Juexiao Zhou. 2026. Trustworthy and fair skingpt-r1 for democratizing dermatological reasoning across diverse ethnicities. arXiv preprint arXiv:2511.15242 .Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru Zhang, Yanghua Peng, Haibin Lin, and Chuan Wu. 2025. Hybridflow: A flexible and efficient rlhf framework. In Proceedings of the Twentieth European Conference on Computer Sys-tems , pages 1279–1297. Aaditya Singh, Adam Fry, Adam Perelman, Adam Tart, Adi Ganesh, Ahmed El-Kishky, Aidan McLaughlin, Aiden Low, AJ Ostrow, Akhila Ananthram, and 1 oth-ers. 2025. Openai gpt-5 system card. arXiv preprint arXiv:2601.03267 .
+
+10 Harold C Sox, Michael C Higgins, Douglas K Owens, and Gillian Sanders Schmidler. 2024. Medical deci-sion making . John Wiley & Sons. Michael Staniek, Artem Sokolov, and Stefan Rie-zler. 2025. Training and evaluation of guideline-based medical reasoning in llms. arXiv preprint arXiv:2512.03838 .Mirac Suzgun, Nathan Scales, Nathanael Schärli, Se-bastian Gehrmann, Yi Tay, Hyung Won Chung, Aakanksha Chowdhery, Quoc Le, Ed Chi, Denny Zhou, and 1 others. 2023. Challenging big-bench tasks and whether chain-of-thought can solve them. In Findings of the Association for Computational Linguistics: ACL 2023 , pages 13003–13051. Kimi Team, Yifan Bai, Yiping Bao, Y Charles, Cheng Chen, Guanduo Chen, Haiting Chen, Huarong Chen, Jiahao Chen, Ningxin Chen, and 1 others. 2025. Kimi k2: Open agentic intelligence. arXiv preprint arXiv:2507.20534 .Yuxuan Tong, Xiwen Zhang, Rui Wang, Ruidong Wu, and Junxian He. 2024. Dart-math: Difficulty-aware rejection tuning for mathematical problem-solving. 
+
+Advances in Neural Information Processing Systems ,37:7821–7846. Anni Tziakouri and Filippo Menolascina. 2025. Rein-forcement learning for clinical reasoning: Aligning llms with acr imaging appropriateness criteria. arXiv preprint arXiv:2510.05194 .Jonathan Uesato, Nate Kushman, Ramana Kumar, Fran-cis Song, Noah Siegel, Lisa Wang, Antonia Creswell, Geoffrey Irving, and Irina Higgins. 2022. Solv-ing math word problems with process-and outcome-based feedback. arXiv preprint arXiv:2211.14275 .Aniket Vashishtha, Qirun Dai, Hongyuan Mei, Amit Sharma, Chenhao Tan, and Hao Peng. 2025. Executable counterfactuals: Improving llms’ causal reasoning through code. arXiv preprint arXiv:2510.01539 .Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel, Barret Zoph, Sebastian Borgeaud, Dani Yogatama, Maarten Bosma, Denny Zhou, Donald Metzler, and 1 others. 2022a. Emergent abilities of large language models. arXiv preprint arXiv:2206.07682 .Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, and 1 others. 2022b. Chain-of-thought prompting elicits reasoning in large language models. Advances in neural information processing systems , 35:24824– 24837. Juncheng Wu, Wenlong Deng, Xingxuan Li, Sheng Liu, Taomian Mi, Yifan Peng, Ziyang Xu, Yi Liu, Hyunjin Cho, Chang-In Choi, and 1 others. 2025a. Medreason: Eliciting factual medical reasoning steps in llms via knowledge graphs. arXiv preprint arXiv:2504.00993 .Kevin Wu, Eric Wu, Rahul Thapa, Kevin Wei, Angela Zhang, Arvind Suresh, Jacqueline J Tao, Min Woo Sun, Alejandro Lozano, and James Zou. 2025b. Med-casereasoning: Evaluating and learning diagnostic reasoning from clinical case reports. arXiv preprint arXiv:2505.11733 .Weiwen Xu, Hou Pong Chan, Long Li, Mahani Alju-nied, Ruifeng Yuan, Jianyu Wang, Chenghao Xiao, Guizhen Chen, Chaoqun Liu, Zhaodonghui Li, and 1 others. 2025. Lingshu: A generalist foundation model for unified multimodal medical understanding and reasoning. arXiv preprint arXiv:2506.07044 .An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, and 1 others. 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 .Rui Yang, Han Zhong, Jiawei Xu, Amy Zhang, Chongjie Zhang, Lei Han, and Tong Zhang. 2024. Towards robust offline reinforcement learning under diverse data corruption. In International Conference on Learning Representations , volume 2024, pages 15512–15543. Gwangpyo Yoo and Honguk Woo. 2025. Model risk-sensitive offline reinforcement learning. In The Thir-teenth International Conference on Learning Repre-sentations .Zhiwen You, Xi Chen, Aniket Vashishtha, Simo Du, Gabriel Erion-Barner, Hongyuan Mei, Hao Peng, and Yue Guo. 2026. Improving clinical diagnosis with counterfactual multi-agent reasoning. arXiv preprint arXiv:2603.27820 .Zheng Yuan, Hongyi Yuan, Chengpeng Li, Guanting Dong, Keming Lu, Chuanqi Tan, Chang Zhou, and Jingren Zhou. 2023. Scaling relationship on learning mathematical reasoning with large language models. 
+
+arXiv preprint arXiv:2308.01825 .
+
+11 Contents of Appendix 
+
+A Ethical Statement 13 B Related Work 13 C Data Preparation Details 13 
+
+C.1 Guideline Curation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 C.2 Executable Transformation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13 C.3 QA Synthesis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 14 
+
+D Benchmark Details and Examples 14 E Training Details 16 F Training Strategy Ablation 17 G Human Study Details 17 H Details of Guideline-Based Baselines 19 I Case Study 20 
+
+I.1 Case 1: Central Serous Chorioretinopathy . . . . . . . . . . . . . . . . . . . . . . . . . 21 I.2 Case 2: Behcet’s Disease . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 21 I.3 Case 3: Infective Endocarditis with Renal Embolization . . . . . . . . . . . . . . . . . . 22 12 A Ethical Statement 
+
+This work aims to improve clinical reasoning in medical LLMs by transforming publicly available clinical practice guidelines into structured train-ing supervision. All guideline sources used in this study are publicly accessible and do not contain private patient information. The factual and coun-terfactual QA instances are synthetically generated from executable guideline functions and are not derived from identifiable patient records. We acknowledge that medical LLMs may pro-duce incorrect, incomplete, or potentially harmful recommendations, even when trained on guideline-derived data. Therefore, MedGuideX is intended for research use only and should not be used as a substitute for professional medical judgment, clini-cal diagnosis, or treatment decisions. Any deploy-ment in real-world healthcare settings would re-quire rigorous clinical validation, human oversight, bias and safety evaluation, and compliance with applicable medical regulations. 
+
+B Related Work 
+
+Post-training for LLM Reasoning. LLMs have shown strong reasoning capabilities on complex tasks, especially when guided by intermediate rea-soning steps such as chain-of-thought prompting (Wei et al., 2022a; Suzgun et al., 2023; Wei et al., 2022b; Cao, 2024). Beyond inference-time prompt-ing, recent work improves reasoning through post-training. Supervised fine-tuning (SFT) on high-quality reasoning traces can help models learn more coherent reasoning behaviors, using either filtered self-generated solutions (Yuan et al., 2023; Tong et al., 2024) or rationales distilled from stronger models (Muennighoff et al., 2025; Shen et al., 2026). RL (Kaelbling et al., 1996) further optimize toward task-level objectives and has been shown effective for enhancing reasoning ability beyoud next-token prediction (Lightman et al., 2024; Ue-sato et al., 2022; Guo et al., 2025). Our work follows this post-training direction, but focuses on constructing high-quality clinical reasoning su-pervision from evidence-based medical guidelines. Notably, DeepSeek-R1 (Guo et al., 2025) demon-strates that large-scale RL can substantially im-prove the reasoning abilities of language models. In downstream applications, DeepRetrieval (Jiang et al., 2025a) and Search-R1 (Jin et al., 2025) apply RL to teach models to reason about interactions with search engines for information retrieval, while Formula-R1 (Cao et al., 2025) extends RL-based reasoning to structured data reasoning. 
+
+LLM for Clinical Reasoning. LLMs have in-creasingly been applied to healthcare tasks. Prior work improves medical LLMs by adapting them to medical corpora, clinical notes, or case re-ports (Chen et al., 2023; Han et al., 2023; Labrak et al., 2024; Garcia-Gasulla et al., 2025). Other studies enhance clinical reasoning through retrieval-augmented generation, multi-agent diagnosis, or post-training with clinical feedback (Cao et al., 2026; Li et al., 2025; Chen et al., 2024; Lai et al., 2025). While these methods improve medical knowledge or case-level reasoning, they often rely on heterogeneous clinical data whose reasoning supervision is implicit, noisy, or incomplete. 
+
+Clinical Practice Guidelines for Medical LLMs. 
+
+CPGs have also been used to enhance medi-cal reasoning, primarily by retrieving guideline passages for prompting (Schubert et al., 2025; Deng et al., 2026; Oniani et al., 2024; Li et al., 2023a), constructing guideline-grounded rationales for SFT (Staniek et al., 2025; Chen et al., 2023), or using guideline constraints as rewards during RL (Tziakouri and Menolascina, 2025; Gu et al., 2025). These approaches typically treat guidelines as external knowledge sources, rationale references, or reward constraints. In contrast, our work trans-forms guideline-derived decision logic into fac-tual and counterfactual question-answering data for post-training medical LLMs. 
+
+C Data Preparation Details 
+
+C.1 Guideline Curation 
+
+Our initial guideline source is an open CPG collec-tion containing 37 ,970 documents. After curation, we obtain a filtered subset of 841 CPGs, including 
+
+607 from CDC and 234 from PubMed. 
+
+C.2 Executable Transformation 
+
+Starting from 841 curated documents, we split the corpus into 3,127 recommendation-oriented chunks using a soft limit of 4,500 words per chunk, with at most 4 chunks per document and 2 recom-mendations per chunk. The LLM extractor pro-duces 4,750 recommendation candidates. After validation, we retain 3,796 usable recommenda-tions, discarding 827 candidates that lack a con-crete condition-action structure and removing 127 
+
+13 Pipeline stage Count           
+
+> US-only guideline documents 841
+> CDC 607
+> PubMed 234
+> Guideline chunks 3,127
+> Recommendation candidates 4,750
+> Validated actionable recommendations 3,796
+> Validated decision trees 2,800
+> Executable guideline functions 2,793
+> Factual QA samples 4,963
+> Counterfactual QA candidates 5,028
+> Table 4: Data pipeline statistics on the guideline corpus. Each stage discards instances that fail automated checks.
+
+near-duplicates with highly similar populations, conditions, and actions. Each of the 3,796 retained recommendations is converted into a decision tree Tf specifying input variables, decision conditions, and final outputs. After LLM-based validation for completeness, con-dition clarity, branch coverage, and guideline sup-port, 2,800 trees pass validation. The 2,800 validated trees are compiled into exe-cutable Python functions that map input variables 
+
+X to guideline outputs f (X). We check each func-tion for syntactic correctness, executability on sam-pled inputs, and consistency with the original de-cision tree. In total, 2,793 functions pass these checks and form our validated executable guideline knowledge base. 
+
+C.3 QA Synthesis 
+
+At the data level, executing f before and after inter-vention yields 7,993 interventional scenarios. Of these, 7,205 produce changed outcomes, while 788 
+
+unchanged-output cases are discarded. After apply-ing the same balancing rule used for factual QA, we retain 5,028 counterfactual candidates. Each sam-ple is paired with a GPT-5.4-mini generated reason-ing trace that verbalizes the abduction, intervention, and prediction steps over the executable function 
+
+f . Overall data pipeline statistics are shown in Table 4. 
+
+D Benchmark Details and Examples 
+
+We evaluate MedGuideX on four external medi-cal reasoning benchmarks. All four are used only for evaluation and are disjoint from the executable guideline corpus used to train MedGuideX .• MedQA (Jin et al., 2021): A multiple-choice medical exam benchmark based on United States Medical Licensing Examination (USMLE)-style questions. It evaluates whether executable guideline-grounded training transfers to exam-style medical knowledge. We report multiple-choice accuracy on 1,273 test questions. • MedCaseReasoning (Wu et al., 2025b): A long-form open diagnostic reasoning benchmark based on open-access clinical case reports from the New England Journal of Medicine Clinicopatho-logical Conferences (NEJM CPC), primarily sourced from Massachusetts General Hospital. It evaluates case-based differential diagnosis. We report diagnostic accuracy on the 897 cases in the test split. • MIMIC-CDM-FI (Hager et al., 2024): Afull-information open clinical decision-making benchmark derived from MIMIC-IV, which is based on electronic health records from Beth Israel Deaconess Medical Center. It evaluates full-information clinical decision making. We re-port diagnostic accuracy on a randomly sampled subset of 1,000 cases. • ER-Reason (Mehandru et al., 2025): An emergency-department open diagnosis prediction benchmark derived from patient records at a large academic medical center. It evaluates emergency-room diagnosis prediction. We report diagnostic accuracy on a randomly sampled subset of 1,000 
+
+cases. Unless otherwise stated, we use greedy decod-ing with a 1,024 -token generation budget, disable Qwen thinking mode, and use gpt-5.4-mini for all LLM judges. For each benchmark, we describe the task, split, and evaluation protocol, and provide one representative example. 
+
+MedQA is a USMLE-style multiple-choice med-ical QA benchmark. We evaluate on the US test split of 1,273 questions. Given a question stem and five options A through E, the model selects the single best answer after a chain-of-thought reason-ing step. Answer extraction is fully deterministic: a regex-based parser strips reasoning blocks and extracts the final option letter or option text, with no LLM judge involved. We report accuracy as the fraction of correctly answered questions. 
+
+> MedQA: USMLE-style multiple-choice QA
+> SYSTEM
+> You are a medical expert. Answer the multiple-choice question, thinking step by step before choosing one option from A to E.
+> USER
+
+14 Context. A 65-year-old man with fever, productive cough, pleuritic chest pain, and right lower-lobe consolidation on chest x-ray. Gram stain shows lancet-shaped gram-positive diplococci. 
+
+Question. Which option is the single best answer? 
+
+Options. A: Mycoplasma pneumoniae B: Streptococ-cus pneumoniae C: Pseudomonas aeruginosa D: 
+
+Pneumocystis jirovecii E: Histoplasma capsulatum 
+
+> Reference diagnosis
+
+B
+
+> Evaluation
+
+The deterministic parser extracts option B from the model output and matches it against the gold answer B. The prediction is counted as correct. 
+
+MedCaseReasoning evaluates long-form diag-nostic reasoning from open-access clinical case reports. Each example provides a clinical case prompt, a clinician-authored reasoning trace, and a final diagnosis. We evaluate on the official test split of 897 cases and use the official prompt tem-plate, which requests reasoning inside <think> 
+
+tags and the diagnosis inside <answer> tags. We report 1-pass diagnostic accuracy under the offi-cial LLM-as-judge protocol, in which the judge compares the predicted and gold diagnoses and counts synonyms, abbreviations, and close medi-cal paraphrases as correct. We additionally report reasoning recall, computed by a separate judge that checks, for each clinician-authored reasoning step, whether the model’s reasoning explicitly or implic-itly covers it. 
+
+MedCaseReasoning: long-form case diagnosis 
+
+> USER
+
+Please reason through the following clinical case and predict the final diagnosis, returning reasoning inside 
+
+<think> tags and the diagnosis inside <answer> tags. 
+
+Clinical case. A middle-aged patient presents with severe episodic headaches, palpitations, sweating, and paroxys-mal hypertension. Abdominal imaging reveals an adrenal mass. Plasma metanephrines are markedly elevated. 
+
+> Reference diagnosis
+
+Pheochromocytoma 
+
+> Evaluation
+
+The judge compares the predicted diagnosis against the gold diagnosis pheochromocytoma and finds them equiv-alent. Reasoning recall is computed over the clinician-authored reasoning steps; in this case all reference steps are covered, giving a recall of 1.0.
+
+MIMIC-CDM-FI is a full-information clini-cal decision-making benchmark derived from the MIMIC-IV-Ext CDM dataset. We evaluate on a fixed 1,000 -case test split balanced across four acute abdominal pathologies, with 250 cases each of appendicitis, cholecystitis, pancreatitis, and di-verticulitis. The model receives all relevant patient information upfront, including history, physical ex-amination, selected laboratory results, and abdomi-nal imaging reports, and is asked to output a single final diagnosis of the most severe pathology with no further explanation. Predictions are scored by an LLM-as-judge that identifies the primary acute abdominal diagnosis. Synonyms, spelling variants, abbreviations, and clinically equivalent paraphrases count as correct; comorbidities or full billing-code matches are not required. 
+
+MIMIC-CDM-FI: full-information clinical decision making 
+
+> SYSTEM
+
+You are a medical AI assistant. Based on the provided information, give a single final diagnosis of the most severe pathology, with no further information. 
+
+> USER
+
+Provide the most likely final diagnosis of the following patient. 
+
+History. Acute right lower quadrant abdominal pain, nau-sea, anorexia, low-grade fever. 
+
+Examination. Tenderness at McBurney’s point with guarding. 
+
+Laboratory. Elevated white blood cell count and C-reactive protein. 
+
+Imaging. CT abdomen shows a dilated appendix with wall thickening and periappendiceal fat stranding. 
+
+> Reference diagnosis
+
+Acute appendicitis 
+
+> Evaluation
+
+The judge identifies the model’s response as a match for the gold diagnosis acute appendicitis. The prediction is counted as correct. 
+
+ER-Reason evaluates clinical reasoning in emergency-department settings; we use Task 4, fi-nal ED diagnosis prediction. We evaluate on a deterministic 1,000 -record split. Each record pro-vides age, sex, chief complaint, the current ED presentation, and a set of clinical notes spanning discharge summary, progress notes, history and physical, imaging, and consult. The model receives all notes as context and outputs a single ED diag-nosis in free text. Our primary metric is LLM-judge accuracy, with the judge counting synonyms, abbreviations, wording differences, and clinically equivalent specificity as correct. The official Task 4 evaluator also provides a CMS ICD-10-CM cross-walk that yields exact match, normalized match, token F1, clinical-cluster, body-system, ICD, and HCC accuracy. We do not adopt the crosswalk-based HCC accuracy as our primary metric be-cause the crosswalk maps only about 30% of the gold and predicted diagnoses to an HCC category. The resulting score is computed over a small and non-representative subset of cases, whereas LLM-15 judge accuracy scores every case and better reflects clinically correct predictions.                   
+
+> ER-Reason (Task 4): emergency-department diagno-sis
+> SYSTEM
+> You are an experienced ED physician. Predict the most likely diagnosis for the current ED visit, using all avail-able clinical notes as full information.
+> USER
+> ER-Reason Task 4: Final Diagnosis. Age 72, Female. Chief complaint: shortness of breath.
+> Clinical notes. History of heart failure; worsening dys-pnea, orthopnea, bilateral leg edema, elevated BNP, pul-monary vascular congestion on chest x-ray.
+> Current ED presentation. Tachypneic with hypoxia and bibasilar crackles; no fever or focal infiltrate. Output a single CMS-standardized diagnosis as text, with no explanation.
+> Reference diagnosis
+> Acute decompensated heart failure
+> Evaluation
+> The judge compares the model’s prediction acute decom-pensated heart failure against the gold acute congestive heart failure and counts them as clinically equivalent. The prediction is counted as correct.
+> Benchmark Split # Eval Scoring
+> MedQA US test 1,273 parser MedCaseReasoning test 897 LLM judge MIMIC-CDM-FI test_1000 1,000 LLM judge ER-Reason test_1000 1,000 LLM judge
+
+Table 5: Summary of the four evaluation bench-marks. # Eval is the number of evaluated examples. MedQA uses a fully deterministic answer parser with no LLM judge; the other three use an LLM-as-judge (gpt-5.4-mini , temperature 0) for semantic diagnosis matching. ER-Reason also has an official CMS ICD-10-CM crosswalk evaluator available, but it is not used as the primary metric (see Appendix D). 
+
+Licenses and access. We confirm that all four evaluation benchmarks are used in accordance with their original licenses, and only for non-commercial academic research. MedQA is released under the MIT license via the official GitHub repos-itory. 3 MedCaseReasoning’s code is released un-der the MIT license and its dataset is released un-der CC-BY 4.0, derived from the PubMed Central Open Access Subset. 4,5 MIMIC-CDM-FI is dis-tributed under the PhysioNet Credentialed Health 
+
+> 3https://github.com/jind11/MedQA
+> 4https://github.com/kevinwu23/ Stanford-MedCaseReasoning
+> 5https://huggingface.co/datasets/zou-lab/ MedCaseReasoning
+
+Data License 1.5.0 with an accompanying Data Use Agreement, and access requires completion of the CITI Data or Specimens Only Research training; we accessed it as credentialed PhysioNet users and use it only for evaluation in this study. 6
+
+ER-Reason is distributed under the more restric-tive PhysioNet Contributor Review Health Data Li-cense 1.5.0, which additionally requires per-study review by the dataset contributors; we accessed it under this credentialed and reviewed access pro-cess and use it only for evaluation. 7 We do not redistribute any patient-level records from MIMIC-CDM-FI or ER-Reason, and all evaluation outputs reported in this paper are aggregate metrics rather than raw clinical content. 
+
+Summary. Table 5 summarizes the four bench-marks. MedQA isolates broad exam-style medi-cal knowledge with deterministic scoring; Med-CaseReasoning targets long-form differential diag-nosis with both accuracy and reasoning-recall judg-ing; MIMIC-CDM-FI measures full-information acute abdominal decision making on a class-balanced split; and ER-Reason measures ED di-agnosis prediction with both semantic and code-crosswalk evaluation. 
+
+E Training Details 
+
+Training setup. We train MedGuideX -4B and 
+
+MedGuideX -9B from Qwen3.5-4B and Qwen3.5-9B, respectively. Both models use the same post-training recipe: supervised fine-tuning on the guideline-derived factual and counterfactual QA mixture, followed by GRPO on factual guideline QA prompts. Unless otherwise stated, the details below describe the 9B run; the 4B run follows the same data construction and optimization setup with the corresponding Qwen3.5-4B backbone. 
+
+Supervised fine-tuning. The SFT stage is de-signed to teach the model how to express the exe-cutable guideline logic in natural-language reason-ing. We train on the balanced mixture of factual QA and counterfactual QA examples described in Section 3. For factual examples, the target response contains the guideline-prescribed output and a ra-tionale verbalizing the executed path πf (X). For counterfactual examples, the target response fol-lows the abduction–intervention–prediction struc-
+
+> 6https://physionet.org/content/ mimic-iv-ext-cdm/
+> 7https://physionet.org/content/er-reason/1.0. 0/
+
+16 ture, requiring the model to infer hidden variables, apply the intervention, and predict the new guide-line output. This stage therefore serves as a cold start for both the answer format and the reasoning pattern used in later RL. All SFT runs use LoRA adaptation on all linear layers, with rank 16 and α = 32 , bfloat16 preci-sion, and gradient checkpointing. We train with verl (Sheng et al., 2025) for 5 epochs, using a learn-ing rate of 1 × 10 −5, cosine warmup ratio 0.03 ,maximum sequence length 2048 , and global batch size 64 . For the 9B model, the SFT stage runs for approximately 16 hours on 8× RTX 5090 GPUs, and the resulting checkpoint is used to initialize the RL stage. 
+
+Reinforcement learning. After SFT, we apply GRPO (Shao et al., 2024) using the same verl train-ing stack. The final MedGuideX configuration uses factual RL, selected by the ablation study in Sec-tion F. The RL prompts reuse the 4,963 factual prompts from the guideline-derived SFT corpus. Since all four evaluation benchmarks are external to the executable guideline corpus, this reuse does not introduce benchmark contamination. During RL, each prompt is sampled with mul-tiple rollouts and scored by the reward function described in Section 4. The reward first enforces the required reasoning-before-answer format, then checks whether the parsed final guideline output matches the oracle output produced by the exe-cutable function. For counterfactual RL ablations, the same reward implementation additionally veri-fies hidden-variable recovery and executable coun-terfactual consistency, but this is not the final con-figuration used for MedGuideX in Table 1. The RL stage is initialized from the SFT check-point and trained for one epoch with learning rate 
+
+5 × 10 −6. We use a maximum prompt length of 
+
+1536 , maximum response length of 1024 , 24 roll-outs per prompt, sampling temperature 1.0, top-
+
+p = 1 .0, one PPO update epoch, entropy coeffi-cient 0.0, and KL coefficient 0.005 with the low-variance KL estimator. We evaluate and save check-points every 10 training steps, selecting the final checkpoint according to validation performance on MedCaseReasoning and MedQA. For the 9B model, the RL stage runs for approximately 33 
+
+hours on 8× RTX 5090 GPUs, and the resulting checkpoint is used to initialize the RL stage. 
+
+F Training Strategy Ablation 
+
+We ablate two components of the 9B training pipeline: the data type used in each phase, includ-ing factual QA, counterfactual QA, or a balanced mixture of both, and the training phase , including SFT, RL, or SFT followed by RL. Figure 2 reports accuracy changes relative to the Qwen3.5-9B back-bone on MedCaseReasoning and MedQA. We also include a continued pretraining on raw guidelines 
+
+baseline that uses the same raw guideline text with-out generated QA supervision. The goal of this ablation is to identify the most effective way to combine data composition and training phases for internalizing decision logic from executable clini-cal guidelines into LLMs for clinical reasoning. The results show that exposure to guideline text alone is insufficient: continued pretraining on raw CPG text substantially decreases performance, de-spite being a common strategy in prior medical LLM training (Chen et al., 2023). In contrast, most configurations using generated QA supervision im-prove over the backbone, suggesting that structured factual and counterfactual QA examples are im-portant for transferring guideline knowledge into reasoning behavior. Among SFT-only settings, the balanced mixture performs best on both benchmark, indicating that factual and counterfactual examples provide com-plementary supervision during supervised train-ing. For RL-only settings, factual QA gives the strongest gains, suggesting that factual examples provide a more stable optimization signal for RL. The best overall configuration applies mixed-data SFT followed by factual RL. This configuration corresponds to MedGuideX -9B in Table 1 and sup-ports our final training design. We hypothesize that factual reasoning is more closely aligned with downstream clinical reasoning benchmarks, mak-ing it a more effective final-stage RL objective be-fore inference. 
+
+G Human Study Details 
+
+Study design. We conduct a blinded pairwise comparison study to assess the clinical reason-ing quality of MedGuideX -9B against GPT-5.0. The study covers 30 clinical cases sampled from the subset of the MedCaseReasoning test split on which both models produce a correct final diagno-sis, so that the comparison isolates rationale quality from answer correctness. For each case, an annota-17 Case 010 | Clinical question 
+
+A 29-year-old Indigenous Australian man presented with severe (8/10) epigastric pain radiating to his back. History: asthma, type 2 diabetes, obesity, hypertriglyceridemia, prior hypertriglyceridemia-induced pancreatitis three years earlier (triglycerides 39 mmol/L). Current smoker, denies alcohol. On arrival: T 36.5°C, HR 64, BP 138/83, RR 11, SpO 2 99%, clinically dehydrated. Post-resuscitation labs: triglycerides 24.1 mmol/L ( <1.70), cholesterol 8.4 mmol/L, lipase 119 U/L (8–78), WBC 12.3 ×10 9/L, corrected calcium 2.29 mmol/L, creatinine 68 μmol/L, glucose 21.3 mmol/L, no ketonuria. Contrast-enhanced abdominal CT at 24 h: fatty liver, no features of pancreatitis. [. . . full prompt shown to annotator. . . ] 
+
+Ground-truth final diagnosis: hyperlipemic abdominal crisis 
+
+Response A 
+
+Reasoning: The patient has classic features of pancreatitis (severe epigastric pain radiating to the back, hypertriglyc-eridemia, prior episode), but the lipase is only mildly elevated and the CT at 24 h shows no pancreatic changes. Acute pancreatitis would typically show lipase 3–10 ×
+
+upper limit and imaging findings by this time. However, lipemia can interfere with lipase assays and the classic presentation plus severe hypertriglyceridemia still favor an underlying pancreatitis process. [. . . ] 
+
+Final diagnosis: Acute pancreatitis secondary to hyper-triglyceridemia 
+
+Response B 
+
+Reasoning: Multiple pancreatitis risk factors are present, but lipase is only mildly elevated and CT at 24 h shows no features of pancreatitis. In a patient with severe hyper-triglyceridemia, severe abdominal pain without imaging or biochemical evidence of pancreatitis is most consistent with a hyperlipemic abdominal crisis, a recognized entity that mimics pancreatitis clinically. [. . . ] Final diagnosis: Hyperlipemic abdominal crisis 
+
+Case 010 | Pairwise judgments Select Response A, Response B, or Same on each dimension. 
+
+Dimension Judgment Comment 
+
+Evidence Faithfulness □ Response A □ Response B □ Same Optional elaboration 
+
+Reasoning Validity □ Response A □ Response B □ Same Optional elaboration 
+
+Reasoning Completeness □ Response A □ Response B □ Same Optional elaboration 
+
+Reasoning Clarity □ Response A □ Response B □ Same Optional elaboration 
+
+Figure 3: Layout of one case page in the blinded physician questionnaire. Each page shows the clinical question and the ground-truth final diagnosis, two blinded responses (one from MedGuideX -9B and one from GPT-5.0, presentation order independently randomized per case), and four mandatory single-choice questions, one per evaluation dimension. Annotators may select Response A, Response B, or Same, and can optionally provide free-text elaboration for each judgment. The ground-truth diagnosis is shown to the annotator so that judgments compare reasoning quality against a known correct answer; sample selection is further restricted to cases on which both models produce a correct final diagnosis. Case and response text are abbreviated here for space. 
+
+tor is shown the case prompt, the ground-truth diag-nosis, and two anonymized responses, and judges which response is better along four reasoning di-mensions. Model identities are hidden, and the left/right presentation order of the two responses is independently randomized per case so that the an-notator cannot infer which system produced which response. 
+
+Annotators and case allocation. Annotations are provided by two practicing physicians. Each physician annotates 20 cases, with 10 cases shared between them. Concretely, physician 1 annotates cases 1–20 and physician 2 annotates cases 11 –30 ,so that cases 11 –20 are double annotated. This de-sign covers all 30 cases with 40 total annotations while keeping per-annotator load manageable, and the shared 10 cases provide a within-study mea-sure of inter-annotator agreement. Annotators are not told the identity, size, or training procedure of either model. 
+
+Evaluation dimensions. The four dimensions and the instructions shown to each annotator are as follows. • Evidence Faithfulness. Which response is more faithful to the evidence provided in the case? Prefer the response that grounds its reasoning in the stated history, symptoms, labs, imaging, 18 and pathology, and penalize unsupported claims, invented findings, or conclusions that go beyond the provided evidence. • Reasoning Validity. Which response has more valid clinical reasoning? Prefer the response whose diagnostic logic is medically sound, in-ternally consistent, and appropriate for the task, and penalize incorrect causal links, medically implausible interpretations, or contradictions. • Reasoning Completeness. Which response pro-vides a more complete reasoning process? Prefer the response that covers the key positive and neg-ative evidence, necessary intermediate steps, and important differential considerations, and penal-ize responses that skip critical evidence or jump to a diagnosis without adequate justification. • Reasoning Clarity. Which response is more concise and focused while still being clinically useful? Prefer responses that are clear, organized, and free of unnecessary repetition or irrelevant detail, without rewarding brevity that omits im-portant reasoning. 
+
+Annotation protocol. The study is administered as a structured questionnaire. Each case occupies a separate page containing, in order, the clinical 
+
+Question , Response A , Response B , and four manda-tory single-choice questions, one per evaluation dimension. For each dimension the annotator se-lects Response A, Response B, or Same. Optional free-text elaboration is allowed but not required. Responses cannot be edited after submission, and no annotator email or identifying information is collected. 
+
+Scoring. After collection, the blinded A/B labels are decoded back to model identities using a held-out mapping that is never exposed during annota-tion. For each dimension we report the non-tie win rate of MedGuideX -9B over GPT-5.0, defined as the number of annotations in which MedGuideX -9B is preferred divided by the total number of non-tie annotations, Win Rate = nMedGuideX -9B 
+
+nMedGuideX -9B + nGPT-5.0 
+
+,
+
+where nMedGuideX -9B and nGPT-5.0 are the counts of 
+
+MedGuideX -9B-preferred and GPT-5.0-preferred judgments, respectively. Same judgments are re-ported but excluded from the denominator, which is standard for pairwise model comparisons where                          
+
+> Dimension MedGuideX -9B GPT-5.0 Same
+> Evidence Faithfulness 17 320
+> Reasoning Validity 23 611
+> Reasoning Completeness 36 31
+> Reasoning Clarity 17 16 7
+> Overall (pooled) 93 28 39
+> Table 6: Raw judgment counts from the blinded pair-wise physician evaluation. Each cell is the number of annotations in which a given outcome was chosen. The total per dimension is 40 , corresponding to 30 cases with 10 double-annotated cases. The non-tie win rates in Table 3are computed by excluding the Same column from the denominator.
+
+ties carry no signal about relative quality. The ag-gregate Overall win rate in Table 3 is computed by pooling all non-tie judgments across the four dimensions and all 40 annotations. 
+
+Per-dimension judgment counts. Table 6 re-ports the raw counts underlying the win rates in Table 3. MedGuideX -9B is preferred on every di-mension, with the strongest margins on reasoning completeness ( 36 vs 3) and evidence faithfulness (17 vs 3). Reasoning clarity is the most contested dimension, with 17 preferences for MedGuideX -9B, 16 for GPT-5.0, and 7 ties. 
+
+Questionnaire example. Figure 3 shows the lay-out of a representative case page as presented to the annotator. The case prompt and the two candidate responses are reproduced in abbreviated form; in the actual questionnaire the full untruncated text is shown. 
+
+H Details of Guideline-Based Baselines 
+
+Retrieval-Augmented Guideline Prompting. 
+
+We evaluate an inference-time retrieval baseline that uses the same raw US-only guideline chunks as external knowledge. We build a TF-IDF re-triever over the 3,127 raw CPG chunks, using each chunk’s topic, section path, and guideline text as the retrieval corpus. For each benchmark instance, we form a query from the test input only: the ques-tion stem and answer choices for MedQA, the case prompt for MedCaseReasoning, the patient infor-mation and clinical fields for MIMIC-CDM-FI, and the emergency-department presentation and avail-able notes for ER-Reason. Gold labels are never used in retrieval. We retrieve the top-3 chunks, trun-cate each retrieved snippet to 700 characters, and prepend them to the original benchmark prompt 19 with an instruction that the snippets may or may not be relevant. No model parameters are updated. This baseline obtains 31 .88% , 74 .71% , 82 .50% ,and 27 .40% on the four benchmarks, with an aver-age accuracy of 54 .12% .
+
+In-Context Guideline Demonstrations We also evaluate an in-context learning baseline that pro-vides guideline-derived examples at inference time without parameter updates. We select three fac-tual QA examples from the guideline-derived fac-tual QA set. Each demonstration contains a pa-tient/guideline query, a short reasoning trace, and the corresponding guideline output. These three demonstrations are fixed across all test instances and are prepended before the original benchmark prompt, with an instruction that they are demonstra-tions only and are not facts about the target case. Unlike RAG, this baseline does not retrieve case-specific guideline passages; it tests whether a small number of guideline-style demonstrations can in-duce the desired reasoning behavior in the base model. This baseline obtains 33 .11% , 74 .94% ,
+
+80 .10% , and 28 .20% on the four benchmarks, with an average accuracy of 54 .08% .
+
+CPGPrompt. We adapt CPGPrompt (Deng et al., 2026) as a train-free decision-tree prompting base-line. For each benchmark instance, we first re-trieve the top-3 guideline recommendations from the validated recommendation corpus using TF-IDF retrieval. We then prompt Qwen3.5-9B to con-struct a compact CPGPrompt-style decision tree as a Python dictionary literal, including the selected recommendation ID, yes/no decision nodes, a final rationale, and a final answer. The generated tree is parsed, normalized, and executed locally by a de-terministic Python traverser; the reached terminal action or top-level final answer is then scored under the same benchmark-specific evaluation protocol as the main experiments. This baseline does not use our precompiled executable functions and does not update model parameters. It obtains 14 .16% ,
+
+59 .15% , 67 .60% , and 19 .90% on the four bench-marks, with an average accuracy of 40 .20% .
+
+Fine-tuning with CPG. We include a text-only fine-tuning baseline that trains Qwen3.5-9B di-rectly on raw CPG text. The training data are con-structed from guideline chunks, where the model is asked to continue or reproduce the raw guideline content under a medical guideline system prompt. This baseline uses only unstructured guideline text and does not use extracted recommendations, de-cision trees, executable Python functions, gener-ated factual/counterfactual QA pairs, or verifier-based rewards. Its goal is to test whether expo-sure to guideline text alone is sufficient to improve clinical reasoning. We evaluate this baseline on MedCaseReasoning and MedQA, where it obtains 
+
+28 .87% and 65 .04% , respectively. The results in-dicate that raw guideline text alone can lead to negative transfer compared with the Qwen3.5-9B backbone. 
+
+RL with CPG-Derived Process Rewards. Fi-nally, we evaluate an RL baseline that uses CPG-derived process rewards instead of our executable-guideline supervision. This baseline starts from the same mixed factual/counterfactual SFT check-point and applies GRPO on factual guideline QA prompts. The reward function reuses the factual CoT format reward and final-answer reward, then adds an LLM-as-a-judge process reward: for each sampled response, we retrieve the most relevant validated guideline recommendation, using an ex-act CPG identifier when available and otherwise lexical overlap retrieval, and ask the judge whether the model’s reasoning process is consistent with the retrieved guideline. The final reward is the sum of the format reward, answer reward, and process-consistency reward. Unlike MedGuideX , this base-line does not execute guideline functions to verify the model’s reasoning path or counterfactual be-havior. It obtains 37 .68% , 75 .73% , 83 .40% , and 
+
+27 .80% on the four benchmarks, with an average accuracy of 56 .15% .
+
+I Case Study 
+
+We provide a controlled qualitative comparison on MedCaseReasoning, a long-form diagnostic rea-soning benchmark in which each model receives the same clinical case and must produce a final diagnosis. To make the comparison directly au-ditable, we select three cases where MedGuideX ,as shown in this section, is judged correct while both GPT-5.0 and MedReason-8B are judged in-correct. For each case, we preserve the complete clinical case, the complete raw model response, and the verbatim judge rationale for each prediction. Green boxes indicate correct MedGuideX out-puts, and red boxes indicate incorrect baseline out-puts. These examples are not intended to replace aggregate evaluation; rather, they illustrate diag-nostic distinctions captured by guideline-derived 20 post-training but missed by the comparison models. 
+
+I.1 Case 1: Central Serous Chorioretinopathy 
+
+Task Prompt 
+
+Please reason through the following clinical case and predict the final diagnosis. Do not use tables or bullet points. Return your answer in the following format: <think> [Reasoning here] </think> <answer> [Final diagnosis here] </answer>. 
+
+Full Clinical Case 
+
+A 42-year-old previously healthy woman presented with a 4-day history of blurring of vision and visual loss in her left eye, associated with mild ocular pain. She denied systemic symptoms, drug use, and had no significant family, medical, or ocular history, except for a type-A behavioral pattern. She had been diagnosed elsewhere with presumed unilateral Vogt–Koyanagi–Harada disease and referred for further evaluation prior to treatment. On examination, best-corrected visual acuity was 20/20 in the right eye and 20/40 in the left. Cycloplegic refraction was +0.50 diopters in the right eye and -1.00 diopters in the left. Intraocular pressures were normal bilaterally. Slit-lamp biomicroscopy showed a clinically shallow anterior chamber in the left eye and +1 cells in the anterior vitreous; there was no anterior chamber inflammation. Funduscopic examination of the left eye revealed large areas of neurosensory retinal elevation consistent with subretinal fluid involving the peripapillary region and extending beyond the posterior pole; the right eye fundus was unremarkable. Spectral-domain optical coherence tomography of the left eye confirmed serous detachment of the neurosensory retina in the macular, peripapillary, and juxtapapillary regions. Optical biometry demonstrated that the anterior chamber depth was 0.62 mm shallower in the left eye than in the right, and axial length was 0.16 mm shorter in the left eye. 
+
+Model Outputs. 
+
+MedGuideX (correct) 
+
+Prediction: Idiopathic central serous chorioretinopathy 
+
+Judge reason: Idiopathic central serous chorioretinopathy is the same diagnosis as central serous chorioretinopathy; the added idiopathic qualifier does not change the condition. 
+
+Raw response: 
+
+The patient is a 42-year-old woman with acute unilateral visual loss and blurring in the left eye, mild ocular pain, and a shallow anterior chamber. She was previously diagnosed with Vogt-Koyanagi-Harada disease, but the current presentation is atypical for VKH, which typically presents with bilateral uveitis, meningismus, and systemic symptoms such as hearing loss or skin changes. Here, the anterior chamber inflammation is minimal (only +1 cells), and there is no significant vitritis or posterior uveitis on exam. Instead, the key findings are a shallow anterior chamber, reduced axial length, and extensive serous retinal detachment involving the macula, peripapillary region, and beyond the posterior pole. The shallow anterior chamber and shorter axial length in the affected eye suggest a structural abnormality rather than an inflammatory process. These features are characteristic of a primary vitreoretinal disorder, specifically idiopathic central serous chorioretinopathy (CSC), which can present with serous retinal detachment and sometimes a shallow anterior chamber due to ciliary body effusion or altered aqueous dynamics. However, the combination of shallow anterior chamber, reduced axial length, and extensive serous detachment is more consistent with a diagnosis of idiopathic central serous chorioretinopathy with associated anterior chamber shallowing, possibly due to ciliary body effusion or a variant of CSC. Given the absence of significant uveitis and the presence of serous retinal detachment with shallow anterior chamber, the most likely diagnosis is idiopathic central serous chorioretinopathy. <answer> Idiopathic central serous chorioretinopathy </answer> 
+
+GPT-5.0 (wrong) 
+
+Prediction: Posterior scleritis 
+
+Judge reason: Posterior scleritis is a different inflammatory ocular condition and is not a synonym or close paraphrase of central serous chorioretinopathy. 
+
+Raw response: 
+
+Reasoning: Unilateral serous retinal detachment with mild ocular pain, shallow anterior chamber, axial shortening, and a paradoxical myopic shift indicates anterior displacement from ciliochoroidal effusion, favoring posterior scleritis. Mild vitreous cells and peripapillary/macular detachment support inflammation rather than CSC. Vogt–Koyanagi–Harada is unlikely given the unilateral involvement and lack of significant anterior chamber inflammation or systemic features. <answer> Posterior scleritis </answer> 
+
+MedReason-8B (wrong) 
+
+Prediction: Persistent fetal vasculature (PFV) 
+
+Judge reason: Persistent fetal vasculature (PFV) is a different retinal developmental anomaly and is not a synonym or close paraphrase of central serous chorioretinopathy. 
+
+Raw response: 
+
+Based on the provided clinical details, the patient presents with unilateral visual impairment and blurring of vision in the left eye, along with mild ocular pain. The key findings include: 1. **Shallow anterior chamber** in the left eye compared to the right. 2. **Subretinal fluid** in the left eye, particularly around the optic disc and extending into the macula. 3. Normal intraocular pressure bilaterally. 4. No anterior chamber inflammation observed during slit-lamp examination. 5. A history of being diagnosed with Vogt-Koyanagi-Harada (VKH) disease, which typically involves bilateral involvement and uveitis. The presence of a shallow anterior chamber suggests a structural abnormality, possibly related to the anatomy of the eye. However, VKH disease is usually characterized by bilateral symptoms and inflammation, which are not evident here. The absence of anterior chamber inflammation and the unilateral nature of the presentation make VKH less likely. Given these observations, the most plausible explanation for the unilateral subretinal fluid and shallow anterior chamber without inflammation could be a congenital anomaly such as persistent fetal vasculature (PFV), also known as persistant hyperplastic primary vitreous (PHPV). This condition can lead to structural abnormalities like a shallow anterior chamber and subretinal fluid due to improper development of the hyaloid artery and lens-related anomalies. Therefore, the final diagnosis aligning with the clinical findings would be **persistent fetal vasculature (PFV)**. 
+
+I.2 Case 2: Behcet’s Disease 
+
+Task Prompt 
+
+Please reason through the following clinical case and predict the final diagnosis. Do not use tables or bullet points. Return your answer in the following format: <think> [Reasoning here] </think> <answer> [Final diagnosis here] </answer>. 
+
+Full Clinical Case 
+
+An 8-year-old boy of Brazilian descent with autism presented with an 8-month history of painful oral ulcers. He had a one-time perianal ulcer, folliculitis on his scalp and buttocks, intermittent fever, and bloody stools. He had no genital ulcers. He was initially treated as PFAPA with steroids, but symptoms recurred when steroids were tapered. Family history was noncontributory. On examination, he had multiple large oral ulcers on the tongue, palate, and lips. Abdominal examination was normal, with no tenderness or masses; there were no perianal ulcers, arthritis, or other skin findings. An extensive workup for systemic lupus erythematosus, herpes simplex virus, Epstein–Barr virus, tuberculosis, cyclic neutropenia, primary immunodeficiencies, and periodic fever syndromes was unremarkable. Ophthalmological examination was negative, with no pathergy. Buccal 
+
+21 biopsies showed chronic inflammation with granulation tissue, no granulomas, and grew Fusobacterium periodontium. Prometheus IBD sgi testing demonstrated a pattern consistent with Crohn’s disease (positive anti-A4-Fa2 IgG, anti-Fax IgG, ATG16L1 heterozygous, NKX2-3 heterozygous, ICAM-1, SAA 179, elevated CRP; ASCA and ANCA negative). Multiple endoscopies and colonoscopies with ileal intubation were negative. Capsule endoscopy, CT of the abdomen, and MRI enterography showed no abnormalities. Despite treatment with steroids, colchicine, infliximab, and methotrexate–later escalated to high-dose infliximab–the patient’s bloody stools worsened and he developed severe malnutrition (BMI z-score -2.38). At month 18, a fourth colonoscopy revealed large, round ulcers in the terminal ileum with granulation tissue and chronic inflammatory infiltrates, but no granulomas or cobblestoning. Treatment was switched to ustekinumab, after which gastrointestinal symp-toms improved. At month 19, he developed bilateral hip effusions and later presented with headaches, emesis, and fevers. A lumbar puncture showed an opening pressure of 39 cm H2O; brain MRI/MRA/MRV revealed exten-sive thrombosis of the superior sagittal sinus, straight sinus, and proximal right transverse sinus. A hypercoagulability panel was negative. 
+
+Model Outputs. 
+
+MedGuideX (correct) 
+
+Prediction: Behçet’s disease 
+
+Judge reason: Exact match with the gold diagnosis. 
+
+Raw response: 
+
+The patient is an 8-year-old boy with a prolonged history of painful oral ulcers, bloody stools, and intermittent fever, initially misdiagnosed as PFAPA. Despite negative workup for common infectious and autoimmune causes, and negative endoscopic and imaging studies for Crohn’s disease, he had a positive Prometheus IBD sgi test pattern consistent with Crohn’s disease. However, the endoscopic findings were atypical: large round ulcers with granulation tissue and chronic inflammation but no granulomas or cobblestoning, and no ileal involvement on capsule endoscopy, CT, or MRI enterography. His symptoms worsened with multiple Crohn’s-directed therapies, including infliximab, and he developed severe malnutrition. The key turning point was the development of bilateral hip effusions and then cerebral venous sinus thrombosis (CVST) with extensive thrombosis of the superior sagittal, straight, and right transverse sinuses, despite a negative hypercoagulability panel. This presentation is highly suggestive of Behçet’s disease, which can present with oral ulcers, gastrointestinal involvement (often ileal or colonic ulcers), and thrombotic complications such as CVST. The absence of genital ulcers does not exclude Behçet’s disease, as it can be atypical in children. The negative ASCA and ANCA, along with the lack of granulomas, further supports a diagnosis of Behçet’s disease rather than Crohn’s disease. The response to ustekinumab, which is effective in Behçet’s disease, also supports this diagnosis. <answer> Behçet’s disease </answer> 
+
+GPT-5.0 (wrong) 
+
+Prediction: Crohn’s disease 
+
+Judge reason: Crohn’s disease is a different inflammatory bowel disease and not a synonym or direct equivalent of Behçet’s disease. 
+
+Raw response: 
+
+Reasoning: Severe, recurrent oral ulcers with bloody stools and later terminal ileal ulcers showing chronic inflammation, plus an IBD serologic pattern, point to Crohn’s disease; symptoms improved with ustekinumab. Behçet disease is less likely given absent genital ulcers, negative pathergy and ophthalmologic exams, and GI findings ultimately localized to terminal ileum consistent with Crohn’s. Cerebral venous sinus thrombosis is a known IBD complication. <answer> Crohn’s disease </answer> 
+
+MedReason-8B (wrong) 
+
+Prediction: Crohn’s disease 
+
+Judge reason: Crohn’s disease is not the same diagnosis as Behçet’s disease; they can overlap clinically but are distinct conditions. 
+
+Raw response: 
+
+Crohn’s disease 
+
+I.3 Case 3: Infective Endocarditis with Renal Embolization 
+
+Task Prompt 
+
+Please reason through the following clinical case and predict the final diagnosis. Do not use tables or bullet points. Return your answer in the following format: <think> [Reasoning here] </think> <answer> [Final diagnosis here] </answer>. 
+
+Full Clinical Case 
+
+A 52-year-old woman with known unrepaired Type II tricuspid atresia with d-transposition of the great arteries, hypoplastic right ventricle, unrestricted atrial and ventricular septal defects, and multi-level pulmonic stenosis presented with sudden-onset severe right upper quadrant abdominal pain without nausea, vomiting, diarrhea, or dysuria. Two months earlier, she had flu-like symptoms treated with doxycycline, and she reported poor dentition with no dental care for two years. On examination, her blood pressure was 90/54 mmHg, she was afebrile, heart rate was 80 bpm, and oxygen saturation was 79% on room air. A grade-2 systolic ejection mur-mur was heard at the left upper sternal border. She had cyanotic fingers bilaterally but no Osler nodes, Janeway lesions, or splinter hemorrhages. Laboratory studies showed hemoglobin 17.9 g/dL and C-reactive protein 2.2 mg/dL; lactate, white blood cell count, and creatinine were within reference ranges. Computed tomography of the abdomen demonstrated an acute right renal infarct; cerebral computed tomography was negative. She was anticoagulated with heparin. 
+
+Model Outputs. 
+
+MedGuideX (correct) 
+
+Prediction: Infective endocarditis with septic embolization to the right kidney 
+
+Judge reason: The prediction includes the gold diagnosis, infective endocarditis; the added septic embolization to the right kidney is a complication and does not change the core diagnosis. 
+
+Raw response: 
+
+The patient has a complex cyanotic congenital heart disease with unrepaired tricuspid atresia, d-transposition of the great arteries, hypoplastic right ventricle, unrestricted atrial and ventricular septal defects, and multi-level pulmonic stenosis. This anatomy results in right-to-left shunting and systemic cyanosis, as evidenced by her low oxygen saturation and cyanotic fingers. She presents with sudden severe right upper quadrant abdominal pain, and imaging reveals an acute right renal infarct. Her history includes recent doxycycline use for flu-like symptoms and poor dentition, which raises concern for a source of bacteremia. Although she lacks classic peripheral stigmata of infective endocarditis such as Osler nodes or Janeway lesions, the presence of a new renal infarct in the setting of cyanotic heart disease is highly suggestive of septic emboli from infective endocarditis. The murmur at the left upper sternal border may represent her baseline murmur from pulmonic stenosis, but the acute presentation with organ infarction points to embolic complications. Given her cyanotic heart disease, she is at high risk for infective endocarditis due to turbulent flow and endothelial damage, and the renal infarct is a classic manifestation of septic emboli. Therefore, the most likely diagnosis is infective endocarditis with septic embolization to the kidney. <answer> Infective endocarditis with septic embolization to the right kidney 
+
+22 </answer> 
+
+GPT-5.0 (wrong) 
+
+Prediction: Paradoxical systemic arterial embolism causing acute right renal infarction in cyanotic congenital heart disease (unrepaired tricuspid atresia with d-TGA 
+
+Judge reason: Predicted diagnosis is paradoxical systemic arterial embolism/renal infarction due to cyanotic congenital heart disease, which is not the same as infective endocarditis. 
+
+Raw response: 
+
+Reasoning: Unrepaired cyanotic congenital heart disease with right-to-left shunt allows venous thrombi to bypass the lungs and embolize systemically. She is afebrile with normal WBC, only mildly elevated CRP, no peripheral stigmata of endocarditis, and acute CT-proven renal infarct; anticoagulation was initiated for embolism. Infective endocarditis with septic emboli is less likely given absence of fever and classic signs. <answer> Paradoxical systemic arterial embolism causing acute right renal infarction in cyanotic congenital heart disease (unrepaired tricuspid atresia with d-TGA) </answer> 
+
+MedReason-8B (wrong) 
+
+Prediction: Intracardiac thrombus with paradoxical embolism 
+
+Judge reason: Predicted diagnosis is intracardiac thrombus with paradoxical embolism/renal infarction, which is not the same as infective endocarditis. 
+
+Raw response: 
+
+### Finding Reasoning Paths: 1. **Right upper quadrant abdominal pain**: Consider causes such as gallbladder disease (e.g., cholecystitis), pancreatitis, peptic ulcer disease, or vascular events like mesenteric ischemia or renal infarction. 2. **History of flu-like illness and doxycycline use**: Evaluate for complications related to recent antibiotic use (e.g., drug-induced side effects) or secondary infections. 3. **Cyanosis and low oxygen saturation**: Investigate cardiac or pulmonary causes, including pulmonary embolism, chronic lung disease, or congenital heart defects. 4. **Acute renal infarction on CT scan**: Explore potential causes such as thromboembolism, vasculitis, or other vascular abnormalities. 5. **Congenital heart disease history**: Assess how underlying structural heart defects (e.g., tricuspid atresia, transposition of the great arteries) contribute to systemic issues like hypoxemia or embolic events. —### Reasoning Process: 1. **Initial Presentation**: - The patient has severe right upper quadrant abdominal pain, cyanosis, and hypoxemia (oxygen saturation 79%). These findings suggest a systemic issue involving both cardiovascular and possibly gastrointestinal systems. - The absence of fever, nausea, vomiting, or diarrhea makes infectious or inflammatory causes less likely in the GI tract. 2. **Cardiac History**: - The patient has a complex congenital heart defect (tricuspid atresia with transposition of the great arteries). This condition predisposes her to cyanosis due to impaired oxygenation and potential complications like paradoxical emboli. - Cyanosis and hypoxemia could also result from pulmonary hypertension or right-to-left shunting due to the congenital defect. 3. **Renal Infarction**: - The CT scan shows an acute right renal infarction, which is often caused by embolism, thrombosis, or vasculitis. In this case, embolism is most likely given the systemic nature of the presentation. - Emboli can originate from the heart, particularly in patients with congenital heart disease, where intracardiac thrombi may form due to stagnant blood flow or turbulent currents. 4. **Doxycycline Use**: - Doxycycline is not commonly associated with embolic phenomena, so it is unlikely to be directly responsible for the renal infarction. - However, the flu-like illness treated with doxycycline raises the possibility of a preceding viral infection that could have triggered a hypercoagulable state or endothelial damage, increasing the risk of thromboembolism. 5. **Systemic Embolism**: - The combination of cyanosis, hypoxemia, and renal infarction strongly suggests a systemic embolic event. Given the patient’s congenital heart disease, paradoxical embolism (via a right-to-left shunt) is a plausible mechanism. - Intracardiac thrombus formation is a common complication in patients 
+
+with congenital heart defects, especially when there are atrial or ventricular septal defects allowing shunting of deoxygenated blood. 6. **Exclusion of Other Causes**: - There is no evidence of infection (no fever, leukocytosis, or elevated CRP). - No signs of pancreatitis or peptic ulcer disease based on the clinical presentation. - The absence of neurological symptoms makes stroke or cerebral embolism less likely. —### Conclusion: The most likely diagnosis is **intracardiac thrombus formation**, leading to a paradoxical embolism causing the acute right renal infarction and systemic hypoxemia. This conclusion aligns with the patient’s congenital heart disease, cyanosis, and renal infarction findings. Final Answer Intracardiac thrombus 
+
+23
