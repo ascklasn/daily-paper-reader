@@ -1,0 +1,1154 @@
+Title: Geometry-First Generative Spatial Single-Cell Reconstruction
+
+URL Source: https://arxiv.org/pdf/2605.28200v1
+
+Published Time: Thu, 28 May 2026 01:10:32 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# Geometry-First Generative Spatial Single-Cell Reconstruction 
+
+# Ehtesamul Azim 
+
+University of Central Florida Orlando, Florida, USA ehtesamul.azim@ucf.edu 
+
+# Muhtasim Noor Alif 
+
+University of Central Florida Orlando, Florida, USA muhtasimnoor.alif@ucf.edu 
+
+# Tae Hyun Hwang 
+
+Vanderbilt University Medical Center Nashville, Tennessee, USA taehyun.hwang@vumc.org 
+
+# Yanjie Fu 
+
+Arizona State University Tempe, Arizona, USA yanjie.fu@asu.edu 
+
+# Wei Zhang ∗
+
+University of Central Florida Orlando, Florida, USA wzhang.cs@ucf.edu 
+
+## Abstract 
+
+Single-cell RNA sequencing (scRNA-seq) profiles large numbers of cells but loses spatial context, whereas spatial transcriptomics (ST) preserves partial spatial structure at lower resolution. Most exist-ing integration methods either deconvolve spot mixtures or map cells onto a measured spot lattice, which ties reconstructions to a fixed grid and slide-specific coordinate systems, a limitation that is especially problematic in unpaired settings. We propose GEARS , a geometry-first framework that reconstructs an intrinsic single-cell spatial geometry guided by ST, without relying on cell-type labels, histological images, or cell-to-spot assignment. GEARS first learns a domain-invariant expression encoder that aligns ST spots and dis-sociated cells, and then trains a permutation-equivariant generator with a diffusion-based refiner with EDM-style preconditioning to generate local spatial geometries under pose-invariant supervision derived from ST coordinates. At inference, GEARS reconstructs geometry on many overlapping subsets of scRNA-seq cells, aggre-gates predicted pairwise distances across subsets, and solves a global distance-geometry problem to obtain canonical two-dimensional coordinates and a dense distance matrix. Extensive quantitative and qualitative experiments, including cross-section generalization, show that GEARS consistently improves global distance preserva-tion, local neighborhood fidelity, and spatial distribution alignment compared to strong spatial mapping and deconvolution baselines. 
+
+## CCS Concepts 
+
+• Applied computing → Computational transcriptomics ; •
+
+Computing methodologies → Neural networks .
+
+## Keywords 
+
+single-cell RNA-seq; spatial transcriptomics; diffusion models; spa-tial reconstruction; geometry learning 
+
+ACM Reference Format: 
+
+Ehtesamul Azim, Muhtasim Noor Alif, Tae Hyun Hwang, Yanjie Fu, and Wei Zhang. 2026. Geometry-First Generative Spatial Single-Cell Reconstruction. In Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2 (KDD ’26), August 09–13, 2026, Jeju Island, Republic of  
+
+> ∗Corresponding author. Release code and preprocessed data can be found at github.com/ehtesam3154/GEARS This work is licensed under a Creative Commons Attribution 4.0 International License.
+> KDD ’26, Jeju Island, Republic of Korea
+> ©2026 Copyright held by the owner/author(s). ACM ISBN 979-8-4007-2259-2/2026/08 https://doi.org/10.1145/3770855.3818141
+
+Korea. ACM, New York, NY, USA, 12 pages. https://doi.org/10.1145/3770855. 3818141 
+
+## 1 Introduction 
+
+Modern single-cell RNA sequencing (scRNA-seq) allows us to mea-sure gene activity for hundreds of thousands of individual cells in a tissue [ 26 , 37 ]. However, this powerful technology comes with a major limitation: during the sequencing process, cells are physically separated from their original tissue, and all spatial information is lost [ 22 ]. As a result, scRNA-seq data tell us what each cell is doing, but not where the cell was located. Spatial location is critical for un-derstanding how cells interact, how tissues are organized, and how diseases such as cancer develop. Recovering the spatial arrange-ment of single cells from scRNA-seq data has therefore become an important and challenging computational problem [3, 5, 7]. Spatial transcriptomics (ST) technologies partially address this limitation by measuring gene expression together with spatial coordinates, thereby preserving the physical structure of a tis-sue [ 2, 9, 24 , 28 ]. However, current ST technologies typically operate at lower resolution than scRNA-seq: each spatial location captures signals from multiple cells, and the number of spatial spots is lim-ited. These complementary strengths and weaknesses motivate the problem of single-cell spatial reconstruction, which aims to infer plausible 2D locations for scRNA-seq cells by leveraging spatial in-formation from an ST reference [ 5 , 7, 25 ]. In practice, many scRNA-seq datasets lack matched spatial measurements, and researchers often rely on an ST atlas or dataset from the same tissue type as ref-erence rather than paired measurement from the same tissue section or individual. Because large collections of scRNA-seq datasets have already been generated across tissues, conditions, and disease states, effective 2D reconstruction makes it possible to spatially reinterpret these existing data without requiring new experiments [8, 29 ]. This capability substantially extends the value of current single-cell(SC) datasets by enabling spatial analyses, such as tissue organization and local cell interactions, which were previously inaccessible. Existing approaches to single-cell spatial reconstruction face substantial challenges in this unpaired setting, where scRNA-seq and ST data are collected from different tissue samples or individ-uals [ 30 ]. Differences in experimental protocols, gene coverage, and biological states introduce significant domain shift between datasets, making direct matching unreliable. Most methods rely on a set of shared genes to relate the two modalities, which amplifies the impact of noise and batch effects when no paired measurements are available for calibration [ 13 ]. In addition, variation in cell-type  
+
+> arXiv:2605.28200v1 [cs.LG] 27 May 2026 KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Ehtesamul Azim, Muhtasim Noor Alif, Tae Hyun Hwang, Yanjie Fu, & Wei Zhang
+
+composition and abundance across samples can lead to ambigu-ous mappings, as multiple spatial configurations may be equally consistent with the reference data. More fundamentally, existing methods implicitly assume that single cells should be placed within the 2D coordinate system of the reference spatial dataset. This assumption is often violated in un-paired settings. Even for the same tissue type, different samples can exhibit substantially different global organization, local structures, and spatial patterns [ 17 ]. Forcing single cells to align with absolute coordinates of a reference tissue can therefore introduce systematic bias [ 36 ] and distort true spatial relationships among cells. As a result, existing methods conflate learning transferable spatial princi-ples with reproducing a specific tissue geometry. These limitations motivate new models that treat single-cell spatial organization as a latent structure, guided, but not constrained, by reference spatial data, and that are robust and scalable in unpaired settings. 
+
+Our contribution: Geometry-aware reconstruction via pose-invariant supervision and distance-first inference. We treat spatial reconstruction as geometry generation : learning a continuous spatial organization of cells from expression, using ST only as geo-metric supervision. Unlike existing approaches that tie reconstruc-tions to a measured lattice and impose assignment/composition assumptions, our method produces a sample-specific spatial layout whose correctness is defined by geometric consistency (global dis-tances, local neighborhoods, and multiscale structure) rather than by matching to a fixed grid. We learn a shared expression repre-sentation that aligns spatial and dissociated profiles, then train a permutation-equivariant set model to generate geometry under pose-invariant targets derived from spatial coordinates. Finally, we scale reconstruction to large single-cell cohorts by predicting geometry on many overlapping subsets and assembling a coher-ent global reconstruction by stitching distance constraints . Our key contributions are as follows: 
+
+• Geometry-first spatial reconstruction: we formulate reconstruc-tion as generating a continuous spatial geometry for single cells from expression, avoiding cell-to-spot assignment and spot-level deconvolution assumptions. 
+
+• Pose-invariant supervision from ST: we learn from spatial coor-dinates through intrinsic geometric structure rather than abso-lute positions, reducing dependence on slide-specific coordinate frames and supporting cross-section generalization. 
+
+• Permutation-equivariant generator–refiner model: we use a set-structured architecture with a coarse geometric proposal and diffusion-based refinement that improves global consistency and calibrates spatial scale. 
+
+• Patchwise distance-first inference: we scale to large scRNA-seq cohorts by reconstructing overlapping subsets and stitching them by aggregating distance constraints into a global reconstruction. 
+
+## 2 Problem Statement 
+
+We address spatial reconstruction of dissociated single cells using ST as geometric supervision, without performing cell-to-spot as-signment or spot-level deconvolution. Our data consist of 𝑆 ST slides {( E(𝑠 ) 
+
+> ST
+
+, P(𝑠 ) )} 𝑆 𝑠 =1, where E(𝑠 ) 
+
+> ST
+
+∈ R𝑁 𝑠 ×𝐺 denotes spot expres-sion over 𝐺 genes and P(𝑠 ) ∈ R𝑁 𝑠 ×2 denotes measured coordinates, together with an scRNA-seq dataset providing expression only, 
+
+ESC ∈ R𝑁 𝑆𝐶 ×𝐺 . We write x ∈ R𝐺 for a single expression profile (row of EST or ESC ). 1 The goal is to reconstruct a coherent intrinsic geom-etry over 𝑁 𝑆𝐶 single cells that is guided by tissue structure observed in ST, such that relative distances and neighborhood relationships are meaningful and transferable across samples. We summarize the reconstruction as a pairwise distance matrix D ∈ R𝑁 𝑆𝐶 ×𝑁 𝑆𝐶 , where 
+
+𝐷 𝑖 𝑗 captures reconstructed spatial proximity between cells 𝑖 and 
+
+𝑗 . In practice, we first stitch sparse distances on a global edge set and realize a consistent X ∈ R𝑁 𝑆𝐶 ×2 from the measurements, from which D is obtained as all-pairs Euclidean distances. 
+
+## 3 Methodology 
+
+Framework overview. Fig. 1 illustrates GEARS (GE ometry-Aware 
+
+Reconstruction of Single cells), our proposed model for spatial re-construction of dissociated scRNA-seq cells using ST as geomet-ric supervision. We first train a domain-invariant shared expres-sion encoder to align ST spots and dissociated cells in a common embedding space. Using spatial structure from ST only to define pose-invariant geometric targets, we sample local minisets and train a permutation-equivariant geometry generator with an EDM-preconditioned diffusion refiner [ 16 ] under Gram-based supervi-sion. At inference, we generate geometries on many overlapping patches of scRNA-seq cells, stitch them by aggregating predicted pairwise distances, and solve a global distance-geometry problem to obtain canonical coordinates X and a dense distance matrix D.
+
+## 3.1 Domain-Invariant Expression Embeddings 
+
+Why learn shared embeddings without spatial coordinates? 
+
+Most spatial–single-cell integration methods either deconvolve spot mixtures or map cells onto a measured spatial lattice, coupling the model to slide-specific coordinate frames that quantize fine structure and hinder transfer across samples. We instead learn a modality-shared expression embedding that aligns spatial and dissociated profiles while suppressing domain-specific technical artifacts, decoupling biology from coordinates. This coordinate-free embedding provides a common representation for downstream geometry learning on ST and expression-conditioned geometric reconstruction of dissociated cells. 
+
+Modality-invariant biological signal extraction. We train a shared encoder 𝑓 𝜃 : R𝐺 → Rℎ that maps gene expression from both ST spots and dissociated cells into a common embedding space, where ℎ is the embedding dimension. Our goal is to preserve biological variation while removing modality and batch-specific effects. We combine VICReg [ 4] with adversarial domain alignment via gradient reversal (GRL) [11]. 
+
+VICReg on coordinate-free augmentations. For each sampled expres-sion profile x, we generate two augmented views ˜x(1) , ˜x(2) using stochastic gene dropout, additive Gaussian noise, and multiplica-tive scale jitter. Let z1 = 𝑓 𝜃 ( ˜x(1) ) and z2 = 𝑓 𝜃 ( ˜x(2) ), stacked over a minibatch of size 𝐵 as z1, z2 ∈ R𝐵 ×ℎ . We optimize the VICReg objective, where 𝑠 𝑗 (z) =√︁ Var (z:,𝑗 ) is the batch standard deviation         
+
+> 1For readability, we omit the slide index (𝑠 )when it is not essential and write (EST ,P)
+> for an ST slide; all definitions apply per slide. Geometry-First Generative Spatial Single-Cell Reconstruction KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Shared encoder
+> ST expr
+> SC expr
+> Spatial
+> Transcriptomics
+> Data
+> Single-cell
+> Data
+> Freeze
+
+A1) Shared Encoder Training 
+
+> Shared encoder
+> Distance
+> Extraction
+> Distance
+> Aggregation
+> Global Distance
+> Geometry Solve
+> Dense Distance Matrix
+> Canonical 2D Coordinates
+
+B) Inference   
+
+> All cell
+> embeddings Locality
+> graph
+> Patch
+> sampling
+> Sample Paired
+> Overlapping
+> Minisets
+> Context encoder Generator
+> Center
+> Gram
+> Factor
+> Align
+> Residual
+> diffusion
+
+# + 
+
+> Residual
+> Spatial
+> Transcriptomics
+> Data
+> ST expr
+> ST coord
+
+A2) Miniset Supervision, Geometry Model & Residual Diffusion 
+
+> Shared encoder
+> Condition
+
+Figure 1: GEARS framework overview. (A1) An encoder is trained to align ST and SC expression into a domain-invariant embedding space. (A2) From each ST slide we sample paired, overlapping minisets and train a permutation-equivariant generator with an EDM-preconditioned residual diffusion refiner to match pose-invariant Gram geometry targets. (B) At inference, we encode all scRNA-seq cells, sample overlapping patches, predict per-patch geometries, stitch them by aggregating distances, and solve a global distance-geometry problem to output canonical coordinates X and dense distances D.
+
+of dimension 𝑗 and Cov (z) is the batch covariance: 
+
+LVICReg = 𝜆 inv ∥z1 − z2 ∥2
+
+> 𝐹
+
++ 𝜆 var 
+
+> ℎ
+
+∑︁ 
+
+> 𝑗 =1
+
+h
+
+ReLU  𝛾 − 𝑠 𝑗 (z1) + ReLU  𝛾 − 𝑠 𝑗 (z2)i
+
++ 𝜆 cov ∑︁ 𝑖 ≠𝑗 
+
+h
+
+Cov (z1)2 
+
+> 𝑖 𝑗
+
++ Cov (z2)2
+
+> 𝑖 𝑗
+
+i
+
+.
+
+(1) 
+
+Adversarial domain alignment. To encourage modality invariance, we introduce a discriminator 𝐷 𝜂 : Rℎ → { 0, 1} that predicts whether an embedding comes from ST or SC. In our implementation, the domain loss is computed on non-augmented embeddings: z = 𝑓 𝜃 (x).Let Ladv be the discriminator cross-entropy. We minimize Ladv 
+
+w.r.t. 𝜂 , and update 𝑓 𝜃 through a GRL that multiplies discriminator gradients by −𝛼 GRL before they reach 𝜃 :
+
+min  
+
+> 𝜃
+
+max  
+
+> 𝜂
+
+LVICReg − 𝜆 adv Ladv 
+
+ 𝐷 𝜂 , 𝑓 𝜃 
+
+. (2) After convergence, we freeze 𝑓 𝜃 and use the resulting embeddings for all subsequent stages. 
+
+## 3.2 Minisets for Geometric Supervision 
+
+Why construct local training sets rather than use full slides? 
+
+ST being an expensive process, datasets usually contain few slides, whereas diffusion models require many training examples. We in-crease the effective sample size by extracting many overlapping local subsets ( minisets ) per slide, which preserves informative neigh-borhood geometry while improving data efficiency. 
+
+Spatially localized sampling. For each miniset, we sample a size 
+
+𝑛 ∈ [𝑛 min , 𝑛 max ] and a center spot 𝑐 , then draw the remaining 
+
+𝑛 − 1 spots from a local candidate pool with probability 𝑝 (𝑖 | 𝑐 ) ∝ 
+
+exp (− 𝛿 𝑖,𝑐 /𝜏 spatial ), where 𝛿 𝑖,𝑐 is Euclidean distance in ST coordinate space. This yields spatially coherent minisets while maintaining diversity across draws. 
+
+Paired overlapping minisets. Each training example is a pair of minisets from the same slide with a controlled shared index set I
+
+of size |I| = max (𝑛 overlap  
+
+> min
+
+, ⌊𝛼𝑛 ⌋) . We include I in both views and sample the remaining points independently from the same (or a nearby) center, so shared spots appear under different contexts for overlap-consistency losses. 
+
+Pose-invariant geometric supervision. Absolute ST coordinates encode arbitrary imaging choices (orientation and global position-ing) that should not influence learned geometry, so we supervise only intrinsic properties invariant to rigid transformations. For a miniset with coordinates P ∈ R𝑛 ×2, we center to remove translation (Y = P − ¯P) and compute the Gram matrix G = YY ⊤ ∈ R𝑛 ×𝑛 . We obtain a canonical factor by eigendecomposition G = UΛU ⊤ and define Vtarget = U:,1: 𝑑 
+
+ Λ1: 𝑑, 1: 𝑑 
+
+1/2 ∈ R𝑛 ×𝑑 , so that Vtarget V⊤ 
+
+> target
+
+= G.We use an overcomplete 𝑑 = 32 ; for planar sections G is low-rank, and Gram-based losses emphasize the intrinsic low-dimensional structure. The factorization is not unique: Vtarget Q yields the same 
+
+G for any Q ∈ 𝑂 (𝑑 ), where 𝑂 (𝑑 ) is the group of 𝑑 × 𝑑 orthogonal matrices ( Q⊤Q = I). Overall, the model is supervised to match intrinsic geometry through G, rather than absolute positions. 
+
+## 3.3 Conditional Geometry Generation 
+
+Why frame spatial reconstruction as conditional generation? 
+
+ST-derived targets specify intrinsic tissue geometry but do not define a deterministic mapping from gene expression to spatial location. Dissociated SC profiles arrive without coordinates and without an assignment to a measured ST lattice. We therefore learn a conditional generative model that, given an expression-conditioned set, produces a continuous geometric configuration whose intrinsic structure matches that observed in ST. 
+
+Coordinate-free geometry generation. Given a miniset of expres-sion embeddings {𝑓 𝜃 (x𝑖 )} 𝑛 𝑖 =1, the model predicts a latent geometry 
+
+V ∈ R𝑛 ×𝑑 . Supervision is applied through intrinsic functions of 
+
+V, including its Gram matrix VV ⊤ and pairwise distances, which are invariant to global orthogonal transforms: for any Q ∈ 𝑂 (𝑑 ),
+
+(VQ )( VQ )⊤ = VV ⊤. For stable diffusion training, we fix a deter-ministic canonical gauge by aligning V to the canonical target fac-torization Vtarget from Sec. 3.2, which preserves intrinsic geometry while removing arbitrary pose. 
+
+## 3.4 Geometry-Aware Diffusion Training 
+
+Why use permutation-equivariant architectures? Minisets are unordered sets of spots sampled stochastically from tissue. The model must therefore be permutation-equivariant: permuting spot indices should permute outputs in the same way, without chang-ing predicted spatial relationships. We use a Set Transformer [ 20 ]KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Ehtesamul Azim, Muhtasim Noor Alif, Tae Hyun Hwang, Yanjie Fu, & Wei Zhang 
+
+backbone with induced set attention blocks (ISAB), which supports variable-sized sets and captures global context while remaining permutation-equivariant. 
+
+Context encoder. For a miniset, let Zset ∈ R𝑛 ×ℎ denote the expres-sion embeddings produced by the shared encoder 𝑓 𝜃 trained in the previous subsection (and frozen thereafter). The context encoder 
+
+𝑓 𝜙 maps these to contextual features H = 𝑓 𝜙 (Zset ) ∈ R𝑛 ×𝑐 , where 𝑐 
+
+is the context feature dimension (a hyperparameter). Concretely, 𝑓 𝜙 
+
+applies a linear projection followed by stacked ISAB layers; using 𝑚 
+
+inducing points (a small latent set that mediates attention between elements) reduces attention complexity from 𝑂 (𝑛 2) to 𝑂 (𝑛𝑚 ).
+
+Generator for coarse geometry proposals. A generator Φ𝜓 maps context features to an initial geometric proposal Vbase = Φ𝜓 (H) ∈ 
+
+R𝑛 ×𝑑 . We implement Φ𝜓 as additional ISAB layers followed by an MLP head, and mean-center Vbase across spots to remove arbitrary translations. This proposal provides a coarse, expression-consistent configuration and serves as the starting point for diffusion-based refinement; Φ𝜓 is trained jointly with the diffusion model under the same geometric supervision. 
+
+EDM-preconditioned score network. We refine geometry with an EDM-preconditioned denoiser [ 16 ]. Given a noisy input U𝑡 ∈{V𝑡 , R𝑡 } at noise level 𝜎 , context features H, and noise embedding 
+
+𝑐 noise (𝜎 ) (with self-conditioning), a permutation-equivariant ISAB backbone predicts a clean estimate via 
+
+Ψ𝜔 (U𝑡 , 𝜎 ) = 𝑐 skip (𝜎 ) U𝑡 + 𝑐 out (𝜎 ) F𝜔 
+
+ 𝑐 in (𝜎 ) U𝑡 ; 𝑐 noise (𝜎 ), H, (3) where 𝑐 skip (𝜎 ) = 𝜎 2
+
+> data
+> 𝜎 2+𝜎 2
+> data
+
+, 𝑐 out (𝜎 ) = 𝜎𝜎 data √︃ 
+
+> 𝜎 2+𝜎 2
+> data
+
+, 𝑐 in (𝜎 ) = 1√︃ 
+
+> 𝜎 2+𝜎 2
+> data
+
+,and 𝑐 noise (𝜎 ) = 14 log 𝜎 ; 𝜎 data is the empirical scale of the clean targets ( 𝜎 data,resid in residual mode, defined below). We mean-center over valid spots before Gram-based losses so translation does not affect supervision. 
+
+Residual diffusion mode. Rather than denoising from pure noise to final geometry, we factorize the generation process: the gen-erator produces Vbase encoding coarse structure, while the diffu-sion model denoises residual corrections. For each training sam-ple, we apply orthogonal alignment (rotations and reflections, no scaling) to align the target geometry to the generator’s frame: 
+
+Vtarget,aligned = Align (Vtarget , Vbase ) using Procrustes analysis with transformations in 𝑂 (𝑑 )(after mean-centering). The residual tar-get is Rtarget = Vtarget,aligned − Vbase . We add noise to this residual: 
+
+R𝑡 = Rtarget + 𝜎𝜖 where 𝜖 ∼ N ( 0, I), and the score network pre-dicts the clean residual ˆR0 = Ψ𝜔 (R𝑡 , 𝜎 ). Final predictions compose: 
+
+Vpred = Vbase + ˆR0. The key advantage is scale: aligned residuals have substantially smaller magnitude than absolute coordinates (𝜎 data,resid ≪ 𝜎 data ). EDM coefficients use 𝜎 data,resid , ensuring the network operates in a properly normalized range and yielding a better-conditioned denoising problem. 
+
+Curriculum scheduling for progressive noise coverage. We train with a stage-wise noise cap 𝜎 cap that increases over training: early stages sample 𝜎 ∈ [ 𝜎 min , 𝜎 cap ] at moderate noise where geometric structure remains visible, and later stages extend 𝜎 cap toward 𝜎 max .At each stage, we sample noise levels on a log scale (stratified for coverage) to avoid under-training high-𝜎 regions. Residual diffusion makes curriculum more tractable because the same 𝜎 obscures less information when applied to residuals than to absolute geometry. 
+
+Training objectives. We train with an EDM-weighted denoising loss plus auxiliary geometry losses that directly penalize structural errors. In residual mode, the clean target is Rtarget (defined above). We sample 𝝐 ∼ N ( 0, I) and form R𝑡 = Rtarget + 𝜎 𝝐 . With a validity mask M ∈ { 0, 1}𝑛 ×1 (broadcast across the 𝑑 geometry dimensions), the primary objective is 
+
+Lscore = E𝜎, 𝝐 
+
+h
+
+𝑤 (𝜎 )   ˆR0 − Rtarget 
+
+ ⊙ M 2
+
+> 𝐹
+
+i
+
+, ˆR0 = Ψ𝜔 (R𝑡 , 𝜎 ),
+
+(4) where 𝑤 (𝜎 ) = (𝜎 2 + 𝜎 2
+
+> data,resid
+
+)/( 𝜎 · 𝜎 data,resid )2 is the standard EDM weighting in residual space. 
+
+Gram-based geometry losses. The denoising loss trains Ψ𝜔 to predict Rtarget , but we additionally enforce that the composed ge-ometry Vpred = Vbase + ˆR0 matches the intrinsic target structure. Let Gpred = Vpred V⊤ 
+
+> pred
+
+and Gtarget = Vtarget,aligned V⊤
+
+> target,aligned
+
+. We use a scale-normalized Gram loss 
+
+Lgram = Gpred − Gtarget 2
+
+> 𝐹
+
+Gtarget 2
+
+> 𝐹
+
+, (5) and a global scale matching term via log-trace, 
+
+Lgram,scale =  log tr (Gpred ) − log tr (Gtarget )2 . (6) We apply Gram losses only at sufficiently low noise (high SNR), where geometric structure is observable. 
+
+Local neighborhood preservation. To preserve 𝑘 NN structure beyond global Gram matching, we compute target neighborhoods 
+
+N𝑘 (𝑖 ) from Vtarget,aligned and apply an NCA-style loss on the pre-dicted geometry: 
+
+LNCA = −
+
+> 𝑛
+
+∑︁ 
+
+> 𝑖 =1
+
+log 
+
+Í𝑗 ∈ N 𝑘 (𝑖 ) exp 
+
+
+
+−∥ vpred  
+
+> 𝑖
+
+− vpred  
+
+> 𝑗
+
+∥22/𝜏 NCA 
+
+Í𝑗 ≠𝑖 exp 
+
+
+
+−∥ vpred  
+
+> 𝑖
+
+− vpred  
+
+> 𝑗
+
+∥22/𝜏 NCA 
+
+ , (7) where vpred  
+
+> 𝑖
+
+is row 𝑖 of Vpred . In addition, we include an edge-wise local scale penalty on 𝑘 NN edges that penalizes discrepancies in log neighbor distances between Vpred and Vtarget,aligned .
+
+Generator supervision. We train the generator output Vbase with direct geometric supervision so that diffusion refines a strong pro-posal. We use a Procrustes-aligned regression loss: 
+
+Lgen,align = min    
+
+> Q∈𝑂 (𝑑 )
+
+Vbase Q − Vtarget,aligned 2 
+
+> 𝐹
+
+, (8) and a Gram loss: 
+
+Lgen,gram = Vbase V⊤ 
+
+> base
+
+− Gtarget 2 
+
+> 𝐹
+
+, (9) optionally augmented with a global scale matching term (e.g., log-RMS) to ensure the proposal magnitude is calibrated. 
+
+Overlap consistency for context-invariant learning. We sample paired overlapping minisets throughout training, and enforce that shared points receive consistent geometric predictions even when their surrounding context differs. Let I be the shared index set and let VI 
+
+> 1
+
+, VI 
+
+> 2
+
+∈ R| I | × 𝑑 denote the predicted geometries restricted to I from the two views. After mean-centering over I, we form Gram matrices G1 = VI 
+
+> 1
+
+(VI 
+
+> 1
+
+)⊤ and G2 = VI 
+
+> 2
+
+(VI 
+
+> 2
+
+)⊤, and penalize normalized shape disagreement: 
+
+Lov,shape = G1
+
+tr (G1) − G2
+
+tr (G2)
+
+> 2
+> 𝐹
+
+. (10) Geometry-First Generative Spatial Single-Cell Reconstruction KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+We optionally add a scale term Lov,scale =   log tr (G1) − log tr (G2)2
+
+and a neighborhood-consistency term via symmetric KL divergence between softmax distance distributions on I. Overlap losses are ap-plied only when the denoising SNR is sufficiently high for structure to be meaningful (and are disabled at very high noise). 
+
+Joint training. We train the context encoder 𝑓 𝜙 , generator Φ𝜓 , and denoiser Ψ𝜔 jointly with a weighted sum of the objectives above (denoising, Gram and 𝑘 NN structure, generator supervision, and overlap consistency). We use standard stabilizers (learning-rate scheduling, gradient clipping). 
+
+## 3.5 Patchwise Single-Cell Reconstruction 
+
+Why patchwise inference? The geometry model is trained on minisets, whereas single-cell datasets typically contain many more cells than a single ST slide. One-shot generation on all 𝑁 𝑆𝐶 cells is therefore (i) computationally prohibitive and (ii) mismatched to the miniset training regime. We instead sample many overlapping patches of cells, predict local geometries, convert them into distance measurements , and aggregate these distances into a robust global distance graph (and, optionally, a dense Euclidean distance matrix via Step 7). 
+
+Step 1: Encode all cells and build a locality graph. Let ESC ∈
+
+R𝑁 𝑆𝐶 ×𝐺 be single-cell expression and compute shared embeddings 
+
+Zall = 𝑓 𝜃 (ESC ) ∈ R𝑁 𝑆𝐶 ×ℎ using the frozen encoder. We construct a mutual-𝑘 NN graph in Zall space and retain only robust edges using Jaccard overlap filtering: an edge (𝑖, 𝑗 ) is kept only if 𝑖 ∈ N 𝑍 𝑘 ( 𝑗 ) and 
+
+𝑗 ∈ N 𝑍 𝑘 (𝑖 ) and the Jaccard score 𝐽 (𝑖, 𝑗 ) = | N 𝑍 𝑘 (𝑖 )∩N 𝑍 𝑘 ( 𝑗 ) | | N 𝑍 𝑘 (𝑖 )∪N 𝑍 𝑘 ( 𝑗 ) | exceeds a threshold 𝜏 𝐽 . This yields a locality graph G𝑍 = ({ 1, . . . , 𝑁 𝑆𝐶 }, E𝑍 )
+
+used only for patch sampling. 
+
+Step 2: Sample overlapping patches by random walks. We sample a collection of index sets (patches) {S 𝑝 }𝑁 patches  
+
+> 𝑝 =1
+
+of fixed size |S 𝑝 | =
+
+𝑛 patch using random walks on G𝑍 . We enforce a minimum overlap 
+
+|S 𝑝 ∩ S 𝑞 | ≥ 𝑛 overlap  
+
+> min
+
+for neighboring patches so that the union of patches forms a connected cover of cells. 
+
+Step 3: Per-patch geometry generation. For each patch S𝑝 , we ex-tract Z(𝑝 ) 
+
+> set
+
+= Zall [S 𝑝 ] ∈ R𝑛 patch ×ℎ , compute context H(𝑝 ) = 𝑓 𝜙 (Z(𝑝 ) 
+
+> set
+
+),and obtain a coarse proposal V(𝑝 ) 
+
+> base
+
+= Φ𝜓 (H(𝑝 ) ) ∈ R𝑛 patch ×𝑑 . Resid-ual diffusion then refines this proposal under a fixed noise schedule 
+
+{𝜎 ℓ }𝐿 ℓ=1, producing V(𝑝 ) 
+
+> pred
+
+∈ R𝑛 patch ×𝑑 .
+
+Step 4: Convert patch geometries into distance measurements. From each V(𝑝 )
+
+> pred
+
+, we extract local distance measurements on a chosen within-patch edge set E (𝑝 ) ⊆ S 𝑝 × S 𝑝 (e.g., 𝑘 NN edges in the patch geometry). For (𝑖, 𝑗 ) ∈ E (𝑝 ) , the measured distance is ˆ𝑑 (𝑝 ) 
+
+> 𝑖 𝑗
+
+=
+
+∥v(𝑝 ) 
+
+> 𝑖
+
+− v(𝑝 ) 
+
+> 𝑗
+
+∥2, where v(𝑝 ) 
+
+> 𝑖
+
+denotes the row of V(𝑝 ) 
+
+> pred
+
+corresponding to global cell index 𝑖 ∈ S 𝑝 .
+
+Step 5: Overlap consistency and patch reliability. For overlapping patches 𝑝, 𝑞 , let I𝑝𝑞 = S𝑝 ∩ S 𝑞 be shared cells (pairs with |I 𝑝𝑞 | < 5
+
+are skipped). We quantify disagreement by the mean absolute dif-ference between log pairwise distances on the overlap (computed from the patch geometries). Each patch receives a reliability weight 
+
+𝑎 𝑝 ∈ ( 0, 1] by exponentiating its mean disagreement with neigh-boring patches, normalized by the median disagreement across all overlap pairs, so patches that disagree more are down-weighted. 
+
+Step 6: Aggregate a global distance graph. For any global pair 
+
+(𝑖, 𝑗 ) observed in multiple patches, let P𝑖 𝑗 denote the set of patches that measured (𝑖, 𝑗 ). We aggregate the distances { ˆ𝑑 (𝑝 ) 
+
+> 𝑖 𝑗
+
+}𝑝 ∈ P 𝑖 𝑗 us-ing a reliability-weighted median (with weights 𝑎 𝑝 ), which is ro-bust to outlier patches. We keep only edges with sufficient sup-port and low dispersion across patches (minimum count and a relative spread threshold), and assign each retained edge a con-fidence weight 𝜔 𝑖 𝑗 that increases with measurement count and decreases with dispersion. This yields a stitched distance graph 
+
+G𝐷 = ({ 1, . . . , 𝑁 𝑆𝐶 }, E𝐷 , ˆd, 𝝎 ).
+
+Step 7: Global 2D distance-geometry solve and output. We initial-ize X ∈ R𝑁 𝑆𝐶 ×2 using Landmark Isomap and refine it by minimiz-ing a weighted Huber distance-geometry objective on G𝐷 , with a small anchor term to keep X close to the initialization. Dur-ing optimization we monitor stress and edge residual statistics (mean/median/max) as empirical checks of (near-)Euclidean con-sistency. We return canonical coordinates X and define the dense distance matrix D ∈ R𝑁 𝑆𝐶 ×𝑁 𝑆𝐶 by 𝐷 𝑖 𝑗 = ∥x𝑖 − x𝑗 ∥2.
+
+## 4 Experiment 4.1 Experimental Setup 
+
+Dataset Description. We evaluate on two datasets. (i) Spatial Mouse Atlas (seqFISH) [21 ]. We use a single-cell–resolution, highly multiplexed in situ ST mouse embryo atlas (seqFISH) that provides per-cell coordinates together with a targeted gene panel. Following the standard benchmarking protocol [ 14 ], we derive a Visium-like spot layer by overlaying a regular grid and aggregating nearby cells into pseudo-spots (discarding low-coverage spots); the original cell coordinates are retained as ground truth for quantita-tive evaluation of reconstructed single-cell geometry. (ii) Human squamous cell carcinoma (hSCC). We use a multi-section hSCC dataset with spot-based ST slides and a paired scRNA-seq cohort. We train the model on two ST slides and evaluate generalization on a held-out third slide by running inference on its spot expression and comparing the reconstructed intrinsic geometry to the slide’s measured coordinates (pose-invariant metrics). 
+
+Baseline Algorithms. We compared against nine representative baselines spanning both cell-to-space alignment and spot-level de-convolution paradigms: 1. Tangram [ 5 ] learns a soft cell-to-spot mapping matrix by aligning shared-gene expression between cells and spots, yielding per-cell placement via expected spot coordinates; 2. novoSpaRc [ 25 ] reconstructs spatial organization by optimiz-ing probabilistic assignments of cells to spatial locations such that reconstructed spatial gene expression matches measured patterns; 3. STEM [14 ] learns spatially informed embeddings and uses ST spatial adjacency graph to supervise alignment, producing a cell-to-spot mapping matrix and induced 2D placements; 4. SpaOTsc [ 7]formulates mapping as structured optimal transport between cells and spatial location, returning a coupling matrix that induces cell placements via weighted spot coordinates. 5. cell2location [18 ]is a spot-level deconvolution model that infers spot-wise abun-dances of reference-derived cell states from SC and ST expression; KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Ehtesamul Azim, Muhtasim Noor Alif, Tae Hyun Hwang, Yanjie Fu, & Wei Zhang 
+
+Table 1: Spatial reconstruction benchmark. Bold: best, underline: 2nd best, italic : 3rd best.                                                                                                                                                                                                                           
+
+> Dataset Method Global Geometry Local Geometry Neighborhood Quality Distribution
+> Spearman
+> (D,DGT ) ↑
+> Pearson
+> (D,DGT ) ↑
+> Stress-1
+> (D,DGT ) ↓
+> Edge ROC-AUC
+> (D;𝑅 20 ) ↑
+> bAP
+> (D;𝑅 20 ) ↑
+> Shell F1 (macro) ↑Trust@20 ↑Cont@20 ↑SWD
+> (X,XGT ) ↓
+> 𝑊 1(𝑘 NN-dist;
+> 𝑘 =20) ↓
+> Tangram 0.7938 0.8040 0.2765 0.9001 0.8929 0.4847 0.8979 0.9027 0.0393 0.0058 novoSpaRc 0.0539 0.0436 0.6639 0.8344 0.8094 0.1319 0.8806 0.8904 0.1558 0.0237 STEM 0.8251 0.8318 0.1701 0.9007 0.8929 0.4551 0.8806 0.8904 0.0393 0.0103 SpaOTsc 0.4778 0.5014 0.4333 0.6341 0.6009 0.1776 0.7112 0.7294 0.0598 0.0118 cell2location 0.1758 0.1597 0.7258 0.7729 0.7624 0.0744 0.6836 0.7720 0.3633 0.0368 scSpace 0.0045 0.0054 0.9913 0.5307 0.5510 0.0384 0.5154 0.5419 0.5854 0.0382 CytoSPACE 0.8198 0.8118 0.2471 0.8805 0.8612 0.3984 0.8501 0.8517 0.0949 0.0111 CeLEry 0.5729 0.5913 0.3979 0.7641 0.7370 0.1871 0.7677 0.7694 0.0526 0.0095
+> COME 0.2208 0.1116 0.7413 0.6453 0.6575 0.1220 0.6466 0.6811 0.2021 0.0231
+> Mouse Atlas (seqFISH →pseudo-Visium)
+> GEARS 0.8324 0.8331 0.1979 0.9327 0.9063 0.4279 0.8998 0.9155 0.0407 0.0026
+> Tangram 0.2901 0.2901 0.5341 0.6871 0.6775 0.1471 0.6755 0.7284 0.1361 0.0645 novoSpaRc 0.1651 0.1603 0.636 0.6677 0.6387 0.1253 0.5933 0.6950 0.2709 0.1619 STEM 0.2945 0.2859 0.5715 0.7121 0.7846 0.1368 0.6539 0.7530 0.2188 0.0997 SpaOTsc 0.3086 0.2918 0.5513 0.7350 0.7194 0.1442 0.7421 0.7667 0.1918 0.0801 cell2location ——————————scSpace 0.5421 0.5339 0.4208 0.7952 0.7647 0.1862 0.7701 0.8203 0.0880 0.0475 CytoSPACE 0.3488 0.3545 0.4771 0.6755 0.6673 0.1668 0.6850 0.6850 0.0440 0.0260 CeLEry 0.4745 0.4797 0.4325 0.7516 0.7215 0.1729 0.7423 0.7643 0.0550 0.0359
+> COME 0.2441 0.0517 0.8966 0.6939 0.7031 0.0528 0.6790 0.7575 0.3455 0.1577
+> hSCC (multi-slide Visium)
+> GEARS 0.5468 0.5456 0.4040 0.7874 0.7612 0.2126 0.7520 0.7934 0.0389 0.0256
+
+Note: DGT = Ground truth (GT) pairwise distances, D = predicted pairwise distances, XGT /X = GT/pred coordinates, 𝑅 20 = median 20-NN radius from GT. cell2location results on hSCC are omitted due to missing cell-type annotations required for its reference signatures. 
+
+6. scSpace [27 ] is a coordinate-regression method that learns a mapping from SC expression to spatial coordinates by training on ST spots with known positions, enabling direct point estimates of cell locations in the plane. 7. CytoSPACE [32 ] performs con-strained cell placement onto spots (e.g., enforcing per-spot capacity and consistency with cell-type composition constraints) to obtain near-discrete cell-to-spot assignments; 8. CeLEry [ 35 ] trains a su-pervised coordinate-regression model that predicts ell coordinates directly from SC expression using ST coordinates as supervision; 9. 
+
+COME [33 ] learns a cell-to-spot probability matrix via contrastive mapping objectives between SC and ST profiles, enabling per-cell placement through the inferred spot-weight distribution. 
+
+## 4.2 Experimental Results 
+
+Overall comparison . Table 1 summarizes reconstruction quality across four aspects: (i) global geometry agreement between pre-dicted and ground-truth pairwise distances, (ii) local geometry and edge recovery at the neighborhood scale, (iii) neighborhood quality 
+
+(trustworthiness/continuity), and (iv) distribution matching between reconstructed and ground-truth spatial layouts. For methods that output coordinates, we form predicted distances D by Euclidean distances between predicted points; for distance-first methods (in-cluding ours), D is produced directly by the model and/or by the distance-geometry solve. Evaluation metric details in Appendix 7.1. 
+
+Global geometry. Global geometry measures whether the recon-struction preserves overall pairwise structure: Spearman/Pearson correlations quantify rank and linear agreement between predicted and ground-truth (GT) distances, while Stress-1 reports normalized global distance distortion. On Mouse Atlas, our method achieves the strongest global agreement(Spearman/Pearson) while remaining competitive on Stress-1 (Table 1), outperforming mapping-based baselines such as Tangram, novoSpaRc, SpaOTsc, and STEM. On the hSCC generalization setting (train two ST slides, evaluate on a held-out slide), our method yields the best global structure over-all, indicating that the reconstructed intrinsic geometry transfers across tissue sections. 
+
+Local geometry. Local geometry evaluates whether nearby rela-tions are preserved: Edge ROC-AUC treats GT near/far pairs as a binary task using predicted distances as scores, balanced average precision (bAP) summarizes precision-recall under class imbalance, and Shell-F1 evaluates distance preservation across multiple local shells (multi-scale). On Mouse Atlas, our method achieves the best edge recovery and balanced precision, reflecting accurate local ad-jacency compared to Tangram/ novoSpaRc/ SpaOTsc/ STEM and coordinate-regression baselines (CeLEry, scSpace). On hSCC, we remain competitive on Edge ROC-AUC while attaining the best Shell-F1, suggesting improved multi-scale local structure even when a baseline may win a single metric. 
+
+Neighborhood quality. Trustworthiness@20 (Trust@20) and Con-tinuity@20 (Cont@20) measure 𝑘 NN( 𝑘 = 20 ) fidelity from two directions: Trust@20 penalizes spurious predicted neighbors, while Cont@20 penalizes missing true neighbors. On the Mouse Atlas, our method performs the best on both metrics, indicating stable neigh-borhood preservation. On hSCC, the top neighborhood-quality scores are achieved by coordinate-regression methods: scSpace ranks first and CeLEry third while GEARS places second; impor-tantly, GEARS attains this neighborhood fidelity alongside stronger global distance agreement. Geometry-First Generative Spatial Single-Cell Reconstruction KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+Figure 2: Qualitative reconstruction and distance-distortion diagnostics on Mouse Atlas. Top: ground-truth cell coordinates (a) and predicted coordinates from GEARS (ours) (b) and representative baselines STEM (c), Tangram (d), and CytoSPACE (e). Bottom: pairwise distance distortion heatmaps for each method, defined as 𝐸 𝑖 𝑗 = | log ( ( ˆ𝐷 𝑖 𝑗 + 𝜖 )/( 𝐷 𝑖 𝑗 + 𝜖 ) ) | , where 𝐷 𝑖 𝑗 and ˆ𝐷 𝑖 𝑗 are ground-truth and predicted pairwise distances after optimal global scaling. Cells are ordered by a Morton (space-filling curve) ordering of the ground-truth coordinates to preserve spatial locality; heatmaps are block-averaged for visualization. Brighter values indicate larger multiplicative distortion of inter-cell distances. 
+
+Distribution matching. Distribution metrics compare overall spa-tial layout statistics beyond pairwise correspondence: Sliced Wasser-stein Distance (SWD) compares point-cloud shape via random 1D projections (no explicit correspondence), and W 1(𝑘 NN-dist; 𝑘 = 20 )compares the distributions of local neighbor distances (length-scale calibration). On hSCC, our method achieves the best W 1, indicating well-calibrated local length scales. On Mouse Atlas, our method attains the best W 1 and competitive SWD, suggesting that the re-constructed layout matches the held-out slide’s global shape while preserving local spacing statistics. 
+
+Ablation: residual diffusion refinement. Table 2 isolates the con-tribution of the residual diffusion refiner by comparing generator-only inference (w/o Diff) to the full pipeline (Full). Residual diffusion consistently improves distance-geometry fidelity: Stress-1 drops substantially and distance correlations increase. The largest gains are in scale-sensitive and distributional metrics, with sharp reduc-tions in Scale Err and SWD, indicating that refinement calibrates global distance magnitudes and yields a point-cloud distribution closer to the reference. Improvements on neighborhood-boundary metrics are smaller and occasionally neutral (Shell F1 / Edge ROC on hSCC), consistent with these metrics being sensitive to local ties and near-boundary ambiguity. Overall, the refiner mainly corrects global and meso-scale distortions left by the generator, matching its intended role as a geometry-calibration stage. 
+
+Qualitative geometry recovery and distortion localization. 
+
+Fig. 2 visualizes reconstructions on the Mouse Atlas, where ground-truth single-cell coordinates are available. GEARS recovers a co-herent tissue layout that preserves large-scale organization while maintaining separation between major regions (Fig. 2b). In con-trast, STEM produces sharp-looking structure but exhibits density 
+
+Table 2: Ablation study: Effect of residual diffusion refinement. Ar-rows indicate improvement magnitude.                                                                                
+
+> Metric Mouse Atlas hSCC
+> w/o Diff Full Δ%w/o Diff Full Δ%Stress-1 ↓0.3007 0.1979 +34.2 ↑↑ 0.6079 0.4040 +33.5 ↑↑
+> Scale Err ↓5.9600 1.3825 +76.8 ↑↑ 15.0300 12.7000 +15.5 ↑
+> SWD ↓0.0750 0.0407 +45.7 ↑↑ 0.0633 0.0389 +38.5 ↑↑
+> 𝑊 1(𝑘 NN) ↓0.0039 0.0026 +33.3 ↑↑ 0.0281 0.0256 +8.9 ↑
+> Spearman ↑0.8223 0.8324 +1.2 ↑0.5463 0.5468 +0.1 ↑
+> Pearson ↑0.8198 0.8331 +1.6 ↑0.5452 0.5456 +0.1 ↑
+> Shell F1 ↑0.3110 0.4279 +37.6 ↑↑ 0.2134 0.2126 -0.4 ↓
+> Edge ROC ↑0.8971 0.9327 +4.0 ↑0.7884 0.7874 -0.1 ↓
+
+collapse , mapping many cells into an unrealistically compact area, which is reflected by elevated off-diagonal distortion in the heatmap (Fig. 2c). Tangram recovers parts of the global outline but blurs re-gional structure and shows stronger long-range distortions (Fig. 2d). CytoSPACE yields a discretized, lattice-like placement with quanti-zation artifacts, visible as structured block patterns in the distortion map (Fig. 2e). Overall, the distortion heatmaps localize where errors occur across scales and support the quantitative improvements reported in Table 1. 
+
+Geometry fidelity diagnostics. To complement the aggregate metrics in Table 1, we report three diagnostic views of recon-struction quality on the Mouse Atlas experiment (Fig. 5). Cal-ibration error summarizes how well predicted distances match ground-truth distance magnitudes. Multiscale local RMSE reports distance error restricted to progressively larger neighborhood radii (𝑘 = 10 , 20 , 50 , 100 ), separating micro- vs. macro-local distortion. Finally, the edge ROC curve evaluates near/far structure by treating ground-truth local pairs as positives and using predicted distances as scores. Top baselines are shown for clarity. GEARS achieves the lowest calibration error and the highest edge AUC, indicating strong KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Ehtesamul Azim, Muhtasim Noor Alif, Tae Hyun Hwang, Yanjie Fu, & Wei Zhang a bc
+
+Figure 3: hSCC single-cell reconstruction and unsupervised spatial domains. (a) Reference H&E from training ST slide. (b) Inferred single-cell coordinates colored by cell-type annotations. (c) Leiden spatial communities ( 𝑘 =15, resolution 0.2) labeled by majority cell type and purity. Others    
+
+> near pDC
+> Expression
+> near pDC Others Others near pDC
+> BST2 P=4.6e-5 Log2FC=0.61 NRP1 P=5.5e-4 Log2FC=0.51
+
+Figure 4: Spatial and expression validation of pDC marker genes BST2 and NRP1. Left: Visium spots from the hSCC reference slide; pDC-near spots (orange) defined within 1.5× spot pitch of predicted pDC positions. Right: both markers show significantly higher expression in pDC-near regions. 
+
+distance-scale calibration and robust recovery of near/far neighbor-hood structure. CeLEry attains lower multiscale local RMSE, which primarily reflects absolute distance magnitude error within local radii; in contrast, GEARS emphasizes preserving neighborhood topology, consistent with its stronger edge-recovery performance. 0.0 0.1 0.2 0.3 0.4             
+
+> CalErr
+> GEARS
+> STEM
+> CytoSPACE
+> Tangram
+> CeLEry
+> 0.105
+> 0.107
+> 0.143
+> 0.154
+> 0.287
+> Calibration Error
+> k=10 k=20 k=50 k=100
+> Scale
+> 0.02
+> 0.03
+> 0.04
+> 0.05
+> 0.06
+> 0.07
+> 0.08
+> LRMSE
+> Multiscale Local RMSE
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> False Positive Rate
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> True Positive Rate
+> GEARS: 0.933
+> STEM: 0.901
+> Tangram: 0.900
+> CytoSPACE: 0.880
+> CeLEry: 0.764
+> Edge ROC Curve
+> (Higher AUC = Better)
+> GEARS Tangram STEM CytoSPACE CeLEry
+
+Figure 5: Geometry fidelity diagnostics (Mouse Atlas): Left: calibration error, Middle: multiscale local RMSE at different neighborhood sizes, and Right: edge ROC curves (AUC). Lower is better for calibration/RMSE; higher is better for AUC. 
+
+hSCC single-cell domain structure via unsupervised spatial communities. Because dissociated scRNA-seq lacks ground-truth coordinates, we evaluate hSCC reconstructions by testing whether the inferred geometry exhibits non-random spatial domain structure 
+
+consistent with coarse biology. We train on spot-based ST from the hSCC patient and infer a 2D configuration for the paired dissociated single cells from the same specimen (not slide-matched). Color-ing the inferred layout by cell-type annotations reveals compart-mentalization, with immune-enriched regions (e.g., DC/PDC) sepa-rated from epithelial/tumor-program regions (Epithelial/NonTSK) (Fig. 3b). To summarize spatial structure without using labels, we build a 𝑘 NN graph on the inferred coordinates ( 𝑘 = 15 ) and apply Leiden community detection [ 31 ], yielding 𝐾 = 8 spatial com-munities at resolution 0.2 (Fig. 3c). Annotating each community by its majority cell type shows multiple DC-dominant domains (purity 58 –81% ), a NonTSK-enriched domain ( 64% ), and several epithelial-enriched domains ( 31 –57% ), while mixed domains local-ize interfaces and heterogeneous regions. The agreement between label-free spatial communities and coarse annotations supports that the inferred single-cell geometry captures structured organization beyond trivial mixing. 
+
+Spatially Resolved Marker Validation on hSCC. To test whether the inferred geometry captures biologically meaningful spatial sig-nal, we examined expression of prespecified pDC markers on the reference ST slide. Predicted pDCs in the dissociated scRNA-seq cohort were mapped to the Visium coordinate space, and spots within 1.5× spot pitch of any predicted pDC position were la-beled pDC-near (177 pDC-near vs 489 other spots; Fig. 4, left). Both BST2 and NRP1 showed significantly higher expression in pDC-near regions (BST2: 𝑃 =4.6×10 −5, log 2 FC =0.61 ; NRP1: 𝑃 =5.5×10 −4,
+
+log 2 FC =0.51 ; Fig. 4, right), confirming that the inferred single-cell geometry places pDCs in spatially coherent positions consistent with expected marker localization. 
+
+Patch-size sensitivity of distance-first patchwise inference. 
+
+To test whether our patchwise pipeline is sensitive to the inference patch size, we randomly subsampled 𝑁 =4096 cells from Mouse Atlas (fixed seed) and ran the inference pipeline with patch sizes 
+
+{384 , 512 , 784 , 1024 , 2048 , 4096 }, keeping all other hyperparameters fixed (Fig. 6). Across this wide range, spanning below and above the maximum miniset size used during training—global and local re-construction metrics remain essentially unchanged, indicating that GEARS does not rely on a specific inference cardinality and that patchwise stitching does not degrade geometric fidelity. In contrast, stitching becomes easier with larger patches: overlap disagreement decreases monotonically and the global solver residual drops, con-sistent with fewer patch boundaries and more internally consistent distance measurements per edge. Overall, these results support that our distance-first inference is robust to patch-size choices, with larger patches mainly improving stitching self-consistency rather than changing the reconstructed geometry. 384 512 784 1024 2048 4096        
+
+> Patch Size
+> 0.1950
+> 0.1975
+> 0.2000
+> 0.2025
+> 0.2050
+> 0.2075
+> 0.2100
+> Stress-1
+> max train
+> miniset size
+> (a) Reconstruction Metrics vs Patch Size
+> Stress-1
+> Spearman
+> Pearson
+> Edge ROC-AUC
+> bAP
+> Trust@20
+> 384 512 784 1024 2048 4096
+> Patch Size
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> Overlap Disagreement
+> max train
+> miniset size
+> 8.7× reduction
+> (b) Stitching Diagnostics vs Patch Size
+> Overlap Disagreement Solver Stress ( ×10 4)
+> 0.82
+> 0.84
+> 0.86
+> 0.88
+> 0.90
+> 0.92
+> 0.94
+> Rest of the Metric
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> Solver Stress ( ×10  4)
+
+Figure 6: Patch-size sensitivity of patchwise inference. Reconstruction metrics are stable across patch sizes, while stitching diagnostics improve as patches grow. 
+
+Sensitivity to Patch-Reliability Weighting in Distance Stitch-ing. We evaluate the sensitivity of distance-first stitching to the patch-reliability weights used during aggregation. We compare (i) reliability-weighted aggregation (default) against (ii) uniform aggregation ( 𝑎 𝑝 ≡ 1), keeping patch sampling, within-patch dis-tance extraction, and all filtering/solve settings fixed. Results are Geometry-First Generative Spatial Single-Cell Reconstruction KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+nearly unchanged, indicating that stitched geometry is not brittle to this choice and that patchwise distance predictions are already largely self-consistent. We attribute this stability to the model’s context-invariant training signals: in particular, paired overlapping minisets with overlap-consistency losses and pose-invariant Gram supervision, which encourage shared cells to receive compatible lo-cal geometries across different patch contexts; reliability weighting therefore mainly acts as a safety mechanism rather than a critical tuning knob. 
+
+Table 3: Sensitivity of distance stitching to patch-reliability weight-ing ( 𝑛 patch = 1024 , 𝑁 = 4096 cells). Metric Weighted Uniform 𝚫 %
+
+Stress-1 ↓ 0.2012 0.2014 +0.1 Spearman ↑ 0.8295 0.8291 -0.0 Edge ROC-AUC ↑ 0.9311 0.9298 -0.1 bAP ↑ 0.9023 0.9017 -0.1 Trust@20 ↑ 0.8967 0.8962 -0.1 Cont.@20 ↑ 0.9194 0.9118 -0.8 Local Stress ↓ 0.5452 0.5609 +2.9 
+
+Cross-slide and cross-cohort embedding alignment. We eval-uate whether the shared encoder 𝑓 𝜃 reduces domain shift across hSCC ST sections and a dissociated scRNA-seq cohort by embedding three ST slides from patient 10 (P10_ST1–P10_ST3) together with scRNA-seq from a different patient (P2_SC). Fig. 7 compares PCA on log-normalized expression versus PCA on the learned embed-dings: log-normalized expression separates strongly by slide/cohort, whereas the encoder produces substantially increased cross-source mixing. This effect is consistent with our training objective, which combines VICReg-style invariances with explicit domain-alignment losses to suppress slide/cohort-specific nuisance variation while pre-serving biological signal. We quantify mixing using 𝑘 NN domain-mixing metrics in embedding space ( 𝑘 =20), obtaining normalized neighbor entropy [ 13 ] 0.7881 and normalized iLISI [ 19 ] 0.6248 (0=no mixing, 1=ideal mixing). 
+
+Figure 7: Domain alignment via shared encoder. (a) Log-normalized expression separates by source. (b) Learned embeddings show cross-source mixing across ST slides (P10) and scRNA-seq (P2). 
+
+## 5 Related Work 
+
+Spot-level deconvolution. Many methods model each ST spot as a mixture of cell states and estimate spot-wise abundances using scRNA-seq as reference, without producing explicit per-cell coordi-nates. Probabilistic generative approaches such as Cell2location [ 18 ], Stereoscope [ 1 ], and DestVI/scvi-tools variants [ 12 , 23 ] fit spot ex-pression models and return proportions (and sometimes continuous state variation) at the spot level. Classical regression/likelihood pipelines including RCTD [ 6 ] and SPOTlight [ 10 ] remain strong baselines. Overall, these methods explain what is present at mea-sured locations, but remain spot-centric and require additional post hoc rules to place individual cells in continuous 2D space. 
+
+Cell-to-space alignment and placement. A second family aligns scRNA-seq profiles to ST measurements to infer cell-to-spot rela-tions and induce spatial positions. Anchor-based transfer (e.g., Seu-rat) [ 15 , 30 ] enables label/expression transfer, while Tangram [ 5], optimal transport methods such as SpaOTsc [ 7], and reconstruc-tion approaches such as novoSpaRc [ 25 ] explicitly learn couplings between cells and spatial locations. Recent learning-based methods strengthen the mapping objective with spatial-graph supervision or additional constraints (e.g., STEM [ 14 ], Celloc [ 34 ], COME [ 33 ]), and some directly regress coordinates (e.g., scSpace [ 27 ], CeLEry [ 35 ]). Despite differing objectives, most approaches ultimately tether inferred positions to the observed spot lattice (or convex combina-tions), inheriting discretization tied to the measurement grid. 
+
+## 6 Concluding Remarks 
+
+We propose GEARS , a geometry-first framework that reconstructs continuous single-cell spatial organization from dissociated scRNA-seq using ST as geometric supervision, without cell-type labels, histology, or explicit cell-to-spot assignment. GEARS decouples re-construction from slide-specific coordinate frames by (i) learning a domain-invariant expression embedding that aligns ST and SC pro-files, (ii) training a permutation-equivariant generator with an EDM-preconditioned residual diffusion refiner under pose-invariant Gram-based targets derived from ST coordinates, and (iii) performing distance-first, patchwise inference that stitches overlapping local reconstructions into a coherent global geometry via aggregated distance constraints and a global distance-geometry solve. Across the Mouse Atlas and multi-slide hSCC generalization benchmarks, GEARS improves global distance preservation and local neighbor-hood fidelity over strong mapping and deconvolution baselines while yielding coherent unsupervised spatial domains. GEARS is expected to be less reliable under very strong ST–SC domain shift, severe cell-composition mismatch between modalities, or when ST resolution provides only weak geometric supervision. Cross-patient and cross-cohort geometry generalization remains an important direction for future work. 
+
+## Acknowledgments 
+
+We thank Jeovani Overstreet for helpful discussions throughout this work. This work was supported by grants from the National Science Foundation (NSF-III2246796 and NSF-III2152030). 
+
+## References             
+
+> [1] Alma Andersson, Joseph Bergenstråhle, Michaela Asp, Ludvig Bergenstråhle, Aleksandra Jurek, José Fernández Navarro, and Joakim Lundeberg. 2020. Single-cell and spatial transcriptomics enables probabilistic inference of cell type topog-raphy. Communications biology 3, 1 (2020), 565. [2] Michaela Asp, Joseph Bergenstråhle, and Joakim Lundeberg. 2020. Spatially resolved transcriptomes—next generation tools for tissue exploration. BioEssays
+> 42, 10 (2020), 1900221. [3] Ehtesamul Azim, Dongjie Wang, Tae Hyun Hwang, Yanjie Fu, and Wei Zhang. 2025. Biological pathway guided gene selection through collaborative reinforce-ment learning. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 . 4250–4260. [4] Adrien Bardes, Jean Ponce, and Yann LeCun. 2021. Vicreg: Variance-invariance-covariance regularization for self-supervised learning. arXiv preprint arXiv:2105.04906 (2021).
+
+KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Ehtesamul Azim, Muhtasim Noor Alif, Tae Hyun Hwang, Yanjie Fu, & Wei Zhang 
+
+[5] Tommaso Biancalani, Gabriele Scalia, Lorenzo Buffoni, Raghav Avasthi, Ziqing Lu, Aman Sanger, Neriman Tokcan, Charles R Vanderburg, Åsa Segerstolpe, Meng Zhang, et al . 2021. Deep learning and alignment of spatially resolved single-cell transcriptomes with Tangram. Nature methods 18, 11 (2021), 1352–1362. [6] Dylan M Cable, Evan Murray, Luli S Zou, Aleksandrina Goeva, Evan Z Macosko, Fei Chen, and Rafael A Irizarry. 2022. Robust decomposition of cell type mixtures in spatial transcriptomics. Nature biotechnology 40, 4 (2022), 517–526. [7] Zixuan Cang and Qing Nie. 2020. Inferring spatial and signaling relationships between cells from single cell transcriptomic data. Nature communications 11, 1 (2020), 2084. [8] The Tabula Sapiens Consortium*, Robert C Jones, Jim Karkanias, Mark A Krasnow, Angela Oliveira Pisco, Stephen R Quake, Julia Salzman, Nir Yosef, Bryan Bulthaup, Phillip Brown, et al . 2022. The Tabula Sapiens: A multiple-organ, single-cell transcriptomic atlas of humans. Science 376, 6594 (2022), eabl4896. [9] Nicola Crosetto, Magda Bienko, and Alexander Van Oudenaarden. 2015. Spatially resolved transcriptomics and beyond. Nature Reviews Genetics 16, 1 (2015), 57–66. [10] Marc Elosua-Bayes, Paula Nieto, Elisabetta Mereu, Ivo Gut, and Holger Heyn. 2021. SPOTlight: seeded NMF regression to deconvolute spatial transcriptomics spots with single-cell transcriptomes. Nucleic acids research 49, 9 (2021), e50–e50. [11] Yaroslav Ganin, Evgeniya Ustinova, Hana Ajakan, Pascal Germain, Hugo Larochelle, François Laviolette, Mario March, and Victor Lempitsky. 2016. Domain-Adversarial Training of Neural Networks. Journal of Machine Learning Research 17, 59 (2016), 1–35. http://jmlr.org/papers/v17/15-239.html [12] Adam Gayoso, Romain Lopez, Galen Xing, Pierre Boyeau, Valeh Valiollah Pour Amiri, Justin Hong, Katherine Wu, Michael Jayasuriya, Edouard Mehlman, Maxime Langevin, et al . 2022. A Python library for probabilistic analysis of single-cell omics data. Nature biotechnology 40, 2 (2022), 163–166. [13] Laleh Haghverdi, Aaron TL Lun, Michael D Morgan, and John C Marioni. 2018. Batch effects in single-cell RNA-sequencing data are corrected by matching mutual nearest neighbors. Nature biotechnology 36, 5 (2018), 421–427. [14] Minsheng Hao, Erpai Luo, Yixin Chen, Yanhong Wu, Chen Li, Sijie Chen, Haoxi-ang Gao, Haiyang Bian, Jin Gu, Lei Wei, et al . 2024. STEM enables mapping of single-cell and spatial transcriptomics data with transfer learning. Communica-tions Biology 7, 1 (2024), 56. [15] Yuhan Hao, Stephanie Hao, Erica Andersen-Nissen, William M Mauck, Shiwei Zheng, Andrew Butler, Maddie J Lee, Aaron J Wilk, Charlotte Darby, Michael Zager, et al . 2021. Integrated analysis of multimodal single-cell data. Cell 184, 13 (2021), 3573–3587. [16] Tero Karras, Miika Aittala, Timo Aila, and Samuli Laine. 2022. Elucidating the Design Space of Diffusion-Based Generative Models. arXiv:2206.00364 [cs.CV] https://arxiv.org/abs/2206.00364 [17] Muiz Khan, Suzan Arslanturk, and Sorin Draghici. 2025. A comprehensive review of spatial transcriptomics data alignment and integration. Nucleic Acids Research 
+
+53, 12 (2025), gkaf536. [18] Vitalii Kleshchevnikov, Artem Shmatko, Emma Dann, Alexander Aivazidis, Hamish W King, Tong Li, Rasa Elmentaite, Artem Lomakin, Veronika Kedlian, Adam Gayoso, et al . 2022. Cell2location maps fine-grained cell types in spatial transcriptomics. Nature biotechnology 40, 5 (2022), 661–671. [19] Ilya Korsunsky, Jean Fan, Kamil Slowikowski, Fan Zhang, Kevin Wei, Yuriy Baglaenko, Michael Brenner, Po-Ru Loh, and Soumya Raychaudhuri. 2018. Fast, sensitive, and accurate integration of single cell data with Harmony. bioRxiv 
+
+(2018). arXiv:https://www.biorxiv.org/content/early/2018/11/05/461954.full.pdf doi:10.1101/461954 [20] Juho Lee, Yoonho Lee, Jungtaek Kim, Adam Kosiorek, Seungjin Choi, and Yee Whye Teh. 2019. Set transformer: A framework for attention-based permutation-invariant neural networks. In International conference on machine learning . PMLR, 3744–3753. [21] Tim Lohoff, Shila Ghazanfar, Alsu Missarova, Noushin Koulena, Nico Pierson, Jonathan A Griffiths, Evan S Bardot, C-HL Eng, Richard CV Tyser, Ricard Arge-laguet, et al . 2020. Highly multiplexed spatially resolved gene expression profiling of mouse organogenesis. BioRxiv (2020), 2020–11. [22] Sophia K Longo, Margaret G Guo, Andrew L Ji, and Paul A Khavari. 2021. In-tegrating single-cell and spatial transcriptomics to elucidate intercellular tissue dynamics. Nature Reviews Genetics 22, 10 (2021), 627–644. [23] Romain Lopez, Baoguo Li, Hadas Keren-Shaul, Pierre Boyeau, Merav Kedmi, David Pilzer, Adam Jelinski, Ido Yofe, Eyal David, Allon Wagner, et al . 2022. DestVI identifies continuums of cell types in spatial transcriptomics data. Nature biotechnology 40, 9 (2022), 1360–1369. [24] Vivien Marx. 2021. Method of the Year: spatially resolved transcriptomics. Nature methods 18, 1 (2021), 9–14. [25] Noa Moriel, Enes Senel, Nir Friedman, Nikolaus Rajewsky, Nikos Karaiskos, and Mor Nitzan. 2021. NovoSpaRc: flexible spatial reconstruction of single-cell gene expression with optimal transport. Nature protocols 16, 9 (2021), 4177–4200. [26] Simone Picelli, Omid R Faridani, Åsa K Björklund, Gösta Winberg, Sven Sagasser, and Rickard Sandberg. 2014. Full-length RNA-seq from single cells using Smart-seq2. Nature protocols 9, 1 (2014), 171–181. [27] Jingyang Qian, Jie Liao, Ziqi Liu, Ying Chi, Yin Fang, Yanrong Zheng, Xin Shao, Bingqi Liu, Yongjin Cui, Wenbo Guo, et al . 2023. Reconstruction of the cell pseudo-space from single-cell RNA sequencing data with scSpace. Nature communications 
+
+14, 1 (2023), 2484. [28] Anjali Rao, Dalia Barkley, Gustavo S França, and Itai Yanai. 2021. Exploring tissue architecture using spatial transcriptomics. Nature 596, 7871 (2021), 211–220. [29] Nicholas Schaum, Jim Karkanias, Norma F Neff, Andrew P May, Stephen R Quake, Tony Wyss-Coray, Spyros Darmanis, Joshua Batson, Olga Botvinnik, Michelle B Chen, et al . 2018. Single-cell transcriptomics of 20 mouse organs creates a Tabula Muris: The Tabula Muris Consortium. Nature 562, 7727 (2018), 367. [30] Tim Stuart, Andrew Butler, Paul Hoffman, Christoph Hafemeister, Efthymia Papalexi, William M Mauck, Yuhan Hao, Marlon Stoeckius, Peter Smibert, and Rahul Satija. 2019. Comprehensive integration of single-cell data. cell 177, 7 (2019), 1888–1902. [31] V. A. Traag, L. Waltman, and N. J. van Eck. 2019. From Louvain to Leiden: guaranteeing well-connected communities. Scientific Reports 9, 1 (March 2019). doi:10.1038/s41598-019-41695-z [32] Milad R Vahid, Erin L Brown, Chloé B Steen, Wubing Zhang, Hyun Soo Jeon, Minji Kang, Andrew J Gentles, and Aaron M Newman. 2023. High-resolution alignment of single-cell and spatial transcriptomes with CytoSPACE. Nature biotechnology 41, 11 (2023), 1543–1548. [33] Xindian Wei, Tianyi Chen, Xibiao Wang, Wenjun Shen, Cheng Liu, Si Wu, and Hau-San Wong. 2025. COME: contrastive mapping learning for spatial recon-struction of single-cell RNA sequencing data. Bioinformatics 41, 3 (2025), btaf083. [34] Wang Yin, Xiaobin Wu, Linxi Chen, You Wan, and Yuan Zhou. 2024. Accurate and flexible single cell to spatial transcriptome mapping with celloc. Small Science 
+
+4, 10 (2024), 2400139. [35] Qihuang Zhang, Shunzhou Jiang, Amelia Schroeder, Jian Hu, Kejie Li, Baohong Zhang, David Dai, Edward B Lee, Rui Xiao, and Mingyao Li. 2023. Leveraging spatial transcriptomics data to recover cell locations in single-cell RNA-seq with CeLEry. Nature communications 14, 1 (2023), 4050. [36] Edward Zhao, Matthew R Stone, Xing Ren, Jamie Guenthoer, Kimberly S Smythe, Thomas Pulliam, Stephen R Williams, Cedric R Uytingco, Sarah EB Taylor, Paul Nghiem, et al . 2021. Spatial transcriptomics at subspot resolution with BayesSpace. 
+
+Nature biotechnology 39, 11 (2021), 1375–1384. [37] GXY Zheng, JM Terry, P Belgrader, P Ryvkin, ZW Bent, R Wilson, SB Ziraldo, TD Wheeler, GP McDermott, J Zhu, et al . 2017. Massively parallel digital tran-scriptional profiling of single cells. Nat. Commun. 8, 14049. 
+
+## 7 Appendix 7.1 Evaluation Metrics 
+
+We evaluate on a set of 𝑁 points with ground-truth 2D coordinates 
+
+XGT ∈ R𝑁 ×2 (rows XGT 
+
+𝑖, : ) and ground-truth pairwise distances DGT ∈
+
+R𝑁 ×𝑁 , where 𝐷 GT 
+
+𝑖 𝑗 = ∥XGT 
+
+𝑖, : − XGT 
+
+𝑗, : ∥2. A method outputs predicted coordinates X ∈ R𝑁 ×2 and/or predicted distances D ∈ R𝑁 ×𝑁 ; when only X is available, we set 𝐷 𝑖 𝑗 = ∥X𝑖, : − X𝑗, : ∥2.
+
+Vectorization. Let vec △ (D) ∈ R𝑁 (𝑁 −1)/ 2 denote the vector of the upper-triangular entries {𝐷 𝑖 𝑗 : 1 ≤ 𝑖 < 𝑗 ≤ 𝑁 } (excluding the diagonal). We write dGT = vec △ (DGT ) and d = vec △ (D).
+
+Global geometry: Spearman and Pearson. Pearson correlation is 
+
+𝜌 𝑃 (D, DGT ) = Cov (d, dGT )
+
+Std (d) Std (dGT ) .
+
+Spearman correlation 𝜌 𝑆 (D, DGT ) is computed as Pearson correla-tion of the rank-transformed vectors rank (d) and rank (dGT ).
+
+Global geometry: Stress-1. We report Kruskal Stress-1 between pairwise distances: 
+
+Stress -1(D, DGT ) =
+
+vuuuuut Í𝑖 < 𝑗 
+
+
+
+𝐷 𝑖 𝑗 − 𝐷 GT 
+
+𝑖 𝑗 
+
+2
+
+Í𝑖 < 𝑗 
+
+
+
+𝐷 GT 
+
+𝑖 𝑗 
+
+2 .
+
+Neighborhood scale ( 𝑅 20 ). Let 𝜋 GT 
+
+𝑖 (1), . . . , 𝜋 GT 
+
+𝑖 (𝑁 − 1) be the in-dices of points sorted by increasing ground-truth distance from 𝑖 
+
+(excluding 𝑖 ). Define the per-point 20-NN radius as 𝑟 𝑖 = 𝐷 GT 
+
+𝑖,𝜋 GT  
+
+> 𝑖
+
+(20 )Geometry-First Generative Spatial Single-Cell Reconstruction KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea 
+
+and the global neighborhood radius 
+
+𝑅 20 = median 𝑖 ∈ { 1,...,𝑁 } 𝑟 𝑖 .
+
+Local geometry: Edge ROC-AUC.. We define positives and neg-atives using the ground-truth radius: E+ = {( 𝑖, 𝑗 ) : 𝑖 < 𝑗, 𝐷 GT  
+
+> 𝑖 𝑗
+
+≤
+
+𝑅 20 } and E− = {( 𝑖, 𝑗 ) : 𝑖 < 𝑗, 𝐷 GT  
+
+> 𝑖 𝑗
+
+> 𝑅 20 }. We score each pair by predicted proximity 𝑠 𝑖 𝑗 = −𝐷 𝑖 𝑗 and compute ROC-AUC for discriminating E+ vs. E− .
+
+Local geometry: balanced Average Precision (bAP).. Using the same labels and scores as above, we compute a class-balanced AP by weighting positives and negatives equally in the precision–recall computation. One equivalent implementation is to use weighted counts with 𝑤 + = 1/|E + | and 𝑤 − = 1/|E − | when forming preci-sion/recall along the score-sorted list of pairs. 
+
+Local geometry: Shell F1 (macro). We measure multi-scale edge preservation by defining 𝑆 sh distance shells with radii 0 = 𝑟 0 < 𝑟 1 <
+
+· · · < 𝑟 𝑆 sh . In our implementation, radii can be set as multiples of 
+
+𝑅 20 (e.g., 𝑟 𝑠 = 𝑠 ·𝑅 20 ) or as quantiles of {𝐷 GT  
+
+> 𝑖 𝑗
+
+}; the key requirement is that shells are defined from the ground truth. For shell 𝑠 , define shell positives E+ 
+
+> 𝑠
+
+= {( 𝑖, 𝑗 ) : 𝑖 < 𝑗, 𝑟 𝑠 −1 < 𝐷 GT  
+
+> 𝑖 𝑗
+
+≤ 𝑟 𝑠 }, and predict shell membership using 𝐷 𝑖 𝑗 with the same thresholds. Let Prec 𝑠 and Rec 𝑠 
+
+be precision and recall for shell 𝑠 ; the shell F1 is 𝐹 1𝑠 = 2 Prec 𝑠 Rec 𝑠    
+
+> Prec 𝑠 +Rec 𝑠
+
+,and we report the macro average 1
+
+> 𝑆 sh
+
+Í𝑆 sh  
+
+> 𝑠 =1
+
+𝐹 1𝑠 .
+
+Local geometry: Calibration error (CalErr). We measure local length-scale calibration by comparing the predicted and ground-truth 𝑘 NN radii. For a given 𝑘 (we use 𝑘 = 20 ), define the ground-truth radius 𝑟 𝑖 (𝑘 ) = 𝐷 GT    
+
+> 𝑖,𝜋 GT
+> 𝑖 (𝑘 )
+
+and the predicted radius using the same GT neighbor identity ˆ𝑟 𝑖 (𝑘 ) = 𝐷 𝑖,𝜋 GT    
+
+> 𝑖 (𝑘 )
+
+. The calibration error is 
+
+CalErr (𝑘 ) = 1
+
+𝑁 
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+ˆ𝑟 𝑖 (𝑘 )
+
+𝑟 𝑖 (𝑘 ) − 1 .
+
+Lower is better (perfect calibration gives CalErr = 0). 
+
+Local geometry: Multiscale local RMSE (LRMSE).. To quantify absolute distance magnitude error at different neighborhood sizes, we evaluate RMSE over GT 𝑘 NN pairs. Let 𝐸 𝑘 = {( 𝑖, 𝜋 GT  
+
+> 𝑖
+
+(𝑡 )) : 𝑖 =
+
+1..𝑁 , 𝑡 = 1..𝑘 } and let 𝑅 𝑘 = median 𝑖 𝑟 𝑖 (𝑘 ) be the typical GT scale at neighborhood size 𝑘 . We report the normalized multiscale local RMSE: 
+
+LRMSE (𝑘 ) =
+
+vuut 1
+
+|𝐸 𝑘 |∑︁ (𝑖,𝑗 ) ∈ 𝐸 𝑘 
+
+𝐷 𝑖 𝑗 − 𝐷 GT 
+
+> 𝑖 𝑗
+
+𝑅 𝑘 
+
+!2
+
+.
+
+We plot LRMSE (𝑘 ) for 𝑘 ∈ { 10 , 20 , 50 , 100 }.
+
+Neighborhood quality: Trustworthiness@k and Continuity@k. Let 
+
+𝑟 (𝑖, 𝑗 ) be the rank of point 𝑗 among neighbors of 𝑖 sorted by increas-ing ground-truth distance 𝐷 GT  
+
+> 𝑖 𝑗
+
+, and let 𝑟 pred (𝑖, 𝑗 ) be the analogous rank under predicted distances 𝐷 𝑖 𝑗 . Let N GT  
+
+> 𝑘
+
+(𝑖 ) = {𝜋 GT  
+
+> 𝑖
+
+(1), . . . , 𝜋 GT  
+
+> 𝑖
+
+(𝑘 )} 
+
+be the ground-truth 𝑘 NN set and N pred  
+
+> 𝑘
+
+(𝑖 ) the predicted 𝑘 NN set. Define 𝑈 𝑘 (𝑖 ) = N pred  
+
+> 𝑘
+
+(𝑖 ) \ N GT  
+
+> 𝑘
+
+(𝑖 ) and 𝑉 𝑘 (𝑖 ) = N GT  
+
+> 𝑘
+
+(𝑖 ) \ N pred  
+
+> 𝑘
+
+(𝑖 ).Trustworthiness is 
+
+Trust@ 𝑘 = 1 − 2
+
+𝑁𝑘 (2𝑁 − 3𝑘 − 1)
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+∑︁ 𝑗 ∈𝑈 𝑘 (𝑖 )
+
+(𝑟 (𝑖, 𝑗 ) − 𝑘 ),
+
+and continuity is 
+
+Cont@ 𝑘 = 1 − 2
+
+𝑁𝑘 (2𝑁 − 3𝑘 − 1)
+
+> 𝑁
+
+∑︁ 
+
+> 𝑖 =1
+
+∑︁ 𝑗 ∈𝑉 𝑘 (𝑖 )
+
+(𝑟 pred (𝑖, 𝑗 ) − 𝑘 ).
+
+We use 𝑘 = 20 .
+
+Distribution: Sliced Wasserstein distance (SWD).. After canonical-izing XGT and X by centering and isotropic scaling, SWD compares their spatial distributions via random 1D projections. Sample unit directions {uℓ }𝐿 proj  
+
+> ℓ=1
+
+on the unit circle. For each ℓ, project points to scalars 𝑝 (ℓ ) 
+
+> 𝑖
+
+= u⊤ 
+
+> ℓ
+
+XGT  
+
+> 𝑖, :
+
+and ˆ𝑝 (ℓ ) 
+
+> 𝑖
+
+= u⊤ 
+
+> ℓ
+
+X𝑖, :, sort both lists, and compute the 1D Wasserstein-1 distance. SWD is the average over projections: 
+
+SWD (X, XGT ) = 1
+
+𝐿 proj 
+
+> 𝐿 proj
+
+∑︁ 
+
+> ℓ=1
+
+𝑊 1
+
+
+
+{𝑝 (ℓ ) 
+
+> 𝑖
+
+}𝑁 𝑖 =1, { ˆ𝑝 (ℓ ) 
+
+> 𝑖
+
+}𝑁 𝑖 =1
+
+
+
+.
+
+Distribution: 𝑊 1 on 𝑘 NN distance distributions. For each point 
+
+𝑖 , collect its 𝑘 NN distances under ground truth and prediction: 
+
+SGT = {𝐷 GT    
+
+> 𝑖,𝜋 GT
+> 𝑖 (𝑡 )
+
+: 𝑖 = 1..𝑁 , 𝑡 = 1..𝑘 } and S = {𝐷 𝑖,𝜋 pred    
+
+> 𝑖 (𝑡 )
+
+: 𝑖 =
+
+1..𝑁 , 𝑡 = 1..𝑘 }, where 𝜋 pred  
+
+> 𝑖
+
+(𝑡 ) is the 𝑡 -th nearest neighbor under 
+
+D. We report the Wasserstein-1 distance between the empirical distributions of SGT and S, with 𝑘 = 20 .
+
+## 7.2 Hyperparameters and Reproducibility 
+
+Shared Encoder (Stage A). The shared encoder is a three-layer MLP with hidden dimensions [512 , 256 , 128 ] producing ℎ=128 -D em-beddings. VICReg is trained with invariance and variance weights 
+
+𝜆 inv =𝜆 var =25 , covariance weight 𝜆 cov =1, and target standard de-viation 𝛾 =1. The two augmented views per profile are generated with stochastic gene dropout (rate 0.3), additive Gaussian noise (std 0.015 ), and multiplicative scale jitter (range 0.25 ). The adver-sarial discriminator is a two-layer MLP with hidden width 512 and dropout 0.1; the GRL coefficient is ramped from 0 to 1.0 over 200 
+
+epochs following a 50 -epoch warmup. Auxiliary alignment terms include a slide-adversary weight of 50 , an MMD term (weight 20 ), a CORAL term (weight 1), and a local-alignment term (weight 4). Stage A trains for up to 2000 epochs with AdamW (lr 10 −4, batch size 32 ) and is halted early by a 𝑘 NN balanced-probe guard ( 𝑘 =20 ,margin 0.08 ). 
+
+Geometry Model (Stage C). The context encoder uses 3 ISAB blocks with 𝑛 heads =4, 𝑚 =128 inducing points, and context dimen-sion 𝑐 =256 . The generator adds 4 ISAB blocks ( 𝑚 =128 ) followed by an MLP head producing the overcomplete latent geometry of dimension 𝑑 =32 . The denoiser consists of 4 blocks with per-block FiLM conditioning, 4 attention heads, and 128 inducing points; self-conditioning is enabled. Geometric inductive features include a 
+
+24 -bin distance bias, 8-bin angle features, 15 -NN local graphs, and 
+
+16 landmarks. We sample 4500 paired minisets per epoch with over-lap fraction 𝛼 =0.5 and minimum overlap |𝐼 |≥ 20 . Noise levels are sampled stratified log-uniform in [𝜎 min , 𝜎 cap ] under a 3-stage cur-riculum (minimum 200 epochs per stage). Loss weights are: Gram 
+
+1.0, log-trace scale 0.5, NCA 1.0 (𝜏 NCA =0.5); overlap-consistency losses are gated at 𝜎 <1.0. Stage C trains jointly for 300 epochs with AdamW (lr 10 −4, batch size 32 , gradient clipping). 
+
+Patchwise Inference. The locality graph is constructed as a mutual-
+
+𝑘 NN graph with 𝑘 𝑍 =50 and Jaccard threshold 𝜏 𝐽 =0.2. Patches are KDD ’26, August 09–13, 2026, Jeju Island, Republic of Korea Ehtesamul Azim, Muhtasim Noor Alif, Tae Hyun Hwang, Yanjie Fu, & Wei Zhang 
+
+sampled at 10 walks per cell with overlap fraction 0.7 and a mini-mum of 25 shared cells between neighboring patches. Each patch is denoised over 600 EDM steps from 𝜎 start =3𝜎 data,resid to 𝜎 min . Dis-tance stitching uses a reliability-weighted median with minimum support 𝑀 min =2 patches and spread threshold 𝜏 spread =0.50 . The global solve initializes coordinates with Landmark Isomap ( 128 
+
+landmarks) and runs 1000 iterations of weighted Huber minimiza-tion ( 𝛿 =0.1, anchor weight 0.1, lr 10 −2). 
+
+Environment. All experiments are conducted on Ubuntu 22.04.5 LTS with an AMD Ryzen Threadripper 2950X 16-Core Processor, 4 ×
+
+NVIDIA RTX A4500 GPUs (20 GB VRAM each), and 128 GB system RAM. The framework uses Python 3.10.12 and PyTorch 2.2.1 with CUDA 11.8 support. Training uses PyTorch Lightning Fabric with DDP via torchrun . All runs use fp16 mixed precision and a fixed random seed of 42 for reproducibility.
