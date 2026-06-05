@@ -1,0 +1,631 @@
+Title: Mind the Tool Failures: Achieving Synergistic Tool Gains for Medical Agents
+
+URL Source: https://arxiv.org/pdf/2605.26691v1
+
+Published Time: Wed, 27 May 2026 00:47:30 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+# Mind the Tool Failures: Achieving Synergistic Tool Gains for Medical Agents 
+
+Yunhui Gan 1,2,3∗
+
+, Tan Pan 1,2,5∗
+
+, Kaiyu Guo 4,2†
+
+, Limei Han 1,2
+
+Weimiao Yu 5, Guangnan Ye 1,3, Chen Jiang 1,2†
+
+, Yuan Cheng 1,2,3† 
+
+> 1
+
+Fudan University 2 Shanghai Academy of Artificial Intelligence for Science  
+
+> 3
+
+Shanghai Innovation Institute 4 The University of Queensland  
+
+> 5
+
+Bioinformatics Institute (BII), Agency for Science, Technology and Research (A*STAR) 
+
+{yhgan23,pant23}@m.fudan.edu.cn kaiyu.guo@uq.edu.au, jiangchen@sais.org.cn, cheng_yuan@fudan.edu.cn 
+
+Abstract 
+
+Medical AI agents increasingly use external tools for diagnosis, treatment rec-ommendation, and evidence retrieval, yet most existing approaches assume that task-appropriate tools are reliable within their intended scope. This assumption is fragile in real clinical settings, where even relevant tools may fail on challenging instances and lead to unsafe downstream decisions. To address this issue, we study medical tool use under imperfect-tool settings to correct failure instances missed by individual tools. Instance-dependent failure patterns create a gap between the best fixed single tool and an ideal instance-wise selector, which we refer to as the Single-Oracle risk gap. The core challenge is that conventional task-level tool selection cannot realize this gap, as it is inherently bounded by the performance of the best single tool. Motivated by this observation, we therefore account for instance-level heterogeneity and formulate tool use as an instance-level selection problem. Particularly, we propose a GRPO-based reinforcement learning frame-work with rewards for probabilistic risk minimization and disagreement-aware synergy learning, which promotes instance-level correction of erroneous tool con-sensus. Furthermore, an entropy-guided sampling strategy is adopted to upweight high-disagreement instances, which provide stronger signals for learning instance-specific tool synergy. These two components complement each other in mitigating instance-level heterogeneity and improving tool synergy. Experiments on two tasks and seven medical benchmarks show that our method consistently achieves robust and stable improvements over a broad range of baselines, highlighting the importance of synergy-aware tool use for reliable medical agentic systems. 
+
+1 Introduction 
+
+Recent advances in agentic systems have increasingly emphasized the ability of agents to use, select, and evolve external tools [ 41 , 27 , 10 ]. Existing studies [ 31 , 25 ] typically focus on identifying the appropriate tool for a given task or decomposing complex tasks into calls to tools with distinct functional roles. This paradigm has enabled agents to extend their capabilities and solve tasks that require external computation, retrieval, or specialized operations [22, 37]. While effective in many settings, existing tool-use paradigms often assume that tools are reliable within their intended scope, overlooking failures caused by instance-level heterogeneity. This issue is especially critical in medical agents, where tool failures may lead to unsafe downstream 
+
+> ∗Equal contribution.
+> †Corresponding authors. Preprint.
+> arXiv:2605.26691v1 [cs.AI] 26 May 2026
+
+Figure 1: (a) Analysis of tool complementarity, where each number indicates the number of instances correctly identified by the corresponding tools;(b) marginal Oracle gains on CheXpert and MIMIC-CXR;(c) Difference between task-level and instance-level tool selection. decisions [ 12 , 10 ]. For example, in chest X-ray diagnosis, a tool that detects cardiomegaly may fail on opacity or pleural effusion, while another tool may exhibit the opposite pattern. Such non-overlapping failures stem from heterogeneous clinical instances and tool-specific biases induced by different architectures and training data. As a result, single-tool reliance is risky, but these heterogeneous failure patterns also reveal potential complementarity across tools. As shown in Figure 1(a), each tool uniquely solves instances missed by others, indicating that no single tool is uniformly dominant and that exploiting instance-level complementarity can recover additional correct predictions beyond the best individual tool. We visualize the tool’s marginal Oracle 3 accuracy on datasets CheXpert [ 13 ]and MIMIC-CXR [ 16 ]. As provided in Figure 1 (b), the Oracle accuracy increases steadily as more complementary tools are added, substantially exceeding the best single-tool performance. This further indicates that the tool set contains instance-level complementarity and that adding tools with distinct failure patterns can progressively improve the Oracle upper bound. Instance-dependent failure patterns create a gap between the best fixed single tool and an ideal instance-wise selector. Prior task-level tool selection methods [ 41 , 25 , 10 ] focus on aggregate tool performance, overlooking instance-level heterogeneity within the task distribution. As shown in Figure 1, consequently, it fails to fully realize the potential gains indicated by the Oracle performance, motivating an instance-level policy that exploits tool complementarity for each individual instance. Based on these observations, we analyze tool behavior from both aggregate- and instance-level perspectives. We define the Single-Oracle risk gap to characterize the performance difference between the best single-tool policy and the Oracle tool set. Motivated by this risk gap, we propose CSRL, a Collaborative Synergy Reinforcement Learning framework built upon GRPO [ 30 ]. CSRL optimizes rewards designed for probabilistic risk minimization and disagreement-aware synergy learning. Specifically, we introduce a Brier reward for probabilistic risk minimization under the Brier loss, together with an override reward that encourages correct decisions in disagreement instances and promotes synergy learning. Furthermore, we introduce Entropy-Guided Sampling, which constructs heterogeneous training batches by upweighting high-disagreement instances, thereby providing stronger supervision for instance-specific synergy. Experimental results of CSRL show that constructed tool sets can achieve synergistic gains beyond the strongest standalone tool. Tools with lower average performance may still provide valuable marginal contributions by covering instances missed by stronger tools. Meanwhile, performance improvements exhibit diminishing returns as the tool set grows, indicating a tradeoff between gains and inference cost. Our contributions can be summarized as follows: • We investigate tool failures in medical agent systems and study how to construct a synergistic set of imperfect tools. Scalability analyses across tools, models, and datasets provide practical guidelines for tool, dataset, and model selection. • Guided by the Single-Oracle risk, we develop CSRL, a collaborative synergy reinforcement learning framework that combines entropy-guided sampling with rewards for probabilistic 
+
+> 3An Oracle is an idealized evaluator that knows the correct answer and is used to estimate the best possible performance among the available candidates [20].
+
+2risk minimization and disagreement-aware synergy learning, enabling performance beyond the best single tool. • Across two tasks and seven datasets, learned synergy consistently outperforms individual tools, static baselines, and both general-purpose and specialized multimodal large language models, with average gains of 7.5% in accuracy and 6.8% in F1. 
+
+2 Related Work 
+
+2.1 Tool-Augmented Agents and Tool Selection 
+
+Recent progress in agentic systems has enabled multimodal large language models (MLLMs) to interact with external tools [ 27 , 41 ], APIs [ 24 , 18 ], and specialized models [ 31 , 38 ] to solve tasks beyond their parametric knowledge. Early work, such as ReAct [ 41 ] and Toolformer [ 27 ], showed that language models can interleave reasoning with tool invocation, while subsequent systems, including HuggingGPT [ 31 ], ART [ 22 ], Search-R1 [ 15 ], and ToolRL [ 25 ], further explored tool planning, multi-step execution, and reinforcement learning for tool use. These methods typically focus on deciding which tool to call for a given task or how to decompose a complex instruction into a sequence of tool invocations. 
+
+2.2 Medical Vision-Language Models and Diagnostic Tools 
+
+Medical AI agents have increasingly incorporated external diagnostic models, retrieval systems, and domain-specific reasoning modules to support clinical question answering, radiology interpretation, triage, and treatment recommendation [ 10 ]. In chest X-ray analysis, specialized models such as CheXzero [ 34 ], MedKLIP [ 39 ], CheXagent [ 5], and supervised DenseNet variants [ 7] provide useful diagnostic signals for different diseases and datasets [ 26 ]. More recently, general-purpose and medical Multimodal Large Language Models (MLLMs) have shown promising performance on multimodal medical reasoning tasks [4, 29, 40]. 
+
+2.3 Reinforcement Learning for Tool-use Agents 
+
+Reinforcement learning has recently been adopted to improve the decision-making behavior of language-model agents in settings involving discrete actions, structured outputs, delayed feedback, and non-differentiable external environments. In search-augmented reasoning, policy optimization is used to train agents to issue search queries, incorporate retrieved evidence, and generate final answers through multi-step interactions [ 15 ]. In tool-use settings, reward-driven optimization further enables language agents to learn when and how to invoke external tools based on task feedback, rather than relying solely on supervised demonstrations or hand-crafted tool-use traces [25]. Beyond tool invocation itself, recent RL methods for language models have explored scalable policy optimization algorithms that compare multiple sampled responses for the same input. Proximal Policy Optimization provides a widely used foundation for stable policy-gradient training [ 28 ], while Group Relative Policy Optimization removes the need for a learned value model by estimating advantages from relative rewards within a group of rollouts [ 30 ]. This line of work provides a practical optimization framework for training language agents with rule-based or task-specific rewards. 
+
+3 Method 
+
+3.1 Preliminary Problem Formulation. Given a diagnostic sample (x, q, y ) ∼ D , where x ∈ X is the input image, 
+
+q ∈ Q is the target pathology query, and y ∈ Y is the ground-truth label, we consider a fixed pool of K pretrained diagnostic tools T = {T1, . . . , T K }. For a given case, the policy may invoke a subset of tools from T . For any invoked tool Tk, the final output of each tool can be represented as 
+
+pk = Tk(x, q ) ∈ P . Due to heterogeneity in model architectures and training data, these outputs may exhibit non-overlapping error patterns. 3(a) CSRL inference: instance -specific tool synergy 
+
+(b) CSRL training: risk -guided RL and entropy -guided sampling        
+
+> Real query
+> Does this chest X -ray
+> show Pneumonia?
+> 1. Entropy -guided
+> sampling (EGS)
+> Low entropy High entropy
+> Sample more
+> conflict cases
+> Policy model 𝜋 𝜃
+> Observe
+> case
+> Plan
+> Actions
+> Select
+> tools
+> When tools disagree
+> Learn when to trust, call, and exploit tools
+> Majority vote
+> Negative
+> CSRL
+> Positive
+> sampled
+> 2. Rollout generation with 𝜋 𝜃 3. Reward
+> computation
+> Updated policy
+> Diagnostic tools Tool call
+> Tool response
+> Diagnosis
+> output
+> Positive
+> 4.Policy
+> update
+> Pos
+> Pos
+> Neg
+> Neg
+> Neg
+> Neg
+
+Figure 2: Overview of CSRL. (a) CSRL inference performs instance-specific agentic tool use. (b) CSRL training combines entropy-guided sampling with risk-guided reinforcement learning. To formalize this complementarity, we first define the best single-tool risk R⋆ 
+
+> single
+
+as 
+
+R⋆ 
+
+> single
+
+= min  
+
+> k∈[K]
+
+E(x,q,y )∼D [ℓ(pk, y )] , (1) Where ℓ ∈ L : P × Y → R is a diagnostic loss, and L is the space of loss functions. As we discussed above, a single best tool is imperfect in real-world scenarios. Thus, we consider discovering case-level tool selection. Specifically, given ΠT be the space of tool integration policy π : X × Q × P K → R,the Oracle risk can be defined as 
+
+R⋆ 
+
+> oracle
+
+= inf 
+
+> π∈ΠΘ
+
+E(x,q,y )∼D [ℓ(π(x, q, p), y )] . (2) Since the single tool strategy πk(x, q, p) = pk is a special case in ΠT , it is obvious that we can define the Single-Oracle risk gap as 
+
+∆T = R⋆ 
+
+> single
+
+− R ⋆ 
+
+> oracle
+
+≥ 0. (3) A positive ∆T indicates that the strongest individual tool is not the performance limit of the tool pool. As shown in the Introduction, performance gains ( ∆T ) are significantly large, which supports our assumption. To optimize the model toward oracle-level performance, we aim to learn a parameterized tool-use policy πθ ∈ ΠT . Given ˆpθ = πθ (x, q, p), we aim to learn a policy satisfying 
+
+R⋆ 
+
+> oracle
+
+≤ R (πθ ) = E(x,q,y )∼D [ℓ(ˆ pθ , y )] < R⋆
+
+> single
+
+. (4) To this end, as provided in Figure 2, we propose CSRL, a Collaborative Synergy Reinforcement Learning framework built upon GRPO [ 30 ], which introduces two components that align the opti-mization procedure with the target in Eq. (4). First, we design trajectory-level rewards for GRPO that encourage valid tool use, minimize probabilistic diagnostic risk, and promote disagreement-aware synergy recovery, thereby directly pushing down R(πθ ). Second, we use Entropy-Guided Sampling to increase the training mass of high-disagreement cases, where the gap between single-tool performance and case-specific integration is most recoverable. 
+
+Tool-Calling Rollout. Rollouts {τi} define the interaction protocol between the policy πθ and the tool-augmented environment: the policy πθ uses <tool_call> ... </tool_call> to invoke diagnostic tools, receives tool feedback wrapped by <tool_response> ... </tool_response> , and terminates the trajectory by producing a final prediction inside <answer> ... </answer> . The detailed procedure is provided in Appendix B. 4GRPO Optimization. We optimize πθ with Group Relative Policy Optimization (GRPO) [ 30 ], using EGS-stratified mini-batches (Sec. 3.3) and the trajectory-level reward Roverall from Sec. 3.2. For each prompt (x, q ), GRPO samples G rollouts {τi}Gi=1 from πθold and assigns each rollout a group-relative advantage 
+
+ˆAi = Roverall (τi) − mean  {Roverall (τj )}Gj=1 
+
+
+
+std  {Roverall (τj )}Gj=1 
+
+ , (5) which is shared across all policy-generated tokens in τi. The GRPO objective combines a PPO-style clipped surrogate with a token-level KL penalty to a frozen reference policy πref :
+
+JGRPO (θ) = E
+
+ 1
+
+G
+
+> G
+
+X
+
+> i=1
+
+1
+
+|τi|
+
+> |τi|
+
+X
+
+> t=1
+
+n
+
+min  ρi,t ˆAi, clip( ρi,t , 1−ϵ, 1+ ϵ) ˆAi
+
+ − β DKL 
+
+πθ ∥πref 
+
+o ,
+
+(6) with importance ratio 
+
+ρi,t = πθ (ai,t | si,t )
+
+πθold (ai,t | si,t ) . (7) 
+
+3.2 Risk-guided Reward Design 
+
+To train the policy πθ with GRPO, we assign each rollout a rule-based reward composed of three terms that capture format validity, probabilistic correctness, and case-specific majority override: 
+
+Roverall = Rbrier + Roverride + Rformat . (8) To encourage a low R(πθ ) small, we first introduce the Brier reward as follows: 
+
+Rbrier (ˆ pθ , y ) = 
+
+(1 − (ˆ pθ − y)2, if ˆpθ ∈ [0 , 1] is parseable and nvalid > 0,
+
+0, otherwise . (9) Where, nvalid denote the number of valid tool responses observed in the rollout. The Brier reward evaluates probabilistic correctness only when the rollout uses valid tool evidence. The following proposition characterizes the role of Rbrier 
+
+Proposition 3.1. Assume that the prediction risk is defined with the Brier loss, i.e., 
+
+R(πθ ) = E(x,q,y )∼D 
+
+(ˆ pθ − y)2 .
+
+Then maximizing the Brier reward is equivalent to minimizing the prediction risk: 
+
+arg max  
+
+> θ
+
+E [Rbrier (ˆ pθ , y )] = arg min  
+
+> θ
+
+R(πθ ).
+
+Proposition 3.1 illustrates that maximizing reward Rbrier is aligned with minimizing the risk R(πθ ).
+
+Rbrier provides a proper probabilistic training signal for the final diagnostic score, but it is agnostic to the structure of tool disagreement. Such disagreement is central to the synergy gap, as it indicates that different tools succeed and fail on different cases, leaving room for a case-specific policy to recover information that no fixed tool can consistently capture. To address the above issue, we introduce the override reward in the following. 
+
+Roverride (ˆ pθ , m, y ) = 
+
+
+
+α, if ℓ(ˆ pθ , y ) < s and ℓ(ˆ pm, y ) ≥ s, 
+
+−α, if ℓ(ˆ pθ , y ) ≥ s and ℓ(ˆ pm, y ) < s, 
+
+0, otherwise .
+
+(10) Where ˆpm denotes the response of the majority vote among the valid invoked tools, s is a threshold used to determine whether a prediction is consistent with the ground-truth label y based on the loss ℓ,e.g., s = 0 .5 in classification tasks, and α is the reward value which is set as 0.1 in our experiments. The following proposition demonstrates how Roverride enlarges the risk gap. 
+
+Proposition 3.2. Considering the risk R(πθ ) = Pr(ˆ pθ̸ = y) and the risk gap G(πθ ) = R⋆ 
+
+> single
+
+−R(πθ ), maximizing Roverride (ˆ pθ , m, y ) is aligned with maximizing G(πθ ).
+
+5Proposition 3.2 shows that the override reward is aligned with our objective of increasing G(πθ ),thereby improving the policy beyond the best single-tool baseline. In addition, to encourage the policy to follow the required structured output schema, we introduce a format reward as follows: 
+
+Rformat =
+
+
+
+α, if all required fields appear in the correct order and the terminal answer is parseable into [0 , 1] ,
+
+0, otherwise .
+
+(11) In our experiments, we set α = 0 .1 in Rformat . Although we present the reward design under a classification setting in this section, it can be readily adapted to regression tasks, which we discuss in the Experiments section. 
+
+3.3 Entropy-Guided Sampling 
+
+The risk gap ∆T is most visible in cases where the tool pool provides heterogeneous evidence. Under uniform sampling from the natural data distribution, these high-disagreement cases may be underrepresented, causing most GRPO groups to be dominated by consensus cases with weak signals for learning case-specific tool synergy. We therefore introduce Entropy-Guided Sampling (EGS), a static per-batch stratified sampler that reweights mini-batch construction toward high-entropy regions of the tool-evidence space. By increasing the frequency of disagreement cases during training, EGS provides denser policy-gradient signal for learning when and how to exploit complementary tools. For each training case (x, q, y ), we record the number of correctly classifying tools: 
+
+nc(x, q ) = 
+
+> K
+
+X
+
+> k=1
+
+I{ℓ(ˆ pk, y ) < s }, (12) where s is the threshold discussed in Eq. 10. We then measure the correctness-agreement entropy by 
+
+H(¯ n) = −¯n log ¯ n − (1 − ¯n) log(1 − ¯n), ¯n = nc
+
+K . (13) This entropy quantifies case-level tool disagreement, reaching its maximum at nc = K/ 2 and vanishing at nc ∈ { 0, K }. The useful learning signal for case-specific synergy is concentrated in the conflict region 1 ≤ nc ≤ K − 1, where correct and incorrect tools coexist. In contrast, consensus cases provide limited synergy signal: nc = 0 suggests either label noise or cases outside the capability of the tool pool, whereas nc = K indicates that all tools are already correct and case-specific aggregation cannot further improve the prediction. We therefore stratify the training set according to the entropy-induced disagreement level. Let 
+
+{S j }K′ 
+
+> j=1
+
+denote the resulting subsets of all data, ordered by increasing entropy. During mini-batch construction, each subset Sj is assigned a sampling probability ρj proportional to its entropy level. Since the entropy of S1 is obviously 0, we assign a small probability to this subset exclusively. Consequently, high-entropy subsets, which contain stronger tool disagreement and richer synergy signals, are sampled more frequently than low-entropy consensus subsets. This entropy-proportional sampling scheme biases training toward cases where case-specific tool integration is most beneficial, while preserving a nonzero sampling probability for all subsets to maintain calibration on easy or consensus cases. 
+
+4 Experiments 
+
+4.1 EXPERIMENTAL SETUP Datasets. We conduct experiments on two tasks and seven datasets on the chest X-ray (CXR) modality. For binary pathology classification (Task 1), CSRL is trained on the official training splits of CheXpert [ 13 ] and MIMIC-CXR [ 16 ], and evaluated on six test benchmarks: their held-out test splits, three stratified 1,000 -image out-of-domain samples from NIH ChestX-ray14 [ 36 ], RSNA Pneumonia Detection [ 33 ], and VinDr-CXR [ 21 ], plus NIH-Google [ 19 ] ( 1,962 radiologist-adjudicated images) as a clean-label check against NIH NLP label noise. For medical VQA generalization (Task 2), the 6Table 1: Performance comparison for binary disease diagnosis across six chest X-ray benchmarks. We report macro accuracy (Acc) and macro F1. Out-of-domain (OOD) test sets are marked with ⋄.Best results are highlighted in bold , and second-best results are underlined.                                                                                                                                                                                                                                                                                                                               
+
+> Methods CheXpert MIMIC-CXR ChestX-ray14 ⋄VinDr-CXR ⋄NIH-Google ⋄RSNA ⋄Average
+> Acc ↑F1 ↑Acc ↑F1 ↑Acc ↑F1 ↑Acc ↑F1 ↑Acc ↑F1 ↑Acc ↑F1 ↑Acc ↑F1 ↑
+> Open-source General VLMs
+> Qwen2.5-VL-7B-Instruct [2] 0.731 0.181 0.539 0.371 0.722 0.155 0.817 0.121 0.793 0.378 0.771 0.336 0.729 0.257 InternVL3.5-38B-Instruct [35] 0.744 0.451 0.790 0.710 0.585 0.228 0.746 0.340 0.879 0.478 0.790 0.628 0.756 0.472 Qwen2.5-VL-72B-Instruct [2] 0.382 0.309 0.713 0.703 0.375 0.174 0.435 0.100 0.785 0.429 0.425 0.429 0.519 0.357
+> Open-source Medical MLLMs
+> HuatuoGPT-Vision-7B [3] 0.699 0.397 0.698 0.667 0.512 0.212 0.894 0.282 0.847 0.535 0.726 0.580 0.729 0.446 Lingshu-7B [40] 0.534 0.386 0.711 0.751 0.532 0.259 0.770 0.248 0.723 0.597 0.706 0.575 0.663 0.469 MedGemma-27B-IT [29] 0.722 0.454 0.721 0.733 0.620 0.280 0.902 0.403 0.777 0.615 0.742 0.585 0.747 0.512 Hulu-Med-Flash-Preview-27B [14] 0.728 0.252 0.767 0.767 0.727 0.277 0.868 0.411 0.854 0.666 0.790 0.291 0.789 0.444
+> Closed-source General MLLMs
+> Claude-Sonnet-4.6 0.473 0.337 0.709 0.708 0.330 0.192 0.543 0.129 0.754 0.523 0.465 0.433 0.546 0.387 GPT-4o 0.582 0.355 0.699 0.672 0.499 0.204 0.851 0.201 0.845 0.509 0.687 0.556 0.694 0.416 Gemini-3.1-Pro-Preview 0.685 0.436 0.769 0.760 0.535 0.254 0.930 0.455 0.849 0.670 0.731 0.602 0.750 0.530
+> Specialist CXR Tools
+> DenseNet-CheX [8] 0.682 0.433 0.704 0.711 0.517 0.225 0.916 0.271 0.702 0.522 0.686 0.505 0.701 0.445 DenseNet-MIMIC [8] 0.657 0.413 0.701 0.686 0.559 0.208 0.787 0.179 0.774 0.491 0.703 0.461 0.697 0.406 DenseNet-NIH [8] 0.607 0.379 0.665 0.688 0.440 0.218 0.732 0.157 0.611 0.500 0.689 0.498 0.624 0.407 CheXzero [34] 0.763 0.489 0.746 0.756 0.603 0.274 0.904 0.362 0.781 0.614 0.683 0.563 0.747 0.510 MedKLIP [39] 0.713 0.464 0.737 0.762 0.580 0.261 0.897 0.383 0.677 0.565 0.714 0.589 0.720 0.504 CheXagent-8B [6] 0.786 0.498 0.808 0.802 0.507 0.263 0.502 0.225 0.746 0.614 0.492 0.451 0.640 0.476
+> Tool Combination Baselines
+> Logistic Regression 0.784 0.510 0.791 0.805 0.586 0.256 0.821 0.369 0.853 0.649 0.459 0.446 0.716 0.506 Majority Voting ( tie →neg )0.766 0.490 0.774 0.762 0.608 0.270 0.934 0.409 0.830 0.634 0.745 0.602 0.776 0.528 Majority Voting ( tie →pos )0.696 0.467 0.779 0.779 0.494 0.249 0.875 0.333 0.731 0.586 0.682 0.569 0.709 0.497 Best Tool per Pathology 0.801 0.516 0.804 0.812 0.617 0.278 0.822 0.374 0.866 0.674 0.492 0.451 0.734 0.518
+> Ours (CSRL) 0.859 0.563 0.810 0.810 0.664 0.301 0.935 0.482 0.889 0.682 0.772 0.630 0.822 0.578
+
+policy is trained on a stratified 5,000 -sample subset of the choose_train split of MIMIC-Ext-MIMIC-CXR-VQA [ 1] under the M4CXR non-empty-GT setting, and evaluated on the gold 1,523 -question test split and its 933 -question non-empty-GT subset [23]. 
+
+Policy Model and Tool Pools. We use Qwen2.5-VL-7B-Instruct [ 2] as the policy model for rein-forcement learning. We assemble two task-specific tool pools chosen for diversity in training data and architecture. For Task 1 ( binary pathology classification ), the tool pool includes six specialist tools, namely CheXagent [ 5 ], CheXzero [ 34 ], MedKLIP [ 39 ], and three DenseNet-121 backbones from torchxrayvision [ 7]. For Task 2 ( VQA generalization ), the tool pool includes three medical vision-language models, namely CheXagent-8B [ 5], RadVLM-7B [ 9], and MedGemma-4B-IT [ 29 ]. 
+
+Implementation Details. We implement CSRL with the Qwen2.5-VL-7B-Instruct [ 2 ] backbone. The policy is optimized using the Group Relative Policy Optimization (GRPO) algorithm [ 30 , 11 ] for 
+
+∼ 75 iterations on 8 NVIDIA H200 GPUs, built on V ERL [ 32 ] with FSDP training and asynchronous vLLM [ 17 ] rollouts. During training, we use a batch size of 256 prompts; for each prompt, the agent samples 16 trajectories with up to 4 reasoning turns and a maximum of 6 parallel tool calls per turn. Key hyperparameters are AdamW with learning rate 1×10 −6, PPO clip ratio 0.2, low-variance KL regularization with coefficient 10 −3 against a frozen reference policy, and an entropy bonus of 10 −3.
+
+Baselines and Comparisons. We compare CSRL with a broad set of baselines spanning four categories: open-source general vision-language models (VLMs), open-source medical MLLMs, closed-source general MLLMs, and specialist CXR diagnostic tools. To further assess whether the gains come from case-specific synergy rather than simply using multiple tools, we include several tool-combination baselines, including logistic regression, majority voting, and best-tool-per-pathology selection. 
+
+4.2 Experimental Analysis 
+
+To systematically evaluate the effectiveness of our proposed approach, we organize the experiment as follows. 7Table 2: Ablation study on three CXR benchmarks. We report macro accuracy (Acc) and macro F1. 
+
+⋄: OOD test sets. “w. n tool(s)”: allow at most n diagnostic tools per rollout. All models are trained on CheXpert and MIMIC-CXR, and all changes are measured relative to CSRL.                                                                                                                                                                                                                                    
+
+> Method CheXpert MIMIC-CXR ChestX-ray14 ⋄Average Acc ↑F1 ↑Acc ↑F1 ↑Acc ↑F1 ↑Acc ↑F1 ↑
+> Ablation for Policy Model
+> w. Qwen3-VL-2B-Instruct as policy 0.783 (-7.6%) 0.504 (-5.9%) 0.810 (0.0%) 0.807 (-0.3%) 0.577 (-8.7%) 0.275 (-2.7%) 0.723 (-5.5%) 0.529 (-3.0%)
+> w. Qwen2.5-VL-3B-Instruct as policy 0.812 (-4.7%) 0.535 (-2.8%) 0.797 (-1.3%) 0.807 (-0.4%) 0.626 (-3.8%) 0.291 (-1.1%) 0.745 (-3.3%) 0.544 (-1.4%)
+> Ablation for Training Data Scale
+> w. 10% training data 0.830 (-2.9%) 0.525 (-3.8%) 0.787 (-2.3%) 0.752 (-5.8%) 0.631 (-3.3%) 0.279 (-2.2%) 0.749 (-2.8%) 0.519 (-4.0%)
+> w. 50% training data 0.854 (-0.5%) 0.560 (-0.3%) 0.787 (-2.3%) 0.776 (-3.4%) 0.665 (+0.1%) 0.296 (-0.5%) 0.769 (-0.9%) 0.544 (-1.4%)
+> Ablation for Training Dataset Composition
+> w. CheXpert-only training 0.844 (-1.5%) 0.552 (-1.1%) 0.802 (-0.8%) 0.781 (-3.0%) 0.649 (-1.5%) 0.295 (-0.6%) 0.765 (-1.3%) 0.543 (-1.6%)
+> w. extra ChestX-ray14 training data †0.845 (-1.4%) 0.553 (-1.0%) 0.805 (-0.5%) 0.802 (-0.9%) 0.638 (-2.6%) 0.301 (0.0%) 0.763 (-1.5%) 0.552 (-0.6%)
+> Ablation for Sampling and Reward Design
+> w/o Entropy-Guided Sampling 0.828 (-3.1%) 0.519 (-4.5%) 0.785 (-2.5%) 0.745 (-6.5%) 0.654 (-1.0%) 0.275 (-2.6%) 0.756 (-2.2%) 0.513 (-4.5%)
+> w/o override reward 0.848 (-1.1%) 0.544 (-1.9%) 0.793 (-1.7%) 0.779 (-3.1%) 0.664 (0.0%) 0.294 (-0.7%) 0.768 (-0.9%) 0.539 (-1.9%)
+> Ablation for Tool-Call Budget
+> w. 1 tool 0.786 (-7.3%) 0.500 (-6.3%) 0.816 (+0.6%) 0.809 (-0.2%) 0.507 (-15.7%) 0.263 (-3.8%) 0.703 (-7.5%) 0.524 (-3.4%)
+> w. 2 tools 0.792 (-6.8%) 0.504 (-5.9%) 0.817 (+0.7%) 0.809 (-0.1%) 0.528 (-13.6%) 0.267 (-3.4%) 0.712 (-6.6%) 0.527 (-3.2%)
+> w. 3 tools 0.859 (+0.0%) 0.558 (-0.5%) 0.779 (-3.1%) 0.772 (-3.8%) 0.690 (+2.6%) 0.297 (-0.4%) 0.776 (-0.2%) 0.543 (-1.6%)
+> w. 4 tools 0.849 (-1.0%) 0.557 (-0.7%) 0.797 (-1.3%) 0.788 (-2.2%) 0.672 (+0.8%) 0.295 (-0.6%) 0.773 (-0.5%) 0.547 (-1.2%)
+> w. 5 tools 0.846 (-1.3%) 0.550 (-1.3%) 0.788 (-2.1%) 0.785 (-2.5%) 0.684 (+2.0%) 0.297 (-0.4%) 0.773 (-0.5%) 0.544 (-1.4%)
+> CSRL (ours) 0.859 0.563 0.810 0.810 0.664 0.301 0.778 0.558
+
+Learning tool synergy yields robust gains across in-domain and out-of-domain datasets. Our Table 3: Generalization performance on the VQA task. We report F1, exact match (EM), precision (P), recall (R), and their average score. Best results are highlighted in bold .
+
+Model F1 ↑ EM ↑ P↑ R↑ Avg. ↑
+
+Qwen2.5-VL-7B-Instruct 0.417 0.268 0.431 0.439 0.389 MedGemma-4B-IT 0.691 0.509 0.712 0.715 0.657 RadVLM-7B 0.653 0.528 0.698 0.638 0.629 CheXagent-8B 0.682 0.545 0.750 0.647 0.656 
+
+CSRL (ours) 0.737 0.564 0.758 0.758 0.704 
+
+proposed CSRL achieves the best overall per-formance among all compared methods (see Table 1), obtaining an average Acc of 0.822 and an average F1 of 0.578 across the six CXR benchmarks, outperforming the strongest prior method by 3.3% in accuracy and 4.8% in F1 score. Compared with the strongest individual tool, CheXzero, CSRL improves the average performance by 7.5% in Acc and 6.8% in F1, showing that explicitly learning tool synergy is more effective than relying on any single tool. This advantage is also consistent across datasets: CSRL almost achieves the best or the second-best F1 score and Acc on all six benchmarks. Notably, CSRL performs strongly on both in-domain and out-of-domain test sets, including ChestX-ray14, VinDr-CXR, NIH-Google, and RSNA, suggest-ing that learned tool synergy helps the model better exploit complementary diagnostic capabilities under distribution shifts. In contrast, individual VLMs, specialist CXR tools, and simple combination baselines often perform well only on specific datasets or metrics, but their average performance remains lower. These results demonstrate that CSRL can learn when and how different tools comple-ment each other, leading to more robust and accurate binary disease diagnosis than the best individual tool. Beyond binary disease diagnosis, Table 3 further evaluates the generalization ability of CSRL on the VQA task. CSRL consistently achieves the best performance across all metrics. Compared with the strongest baseline, MedGemma-4B-IT, CSRL improves the average score from 0.657 to 0.704, corresponding to a gain of 4.7% , indicating that learning tool synergy not only improves classification performance but also enhances the model’s ability to recover more complete and accurate answers in a different task setting. 
+
+Trade-off between tool-set size, performance, and cost. Figure 3 reveals a clear trade-off between tool-set size, performance, and computational cost. Increasing the number of tools generally improves performance, but the marginal gain diminishes as the tool set becomes larger. As shown in the tool scalability ablation (Figure 3d ), expanding the tool set from T1 to T3 brings a substantial improvement, with average macro Acc increasing from 70.29% to 77.60% and average macro F1 8increasing from 52.40% to 54.25%. However, further increasing the tool set from T3 to T6 yields only limited additional gains, with Acc fluctuating around 77%–78% and F1 improving more moderately to 55.82%. This suggests that a small number of complementary tools can already capture most of the useful inter-tool synergy, while adding more tools may introduce redundancy and higher inference cost. The results also show that performance is affected not only by the number of tools, but also by the capacity of the policy model (Figure 3c ) and the quality of training data (Figures 3a and 3b). Larger policy models consistently improve performance, from 72.31% Acc and 52.85% F1 with the 2B model to 77.76% Acc and 55.82% F1 with the 7B model, indicating that stronger policy models are better at learning when different tools should be trusted or combined. Similarly, increasing the training data scale improves both Acc and F1, while using a more diverse training composition further strengthens generalization. Overall, these results indicate that the best performance-cost balance is achieved by selecting a compact but complementary tool set and pairing it with a sufficiently capable policy model, rather than naively increasing the number of tools. 
+
+4.3 Ablation Study 
+
+Table 2 presents a comprehensive ablation study of CSRL. Overall, the full CSRL model achieves the best average performance, with an average Acc of 0.778 and an average F1 of 0.558, demonstrating the effectiveness of each major design component. First, reducing the policy model scale consistently degrades performance. Using Qwen3-VL-2B or Qwen2.5-VL-3B as the policy model lowers the average Acc by 5.5% and 3.3%, respectively, indicating that a stronger policy model is important for learning reliable tool synergy. Second, reducing the training data scale also harms performance: using only 10% and 50% of the training data decreases average Acc by 2.8% and 0.9%, and average F1 by 4.0% and 1.4%, respectively. This suggests that sufficient training data helps the policy model better learn when and how to combine diagnostic tools. (a) Data scalability                                   
+
+> 10% 50% Ours
+> 74
+> 76
+> 77
+> 79
+> Score (%)
+> Avg. Macro Acc
+> 74.93
+> 76.87
+> 77.76
+> 10% 50% Ours
+> 51
+> 53
+> 55
+> 57 Avg. Macro F1
+> 51.87
+> 54.39
+> 55.82
+> (b) Dataset scalability
+> CC+M+N Ours
+> 75
+> 77
+> 78
+> 79
+> Score (%)
+> C: CheXpert
+> M: MIMIC-CXR
+> N: ChestX-ray14
+> Avg. Macro Acc
+> 76.51 76.29
+> 77.76
+> CC+M+N Ours
+> 53
+> 55
+> 56
+> 57 Avg. Macro F1
+> 54.27
+> 55.18
+> 55.82
+> (c) Policy model Scalability
+> 2B 3B 7B
+> 72
+> 74
+> 76
+> 79
+> Score (%)
+> Avg. Macro Acc
+> 72.31
+> 74.51
+> 77.76
+> Qwen3-VL-2B
+> Qwen2.5-VL-3B
+> Qwen2.5-VL-7B
+> 2B 3B 7B
+> 52
+> 54
+> 55
+> 57 Avg. Macro F1
+> 52.85
+> 54.41
+> 55.82
+> Qwen3-VL-2B
+> Qwen2.5-VL-3B
+> Qwen2.5-VL-7B
+> (d) Tool scalability
+> T1 T2 T3 T4 T5 T6
+> 65
+> 70
+> 75
+> 80
+> Score (%)
+> Avg. Macro Acc
+> 70.29 71.20
+> 77.60 77.25 77.27 77.76
+> T1 T2 T3 T4 T5 T6
+> 47
+> 50
+> 54
+> 58 Avg. Macro F1
+> 52.40 52.66
+> 54.25 54.66 54.41
+> 55.82
+
+Figure 3: Scalability studies of CSRL. (a) Scalability across training data ratios; (b) Scalability across different dataset compositions; (c) Scalability across various policy models. (d) Scalability across tool-set sizes. T1-T6 denote tool sets with 1 to 6 tools, respectively. The ablation on training dataset composition further shows that dataset diversity contributes to generalization. Training only on CheXpert or additionally including ChestX-ray14 both lead to lower average performance than the default CSRL setting, suggesting that simply adding more data is not always sufficient; the training composition must also align with the target generalization setting. The sampling and reward design ablation confirms the importance of both proposed components. Removing entropy-guided sampling decreases the average Acc and F1 by 2.2% and 4.5%, while removing the override reward reduces them by 0.9% and 1.9%, showing that exploration and disagreement-aware reward shaping are both beneficial for recovering tool synergy. Finally, the tool-call budget ablation reveals a clear performance-cost trade-off. Allowing only one or two tools substantially reduces performance, while using three to five tools approaches the full model. This indicates that multiple tools are necessary to capture complementary diagnostic signals, but most of the benefit can be obtained with a moderate tool budget. Together, these results validate the 9contribution of the policy model, training data, reward design, and tool budget in enabling CSRL to learn robust tool synergy. 
+
+5 Conclusion and Limitations 
+
+Motivated by the gap between task-level and case-level tool selection, we presented CSRL (Collabora-tive Synergy Reinforcement Learning), a GRPO-based framework for learning instance-level synergy among imperfect medical tools. Across chest X-ray diagnosis and medical VQA, CSRL consistently outperforms individual tools, static combinations, and general-purpose or medical multimodal models, showing that synergistic gains arise from case-level complementarity rather than standalone accuracy. 
+
+Limitations. Our study focuses on chest X-ray benchmarks, predefined tool pools, and retrospective evaluation. Future work will extend CSRL to broader clinical tasks, dynamic tool ecosystems, and prospective human-in-the-loop validation before deployment. 
+
+References 
+
+[1] S. Bae, D. Kyung, J. Ryu, E. Cho, G. Lee, S. Kweon, J. Oh, L. Ji, E. Chang, T. Kim, et al. Ehrxqa: A multi-modal question answering dataset for electronic health records with chest x-ray images. Advances in Neural Information Processing Systems , 36:3867–3880, 2023. [2] S. Bai, K. Chen, X. Liu, J. Wang, W. Ge, S. Song, K. Dang, P. Wang, S. Wang, J. Tang, H. Zhong, Y. Zhu, M. Yang, Z. Li, J. Wan, P. Wang, W. Ding, Z. Fu, Y. Xu, J. Ye, X. Zhang, T. Xie, Z. Cheng, H. Zhang, Z. Yang, H. Xu, and J. Lin. Qwen2.5-vl technical report. ArXiv ,abs/2502.13923, 2025. [3] J. Chen, C. Gui, R. Ouyang, A. Gao, S. Chen, G. H. Chen, X. Wang, Z. Cai, K. Ji, X. Wan, et al. Towards injecting medical visual knowledge into multimodal llms at scale. In Proceedings of the 2024 conference on empirical methods in natural language processing , pages 7346–7370, 2024. [4] J. Chen, R. Ouyang, A. Gao, S. Chen, G. H. Chen, X. Wang, R. Zhang, Z. Cai, K. Ji, G. Yu, X. Wan, and B. Wang. Huatuogpt-vision, towards injecting medical visual knowledge into multimodal llms at scale, 2024. [5] Z. Chen, M. Varma, J.-B. Delbrouck, M. Paschali, L. Blankemeier, D. Van Veen, J. M. J. Valanarasu, A. Youssef, J. P. Cohen, E. P. Reis, et al. Chexagent: Towards a foundation model for chest x-ray interpretation. In AAAI 2024 Spring Symposium on Clinical Foundation Models ,2024. [6] Z. Chen, M. Varma, J. Xu, M. Paschali, D. Van Veen, A. Johnston, A. Youssef, L. Blankemeier, C. Bluethgen, S. Altmayer, et al. A vision-language foundation model to enhance efficiency of chest x-ray interpretation. arXiv preprint arXiv:2401.12208 , 2024. [7] J. P. Cohen, J. Viviano, M. Hashir, and H. Bertrand. Torchxrayvision: a library of chest x-ray datasets and models (2020). URL https://arxiv. org/abs/2111.00595 , 2020. [8] J. P. Cohen, J. D. Viviano, P. Bertin, P. Morrison, P. Torabian, M. Guarrera, M. P. Lungren, A. Chaudhari, R. Brooks, M. Hashir, et al. Torchxrayvision: A library of chest x-ray datasets and models. In International Conference on Medical Imaging with Deep Learning , pages 231–249. PMLR, 2022. [9] N. Deperrois, H. Matsuo, S. Ruipérez-Campillo, M. Vandenhirtz, S. Laguna, A. Ryser, K. Fu-jimoto, M. Nishio, T. M. Sutter, J. E. Vogt, et al. Radvlm: a multitask conversational vision-language model for radiology. arXiv preprint arXiv:2502.03333 , 2025. [10] A. Fallahpour, J. Ma, A. Munim, H. Lyu, and B. Wang. Medrax: Medical reasoning agent for chest x-ray. arXiv preprint arXiv:2502.02673 , 2025. [11] D. Guo, D. Yang, H. Zhang, J. Song, P. Wang, Q. Zhu, R. Xu, R. Zhang, S. Ma, X. Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 , 2025. 10 [12] I. Habli, T. Lawton, and Z. Porter. Artificial intelligence in health care: accountability and safety. Bulletin of the World Health Organization , 98(4):251, 2020. [13] J. Irvin, P. Rajpurkar, M. Ko, Y. Yu, S. Ciurea-Ilcus, C. Chute, H. Marklund, B. Haghgoo, R. Ball, K. Shpanskaya, et al. Chexpert: A large chest radiograph dataset with uncertainty labels and expert comparison. In Proceedings of the AAAI conference on artificial intelligence ,volume 33, pages 590–597, 2019. [14] S. Jiang, Y. Wang, S. Song, T. Hu, C. Zhou, B. Pu, Y. Zhang, Z. Yang, Y. Feng, J. T. Zhou, et al. Hulu-med: A transparent generalist model towards holistic medical vision-language understanding. arXiv preprint arXiv:2510.08668 , 2025. [15] B. Jin, H. Zeng, Z. Yue, J. Yoon, S. Arik, D. Wang, H. Zamani, and J. Han. Search-r1: Training llms to reason and leverage search engines with reinforcement learning. arXiv preprint arXiv:2503.09516 , 2025. [16] A. E. Johnson, T. J. Pollard, S. J. Berkowitz, N. R. Greenbaum, M. P. Lungren, C.-y. Deng, R. G. Mark, and S. Horng. Mimic-cxr, a de-identified publicly available database of chest radiographs with free-text reports. Scientific data , 6(1):317, 2019. [17] W. Kwon, Z. Li, S. Zhuang, Y. Sheng, L. Zheng, C. H. Yu, J. Gonzalez, H. Zhang, and I. Stoica. Efficient memory management for large language model serving with pagedattention. In 
+
+Proceedings of the 29th symposium on operating systems principles , pages 611–626, 2023. [18] M. Li, Y. Zhao, B. Yu, F. Song, H. Li, H. Yu, Z. Li, F. Huang, and Y. Li. Api-bank: A comprehensive benchmark for tool-augmented llms. In Proceedings of the 2023 conference on empirical methods in natural language processing , pages 3102–3116, 2023. [19] A. Majkowska, S. Mittal, D. F. Steiner, J. J. Reicher, S. M. McKinney, G. E. Duggan, K. Eswaran, P.-H. Cameron Chen, Y. Liu, S. R. Kalidindi, et al. Chest radiograph interpretation with deep learning models: assessment with radiologist-adjudicated reference standards and population-adjusted evaluation. Radiology , 294(2):421–431, 2020. [20] S. Malmasi, J. Tetreault, and M. Dras. Oracle and human baselines for native language identification. In Proceedings of the tenth workshop on innovative use of NLP for building educational applications , pages 172–178, 2015. [21] H. Q. Nguyen, K. Lam, L. T. Le, H. H. Pham, D. Q. Tran, D. B. Nguyen, D. D. Le, C. M. Pham, H. T. Tong, D. H. Dinh, et al. Vindr-cxr: An open dataset of chest x-rays with radiologist’s annotations. Scientific Data , 9(1):429, 2022. [22] B. Paranjape, S. Lundberg, S. Singh, H. Hajishirzi, L. Zettlemoyer, and M. T. Ribeiro. Art: Automatic multi-step reasoning and tool-use for large language models. arXiv preprint arXiv:2303.09014 , 2023. [23] J. Park, S. Kim, B. Yoon, J. Hyun, and K. Choi. M4cxr: exploring multitask potentials of multimodal large language models for chest x-ray interpretation. IEEE Transactions on Neural Networks and Learning Systems , 2025. [24] S. G. Patil, T. Zhang, X. Wang, and J. E. Gonzalez. Gorilla: Large language model connected with massive APIs. In The Thirty-eighth Annual Conference on Neural Information Processing Systems , 2024. [25] C. Qian, E. C. Acikgoz, Q. He, H. Wang, X. Chen, D. Hakkani-Tür, G. Tur, and H. Ji. Toolrl: Reward is all tool learning needs. arXiv preprint arXiv:2504.13958 , 2025. [26] P. Rajpurkar, J. Irvin, K. Zhu, B. Yang, H. Mehta, T. Duan, D. Ding, A. Bagul, C. Langlotz, K. Shpanskaya, et al. Chexnet: Radiologist-level pneumonia detection on chest x-rays with deep learning. arXiv preprint arXiv:1711.05225 , 2017. [27] T. Schick, J. Dwivedi-Yu, R. Dessì, R. Raileanu, M. Lomeli, E. Hambro, L. Zettlemoyer, N. Cancedda, and T. Scialom. Toolformer: Language models can teach themselves to use tools. 
+
+Advances in neural information processing systems , 36:68539–68551, 2023. 11 [28] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov. Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347 , 2017. [29] A. Sellergren, S. Kazemzadeh, T. Jaroensri, A. Kiraly, M. Traverse, T. Kohlberger, S. Xu, F. Jamil, C. Hughes, C. Lau, et al. Medgemma technical report. arXiv preprint arXiv:2507.05201 ,2025. [30] Z. Shao, P. Wang, Q. Zhu, R. Xu, J. Song, X. Bi, H. Zhang, M. Zhang, Y. Li, Y. Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300 , 2024. [31] Y. Shen, K. Song, X. Tan, D. Li, W. Lu, and Y. Zhuang. Hugginggpt: Solving ai tasks with chatgpt and its friends in hugging face. Advances in Neural Information Processing Systems ,36:38154–38180, 2023. [32] G. Sheng, C. Zhang, Z. Ye, X. Wu, W. Zhang, R. Zhang, Y. Peng, H. Lin, and C. Wu. Hybridflow: A flexible and efficient rlhf framework. In Proceedings of the Twentieth European Conference on Computer Systems , pages 1279–1297, 2025. [33] G. Shih, C. C. Wu, S. S. Halabi, M. D. Kohli, L. M. Prevedello, T. S. Cook, A. Sharma, J. K. Amorosa, V. Arteaga, M. Galperin-Aizenberg, et al. Augmenting the national institutes of health chest radiograph dataset with expert annotations of possible pneumonia. Radiology: Artificial Intelligence , 1(1):e180041, 2019. [34] E. Tiu, E. Talius, P. Patel, C. P. Langlotz, A. Y. Ng, and P. Rajpurkar. Expert-level detection of pathologies from unannotated chest x-ray images via self-supervised learning. Nature biomedical engineering , 6(12):1399–1406, 2022. [35] W. Wang, Z. Gao, L. Gu, H. Pu, L. Cui, X. Wei, Z. Liu, L. Jing, S. Ye, J. Shao, et al. Internvl3. 5: Advancing open-source multimodal models in versatility, reasoning, and efficiency. arXiv preprint arXiv:2508.18265 , 2025. [36] X. Wang, Y. Peng, L. Lu, Z. Lu, M. Bagheri, and R. M. Summers. Chestx-ray8: Hospital-scale chest x-ray database and benchmarks on weakly-supervised classification and localization of common thorax diseases. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 2097–2106, 2017. [37] X. Wang, B. Wang, D. Lu, J. Yang, T. Xie, J. Wang, J. Deng, X. Guo, Y. Xu, C. H. Wu, et al. Opencua: Open foundations for computer-use agents. arXiv preprint arXiv:2508.09123 , 2025. [38] C. Wu, S. Yin, W. Qi, X. Wang, Z. Tang, and N. Duan. Visual chatgpt: Talking, drawing and editing with visual foundation models. arXiv preprint arXiv:2303.04671 , 2023. [39] C. Wu, X. Zhang, Y. Zhang, Y. Wang, and W. Xie. Medklip: Medical knowledge enhanced language-image pre-training in radiology. arXiv preprint arXiv:2301.02228 , 2023. [40] W. Xu, H. P. Chan, L. Li, M. Aljunied, R. Yuan, J. Wang, C. Xiao, G. Chen, C. Liu, Z. Li, et al. Lingshu: A generalist foundation model for unified multimodal medical understanding and reasoning. arXiv preprint arXiv:2506.07044 , 2025. [41] S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. Narasimhan, and Y. Cao. React: Synergizing reasoning and acting in language models. arXiv preprint arXiv:2210.03629 , 2022. 12 A Theoretical Proof 
+
+Proof of Proposition 3.1. By definition, the Brier reward is 
+
+Rbrier (ˆ pθ , y ) = 1 − (ˆ pθ − y)2.
+
+Taking expectation over (x, q, y ) ∼ D , we obtain 
+
+E(x,q,y )∼D [Rbrier (ˆ pθ , y )] = E(x,q,y )∼D 
+
+1 − (ˆ pθ − y)2
+
+= 1 − E(x,q,y )∼D 
+
+(ˆ pθ − y)2
+
+= 1 − R (πθ ).
+
+Therefore, 
+
+arg max  
+
+> θ
+
+E [Rbrier (ˆ pθ , y )] = arg min  
+
+> θ
+
+R(πθ ).
+
+proof of Proposition 3.2. Accoring to the definition of Roverride , the decision made by s can be presented as 
+
+Pr( p = y) = Pr( ℓ(p, y ) < s ), Pr( p̸ = y) = Pr( ℓ(p, y ) ≥ s)
+
+Then we can define the risk of the policy as 
+
+R(πθ ) = Pr(ˆ pθ̸ = y),
+
+and the risk of the invoked-tool majority is 
+
+R(m) = Pr( m̸ = y).
+
+By definition, the override reward is 
+
+Roverride (ˆ pθ , m, y ) = αI{ˆpθ = y, m ̸ = y} − αI{ˆpθ̸ = y, m = y},
+
+where α > 0 is the override coefficient. Taking expectation gives 
+
+E [Roverride (ˆ pθ , m, y )] = α Pr(ˆ pθ = y, m ̸ = y) − α Pr(ˆ pθ̸ = y, m = y).
+
+On the other hand, 
+
+R(m) − R (πθ ) = Pr( m̸ = y) − Pr(ˆ pθ̸ = y)= Pr( m̸ = y, ˆpθ = y) + Pr( m̸ = y, ˆpθ̸ = y)
+
+− Pr(ˆ pθ̸ = y, m = y) − Pr(ˆ pθ̸ = y, m ̸ = y)= Pr( m̸ = y, ˆpθ = y) − Pr( m = y, ˆpθ̸ = y).
+
+Therefore, 
+
+E [Roverride (ˆ pθ , m, y )] = α [R(m) − R (πθ )] .
+
+Since α > 0, maximizing the expected override reward is equivalent to maximizing the binary risk improvement of the policy over the invoked-tool majority. Now consider the improvement gap 
+
+G(πθ ) = R⋆ 
+
+> single
+
+− R (πθ ) = R⋆ 
+
+> single
+
+− R (m) + 1
+
+α E [Roverride (ˆ pθ , m, y )] .
+
+Because R⋆ 
+
+> single
+
+and R(m)is independent of θ, maximizing G(πθ ) is equivalent to maximizing 
+
+Roverride (ˆ pθ , m, y ).
+
+B Tool-Calling Rollout Procedure 
+
+This appendix provides the general rollout template used by CSRL. A rollout begins with a fixed system prompt that contains the task input x, the query q, and a <tools>...</tools> block declaring the JSON schemas of the K available tools. The policy πθ then interacts with the tool-augmented environment for up to Tmax assistant turns. 13 At each assistant turn, the policy may either invoke one or more tools or terminate the rollout with a final answer. A tool invocation follows the template: 
+
+<tool_call> {"name" : Tk, "arguments" : ak}</tool_call> .
+
+The field "name" specifies the selected tool, and "arguments" contains the tool-specific arguments constructed from the current input, query, and dialogue context. Up to M tool calls may be generated in a single assistant turn. All tool calls generated in the same turn are executed in parallel by the environment, and their responses are inserted into the dialogue context before the next assistant turn. For each invoked tool Tk, the environment returns its observation using the template: 
+
+<tool_response> Tk response : ok </tool_response> ,
+
+where ok denotes the tool observation returned by Tk. The observation format is determined by the corresponding tool schema and task setting. CSRL does not require all tools to share the same output format; the policy conditions on the returned observations through the dialogue context. The policy may terminate the rollout by generating a final answer: 
+
+<answer> ˆpθ </answer> ,
+
+where ˆpθ ∈ P denotes the task-specific prediction parsed from the terminal answer. The rollout ends once a terminal answer is produced or the maximum number of assistant turns is reached. Tokens inserted by the environment, namely the <tool_response> blocks, are excluded from the policy-gradient loss. Only tokens autoregressively generated by πθ , including reasoning tokens, tool-call tags, and the terminal answer, contribute to gradient updates. This ensures that optimization is applied only to model-generated decisions rather than to environment-generated tool observations. 
+
+C Broader Impact 
+
+This work may improve the reliability of medical AI agents by learning how to combine complemen-tary diagnostic tools on a case-by-case basis, potentially reducing missed findings and improving robustness across chest X-ray datasets and clinical settings. It can also help researchers better under-stand tool failure patterns and design safer medical decision-support systems. Potential risks include inheriting biases or label noise from pretrained models and datasets, and overreliance on automated outputs if used without clinical oversight. Therefore, the system should be positioned as an assistive tool for clinicians rather than a replacement for medical professionals. 
+
+D Training Details 
+
+Hyperparameters. Table 4 reports the full GRPO training configuration. Our implementation is based on VERL 0.7.1 with vLLM 0.11.0 as the rollout backend. 
+
+System Prompt. The following system prompt is prepended to every training and evaluation sample. 
+
+You are a radiology AI expert for chest X-ray diagnosis. You have access to 6 diagnostic tools with different strengths. Each tool returns a score for the queried condition. Query MULTIPLE tools and compare their results for a more reliable diagnosis. Tools may disagree—use the disagreement to assess diagnostic uncertainty. After consulting the tools, provide your final diagnosis probability (0.0 to 1.0) inside <answer></answer> tags. 
+
+E LLM Usage Statement 
+
+During the preparation of this manuscript, large language models were used only to polish the writing and provide suggestions on figure presentation. The authors remain responsible for all technical content, experimental results, and scientific conclusions. 14 Table 4: GRPO training hyperparameters. 
+
+Hyperparameter Value 
+
+Model and data 
+
+Base model Qwen2.5-VL-7B-Instruct Train batch size 256 
+
+Max prompt / response length 1024 / 2048 
+
+Optimization 
+
+Learning rate 1 × 10 −6 (constant) PPO mini-batch size 256 
+
+PPO micro-batch size / GPU 8
+
+PPO epochs 1
+
+GRPO objective 
+
+Advantage estimator GRPO Rollouts per prompt ( n) 16 
+
+Clip ratio ( ϵ) 0.2
+
+KL coefficient 1 × 10 −3
+
+KL type Low-variance Entropy coefficient 1 × 10 −3
+
+KL in reward False 
+
+Rollout backend 
+
+Rollout backend vLLM (async) Tensor parallel size 2
+
+GPU memory utilization 0.70 
+
+Multi-turn tool use 
+
+Max assistant turns 4
+
+Max parallel tool calls 6
+
+Number of tools 6
+
+Schedule and hardware 
+
+Total epochs 2
+
+Save / validation frequency Every 5 steps Hardware 8× NVIDIA H200 141 GB 
+
+15

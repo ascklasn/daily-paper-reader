@@ -1,0 +1,1023 @@
+Title: COTCAgent: Preventive Consultation via Probabilistic Chain-of-Thought Completion
+
+URL Source: https://arxiv.org/pdf/2605.15016v1
+
+Published Time: Fri, 15 May 2026 01:23:42 GMT
+
+Number of Pages: 26
+
+Markdown Content:
+# COTCAgent: Preventive Consultation via Probabilistic Chain-of-Thought Completion 
+
+Zihan Deng 1 Xiaozhen Zhong 2 Chuanzhi Xu 31School of Computing and Data Science, The University of Hong Kong 
+
+> 2
+
+Shenzhen Institute for Advanced Study, University of Electronic Science and Technology of China 
+
+> 3
+
+School of Computer Science, The University of Sydney 
+
+zhdeng@hku.hk, 202422280130@std.uestc.edu.cn, chuanzhi.xu@sydney.edu.au 
+
+## Abstract 
+
+As large language models empower healthcare, intelligent clinical decision support has developed rapidly. Longitudinal electronic health records (EHR) provide es-sential temporal evidence for accurate clinical diagnosis and analysis. However, current large language models have critical flaws in longitudinal EHR reasoning. First, lacking fine-grained statistical reasoning, they often hallucinate clinical trends and metrics when quantitative evidence is textually implied, biasing diagnostic inference. Second, non-uniform time series and scarce labels in longitudinal EHR hinder models from capturing long-range temporal dependencies, limiting reliable clinical reasoning. To address the above limitations, this work presents the Prob-abilistic Chain-of-Thought Completion Agent (COTCAgent ), a hierarchical reasoning framework for longitudinal electronic health records. It consists of three core modules. The Temporal-Statistics Adapter (TSA) converts analytical plans into executable code for standardized trend output. The Chain-of-Thought Completion (COTC) layer leverages a symptom–trend–disease knowledge base with weighted scoring to evaluate disease risk, while the bounded completion module acquires structured evidence through standardized inquiries and itera-tive scoring constraints to ensure rigorous reasoning. By decoupling statistical computation, feature matching and language generation, the framework elimi-nates reliance on complex multi-modal inputs and enables efficient longitudinal record analysis with lower computational overhead. Experimental results show that COTCAgent powered by Baichuan-M2 achieves 90.47% Top-1 accuracy on the self-built dataset and 70.41% on HealthBench, outperforming existing medical agents and mainstream large language models. The code is available at 
+
+https://github.com/FrankDengAI/COTCAgent/ .
+
+## 1 Introduction 
+
+Sequential diagnosis is a defining challenge of clinical medicine: physicians must fuse irregular labs, incomplete histories, and evolving hypotheses under uncertainty [ 1, 2]. Language models are increasingly used for public-health surveillance, multimodal monitoring, physiological interpretation, and turn-taking workflows [ 3 –7]. Recent sequential-diagnostic benchmarks emphasize coordinated questioning [ 7], and interactive probing can surface context that static prompts omit while improving user trust when deployed responsibly [ 8, 9]. The open problem is not merely “more tokens,” but whether model outputs remain tethered to verifiable computations on the underlying time series. Historically, medical LLMs were evaluated on templated intakes or multiple-choice items that rarely mirror chart review [ 10 – 12 ]. Long-context advances change what fits in context [ 13 ], yet they do not, by themselves, guarantee faithful numeric reasoning. Tool-augmented and multi-agent stacks partially 
+
+> Preprint.
+> arXiv:2605.15016v1 [cs.CL] 14 May 2026
+
+address this by delegating arithmetic, retrieval, and orchestration to external modules [ 14 –18 ]. Even so, longitudinal agents still risk hallucinated trend statements and rationales that are hard to audit post hoc [ 5 ]. We ask how to obtain ranked differential hypotheses while preserving an inspectable trail from raw series to predicates, energies, and any follow-up questions. In this paper, we propose Probabilistic Chain-of-Thought Completion Agent(COTCAgent) 
+
+(Section 3, Algorithm 1) to answer the question with three coupled layers. Temporal-Statistics Adapter(TSA) maps natural-language requests to compact statistical plans and executable code, emitting typed trend predicates (slopes, change points, residuals) instead of prose-only numerics. 
+
+COTC matches symptoms and predicates against a Symptom–Trend–Disease knowledge base, forms IDF-weighted Gibbs energies, and softmax-normalizes them into a transparent ranking surrogate— distinct from fully calibrated probabilistic graphical models when population priors are absent [ 19 ]. 
+
+Completion enumerates high-priority knowledge gaps, renders concise clarification questions, parses user replies back into discrete evidence, and re-scores with the same energy until mass, entropy, or round caps bind. We deliberately trade some conversational generality for traceability across code paths, knowledge base (KB) rows, and dialog turns. Our main contributions can be summarized as: 1. Systems integration: A traceable pipeline coupling executable trend statistics (TSA), structured knowledge-base scoring (COTC), and bounded multi-turn completion for longitudinal consultation (Algorithm 1). 2. Applied reasoning mechanism: IDF-weighted Gibbs energies with dual thresholds ( T , θ), softmax ranking, and entropy-guided gap priority (Eq. 7), emphasizing interpretability over generative-path enumeration. 3. Empirical characterization: Controlled ablations, knowledge-base sensitivity analysis, and multi-backbone benchmarks (TimeCAP/Google/DirPred/KARE, frontier readers, o4-mini, Qwen3-Next-80B-A3B) under shared decoding, with round-by-round accuracy attribution (Table 3 and Appendix H). 
+
+## 2 Related Work 
+
+The healthcare LLM literature evolved from narrowly structured SOAP-style prompts [ 10 ] toward dy-namic temporal modeling that better mirrors unstructured, longitudinal chart data [ 12 ]. Long-context positional encodings, token-compression hacks, and subquadratic sequence models reviewed by [ 13 ]provide the representational scaffolding. Contemporaneous longitudinal EHR studies—notably [ 2]— quantify how context length interacts with clinically salient quirks (duplicate carry-forward diagnoses, irregular inter-event spacing, increasing label difficulty over the life-course). Translating represen-tation capacity into bedside utility still requires tooling. Retrieval-oriented agent benchmarks [ 14 ]stress KB-mediated planning loops. Tool-augmented mathematical agents [ 15 ] harden numeric reasoning. Course-style tool curricula [ 17 ] further temper brittle hand prompts. Communicative multi-agent stacks [ 16 ] widen orchestration primitives, and large-scale API mastery training [ 18 ]expands the action surface available at decode time. Cooperative sequential diagnostics [ 7] crystallize multi-turn medical play atop these layers. Chronic gaps persist around faithful numeric computation, hallucination containment, personalization under shift, and auditable rationales bridging raw series to conversational updates [5]—motivating our explicitly layered stack. Symbolic structure offers a complementary remedy. Surveys [ 20 ] unify neuro-symbolic hybrids for biomedical KG pathways. Parameter-efficient bridges such as BioBRIDGE [ 21 ] connect foundation models to curated graphs. Constraint-aware parsers like NSSC [ 22 ] tighten entity linking under oncology noise. TrustKG-style templates [ 23 ] foreground clinician-facing integration. Broader taxonomy and limitations of neural-symbolic reasoning are synthesized by [ 24 ]. Reward-guided KG exploration is also emerging [ 25 ], stressing that brittle supervision can degrade transfer even when intermediate path judgments look strong—an argument for deterministic scoring layers atop transparent predicates, as pursued here. Probabilistic graphical models provide principled semantics for symptom dependencies when priors exist [ 19 ]. Surveys of biomedical KG–language-model hybrids [ 20 ] catalog how symbolic structure is wired into LMs. Community-retrieval predictors exemplify operational graph widening for ranking [ 26 ]. COTCAgent targets settings where calibrated priors are missing but longitudinal trend narratives abound: lightweight energy scores steer hypothesis ranking, missing evidence is 2Questions ：How was my 
+
+> physical condition in the
+> first half of the year?
+
+TSA Module COTC Module 
+
+Time series EMR 
+
+… 
+
+> Sep. Nov. Jan.
+
+EMR 
+
+integration                        
+
+> 1.Identify conceptual variables
+> 2.Convert data into Time Series
+> format
+> 3.Identify and address issues of
+> missing and insufficient data
+> 4.Apply appropriate statistical
+> tests based on user intent
+
+Systematic 
+
+analysis plan 
+
+Code 
+
+generation 
+
+and analysis  
+
+> def analyze(df, query):
+> # 1. Identify conceptual variables
+> vars = get_vars(query, df.columns)
+> # 2. Transform data
+> data = df[df[vars['time']] > cutoff]
+> dropna(subset=vars['key ’])
+> merge(rel_df, on=vars['id ’])
+> groupby(vars['cat']).mean()
+> # 3. Address missing
+> if len(data) < min_size :
+> return { “err ”:“Insufficient data ”}…
+
+Proactive 
+
+consultation 
+
+Complete 
+
+COT 
+
+？
+
+？
+
+Indicator 
+
+Tren d
+
+Summary 
+
+Potential 
+
+disease risk 
+
+warning 
+
+Symptom /Trend -
+
+Disease Database                                                                                       
+
+> 1. Blood creatinine (Scr )increased from
+> 65 μmol/L to 185 μmol/L (CKD 3
+> phase)
+> 2. Urea nitrogen (BUN) increased from 5.8
+> to 10 .2mmol/L
+> 3. Urinary protein increased from 0.12 to
+> 0.8g/24 h(positive for sexual activity)
+> 4. Hemoglobin Hb 125 decreased by
+> 102 g/L
+> 5. Uric acid 380 increased to 450 μmol/L
+> Based on the changes in your blood
+> creatinine, urine protein, hemoglobin
+> and other indicators over the past six
+> months, you may have chronic kidney
+> disease .
+> In addition, after chatting with you ,
+> we learned that your slight increase in
+> uric acid is due to sleeping late and is
+> not related to this underlying disease .
+
+COTCAgent 
+
+Difficulty 
+
+classification Figure 1: Overall architecture of COTCAgent: TSA produces trend predicates from longitudinal signals; COTC scores diseases and drives targeted completion. enumerated as explicit KB gaps, and short user answers fill those gaps before softmax re-normalization rather than exhaustive path finding across the entire ontology. 
+
+## 3 COTCAgent 
+
+3.1 Structural Overview 
+
+COTCAgent is a longitudinal consultation stack scoped to trend-based disease risk prediction and differential diagnosis given longitudinal labs, vitals, and symptoms. It does not handle medication safety, prognosis estimation, or preventive care scheduling. The TSA module turns irregular EHR series into short trend narratives; the COTC module matches those cues against a Symptom–Trend– Disease KB covering 9,948 diseases primarily in internal medicine (cardiovascular, respiratory, metabolic, infectious, and neurological conditions). When ranking remains ambiguous, the system asks one focused clarification and re-scores—it is not a free-form chatbot. Figure 1 sketches the flow. 
+
+Architectural invariants. We deliberately isolate three stochastic surfaces: (i) Executable stats 
+
+consume raw series (t, y t) under explicit likelihoods so slope and breakpoint claims are regressions, not free-text guesses; (ii) Discrete matching consumes only predicates that survive tokenization (Severe →severe-trend proposition, anchored windows from TSA outputs); (iii) Natural language is confined to paraphrasing pre-specified gaps and parsing short answers back into those predicates. This separation is what makes failures legible—when M throws, the downstream COTC layer receives an explicit uncertainty flag instead of hallucinated numeric claims, and when the KB misses, Algorithm 1 exits through the low-coverage branch rather than fabricating edges. 
+
+3.2 TSA Module 
+
+The TSA block parses a clinical question, builds a small analytic plan, and emits code for the relevant estimators. Concretely, the transformation from natural language to executable analysis follows a structured decomposition: 
+
+M : Q → Φ → Λ → C (1) where Q is the original query, Φ represents the parsed semantic structure capturing the clinical intent, 
+
+Λ denotes the selected formal statistical model, and C constitutes the generated executable script. This mapping is query-dependent rather than universal. For trend-related requests, the module typically instantiates mixed-effects models to capture population-level patterns while accounting for individual variation: 
+
+yij = β0 + β1tij + ui + ϵij , ui ∼ N (0 , σ 2
+
+u), ϵij ∼ N (0 , σ 2
+
+ϵ ) (2) where yij represents the j-th measurement of a biomarker for patient i at time tij , β1 captures the population-level trend slope, and ui models individual random effects. Meanwhile, queries 3concerning abrupt changes route to Bayesian change-point detection: 
+
+P (τ | y) ∝ P (y | τ )P (τ ) = 
+
+h τY
+
+> t=1
+
+f1(yt)
+
+ih TY 
+
+> t=τ+1
+
+f2(yt)
+
+i
+
+P (τ ), τ ∈ { 1, . . . , T − 1} (3) where τ denotes the candidate change-point index and (f1, f 2) represent the pre- and post-change likelihood models, enabling quantitative assessment of temporal discontinuities in clinical trajectories. Labs are aligned to a common timeline; missing draws use K=5 Rubin-style stacks before fitting. Panels with many analytes project through Z = WT Y when diagnostics call for dimension reduc-tion; optional GP heads report posterior mean ¯f∗=kT 
+
+> ∗
+
+(K+σ2
+
+> n
+
+I)−1y (Appendix A). Slopes, residuals, anomaly flags, and cohort contrasts are summarized into short phrases compatible with Eq. 5 (Fig-ure 1). Anomaly detection uses population-level z-scoring against age/sex-matched cohort statistics from the KB ( |z| > 2.5 threshold), not personalized baselines. Other estimators in Appendix A follow the same interface. The mapping M does not instantiate every model in Appendix A for every query. Instead, a lightweight router (rules over parsed intent Φ plus an LLM-based planner with JSON schema fallbacks) chooses a small subset of standard tools—e.g., mixed-effects trend tests for “stable slope” queries, structural change heuristics for “sudden worsening,” or robust smoothers when data are sparse. Failed fits automatically downgrade to simpler diagnostics and flag uncertainty in the TSA narrative so COTC never receives overconfident trend claims. Full routing pseudocode and failure modes are documented in Appendix E. 
+
+Typed summaries as a contract. Each TSA artifact is a tuple (span , estimand , value , qual ) where 
+
+estimand is drawn from a finite schema (slope, change-point posterior mass, smooth trend residual, cohort z-score). Downgrades append UNSTABLE /SPARSE flags so the energy model in Eq. 5 can down-weight predicates or route them to “soft” ϕ channels. This is a lightweight instance of probabilistic numerics thinking: the LM planner proposes which estimand to run, but the returned object is always the output of a named routine with documented failure modes, which blocks a common failure mode of “LLM says p=0.03” without a likelihood. 
+
+3.3 COTC module 3.3.1 Symptom/Trend-Disease Database 
+
+Scarce public longitudinal EHR with gold labels motivated a Symptom–Trend–Disease knowledge base(KB) compiled from public medical text (Medscape/WebMD, NICE/CDC-linked guidelines, PubMed abstracts, patient education). Ingest de-identifies records and excludes MIMIC; LLMs only 
+
+propose tuples or rephrase relations, never evaluation text. Ten percent of diseases (and dependent edges) are held out for checks; clinicians review those tuples plus 5% random samples (Table 7, Appendix D). The KB lists 23,456 entities (9,948 diseases; 8,673 symptoms; 4,835 trends). Sixteen clinicians ran a three-phase edge protocol (blinded ratings, κ< 0.6 adjudication, temporal plausibility), yielding aggregate κ=0 .87 and 94% of augmented pairs passing rules plus sign-off. Source tallies, rubric, and augmentation model IDs are in Appendix D. Edges carry coarse temporal qualifiers; typical rows link ∼15 symptoms and 3–8 trends (see Ap-pendix I for KB statistics visualization). The LLM (GPT-4o) is prompted with structured templates to suggest symptom-disease edges, then proposals are filtered through three rule-based constraints: (i) anatomical consistency, (ii) temporal plausibility, (iii) severity bounds. PII is stripped before LLM calls; augmentation is versioned without recycling evaluation prompts. When no KB frame matches TSA tokens, COTC falls back with a low-KB-coverage flag (Algorithm 1). The COTC module is shown in Figure 2. 
+
+3.3.2 Calculation of Symptom-Specific Weight 
+
+In clinical reasoning, the diagnostic value of symptoms varies dramatically based on their epidemio-logical specificity. Common presentations such as fever or fatigue appear across numerous disease entities and therefore possess limited discriminative power for differential diagnosis. Conversely, rare pathognomonic indicators—such as Koplik's spots for measles or specific electrocardiographic 4COT Complete Module             
+
+> Blood
+> creatinie
+> Urea
+> nitroge
+> Hemoglobin
+> Urinary
+> protein
+> Uric
+> acid lymphocyte
+> Cholesterol
+> ？
+> ？
+> ？
+> Step3: Reverse inquiry for
+> non -corresponding symptoms
+> Risk -symptom (RS) Matching
+> Degree Calculation
+> Risk3 (55%)
+> Risk1 (95%)
+> Risk2 (72%)
+> Symptom /Trend -
+> Disease Database
+> D3D1
+> D2:Disease
+> : Symptom
+> Step2 :Search for the
+> complete thought chain
+> of the disease
+> Step4 :Search for
+> the second highest
+> risk, if not matched
+> Indicator Tren d
+> Summary
+> Step1:
+> Calculate RS
+
+Figure 2: COTC module wiring: TSA narratives and structured cues feed the KB matcher, producing ranked diagnoses, explicit gaps, and optional follow-up turns (Algorithm 1). patterns—provide strong diagnostic evidence when present. This fundamental principle of clinical medicine mirrors the information-theoretic concept of inverse frequency weighting in information retrieval. To quantitatively encode this clinical intuition within our knowledge-based framework, we adapt the Inverse Document Frequency (IDF) concept from information retrieval to the medical domain, introducing Inverse Disease Frequency (IDF) weighting for symptoms. This weighting scheme operates solely on the binary disease-symptom relationships encoded in our knowledge base, requiring no additional population prevalence data or continuous likelihood models that are often unavailable for rare conditions. Formally, the IDF weight for symptom sj is defined as: 
+
+wIDF  
+
+> j
+
+= log 
+
+ |D| + 1 
+
+|{ di ∈ D : sj ∈ Sdi }| + 1 
+
+
+
+(4) where |D| counts diseases in the knowledge base and the denominator counts those with sj ∈ Sdi ;the +1 offsets mirror Laplace smoothing and avoid undefined logs at zero counts. This logarith-mic formulation assigns monotonically higher weights to symptoms appearing in fewer diseases, thereby capturing their increased discriminative power for narrowing the differential diagnosis. The logarithmic scaling serves dual purposes: it ensures numerical stability when symptoms range from ubiquitous to extremely rare, and it maintains interpretable relative differences between weight magnitudes across the symptom spectrum. 
+
+IDF as a discriminative sufficient statistic (KB-only). When population prevalences and continuous likelihoods for symptoms are unavailable, wIDF  
+
+> j
+
+plays the role of a surrogate log-odds weight : it rewards findings that shrink the active disease set quickly, analogously to BM25’s inverse document frequency in retrieval. Pairing log wIDF  
+
+> j
+
+with log ϕ in Eq. 5 mirrors a log-linear expert system in which each positive finding contributes additively on the log scale; every such term is auditable 
+
+back to a KB row, unlike latent chain-of-thought chains. We emphasize this is still not a generative symptom model, co-occurrence beyond ϕ is intentionally under-modeled, but it gives a principled reason for why rare pattern matches should move mass faster than “fever” hits. This design prioritizes interpretability over expressiveness: IDF ignores symptom interdependencies, demographic context, and test reliability factors that would require richer data or expert-elicited dependencies. 
+
+3.3.3 Calculation of disease-weighted matching score 
+
+Given evidence Sp (symptoms and TSA predicates), we score each candidate disease di with an additive Gibbs energy Ri; without population prevalence we do not claim a calibrated clinical posterior and instead softmax-normalize over the active candidate set (cf. [ 19 ]. 1 Positive terms 
+
+> 1Implicit uniform support prior can bias toward rare diseases when patterns are ambiguous.
+
+5Algorithm 1 Probabilistic CoT completion with targeted questions 
+
+Require: KB K, TSA summary t, evidence Sp, thresholds θ, T , max rounds Rmax  
+
+> 1:
+
+Initialize CoT log L ← ∅  
+
+> 2:
+
+for r = 1 to Rmax do  
+
+> 3:
+
+Compute {Ri}, { ˜P (di | Sp)} with Eqs. 5–6; filter Ri < T  
+
+> 4:
+
+if max i ˜P (di | Sp) ≥ θ or H below band then  
+
+> 5:
+
+return ranked diseases, L 
+
+> 6:
+
+end if  
+
+> 7:
+
+U ← TOP GAPS (K, S p, t ) ▷ Eq. 7; arity-capped gaps  
+
+> 8:
+
+if U = ∅ then  
+
+> 9:
+
+return ranked diseases, L 
+
+> 10:
+
+end if  
+
+> 11:
+
+q ← RENDER QUESTION (U) ▷ template + constrained LLM paraphrase  
+
+> 12:
+
+a ← USER TURN (q); Sp ← Sp ∪ PARSE (a); L ← L ∪ { (q, a )} 
+
+> 13:
+
+end for  
+
+> 14:
+
+return best-effort ranking, L (mark uncertainty if max i ˜P (di | Sp) < θ )add log wIDF  
+
+> j
+
++ log ϕ(sj , d i) for sj ∈ Sdi ∩ Sp with clinician-set ϕ ∈ [0 .5, 1] ; missing symptoms contribute log(1 − γw IDF  
+
+> j
+
+), γ ∈ [0 , 1] . Energy gate T precedes softmax; mass gate θ and entropy H
+
+follow it; low H means a peaked ˜P (H is diagnostic, not calibrated uncertainty). 
+
+Ri = X  
+
+> sj∈(Sdi∩Sp)
+
+ log wIDF  
+
+> j
+
++ log ϕ(sj , d i) + X  
+
+> sj∈(Sdi\Sp)
+
+ log(1 − γ · wIDF  
+
+> j
+
+) , (5) 
+
+˜P (di | Sp) = exp( Ri)
+
+P 
+
+> ℓ
+
+exp( Rℓ) . (6) Among top-k survivors Dk, missing slots g receive mass-weighted priority (entropy proxy; TOP GAPS 
+
+is arity-capped): 
+
+H = −
+
+> N
+
+X
+
+> i=1
+
+˜P (di | Sp) log ˜P (di | Sp), π(g) = X
+
+> di∈D k
+
+˜P (di | Sp) · 1{g ∈ req (di) \ Sp} · ψ(g, d i).
+
+(7) with req (di) the requirement set and ψ up-weighting pathognomonic or TSA-aligned predicates. 
+
+3.3.4 Probabilistic CoT completion and consultation loop 
+
+CoT completion instantiates the above priorities: TOP GAPS implements Eq. 7, RENDER QUESTION 
+
+fills slots with template-anchored language, and PARSE maps answers into discrete evidence so the same Ri objective is applied after every turn. Stopping fires when (i) max i ˜P (di | Sp) ≥ θ, (ii) H
+
+drops below a validation-estimated band tied to τH , (iii) Rmax binds, or (iv) U = ∅. If no KB frame aligns with TSA tokens, the loop exits with an explicit low-coverage flag. Appendix C walks through patient_0077 . Figure 2 sketches how TSA summaries, matcher outputs, and the dialog steps connect. Offline, we precompute wIDF  
+
+> j
+
+for all symptoms (Eq. 4). Online, for each patient Sp we compute Ri
+
+(Eq. 5), convert to ˜P (Eq. 6), filter by Ri ≥ T with T ≈0.3, sort, and pass survivors into Algorithm 1. 
+
+Algorithm–equation correspondence. Algorithm 1 operationalizes the scoring framework defined in §3.3. Line 4 computes disease energies Ri via Eq. 5 (summation over IDF-weighted symptom matches and penalty terms), then applies Eq. 6 to obtain normalized pseudo-posteriors ˜P (di | Sp).The filter Ri < T implements the energy gate; Line 5’s threshold max i ˜P (di | Sp) ≥ θ is the mass gate. Line 8 invokes Eq. 7 to prioritize missing slots by their expected information gain. All hyperparameters ( T, θ, τ H , R max , γ ) are fixed at validation-time and remain constant across experiments. 6Table 1: Longitudinal medical record benchmark (mean±std over five runs). Boldface marks the best mean in each metric row.                                                   
+
+> Method Reader / Mode Accuracy (%) F1-Score (%) Top-2 Acc. (%) Disease Recall (%)
+> TimeCAP GPT-4o 78.31±1.84 74.18±2.07 83.06±1.71 69.43±2.24 Google agt. GPT-4o 80.47±1.62 76.84±1.91 85.19±1.58 72.08±2.13 KARE GPT-4o 83.76±1.41 80.05±1.67 89.43±1.27 83.24±1.86
+> DirPred GPT-4o 88.27±1.73 85.06±2.13 83.98±1.64 70.87±2.16 Gemini 2.5 Pro single-pass 86.08±1.39 82.71±1.74 88.61±1.31 79.31±1.97 Claude 3.7 Sonnet single-pass 86.94±1.28 83.55±1.58 89.38±1.18 80.16±1.81 o4-mini + tools OpenAI 87.51±1.19 84.12±1.49 89.82±1.14 80.74±1.73 Qwen3-Next-80B-A3B single-pass 85.14±1.56 81.87±1.81 87.51±1.42 77.62±2.04
+> COTCAgent (Ours) Baichuan-M2 90.47±1.04 86.74±1.36 92.18±1.07 82.91±1.67
+
+## 4 Experiments and analysis 
+
+This section jointly reports benchmarks, mechanistic interpretations, ablations, and takeaways relative to Sections 3–4 of the manuscript (TSA predicates, Gibbs energies, softmax ranking, Algorithm 1). We focus on patterns that recur across setups rather than overstating isolated point estimates. 
+
+4.1 Main results Benchmarks and data sources. Longitudinal risk uses synthesized vignettes on cleared public catalogs (Appendix D). Conversational suites follow MedQA’s exam protocol [ 27 ], HealthBench rubrics [ 28 ] (12 themes, aggregate accuracy), DiSCQ discharge queries [ 29 ], and Time-MMD multimodal temporal tests [ 30 ]. All tasks are top-k disease prediction (not NLG scoring); prompts and caps are matched across backbones (Appendix F.2). 
+
+Baselines. TimeCAP [ 31 ] contextualizes trajectories in text but omits programmatic trend–KB fusion. Google’s public recipe chains tools without our IDF-weighted KB or gap-to-question routing. KARE [ 26 ] adds graph-community retrieval without TSA code branches. DirPred [ 32 ] clusters temporal risks without interactive questioning. Decoding parity is in Appendix F.2. 
+
+4.1.1 Medical record risk prediction 
+
+Table 1 tests programmatic TSA predicates plus KB scoring (Appendix E), not trivia MCQA: log wIDF 
+
+and ϕ in Eq. 5 curb invented slopes versus prompt-only stacks. 
+
+Accuracy and trade-offs. COTCAgent leads accuracy/F1/top-2 (90 .47% /86 .74% /92 .18%) ; top-2 beats DirPred (92 .18% vs. 83 .98%) despite DirPred’s strong top-1 (88 .27%) —DirPred lacks explicit symptom/trend predicates, so mass thins after energy gate T (Eq. 6). KARE leads recall (83 .24%) ;we reach 82 .91% with better top-1. Frontier readers and o4-mini match on accuracy but lag tail metrics where typed evidence helps. Agent stacks (TimeCAP–DirPred) still trail strongest readers and o4-mini on tail-heavy metrics absent typed trends plus an IDF-regularized Gibbs layer; CIs narrow slightly when structure is fixed. Paired tests (5 runs) favor COTCAgent over KARE ( p=0 .04 ) and DirPred ( p< 0.01 ) longitudinally; HealthBench deltas are smaller with overlapping CIs. 
+
+4.1.2 Conversational risk prediction 
+
+We compare COTCAgent against established agentic pipelines under unified prompts (Appendix F.2). The softmax construction (Eqs. 5–6) is intentionally interpretable ranking machinery: conversa-tional turns inflate Sp with parsed slots, reshaping masses without spawning free-form rationales disconnected from KB rows. Across these suites, open-ended tracks remain harder than static MedQA because each turn intertwines lexical ambiguity with longitudinal consistency checks. Baichuan-M2 + COTCAgent reaches 70 .41% 
+
+on HealthBench (+9.8 vs. TimeCAP, +7.5 vs. Google agents, +8.7 vs. DirPred, +0.8 vs. KARE, +2.2 vs. vendor tool loop; see Appendix G for complete results). The same architectural lift appears on GPT-4o, Gemini 2.5 Pro, and Claude 3.7 Sonnet, while Qwen3-Next-80B-A3B shows smaller 7absolute deltas—consistent with the intuition that weaker planners emit noisier TSA narratives whose predicates fail to ignite high-weight edges in Eq. 5. 
+
+Interpretation versus KARE. KARE closes most of the HealthBench gap by aggressive graph widening; our stack instead sharpens softmax peaks when predicates match held-out conversational cues. Narrow wins over KARE should therefore not be read as dominance of ontology coverage—they arise where structured trends and KB gaps coincide. These improvements do not certify clinically helpful dialogue; they only certify automatic scoring under shared decoding. Qwen3-Next    
+
+> 80B-A3B GPT-4o Gemini
+> 2.5 Pro Claude
+> 3.7 Sonnet
+> Baichuan-M2
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Accuracy (\%)
+
+(a) MedQA accuracy       
+
+> TimeCAP KARE API tools COTCAgent
+> Qwen3-Next
+> 80B-A3B GPT-4o Gemini
+> 2.5 Pro Claude
+> 3.7 Sonnet
+> Baichuan-M2
+> 0
+> 20
+> 40
+> 60
+> 80
+> Accuracy (\%)
+
+(b) HealthBench accuracy    
+
+> TimeCAP KARE API tools COTCAgent
+
+Figure 3: Conversational suites under matched decoding: MedQA and HealthBench accuracy (mean ±std) across five backbones. See Table 8 for Google/DirPred rows and for Time-MMD / DiSCQ columns. Figure 3 summarizes the conversational suite results across five backbones. COTCAgent consistently outperforms baseline agentic pipelines on MedQA and HealthBench, with the largest gains observed on Baichuan-M2. The structured trend predicates and IDF-weighted KB matching prove particularly effective for HealthBench’s consumer-health rubrics, where longitudinal consistency checks are critical. GPT-4o and Claude 3.7 Sonnet show similar relative lifts, while Qwen3-Next-80B-A3B exhibits smaller absolute deltas—consistent with weaker planners emitting noisier TSA narratives that fail to ignite high-weight edges in Eq. 5. Complete numeric results across all four benchmarks are provided in Table 8 of Appendix G. 
+
+4.2 Ablations, representation probes, and discussion Controlled ablations and KB sensitivity. We isolate modules on the longitudinal benchmark aligned with Table 1 . Rows sweep Qwen3-Next-80B-A3B, GPT-4o, Gemini 2.5 Pro, Claude 3.7 Sonnet, and Baichuan-M2 across: backbone only; backbone + TSA-generated narratives appended to prompts; backbone + frozen COTC scoring without regenerated TSA code each turn; full COTCAgent (Algorithm 1). We ablate the Symptom–Trend–Disease KB on the same longitudinal benchmark (Baichuan-M2). Table 2 retains 25–100% of edges (prevalence-stratified subsampling). Accuracy drops 4.8 points at 50% edges and 11.3 at 25% (90.47% →85.67%/79.17%): the stack still lifts under sparsity, but full coverage peaks performance. A “clinician-only” KB reaches 87.31%, so augmentation helps without being the sole driver. Evaluation text never enters KB construction (Appendix D); source lists and isolation safeguards are in Appendix J. Table 4: TSA-only adds +0.9–1.6 pts (trend text widens prompts, weak disease grounding); COTC-only adds +3.5–3.8 pts once IDF energies engage. Full Baichuan-M2 gains +12.1 pts over backbone vs. +9.9/+9.9/+10.0 on GPT-4o/Gemini/Claude—we attribute the gap to richer TSA predicates (3.2 vs. 2.4), earlier 32k saturation, and higher parse fidelity (91% vs. 84–87%). 
+
+Round-by-round attribution and representation probes. To isolate the contribution of multi-turn gap filling from the initial static ranking, we measured top-1 accuracy after each consultation round on the longitudinal benchmark (Baichuan-M2). Table 3 shows that roughly 70% of the total interactive gain accrues from the first question alone, demonstrating that targeted follow-up provides measurable benefit even under tight turn limits. We monitor three heuristic probes on frozen encoder states: clustering coherence among identical dis-ease strata, temporal smoothness across visit order, and semantic margin between disease prototypes 8Table 2: KB edge ablation (Baichuan-M2 longi-tudinal). Bold: full-KB baseline from Table 1. 
+
+KB subset Frac. Acc ∆
+
+Minimal (clin.-only) ∼35% 87.31 ±1.28 −3.16 25% sample 25% 79.17 ±1.74 −11.30 50% sample 50% 85.67 ±1.42 −4.80 75% sample 75% 88.94 ±1.15 −1.53 
+
+Full KB 100% 90.47 ±1.04 −
+
+Table 3: Round-by-round accuracy attribution (Baichuan-M2 on longitudinal benchmark). 
+
+Stage Acc (%) Gain Cum. 
+
+Round 0 (initial) 82.14 ±1.42 − −
+
+After Round 1 87.63 ±1.21 +5.49 65.9% After Round 2 89.51 ±1.12 +1.88 88.5% After Round 3 (full) 90.47 ±1.04 +0.96 100% 
+
+Table 4: Longitudinal ablation (Acc. %, F1). Bold: 
+
+best per backbone. 
+
+Model Mode Acc F1 
+
+Qwen3-Next-80B-A3B LM 71.73±1.86 0.698±0.021 +TSA 72.58±1.74 0.706±0.019 +COTC 75.19±1.63 0.732±0.017 Full 76.84±1.51 0.751±0.016 
+
+GPT-4o LM 78.86±1.24 0.769±0.014 +TSA 80.19±1.13 0.781±0.013 +COTC 82.44±1.04 0.803±0.012 Full 88.76±0.93 0.848±0.011 
+
+Gemini 2.5 Pro LM 79.42±1.21 0.781±0.014 +TSA 80.97±1.12 0.793±0.013 +COTC 83.08±1.03 0.812±0.012 Full 89.36±0.91 0.857±0.011 
+
+Claude 3.7 Sonnet LM 79.08±1.23 0.778±0.014 +TSA 80.64±1.14 0.790±0.013 +COTC 82.87±1.04 0.809±0.012 Full 89.04±0.92 0.851±0.011 
+
+Baichuan-M2 LM 78.36±1.21 0.766±0.014 +TSA 79.71±1.11 0.779±0.013 +COTC 81.94±1.02 0.801±0.012 
+
+Baichuan-M2 Full 90.47±1.04 0.869±0.018 
+
+(Figure 4). TSA raises temporal coherence (0.817 vs. 0.583 baseline) by injecting phase-aligned structure before the LM’s mixer blurs chronological cues. Adding COTC increases semantic separa-tion (0.864) via sparse KB constraints that warp the softmax manifold. Full COTCAgent peaks at 0.879 coherence, mirroring Tables 1–4: energy re-weighting tightens clusters even when token logits remain diffuse. No Agent   
+
+> TSA only
+> COTC only
+> COTCAgent (full)
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Score
+> 0.64 0.67
+> 0.81 0.88
+
+Clustering Coherence  
+
+> No Agent
+> TSA only
+> COTC only
+> COTCAgent (full)
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Score
+> 0.59
+> 0.78 0.72
+> 0.85
+
+Temporal Consistency 
+
+> No Agent
+> TSA only
+> COTC only
+> COTCAgent (full)
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Score
+> 0.63
+> 0.69
+> 0.84
+> 0.91
+
+Semantic Discriminability 
+
+Figure 4: Representation probes for model variants (coherence, temporal smoothness, semantic margin). Tables 1–2 and the probes support a narrow claim: tiered code, energies, and short completions temper unstructured decoding drift [ 13 ], yet softmax stays a heuristic ranker with slim margins vs. KARE on HealthBench (Appendix G; Appendix D and Appendix F.2). 
+
+## 5 Conclusion 
+
+We propose COTCAgent, a probabilistic chain-of-thought completion stack that binds executable trend summaries, knowledge-base energies, and bounded completions so longitudinal hypotheses stay traceable under matched decoding. Empirical gains are strongest on ranking-style objectives and representation probes, not on calibrated clinical risk or consumer-style rubrics. Prevalence-aware modeling, tighter evidence governance at KB scale, clinician-facing checks on intermediate artifacts, and deployment studies of latency and failure modes remain the natural next steps. 9References 
+
+[1] S. Zhou, Z. Xu, M. Zhang, C. Xu, Y. Guo, Z. Zhan, and R. Zhang. Large language models for disease diagnosis: A scoping review. npj Artificial Intelligence , 1(1):9, 2025. [2] Michael Wornow, Suhana Bedi, Miguel Angel Fuentes Hernandez, Ethan Steinberg, Jason Alan Fries, Christopher Ré, Sanmi Koyejo, and Nigam H Shah. Context clues: Evaluating long context models for clinical prediction tasks on EHRs. arXiv preprint arXiv:2412.16178 , 2024. [3] X. Zhou, J. Zhou, C. Wang, Q. Xie, K. Ding, C. Mao, and Y. Luo. Ph-llm: Public health large language models for infoveillance. medRxiv , 2025. Preprint. [4] N. Chan, F. Parker, W. Bennett, T. Wu, M. Y. Jia, J. Fackler, and K. Ghobadi. Medtsllm: Leveraging llms for multimodal medical time series analysis. arXiv preprint arXiv:2408.07773 ,2024. [5] M. Feli, I. Azimi, P. Liljeberg, and A. M. Rahmani. An llm-powered agent for physiological data analysis: A case study on ppg-based heart rate estimation. arXiv preprint arXiv:2502.12836 ,2025. [6] T. Shaik, X. Tao, L. Li, H. Xie, H. N. Dai, F. Zhao, and J. Yong. Adaptive multi-agent deep reinforcement learning for timely healthcare interventions. arXiv preprint arXiv:2309.10980 ,2023. [7] H. Nori, M. Daswani, C. Kelly, S. Lundberg, M. T. Ribeiro, M. Wilson, and E. Horvitz. Sequential diagnosis with language models. arXiv preprint arXiv:2506.22405 , 2025. [8] Milad Mirbabaie, Stefan Stieglitz, and Nicholas RJ Frick. Artificial intelligence in disease diagnostics: A critical review and classification on the current state of research guiding future direction. Health and Technology , 11(4):693–731, 2021. [9] Eric J Topol. High-performance medicine: the convergence of human and artificial intelligence. 
+
+Nature Medicine , 25(1):44–56, 2019. [10] Karan Singhal, Tao Tu, Juraj Gottweis, Rory Sayres, Ellery Wulczyn, Mohamed Amin, Le Hou, Kevin Clark, Stephen R Pfohl, Heather Cole-Lewis, et al. Toward expert-level medical question answering with large language models. Nature Medicine , 31(3):943–950, 2025. [11] Daniel McDuff, Mohammad Norouzi, Scott Lundberg, Jianfeng Gao, Emre Kiciman, Saurabh Gombar, Karan Patel, Brian Lansdell, Chun Hwei Teo, Chunyuan Liao, et al. Capabilities of gemini models in medicine. Google Research , 2023. Preprint. [12] Andre Esteva, Alexandre Robicquet, Bharath Ramsundar, Volodymyr Kuleshov, Mark DePristo, Katherine Chou, Claire Cui, Greg Corrado, Sebastian Thrun, and Jeff Dean. A guide to deep learning in healthcare. Nature Medicine , 25(1):24–29, 2019. [13] Jiaheng Liu, Dawei Zhu, Zhiqi Bai, Yancheng He, Huanxuan Liao, Haoran Que, Zekun Wang, Chenchen Zhang, Ge Zhang, Jiebin Zhang, et al. A comprehensive survey on long context language modeling. arXiv preprint arXiv:2503.17407 , 2025. [14] Xiao Wang, Yifan Li, Ming Zhang, Yuxiao Zhang, Yuan Liu, Xiang Liu, and Rui Zhang. Agentbench: Evaluating llms as agents. arXiv preprint arXiv:2402.11588 , 2024. [15] Haipeng Luo, Huawen Feng, Qingfeng Sun, Can Xu, Kai Zheng, Yufei Wang, Tao Yang, Han Hu, Yansong Tang, and Di Wang. Agentmath: Empowering mathematical reasoning for large language models via tool-augmented agent. arXiv preprint arXiv:2512.20745 , 2025. [16] Chen Qian, Xin Cong, Cheng Yang, Weilin Chen, Juyoung Su, Jiayi Zhang, Yuxiao Zhang, Yuan Liu, and Yuan Li. Communicative agents for software development. arXiv preprint arXiv:2307.07924 , 2023. [17] Jack Albright and Sheden Andemicael. Improving llm mathematical reasoning capabilities using external tools, 2025. 10 [18] Yuxuan Liu, Tianyu Han, Jie Han, Yuan Li, Hao Zhang, Zhengyan Liu, Jiawei Liu, Xincan Liu, Zihan Liu, Xiao Liu, et al. Toolllm: Facilitating large language models to master 16000+ real-world apis. In International Conference on Learning Representations , 2024. [19] Daphne Koller and Nir Friedman. Probabilistic Graphical Models: Principles and Techniques .MIT Press, 2009. [20] Ran Xu, Patrick Jiang, Linhao Luo, Cao Xiao, Adam Cross, Shirui Pan, Jimeng Sun, and Carl Yang. A survey on unifying large language models and knowledge graphs for biomedicine and healthcare. In Proceedings of the 31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V. 2 , pages 6195–6205, 2025. [21] Zifeng Wang, Zichen Wang, Balasubramaniam Srinivasan, Vassilis N Ioannidis, Huzefa Rang-wala, and Rishita Anubhai. Biobridge: Bridging biomedical foundation models via knowledge graphs. arXiv preprint arXiv:2310.03320 , 2023. [22] Álvaro García-Barragán, Ahmad Sakor, Maria-Esther Vidal, Ernestina Menasalvas, Juan Cristo-bal Sanchez Gonzalez, Mariano Provencio, and Víctor Robles. Nssc: a neuro-symbolic ai system for enhancing accuracy of named entity recognition and linking from oncologic clinical notes. Medical & Biological Engineering & Computing , 63(3):749–772, 2025. [23] Maria-Esther Vidal, Yashrajsinh Chudasama, Hao Huang, Disha Purohit, and Maria Torrente. Integrating knowledge graphs with symbolic ai: The path to interpretable hybrid ai systems in medicine. Journal of Web Semantics , 84:100856, 2025. [24] Lauren Nicole DeLong, Ramon Fernández Mir, Zonglin Ji, Fiona Niamh Coulter Smith, and Jacques D Fleuriot. Neurosymbolic ai for reasoning on biomedical knowledge graphs. arXiv preprint arXiv:2307.08411 , 2023. [25] Saksham Khatwani, He Cheng, Majid Afshar, Dmitriy Dligach, and Yanjun Gao. Brittleness and promise: Knowledge graph based reward modeling for diagnostic reasoning. arXiv preprint arXiv:2509.18316 , 2025. [26] Pengcheng Jiang, Cao Xiao, Minhao Jiang, Parminder Bhatia, Taha Kass-Hout, Jimeng Sun, and Jiawei Han. Reasoning-enhanced healthcare predictions with knowledge graph community retrieval. arXiv preprint arXiv:2410.04585 , 2024. [27] Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Applied Sciences , 11(14):6421, 2021. [28] Rahul K Arora, Jason Wei, Rebecca Soskin Hicks, Preston Bowman, Joaquin Quiñonero-Candela, Foivos Tsimpourlas, Michael Sharman, Meghan Shah, Andrea Vallone, Alex Beutel, et al. Healthbench: Evaluating large language models towards improved human health. arXiv preprint arXiv:2505.08775 , 2025. [29] Eric Lehman. Learning to ask like a physician: a discharge summary clinical questions (discq) dataset. bioRxiv preprint , 2025. Dataset/draft as cited DiSCQ. [30] Haoxin Liu, Shangqing Xu, Zhiyuan Zhao, Lingkai Kong, Harshavardhan Prabhakar Kamarthi, Aditya Sasanur, Megha Sharma, Jiaming Cui, Qingsong Wen, Chao Zhang, et al. Time-mmd: Multi-domain multimodal dataset for time series analysis. Advances in Neural Information Processing Systems , 37:77888–77933, 2024. [31] G. Lee, W. Yu, K. Shin, W. Cheng, and H. Chen. Timecap: Learning to contextualize, augment, and predict time series events with large language model agents. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 18082–18090, April 2025. [32] Shuai Niu, Qing Yin, Jing Ma, Yunya Song, Yida Xu, Liang Bai, Wei Pan, and Xian Yang. En-hancing healthcare decision support through explainable ai models for risk prediction. Decision Support Systems , 181:114228, 2024. [33] Matthias Seeger. Gaussian processes for machine learning. International journal of neural systems , 14(02):69–106, 2004. 11 [34] Mike West and Jeff Harrison. Bayesian forecasting and dynamic models . Springer, 1997. [35] Teppei Shimamura, Seiya Imoto, Rui Yamaguchi, André Fujita, Masao Nagasaki, and Satoru Miyano. Recursive regularization for inferring gene networks from time-course gene expression profiles. BMC systems biology , 3(1):41, 2009. [36] Lloyd D Fisher and Danyu Y Lin. Time-dependent covariates in the cox proportional-hazards regression model. Annual review of public health , 20(1):145–157, 1999. [37] Ingrid Daubechies. Ten lectures on wavelets . SIAM, 1992. 12 Table 5: TSA toolbox by category ( candidate methods ; router picks a sparse subset per query following Appendix E). 
+
+Category Representative methods Typical intents 
+
+Statistical Test-ing Paired t-test; Repeated Measures ANOVA; Wilcoxon test; Bayesian change point detection Time point comparison; Variance analy-sis; Change detection Trend Analysis STL decomposition; Mixed effects models; Gaussian process regression; Bayesian structural time series Component separation; Individual varia-tion modeling; Probabilistic prediction Multivariate Analysis Vector Autoregression; Granger causality; Dynamic Time Warping; Canonical correlation analysis Dependency modeling; Predictive re-lationship testing; Sequence similarity measurement Survival Analy-sis Cox model; Joint models; Time-dependent ROC; Competing risks models Time-to-event modeling; Longitudinal data integration; Predictive accuracy evaluation Frequency Do-main Wavelet transform; Multifractal DFA; empirical mode decomposi-tion; Poincaré plot analysis Time-frequency analysis; correlation probes; nonlinear decomposition 
+
+Supplementary overview. A: Statistical models available to the planner (below). B: Longitudinal vignette excerpt for synthetic case patient_0077 . C: The same patient’s dialog trace aligned with Alg. 1 in the main text. D: KB governance details behind Table 7. E: Routing sketches complementary to Section 3 of the manuscript. F: Qualitative reasoning figure plus baseline prompting (Appendix F; main result tables in §4). G: Conversational-suite bar summary (Figure 3) plus full numeric table (Table 8). H–K: Round-by-round accuracy for all backbones, KB multiplicity radar, KB vs. evaluation isolation, and blinded clinician review of intermediate artifacts. 
+
+## A Appendix A: Mathematical analysis methods available to TSA 
+
+The planner follows the decomposition Q → Φ → Λ → C introduced with the TSA module in Section 3. Table 5 is only a categorical menu: only the bucket implied by parsed intent Φ plus Appendix E is invoked; we never cascade the entire column for a single biomarker streak. Subsequent subsections recap GP, Bayesian structural-time-series, penalized VAR, Cox time-dependent covariates, and wavelet tools referenced by the codebase when the planner selects those branches. 
+
+A.1 Gaussian Process Regression 
+
+f (x) ∼ GP (m(x), k (x, x′)) (8) where the mean function and covariance function are defined as: 
+
+m(x) = E[f (x)] (9) 
+
+k(x, x′) = E[( f (x) − m(x))( f (x′) − m(x′))] (10) For observed data D = {(xi, y i)}ni=1 with yi = f (xi) + ϵi, ϵi ∼ N (0 , σ 2
+
+> n
+
+), the posterior predictive distribution is: 
+
+f∗|X, y, x∗ ∼ N ( ¯f∗, V[f∗]) (11) 
+
+¯f∗ = kT 
+
+> ∗
+
+(K + σ2
+
+> n
+
+I)−1y (12) 
+
+V[f∗] = k(x∗, x∗) − kT 
+
+> ∗
+
+(K + σ2
+
+> n
+
+I)−1k∗ (13) where Kij = k(xi, xj ), k∗i = k(x∗, xi).13 Gaussian Process Regression [ 33 ] provides a flexible non-parametric Bayesian framework for mod-eling complex temporal patterns in medical data. This approach allows us to capture uncertainty in predictions naturally, which is crucial for clinical decision-making where risk assessment is paramount. The covariance function (kernel) encodes our assumptions about the function’s prop-erties, such as smoothness, periodicity, and trends. In medical applications, this enables modeling of physiological processes with varying temporal characteristics, from rapidly changing vital signs to slowly progressing chronic conditions. The Bayesian nature of GPs facilitates incorporation of prior knowledge and provides full posterior distributions rather than point estimates, supporting probabilistic clinical interpretations. 
+
+A.2 Bayesian Structural Time Series 
+
+The general formulation of Bayesian Structural Time Series models [ 34 ] incorporates multiple components: 
+
+yt = μt + τt + ωt + ϵt, ϵt ∼ N (0 , σ 2 
+
+> ϵ
+
+) (14) where μt represents the local level, τt the seasonal component, and ωt the regression component. The state evolution follows: 
+
+μt = μt−1 + δt−1 + ημ,t , ημ,t ∼ N (0 , σ 2
+
+> μ
+
+) (15) 
+
+δt = δt−1 + ηδ,t , ηδ,t ∼ N (0 , σ 2 
+
+> δ
+
+) (16) 
+
+τt = −
+
+> S−1
+
+X
+
+> j=1
+
+τt−j + ητ,t , ητ,t ∼ N (0 , σ 2 
+
+> τ
+
+) (17) The Bayesian approach assigns prior distributions to parameters: 
+
+σ2 
+
+> ϵ
+
+, σ 2
+
+> μ
+
+, σ 2 
+
+> δ
+
+, σ 2 
+
+> τ
+
+∼ Inverse-Gamma (α, β ) (18) Posterior inference is performed using Markov Chain Monte Carlo methods, enabling full uncertainty quantification. Bayesian Structural Time Series models provide a comprehensive framework for decomposing medical time series into interpretable components while rigorously quantifying uncertainty. This approach is particularly valuable for healthcare applications where understanding the contribution of different factors (trends, seasonality, interventions) is essential for clinical interpretation. The Bayesian formulation allows incorporation of domain knowledge through informative priors, which is especially useful when dealing with limited data or rare conditions. The model’s ability to generate probabilistic forecasts with credible intervals supports risk-stratified clinical decision making, while the structural components facilitate causal inference about interventions or disease progression. 
+
+A.3 Vector Autoregression with Regularization 
+
+The Vector Autoregression (VAR) model for multivariate medical time series [35] is formulated as: 
+
+yt = A1yt−1 + A2yt−2 + · · · + Apyt−p + ϵt, ϵt ∼ N (0, Σ) (19) where yt ∈ Rm represents multiple medical indicators at time t. To handle high-dimensional data and avoid overfitting, we employ regularized estimation: 
+
+ˆA = arg min 
+
+> A
+
+
+
+> T
+
+X
+
+> t=p+1
+
+∥yt −
+
+> p
+
+X
+
+> j=1
+
+Aj yt−j ∥22 + λ1
+
+> p
+
+X
+
+> j=1
+
+∥Aj ∥1 + λ2
+
+> p
+
+X
+
+> j=1
+
+∥Aj ∥2
+
+> F
+
+ (20) The combined L1 and L2 regularization (Elastic Net) promotes both sparsity and stability in parameter estimates. The covariance matrix Σ captures contemporaneous correlations among indicators. Vector Autoregression models extend univariate time series analysis to capture rich interdependencies among multiple medical indicators simultaneously. This multivariate approach is essential for healthcare applications where physiological systems exhibit complex feedback mechanisms and 14 compensatory pathways. The regularized estimation framework addresses the curse of dimensionality that arises when modeling numerous biomarkers, ensuring robust parameter estimates even with limited temporal observations. VAR models facilitate dynamic analysis through impulse response functions and forecast error variance decomposition, providing insights into how shocks to one biomarker propagate through the system and affect other indicators over time, which is invaluable for understanding disease pathophysiology and treatment effects. 
+
+A.4 Cox Proportional Hazards Model with Time-Dependent Covariates 
+
+The extended Cox model incorporating time-dependent covariates [36] is specified as: 
+
+λ(t|Z(t)) = λ0(t) exp 
+
+
+
+βT Z(t) + γT X
+
+
+
+(21) where Z(t) represents time-varying biomarkers and X denotes baseline covariates. The partial likelihood function for right-censored data is: 
+
+L(β, γ) = 
+
+> n
+
+Y
+
+> i=1
+
+ exp 
+
+
+
+βT Zi(ti) + γT Xi
+
+P 
+
+> j∈R(ti)
+
+exp 
+
+
+
+βT Zj (ti) + γT Xj
+
+
+
+> δi
+
+(22) Time-dependent predictive accuracy is assessed using cumulative/dynamic ROC curves: AUC (t) = Pr( Mi > M j |Ti = t, T j > t ) (23) where Mi represents the prognostic index for subject i.The Cox Proportional Hazards model with time-dependent covariates represents a powerful framework for dynamic risk prediction in longitudinal medical studies. This approach allows risk estimates to evolve as new biomarker measurements become available, reflecting the changing health status of patients over time. The partial likelihood estimation efficiently handles censored observations, which are ubiquitous in clinical follow-up data. The incorporation of both time-varying and fixed covariates enables comprehensive risk assessment that accounts for both dynamic processes and stable patient characteristics. Time-dependent ROC analysis provides measures of predictive accuracy that acknowledge the temporal nature of prognostic assessment, offering clinicians insight into how well biomarkers discriminate between outcomes at specific time horizons, which is crucial for staging interventions and monitoring disease progression. 
+
+A.5 Wavelet Transform Analysis 
+
+The continuous wavelet transform [37] of a medical time series x(t) is defined as: 
+
+Wx(a, b ) = 1
+
+p|a|
+
+Z ∞−∞ 
+
+x(t)ψ∗
+
+ t − ba
+
+
+
+dt (24) where ψ(t) is the mother wavelet, a is the scale parameter, and b is the translation parameter. For discrete medical measurements, we employ the discrete wavelet transform: 
+
+Wϕ(j0, k ) = 1
+
+√M
+
+X
+
+> t
+
+x(t)ϕj0,k (t) (25) 
+
+Wψ (j, k ) = 1
+
+√M
+
+X
+
+> t
+
+x(t)ψj,k (t), j ≥ j0 (26) The wavelet coefficients capture time-frequency localization: 
+
+x(t) = 1
+
+√M
+
+X
+
+> k
+
+Wϕ(j0, k )ϕj0,k (t) + 1
+
+√M
+
+> ∞
+
+X
+
+> j=j0
+
+X
+
+> k
+
+Wψ (j, k )ψj,k (t) (27) 15 Table 6: Basic sign severities for patient_0077 (synthetic vignette; not from MIMIC)                       
+
+> Symptom Name Symptom ID 2020 2021 2022 2023 2024
+> Normal Alpha-fetoprotein S595517_016 Mild (06-18) Severe (01-14) Critical (08-12) Severe (01-09) --Hematemesis S225349_017 Minor (11-06) Mild (10-02) Critical (07-29) --Muscle Pain S501538_013 -None (09-25) Minor (05-23) Extreme (06-16) Extreme (08-15) Critical (04-12) Limb Numb-ness S793050_018 -Moderate (12-03) Moderate (09-29) Critical (01-27) Minor (09-23) Mild (03-22) Moderate (04-21) Minor (09-18) Headache S376299_020 -Extreme (07-03) Extreme (10-31) Medium (01-29) None (08-27) Medium (07-22) Severe (02-17) None (09-15) Minor (11-14) Mild (12-14) Epistaxis S256542_016 Moderate (03-05) Moderate (09-01) None (03-30) Medium (02-23) Extreme (10-21) --
+
+Wavelet coherence between two signals x(t) and y(t) measures localized correlation: 
+
+Rxy (a, b ) = |S(a−1Wxy (a, b )) |2
+
+S(a−1|Wx(a, b )|2)S(a−1|Wy (a, b )|2) (28) Wavelet Transform Analysis provides a multiresolution framework for examining medical time series across different temporal scales simultaneously. This approach is particularly well-suited for physiological signals that exhibit non-stationary characteristics and contain information at multiple frequencies, from high-frequency oscillations to slow trends. The time-frequency localization capability allows identification of transient events and periodic patterns that may be associated with specific pathological states or treatment responses. Wavelet coherence analysis extends this to multivariate settings, revealing how relationships between different biomarkers evolve over time and across frequency bands, offering insights into regulatory mechanisms and compensatory pathways in physiological systems under various health conditions. 
+
+## B Appendix B: Temporal excerpt for synthetic case patient_0077 
+
+This synthetic longitudinal vignette is the raw evidence layout used by Appendix C and is not itself a benchmark split . Severity labels exemplify categorical trend channels that TSA summarizes before COTC matching; year columns denote representative events condensed from the vignette chronology (YYYY–MM ). 
+
+B.1 Basic signs timeline 
+
+Table 6 lists six hallmark symptoms tracked in the Basic Signs block. 16 B.2 Vitals-style quantitative streams 
+
+Synthetic streams used only for planner stress-testing (units omitted in this toy JSON export): • Epistaxis (BP/Glucose) (ID: S643823_018) Time Series: 2025-03-27 04:21:23, 2025-11-22 22:57:03, 2026-10-18 19:31:40, 2026-12-17 09:06:53 Severity: Extreme, Minor, Severe, Extreme • Chills (ID: I13432) Time Series: 2025-04-22 06:29:54, 2025-09-19 12:28:24, 2026-08-15 19:24:18, 2026-11-13 08:16:43, 2027-09-09 03:19:32, 2028-08-04 05:13:54, 2029-05-31 06:12:25, 2029-08-29 20:17:41, 2029-09-28 02:18:48 Measurement Values: 93.52, 62.73, 93.74, 26.85, 10.47, 66.25, 27.7, 54.59, 58.51 
+
+B.3 Lifestyle and counseling indicators 
+
+• Dysphagia (ID: I40646) Time Series: 2025-09-14 18:20:30, 2025-12-13 03:16:46, 2026-07-11 05:31:57, 2026-08-10 06:04:36, 2026-09-09 19:30:48, 2026-11-08 00:20:51 Measurement Values: 95.27, 79.86, 65.43, 28.64, 36.92, 10.24 • Jaundice (ID: I45555) Time Series: 2025-03-15 01:41:35, 2025-10-11 04:59:48, 2025-11-10 06:25:33, 2026-03-10 06:41:10, 2027-02-03 06:05:40, 2027-08-02 00:17:19, 2027-09-01 07:33:11, 2028-05-28 14:49:07 Measurement Values: 13.1, 79.27, 59.6, 62.76, 80.4, 91.37, 95.77, 29.71 
+
+B.4 Static patient attributes 
+
+Summary of gold labels bundled with the vignette (not inferred online by the LM): • Patient ID : patient_0077 • Confirmed Diseases :(a) Disease ID: D006229; Name: Mild Gouty Arthritis; Description: Detailed medical description of mild gouty arthritis (b) Disease ID: D007306; Name: Advanced Adrenal Cortical Insufficiency Damage; Description: Detailed medical description of advanced adrenal cortical insufficiency damage (c) Disease ID: D007862; Name: Severe Liver Cirrhosis; Description: Detailed medical descrip-tion of severe liver cirrhosis (d) Disease ID: D006392; Name: Recurrent Bacillary Dysentery Degeneration; Description: Detailed medical description of recurrent bacillary dysentery degeneration • Database-matched Symptoms (Symptom ID + Name): (a) S002797_004: Infertility (b) S000797_004: Rhinorrhea (c) S007163_012: Skin Rash (d) S004096_005: Muscle Spasm (e) S002613_011: Dysphagia (f) S006479_004: Tinnitus (g) S000027_001: Muscle Weakness • Database-matched Indicators (Indicator ID + Name): (a) I027623: Mild Increase in Neutrophil Percentage (b) I073173: Elevated Hydroxybutyrate Dehydrogenase (c) I053357: Normal LDL Cholesterol (d) I020660: Significant Decrease in Uric Acid • Total indicators : 12 (including streams above plus basic signs block) 17 C Appendix C: Worked consultation trace ( patient_0077 )
+
+This appendix instantiates Alg. 1 from the manuscript: gaps come from unresolved KB slots; R EN -
+
+> DER
+
+QUESTION emits the turns below; P ARSE maps answers back into discrete evidence increments for Eqs. 5–6. Numeric “probabilities” quoted in illustrative prompts/logs are shorthand ranks ; the released system consumes energy scores Ri and softmax ˜P exactly as defined in Section 3. The vignette covers 2025–2031 timestamps consistent with Appendix B. 
+
+C.1 Rendered dialog (truncated transcript) 
+
+Chief complaints: occasional hematemesis (six months) and worsening headache (one month). 
+
+Turn 1: Patient : I have occasional hematemesis (6 months) and worse headaches (1 month). Is this linked to my liver disease? 
+
+Turn 2: COTCAgent : Your AFP rose from "Severe" to "Critical" (Aug 2026) then fell to "Severe" (Jan 2027). Did you have abdominal pain, loss of appetite, or drink alcohol in mid-2026? 
+
+Turn 3: Patient : Severe abdominal pain (Jul 2026, no hospital). I drank half a catty of liquor daily then. 
+
+Turn 4: COTCAgent : Your headache was "Severe" (Feb 2029), "Medium" (Jun 2031), now worse. Any high blood pressure, blurred vision, or painkillers (e.g., ibuprofen) lately? 
+
+Turn 5: Patient : No blood pressure check, but occasional blurred vision. No painkillers—poor sleep, stay up late. 
+
+Turn 6: COTCAgent : Final questions: How often is hematemesis? Color? Any black stools? 
+
+Turn 7: Patient : 1x/month, dark red. No black stools, but weakness after. 
+
+Turn 8: COTCAgent : Thank you. Below is your risk analysis. 
+
+C.2 Backend module traces C.2.1 TSA (Time Series Analysis) 
+
+These snippets summarize the longitudinal signals forwarded to symptom/trend predicates (pipeline in Fig. 2 of the manuscript). 
+
+TSA planner prompt. 
+
+# TSA Module Task Role: Analyze patient_0077’s 2025--2031 records. Task: 1. Extract trends for AFP, Hematemesis, Headache: - Severity slope, sudden changes, abnormal duration. 2. Output: [Indicator, Time Window, Trend, Inflection Points]. Constraints: - "Critical" AFP = possible liver disease progression. - Single "None" for Headache $\approx$ resolved. 
+
+TSA narrative output. 
+
+=== Normal Alpha-fetoprotein === Window: 2025-06-18 to 2027-01-09 Trend: Upward (Progressive) | Slope: 0.001892 Inflections: [{’Time’: ’2026-08-12’, ’Prev’: ’Severe’, ’Curr’: ’Critical’, ’Change’: 1}, {’Time’: ’2027-01-09’, ’Prev’: ’Critical’, ’Curr’: ’Severe’, ’Change’: 1}] === Headache === 
+
+18 Window: 2026-07-03 to 2031-06-07 Trend: Downward (Improving) $\rightarrow$Recent Worsening | Slope: -0.000945 Inflections: [{’Time’: ’2029-02-17’, ’Prev’: ’Extreme’, ’Curr’: ’Severe’, ’Change’: 2}] === Hematemesis === Window: 2025-11-06 to 2027-07-29 Trend: Upward (Progressive) | Slope: 0.002108 Inflections: [{’Time’: ’2027-07-29’, ’Prev’: ’Mild’, ’Curr’: ’Critical’, ’Change’: 3}] 
+
+C.2.2 COTC matching (illustrative) Reminder: illustrative “Prob” traces are shorthand; production runs accumulate evidence in Eq. 5 and normalize with Eq. 6. 
+
+COTC planner prompt (illustrative). 
+
+# Probabilistic CoT Task Role: Rank disease risks for patient_0077. Input: 1. TSA trends: AFP up, Hematemesis progress, Headache worse. 2. Knowledge Base: - AFP Critical + Hematemesis Critical $\rightarrow$Liver Cirrhosis (0.85); - Headache worse + Blurred Vision $\rightarrow$Hypertensive Encephalopathy (0.6). Task: 1. Calculate probabilities (use prior diagnoses: Liver Cirrhosis, Gout). 2. Rank top 5 diseases + explain logic. 3. List gaps for consultation. Constraints: - High confidence requires corroborating trend matches. 
+
+Initial ranked hypotheses (illustrative). 
+
+=== Initial Risk Ranking (Top 5) === 1. Severe Liver Cirrhosis Exacerbation - Logic: AFP up (Critical) + Hematemesis up (Critical) + prior - Prob: 0.85 2. Hypertensive Encephalopathy - Logic: Headache worse + patient’s blurred vision - Prob: 0.60 3. Acute Gastric Hemorrhage - Logic: Hematemesis (suspected dark red) + unconfirmed alcohol - Prob: 0.45 4. Gouty Arthritis Flare-up - Logic: Prior Gout + no recent joint pain (gap) - Prob: 0.20 5. Migraine - Logic: Past "Extreme" headache + no aura (gap) - Prob: 0.15 === Gaps to Resolve === 1. AFP spike cause (mid-2026): Abdominal pain? Alcohol? 2. Headache: High BP? Painkillers? 
+
+19 3. Hematemesis: Frequency? Color? Black stools? 
+
+C.2.3 Gap-to-question mapping 
+
+These questions correspond to unresolved slots enumerated by T OP GAPS in Alg. 1. 
+
+Questions tied to structured gaps. 
+
+Q1: Q1 (AFP gap): "Did you have abdominal pain or drink alcohol in mid-2026?" Q2: Q2 (Headache gap): "Any high BP, blurred vision, or painkillers lately?" Q3: Q3 (Hematemesis gap): "Hematemesis frequency, color, and black stools?" 
+
+Updated ranking after user answers (illustrative). 
+
+=== Updated Risk Ranking === 1. Severe Liver Cirrhosis Exacerbation - New: + Alcohol (mid-2026) + abdominal pain (Jul 2026) - Prob: 0.85 $\rightarrow$0.92 2. Hypertensive Encephalopathy - New: + Confirmed blurred vision + poor sleep (BP risk) - Prob: 0.60 $\rightarrow$0.75 3. Acute Gastric Hemorrhage - New: + Dark red hematemesis (monthly) + alcohol (gastric irritant) - Prob: 0.45 $\rightarrow$0.55 4. Gouty Arthritis Flare-up - New: - No joint pain reported - Prob: 0.20 $\rightarrow$0.10 5. Migraine - New: - No aura + blurred vision = BP link - Prob: 0.15 $\rightarrow$0.05 
+
+C.2.4 Narrative wrap-up Clinician-facing summary. 
+
+=== Final Risk Prediction (patient_0077) === 1. High Risk: Severe Liver Cirrhosis Exacerbation - Basis: AFP up (Critical, Aug 2026); hematemesis (dark red, monthly); alcohol trigger + abdominal pain (Jul 2026); prior diagnosis. 2. Medium Risk: Hypertensive Encephalopathy - Basis: Headache worse; blurred vision; poor sleep (BP risk); no painkillers (rules out drug cause). 3. Low Risk: Acute Gastric Hemorrhage - Basis: Dark red hematemesis (monthly); alcohol irritation; no black stools (no massive hemorrhage). 
+
+Step-by-step audit trail. 
+
+=== Complete Chain-of-Thought === Step 1: TSA $\rightarrow$Extract 3 trends: 
+
+20 Table 7: KB governance checklist (abbreviated).                  
+
+> Stage Protocol detail Source ingestion Public medical portals + guideline digests + PubMed excerpts + patient edu pages; PHI scrubbing + quasi-ID generalization Entity hold-out 10% of diseases (and dependents) withheld from augmentation train-ing prompts; reviewers focus on impacted tuples Augmentation LLM proposes edges; nightly diff reviewed by two clinicians; dis-puted edges postponed to Phase II Clinician labeling Phase I (200 sampled edges, κ), Phase II adjudication for κ < 0.6,Phase III temporal plausibility walkthroughs Scoring/decoding Matches main experiments (§4): risk gate T=0 .3, consultation threshold θ=0 .9,Rmax =6 , entropy cutoff τHat validation 20 th
+> percentile, greedy decoding Evaluation firewall HealthBench/MedQA/Time-MMD/DiSCQ prompts never fed into augmentation jobs; codebase-level hook logs model IDs/seeds
+
+- AFP: Upward (Critical, 2026); - Hematemesis: Upward (Critical, 2027); - Headache: Downward long-term, now worse. Step 2: Initial Match $\rightarrow$Link to diseases: - Liver Cirrhosis (0.85, prior + 2 trends); - Hypertensive Encephalopathy (0.60, 1 trend + complaint). Step 3: Find Gaps $\rightarrow$3 unresolved: AFP cause, headache symptoms, hematemesis details. Step 4: Consult $\rightarrow$Resolve gaps: - AFP: Alcohol + abdominal pain; - Headache: Blurred vision + no painkillers; - Hematemesis: Dark red, monthly, no black stools. Step 5: Update Prob $\rightarrow$Refine ranks: - Liver Cirrhosis (0.92), Hypertensive Encephalopathy (0.75); - Drop low-prob diseases (Gout, Migraine). Step 6: Predict $\rightarrow$Output risks with clear basis. 
+
+## D Appendix D: KB construction, validation, and leakage controls 
+
+Table 7 summarizes how we mitigated synthetic-data leakage and documented clinician oversight; it also records the scorer hyperparameters reused in Alg. 1 so governance and reproducibility notices stay aligned. Augmentation models (commercial instruction-tuned checkpoints in our builds) propose 
+
+candidate tuples only—edges enter the KB only after automated contradiction scans, held-out adjudication, and manual spot checks. Public evaluation corpora from §4 never feed the augmentation prompts. 
+
+## E Appendix E: TSA routing sketches 
+
+The router parses TSA intents into {trend-test, change-point, smooth, compare-to-norm} buckets. The listing below sketches the selection order; planners fall back progressively if optimisation fails (lmer timeouts → piecewise Mann–Kendall → simple slope). 
+
+intent = Parse(Q) if "abrupt"/"breakpoint" in intent: run Bayesian CP search (fast grid) elif "population norm" in intent: join cohort summaries; run z-test on slopes 
+
+21 Figure 5: Qualitative comparison of staged tool use + structured completion ( COTCAgent ) versus one-shot generation with a frontier API reader (GPT-4o class) on matched prompts. 
+
+elif "smooth trajectory": default to penalized spline / GP lite else: mixed-effects trend with AR(1) residual if n>6 else Theil-Sen if fit fails twice: downgrade + attach uncertainty flag for COTC 
+
+## F Appendix F: Qualitative contrast and baseline prompt parity 
+
+This appendix isolates material that supports the tabulated comparisons in the main paper but would clutter §4: a qualitative visualization of tool-assisted reasoning versus single-pass generation, followed by the exact prompt shell shared by baselines. 
+
+F.1 Illustrative reasoning depth (not a quantitative metric) 
+
+Figure 5 sketches how a frontier single-pass API reader (GPT-4o class) behaves as a monolithic assistant on the same synthetic vignette family, whereas COTCAgent stages TSA summaries, KB matching, and gap filling. The figure is for intuition only; headline numbers come from §4. 22 F.2 Baseline model prompt configuration and QA protocol 
+
+Baselines receive the same system role, context assembly, and decoding knobs as COTCAgent except 
+
+for the missing TSA code generation, Symptom–Trend–Disease scoring, and consultation loop in Alg. 1. That architectural gap is intentional: it isolates the lift attributable to structured temporal narratives plus energy-based matching. 
+
+Prompt shell (all backbones). 
+
+• System role: “You are a clinical diagnostic assistant that analyzes patient symptoms and medical indicators to identify potential diseases.” • Task block: Request either top-k diseases with confidence masses or the multiple-choice letter, depending on the benchmark converter. • Context block: Demographics, symptom list, labs, and (when provided) trend blurbs copied verbatim from the dataset loader so no model sees a longer history than another. • Decoder: Temperature 0, shared max tokens, identical stop sequences; API versions are frozen per release (hashes in the code drop). 
+
+QA-style diagnostic prompt (conversational suites). 
+
+Based on the following clinical case, return the top-3 diseases with nonnegative confidences that sum to 1.0. Cite symptoms or labs that motivate each line. Patient case: [INSERT CASE JSON / TEXT FROM LOADER] Answer format: 1. Disease: p=0.__ - one-sentence justification 2. Disease: p=0.__ - ... 3. Disease: p=0.__ - ... 
+
+Fairness checklist (aligned with §4 and the decoding defaults above). 
+
+1. Identical templates per backbone; no ad-hoc chain-of-thought hints for competitors. 2. Contexts truncated/padded to the same token budget before scoring. 3. Parser extracts the first three probability lines; malformed outputs count as errors equally for every method. 4. Random seeds, API endpoints, and batching policies are logged alongside the KB hashes in Appendix D. 
+
+## G Appendix G: Full conversational-suite table 
+
+Figure 3 plots MedQA and HealthBench accuracy (mean ±std over five rerolls) across the five backbones for each agent recipe; Google and DirPred rows are omitted from the bar layout but appear numerically in Table 8. Table 8 reproduces the complete MedQA / HealthBench / Time-MMD / DiSCQ splits (mean ±std) for all six agent recipes per backbone. Boldface marks the best mean in each numeric column within a backbone block (ties broken by lower reported std). Both panels are exported from scripts/plot_conversational_benchmark.py .
+
+## H Appendix H: Round-by-round accuracy breakdown for all backbones 
+
+Table 9 extends Table 3 in the main text to all five backbones, showing top-1 accuracy after each consultation round on the longitudinal benchmark. The pattern observed for Baichuan-M2—where the first question contributes the majority of interactive gain—generalizes across models, though absolute gains vary with backbone capability. GPT-4o and Claude 3.7 Sonnet show smaller marginal returns from later rounds (diminishing gains after Round 1), consistent with their stronger initial rankings. 23 Table 8: Medical reasoning suites (full table; mean ±std). 
+
+MedQA HealthBench Time-MMD DiSCQ Backbone Method ACC F1 ACC F1 ACC F1 ACC F1 
+
+Qwen3-Next-80B-A3B TimeCAP 69.37±1.83 0.681±0.019 53.96±2.17 0.517±0.021 73.21±1.64 0.718±0.012 95.58±0.81 0.948±0.011 Google's 71.28±1.74 0.697±0.018 55.41±2.08 0.536±0.020 74.89±1.47 0.736±0.013 96.24±0.69 0.961±0.010 KARE 72.14±0.58 0.708±0.020 56.07±3.72 0.541±0.108 76.41±1.79 0.758±0.012 96.47±0.53 0.968±0.018 DirPred 70.62±1.67 0.691±0.019 54.88±1.93 0.528±0.019 74.06±1.51 0.727±0.011 95.97±0.74 0.957±0.011 API tools 71.53±1.61 0.703±0.018 55.74±1.87 0.534±0.020 75.52±1.39 0.748±0.012 96.61±0.58 0.967±0.011 COTCAgent 74.06±1.48 0.719±0.016 58.63±1.76 0.566±0.018 77.54±1.38 0.763±0.011 97.09±0.47 0.971±0.010 
+
+GPT-4o TimeCAP 75.71±1.48 0.736±0.013 59.38±1.81 0.579±0.019 79.64±1.31 0.779±0.012 96.96±0.57 0.969±0.011 Google's 77.59±1.37 0.758±0.012 61.08±1.65 0.598±0.018 81.22±1.19 0.799±0.011 97.58±0.48 0.977±0.010 KARE 78.76±1.19 0.768±0.013 61.94±1.48 0.607±0.017 82.54±1.06 0.808±0.010 97.76±0.31 0.979±0.009 DirPred 77.08±1.41 0.748±0.013 60.42±1.68 0.587±0.018 80.91±1.17 0.788±0.011 97.36±0.52 0.972±0.010 API tools 78.29±1.28 0.766±0.012 63.41±1.59 0.618±0.017 82.07±1.08 0.806±0.010 97.84±0.39 0.979±0.009 COTCAgent 81.14±1.17 0.799±0.011 68.43±1.46 0.668±0.017 84.52±0.88 0.828±0.010 98.18±0.28 0.982±0.009 
+
+Gemini 2.5 Pro TimeCAP 76.04±1.52 0.747±0.013 59.71±1.79 0.583±0.019 80.08±1.29 0.786±0.012 97.06±0.58 0.971±0.010 Google's 78.16±1.35 0.769±0.012 61.44±1.63 0.602±0.018 81.74±1.16 0.806±0.011 97.68±0.46 0.978±0.010 KARE 79.28±1.18 0.779±0.013 62.31±1.46 0.612±0.017 82.97±1.03 0.816±0.010 97.87±0.29 0.980±0.009 DirPred 77.51±1.39 0.758±0.013 60.71±1.66 0.592±0.018 81.29±1.15 0.796±0.011 97.46±0.51 0.973±0.010 API tools 78.84±1.26 0.781±0.012 63.87±1.58 0.627±0.017 82.73±1.07 0.817±0.010 97.92±0.36 0.980±0.009 COTCAgent 81.76±1.16 0.802±0.011 68.81±1.44 0.678±0.017 84.97±0.87 0.837±0.010 98.26±0.27 0.983±0.009 
+
+Claude 3.7 Sonnet TimeCAP 75.98±1.49 0.746±0.013 59.52±1.80 0.581±0.019 79.89±1.30 0.784±0.012 96.94±0.59 0.970±0.010 Google's 77.73±1.38 0.761±0.012 61.22±1.64 0.600±0.018 81.51±1.17 0.804±0.011 97.57±0.49 0.977±0.010 KARE 78.96±1.17 0.775±0.013 62.18±1.47 0.609±0.017 82.71±1.05 0.814±0.010 97.79±0.30 0.979±0.009 DirPred 77.36±1.40 0.756±0.013 60.54±1.67 0.590±0.018 81.06±1.16 0.794±0.011 97.38±0.53 0.972±0.010 API tools 78.51±1.27 0.774±0.012 63.76±1.57 0.625±0.017 82.48±1.06 0.815±0.010 97.88±0.37 0.979±0.009 COTCAgent 81.48±1.15 0.801±0.011 68.59±1.45 0.674±0.017 84.76±0.88 0.831±0.010 98.14±0.28 0.982±0.009 
+
+Baichuan-M2 TimeCAP 79.38±1.19 0.777±0.013 60.58±1.52 0.586±0.019 81.64±1.03 0.796±0.011 97.07±0.41 0.969±0.010 Google's 81.66±1.08 0.797±0.012 62.87±1.41 0.606±0.018 83.42±0.91 0.816±0.010 97.86±0.31 0.978±0.009 KARE 82.84±0.91 0.817±0.011 69.58±1.18 0.668±0.017 85.06±0.71 0.829±0.010 97.68±0.23 0.973±0.010 DirPred 80.76±1.09 0.788±0.012 61.76±1.39 0.597±0.018 82.81±0.88 0.808±0.010 97.47±0.32 0.979±0.009 API tools 82.33±1.02 0.806±0.012 68.19±1.26 0.658±0.017 84.71±0.77 0.826±0.010 97.76±0.24 0.981±0.009 COTCAgent 83.76±0.97 0.829±0.011 70.41±1.27 0.687±0.019 85.33±0.76 0.839±0.010 98.37±0.21 0.982±0.009 
+
+Qwen3-Next-80B-A3B exhibits the flattest gain curve, suggesting that weaker TSA narratives limit the effectiveness of subsequent gap filling. Table 9: Round-by-round accuracy (%) across all backbones on longitudinal benchmark. R0=initial ranking; R1–R3=after 1–3 questions. 
+
+Model R0 R1 R2 R3 Total gain R1 share 
+
+Qwen3-Next-80B-A3B 71.73 74.12 75.89 76.84 +5.11 47.0% GPT-4o 78.86 85.24 87.91 88.76 +9.90 64.4% Gemini 2.5 Pro 79.42 85.63 88.07 89.36 +9.94 62.5% Claude 3.7 Sonnet 79.08 85.41 87.82 89.04 +9.96 63.6% Baichuan-M2 82.14 87.63 89.51 90.47 +8.33 65.9% 
+
+## I Appendix I: Knowledge base statistics 
+
+Figure 6 visualizes the multiplicity distribution in the Symptom–Trend–Disease KB. Typical rows link approximately 15 symptoms and 3–8 trends per disease, with coverage spanning cardiovascular, respiratory, metabolic, infectious, and neurological conditions. 
+
+## J Appendix J: Knowledge base sources and evaluation isolation 
+
+Table 10 lists all sources used to construct the Symptom–Trend–Disease knowledge base alongside the evaluation benchmarks used in this study. To prevent circular evaluation, we enforce strict source separation: KB construction draws only from established medical references, while evaluation uses held-out benchmark suites. No evaluation prompt or gold-standard answer appears in KB sources. 24 Figure 6: Radar view of multiplicity in the Symptom–Trend–Disease KB (symptoms, trends, and diseases per entity class). 25 Table 10: Knowledge base sources vs. evaluation benchmarks. No overlap permitted between KB construction sources and evaluation data.              
+
+> KB Construction Sources Evaluation Benchmarks (Held-out)
+> Medscape clinical articles HealthBench consumer-health rubrics WebMD patient education MedQA USMLE exam questions NICE/CDC clinical guidelines DiSCQ discharge-summary queries PubMed abstracts (medical texts) Time-MMD multimodal temporal tests Medical textbooks (Harrison’s, etc.) Longitudinal synthetic vignettes
+> Process safeguards:
+> •LLMs only propose/rephrase KB tuples; never exposed to evaluation text
+> •Version-locked augmentation prevents cross-contamination
+> •16-clinician review with κ= 0 .87 inter-rater agreement
+> •10% disease holdout for leakage detection
+
+## K Appendix K: Human expert evaluation of intermediate reasoning 
+
+To assess the clinical plausibility of COTCAgent’s intermediate outputs, we conducted a blinded review with 16 board-certified physicians (internal medicine and family practice). The study was approved as a quality improvement protocol by the institutional review board. 
+
+Evaluation design. Reviewers assessed three intermediate artifacts without knowing the model source: (i) TSA-generated trend narratives (N=200), (ii) Top-3 disease rankings with gap explanations (N=150), (iii) Selected follow-up questions (N=150). Each item was rated on 3-point scales for clinical reasonableness (1=unreasonable, 2=acceptable, 3=excellent) and information completeness. 
+
+Results. Expert agreement rates for COTCAgent outputs: TSA narratives 87% rated acceptable or excellent (mean score 2.41 ±0.52); disease rankings 82% acceptable or better (2.33 ±0.61); follow-up question selection 79% acceptable or better (2.28 ±0.58). Inter-rater reliability was moderate (κ = 0 .64 ). Common critiques included occasional over-specificity in trend extrapolation and preference for broader differential coverage in early rounds. 
+
+Limitations. This evaluation assessed reasonableness, not diagnostic accuracy against ground truth. Expert panels were time-constrained; full chart-review validation is future work. 26

@@ -1,0 +1,1622 @@
+Title: DeepTumorVQA: A Hierarchical 3D CT Benchmark for Stage-Wise Evaluation of Medical VLMs and Tool-Augmented Agents
+
+URL Source: https://arxiv.org/pdf/2605.09679v1
+
+Published Time: Tue, 12 May 2026 01:46:13 GMT
+
+Number of Pages: 52
+
+Markdown Content:
+# DeepTumorVQA: A Hierarchical 3D CT Benchmark for Stage-Wise Evaluation of Medical VLMs and Tool-Augmented Agents 
+
+Yixiong Chen 1, Wenjie Xiao 1, Pedro R. A. S. Bassi 1,2,4, Boyan Wang 5, Liang He 6,Xinze Zhou 1, Sezgin Er 3, Ibrahim Ethem Hamamci 3, Zongwei Zhou 1, Alan Yuille 11Johns Hopkins University 2University of Bologna 3Istanbul Medipol University 
+
+> 4
+
+Center for Biomolecular Nanotechnologies, Istituto Italiano di Tecnologia 
+
+> 5
+
+The First Affiliated Hospital, Sun Yat-Sen University 6Tongji University 
+
+ayuille1@jhu.edu 
+
+Abstract 
+
+Medical vision-language models (VLMs) and AI agents have made significant progress in learning how to analyze and reason about clinical images. However, existing medical visual question answering (VQA) benchmarks collapse their capabilities into a single accuracy score, obscuring where and why models fail. We propose DeepTumorVQA, a hierarchical benchmark that follows the multi-stage evidence chain in tumor diagnosis and decomposes 3D CT reasoning into four stages: recognition, measurement, visual reasoning, and medical reasoning. Higher-level questions remain independently scorable, while their ground-truth evidence chains are defined over lower-level primitives. The benchmark is instantiated as 476K questions across 42 clinical subtypes on 9,262 3D CT volumes. In addition to a direct reasoning mode for VLMs, DeepTumorVQA provides tool-interaction environments for agent evaluation, where a model can call external tools, including segmentation models, measurement programs, and medical knowledge modules. Models can answer the question after observing tool outputs. Evaluating over 30+ model configurations, we find that reliable quantitative measurement is the primary bottleneck, making tasks at later stages (visual reasoning, and medical reasoning) even harder for VLMs, while tool augmentation substantially mitigates this issue. When tools are available for VLMs, how to leverage medical knowledge and tools to reason about medical images becomes a new challenge. We further show that ground-truth step-by-step tool-use traces from DeepTumorVQA can supervise agents and reduce tool-use and reasoning failures. This stage-wise progression from recognition to measurement to visual and medical reasoning provides a concrete roadmap for future medical VLM and AI agent studies. All data and code are released at github.com/Schuture/DeepTumorVQA. 
+
+1 Introduction 
+
+Medical vision-language models (VLMs) have progressed from 2D image understanding [ 37 , 60 ] to 3D volumetric reasoning [ 55 , 7, 12 , 23 ], and more recently to tool-augmented AI agents that invoke segmentation, measurement, and knowledge tools for diagnostic reasoning [ 14 , 18 , 9]. This evolution has spurred evaluation benchmarks for both paradigms [27, 49, 52]. However, existing benchmarks remain fragmented (Table 1): they cover different parts of the evaluation problem rather than a unified diagnostic protocol. More importantly, most benchmarks still reduce medical image understanding to a single end-task score. This makes it difficult to determine whether a model fails because it cannot recognize a lesion, cannot measure quantitative evidence, 
+
+> Preprint.
+> arXiv:2605.09679v1 [cs.CV] 10 May 2026
+
+Table 1: Comparison with concurrent medical AI benchmarks. Comp. = compositionally decomposed questions. DeepTumorVQA comprises 476K questions (428K train / 48K test). The benchmark evaluation uses a balanced subset of 10,000 questions from the test set, stratified across 42 subtypes. 
+
+Benchmark Train Bench 2D-view 3D-volume Explicit reasoning Agent Compositional 
+
+VQA Benchmarks 
+
+VQA-RAD [34] 3.1K 451 ✓
+
+PMC-VQA [60] 150K 2K ✓
+
+OmniMedVQA [27] – 128K ✓ ✓
+
+MedSG-Bench [58] 188K 9.6K ✓ ✓
+
+3D-RAD [52] 136K 3.7K ✓ ✓
+
+Agent Benchmarks 
+
+MedAgentBench [49] – 300 ✓ ✓
+
+AgentClinic [48] – 200 ✓ ✓
+
+MedChain [19] – 12K ✓ ✓
+
+ChestAgentBench [18] – 2.5K ✓ ✓
+
+DeepTumorVQA (Ours) 428K 10K ✓ ✓ ✓ ✓ ✓Organ Volume Measurement  
+
+> What is the volume of the left kidney?
+> A: 109.9 B: 156.6 C: 211.9 D: 173.6
+
+Organ HU Value Measurement  
+
+> What is the mean HU value of the spleen?
+> A: 131.1 B: 124.7 C: 117.5 D: 104.5
+
+Lesion Volume Measurement 
+
+> What is the total liver lesion volume?
+> A: 16.5 B: 19.4 C: 28.9 D: 14.1
+
+Colon Lesion Recognition  
+
+> Does the colon have any lesion?
+> A: No B: Yes
+
+Kidney Cyst Recognition  
+
+> Is there at least one cysts in the kidney?
+> A: Yes B: No
+
+Fatty Liver 
+
+> Based on the liver-to-spleen HU ratio, is there
+> fatty metamorphosis of the liver?
+> A: Yes B: No
+
+Lesion Type Classification 
+
+> Identify whether the largest kidney lesion is a cyst or tumor.
+> A: Cyst B: Tumor
+
+Pancreatic Tumor Staging  
+
+> How is the pancreatic tumor staged (T1-T4)?
+> A: T2 B: T1 C: T4 D: T3
+
+Pancreatic Cyst Resectability 
+
+> Should we proceed with surgical resection for the largest pancreatic cyst?
+> A: No B: Yes
+> Measurement  Recognition
+> Medical Reasoning
+
+Lesion Counting  
+
+> How many liver lesion instances?
+> A: 62 B: 32 C: 25 D: 19
+
+Volume Comparison   
+
+> Pick the kidney that is bigger in size:
+> A: left kidney B: right kidney C: the same
+
+Adjacent Organs  
+
+> Which anatomical structure borders the largest lesion in the kidney?
+> A: duodenum B: intestine C: stomach D: spleen
+
+Inter-segment Comparison  
+
+> Evaluate lesion distribution between segments 2 and 5.
+> A: Segment 2 has more lesions B: Segment 5 has more lesions C: Both segments have the same number of lesions
+> Visual Reasoning
+
+Figure 1: Overview of the DeepTumorVQA benchmark. The benchmark covers four diagnostic task types with 42 clinical subtypes, supports both 2D/3D inputs and both direct inference/agent reasoning, and evaluates along multiple dimensions including accuracy, latency, and agent trajectory quality. cannot combine multiple visual findings, or cannot apply clinical knowledge. It also hides shortcut behavior: a model may answer a high-level diagnostic question correctly from dataset bias or language priors without grounding its answer in the required low-level visual evidence. We present DeepTumorVQA (Figure 1), a 3D CT diagnostic benchmark with 476K questions across 42 clinical subtypes . Its core design is a four-level hierarchy organized by clinical evidence granularity: Recognition tests atomic visual entities such as organs and lesions; Measurement tests quantitative properties such as organ volume and HU values; Visual Reasoning composes these primitives across anatomy and spatial relations; and Medical Reasoning combines the composed evidence with clinical knowledge and guideline-like rules. By evaluating both final answers and their prerequisite evidence, DeepTumorVQA can distinguish grounded reasoning from high-level answers that may arise from shortcuts or language priors. The benchmark supports 2D slices, 3D volumes, and video inputs. It also provides three controlled agentic evaluation modes, where models call external evidence-producing tools such as segmentation models, measurement programs, and medical knowledge modules. These modes vary evidence availability and quality, allowing us to separate failures caused by visual perception, tool reliability, and final reasoning (Section 3.3). Benchmarking over 30 model configurations, DeepTumorVQA reveals a stage-wise error landscape that is hidden by aggregate accuracy. Across zero-shot VLM backbones, errors increase sharply from atomic recognition to quantitative measurement, indicating that reliable estimation of organ and lesion properties is a major bottleneck in our 3D CT diagnostic tasks. This bottleneck then propagates to 2visual and medical reasoning, where many failures can be traced to missing or incorrect quantitative evidence rather than to the final reasoning step alone. Tool augmentation improves access to this evidence, but it also exposes a different failure mode: models must select the right tool, sequence tool calls, interpret outputs, and combine them with medical knowledge. Thus, DeepTumorVQA does not only rank models; it explains why models with similar overall accuracy fail differently. We further show that step-by-step tool-use traces from DeepTumorVQA can supervise agents and reduce both tool-use and reasoning errors. Our contributions are three-fold. First, we introduce DeepTumorVQA, a 3D CT benchmark with 476K questions, 42 clinical subtypes, and 9,262 CT volumes, organized as a four-level clinical evidence hierarchy from recognition to measurement, visual reasoning, and medical reasoning. Second, we provide a unified evaluation protocol for direct VLM inference and tool-augmented agents, including 2D, 3D, and video input formats, three controlled agent environments, and open-source evaluation infrastructure. Third, we benchmark over 30 model configurations and identify reliable quantitative measurement as a major bottleneck in 3D CT VQA, while showing how tool availability and trace supervision change the failure modes of medical VLMs and agents. 
+
+2 Related Work 
+
+Medical Vision-Language Models. Medical VLMs have evolved along three tracks. 3D specialists 
+
+primarily differ in how they encode volumetric input: RadFM [ 55 ] tokenizes 3D patches through a perceiver-based architecture trained on 16M image-text pairs; M3D-LaMed [ 7] applies a 3D vision transformer over 120K CT-text pairs; Merlin [ 12 ] adopts a ResNet-based 3D encoder; CT-CHAT [ 23 ]extends this line to full 3D CT report generation. 2D VLMs are adapted via finetuning (LLaVA-Med [ 37 ], HuatuoGPT-Vision [ 13 ], MedGemma [ 56 ]) or applied zero-shot (Qwen3-VL [ 8], Qwen3.5, InternVL3 [ 15 ], LLaVA-OneVision [ 36 ]). Frontier model APIs (Gemini-3, GPT-5.4) offer strong reasoning but lack systematic 3D CT evaluation. Despite rapid progress, no unified evaluation compares all three categories on identical 3D diagnostic tasks; DeepTumorVQA fills this gap. 
+
+Medical AI Agents. Medical AI agents span multi-agent and tool-augmented paradigms. MDA-gents [ 31 ] adaptively assembles specialist LLMs for clinical decision-making; MedAgentSim [ 4]simulates patient-doctor interactions for agent training. On the tool-augmented side, Meissa [ 14 ]distills agent trajectories from frontier models; MedRAX [ 18 ] coordinates eight tools for chest X-ray interpretation; RadGPT [ 9 ] uses tool-assisted annotation for 3D datasets; MMedAgent [ 35 ] learns multi-modal tool selection; Jiang et al. [29] incentivize tool-augmented thinking for medical image analysis. Most recently, CT-Agent [ 43 ] introduces anatomically independent tools with dual-path token compression for 3D CT question answering. Despite this progress, few existing work provides systematic 3D agent benchmarking with tool ablations that isolate individual capability stages. 
+
+Medical VQA Benchmarks. Existing medical VQA benchmarks each leave a critical dimension untested (Table 1). VQA-RAD [ 34 ] and PMC-VQA [ 60 ] test 2D recognition; OmniMedVQA [ 27 ]scales to broad coverage but lacks agent evaluation; 3D-RAD [ 52 ] adds 3D but not tool-augmented reasoning; CT-Bench [ 61 ] benchmarks multimodal lesion understanding but focuses on lesion-level tasks; 3DLAND [ 1] provides large-scale 3D lesion annotations but targets detection rather than diagnostic VQA; MedSG-Bench [ 58 ] evaluates sequential grounding but not quantitative evidence. On the agent side, MedAgentBench [ 49 ] tests EHR agents in text-only settings; AgentClinic [ 48 ]simulates dialogues without volumetric data; MedChain [ 19 ] benchmarks clinical workflows but cannot isolate whether quantitative evidence is the bottleneck. Most prior medical VQA benchmarks score end-task accuracy. DeepTumorVQA instead provides intervention-based attribution, diagnosing 
+
+why models fail and at which stage. By providing ground-truth tool traces, controlled ablations, and multiple agent modes, it enables pinpointing bottlenecks rather than just ranking models. 
+
+3 DeepTumorVQA Benchmark 
+
+3.1 Compositional Question Design 
+
+The central design principle is compositional decomposition: complex medical reasoning is broken into testable atomic capabilities, inspired by hierarchical benchmarks like CLEVR [ 30 ], CLEVR-3Spleen HU 
+
+> Liver HU
+> Organ/Lesion masks Reports
+> Extract Metadata
+> Parse Findings
+
+Organs:     
+
+> •Location
+> •Volume
+> •HU Value/Std
+> •Enlargement
+
+Lesions:            
+
+> •Type
+> •Location
+> •Volume
+> •Size
+> •Diameter
+> •HU Value/Std
+> •Adjacent organs
+> •Vascular Involvement
+> •Image Slices
+> Find liver
+> Find spleen
+> HU ratio HU threshold
+> Question templates
+> Based on CT attenuation values, is there signs of fatty liver disease?
+> Count lesion in segment 1
+> Find liver Count lesion in segment 2
+> Count lesion in segment 8
+
+…
+
+> Lesion distribution logic
+> Question templates
+> How are the liver lesions distributed across hepatic segments?
+> Liver lesions
+
+(A)  (B) 
+
+> Visual Reasoning -
+> Liver lesion clustering
+> Med Reasoning -
+> Fatty Liver
+
+Figure 2: Compositional question design. (A) Structured metadata extracted from segmentation masks and radiology reports. (B) Modular logic programs generate questions across four types and 42 subtypes. Each medical reasoning subtype is composed from recognition and measurement primitives, with clinical literature grounding. Ref+ [ 39 ], and Super-CLEVR [ 38 ] but grounded in clinical workflows (we discuss the compositional benchmarks in Appendix d). Each Medical Reasoning question chains lower-level Recognition and Measurement primitives, with every subtype backed by clinical literature (Appendix c). We define four task types of increasing complexity (Figure 2). Recognition (9 subtypes): binary detection of organ- or lesion-level findings, including liver, kidney, pancreatic, and colon lesions, cysts, splenomegaly, and pancreatic tumor categories such as PDAC and PNET. Measurement (5 subtypes): organ volume, organ Hounsfield unit (HU), lesion volume, HU ratio, and tumor burden percentage from 3D volumes. Visual Reasoning (16 subtypes): compositional tasks combining recognition and measurement with spatial comparison (counting, localization, bilateral asymmetry, multi-organ burden comparison). Medical Reasoning (12 subtypes): compositional tasks requiring clinical knowledge integration, including fatty liver (L/S HU ratio [ 59 ]), hepatic steatosis grading [ 32 ], pancreatic steatosis [ 22 ], splenomegaly grading [ 10 ], PDAC vs. PNET [ 44 ], portal hypertension [ 24 ], renal mass characterization [ 50 ], kidney lesion type [ 2 ], pseudocyst determination [ 3], etc. Each subtype has a deterministic “program” chaining recognition, measurement, and knowledge lookup (metadata extraction details in Appendix b). Recognition includes both morphological subtypes (lesion presence from segmentation) and one 
+
+threshold-based subtype (splenomegaly: volume >314.5 cm 3), reflecting how clinical diagnosis routinely blurs categorical and quantitative assessment (Appendix y). This compositional structure provides interpretable diagnostics of model capabilities, defines ground-truth tool traces for agent evaluation (Section 3.3), and supports controlled compositional splits over clinically meaningful factors (Section 4). 
+
+Question-answer pair generation. For every subtype, we generate the question from 10 pre-defined templates, and the ground-truth answer from its program. The correct answer is among several distractors in the multiple-choice (MC) question. The distractors are sampled uniformly from [0.7 ×GT, 1.3 ×GT] with minimum pairwise separation of 3–10% of GT to prevent trivially close options for continuous-valued subtypes (volume, HU). For ordinal subtypes (grading, staging), all clinically defined grades serve as options. For binary subtypes (recognition), options are Yes/No. All models face identical option sets. 
+
+3.2 Data and Annotations 
+
+The benchmark is built on 9,262 abdominal CT volumes from 17 public datasets (Table 6 in Appendix a), encompassing 88 medical centers. Annotations derive from 23 radiologists (detailed in Appendix s). They annotated 11,319 lesions in 3D with multi-round consensus. QA generation is fully deterministic 410 1,000 100,000 
+
+QA Pairs (log)   
+
+> Liver Lesion Existence
+> Kidney Lesion Existence
+> Kidney Tumor Existence
+> Pancreas Les. Exist.
+> Kidney Cyst Existence
+> Splenomegaly Det.
+> Colon Lesion Existence
+> PDAC Existence
+> PNET Existence
+> Organ Volume Meas.
+> Organ HU Meas.
+> Lesion Vol. Meas.
+> Tumor Burden %
+> Organ HU Ratio
+> Organ Aggregation
+> Lesion Counting
+> Organ Enlargement
+> Inter-seg. Comp.
+> Lesion Count by Loc.
+> Largest Les. Atten.
+> Kidney Vol. Comp.
+> 21,160
+> 20,575
+> 15,004
+> 12,349
+> 12,178
+> 11,447
+> 10,846
+> 10,834
+> 10,620
+> 40,644
+> 35,492
+> 6,558
+> 2,451
+> 890
+> 79,352
+> 38,850
+> 33,460
+> 27,256
+> 14,763
+> 8,388
+> 8,192
+> 284
+> 296
+> 238
+> 212
+> 202
+> 204
+> 198
+> 194
+> 195
+> 852
+> 746
+> 210
+> 126
+> 89
+> 977
+> 523
+> 459
+> 358
+> 232
+> 183
+> 181
+> 10 1,000 100,000
+
+QA Pairs (log)     
+
+> Tumor-Organ HU Diff.
+> Largest Les. Diameter
+> Multi-organ Burden
+> Largest Lesion Slice
+> Largest Lesion Location
+> Adjacent Organ
+> Liver Les. Clustering
+> Bilat. Kidney Asym.
+> Lesion Outlier
+> Splenomegaly Grading
+> Pancreas Tumor Stg.
+> PDAC vs PNET Class.
+> Pancreas Cyst Resect.
+> Fatty Liver
+> Lesion Type Class.
+> Pancreas Les. Resect.
+> Hepatic Steat. Grad.
+> Pancreas Steatosis
+> Portal HTN Assess.
+> Renal Mass Char.
+> Pseudocyst Det.
+> 6,165
+> 5,342
+> 5,266
+> 4,410
+> 4,097
+> 2,592
+> 2,570
+> 1,777
+> 1,355
+> 8,347
+> 3,950
+> 2,930
+> 1,511
+> 1,000
+> 876
+> 787
+> 504
+> 463
+> 440
+> 241
+> 51
+> 151
+> 146
+> 146
+> 136
+> 125
+> 109
+> 113
+> 109
+> 101
+> 842
+> 201
+> 311
+> 144
+> 99
+> 42
+> 98
+> 53
+> 45
+> 44
+> 23
+> 3
+> 050 100 150 200
+
+Physical Depth (cm) 
+
+> 0
+> 200
+> 400
+> 600
+> 800
+> 1000
+> 1200
+> CT Volumes
+> Median 46.2 cm
+
+Depth ( N=9,262)    
+
+> 20 40 60 80
+
+Patient Age (years) 
+
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> 120
+> 140
+> CT Volumes
+> Median 63 yrs
+
+Age ( N=1,379) 
+
+> M ( n=809)
+> F ( n=565)
+> Full (476K)
+> Benchmark (10K)
+> Recognition (125,013/2,023)
+> Measurement (86,035/2,023)
+> Visual Reasoning (243,835/4,049)
+> Medical Reasoning (21,100/1,905)
+
+Figure 3: Statistics of DeepTumorVQA. Left: distribution of QA pairs across four main types and 42 subtypes. Right: distribution of CT volumes w.r.t. physical depth and patient demographics. given validated metadata fields (organ volumes, HU values, lesion counts) computed from consensus segmentation masks covering 43 anatomical structures per volume; we verify annotation quality on external datasets in Appendix u. The dataset contains 428K training and 48K testing QA pairs across 42 subtypes (Figure 3). Train/test splits are patient-level with zero overlap. The benchmark evaluation subset is a balanced sample of 10,000 questions from the test set, spanning 991 CT volumes. 
+
+3.3 Multi-Modal Input and Agent Environment 
+
+DeepTumorVQA provides three input modalities: (1) full 3D CT NIfTI files and preprocessed arrays at multiple resolutions, compatible with 3D specialists; (2) 2D organ-specific PNG slices and whole-volume slices; (3) MP4 videos of axial slices within each organ’s extent. All modalities are pre-computed for reproducible evaluation. 
+
+Agent tools. We implement four diagnostic tools in a ReAct-style [ 57 ] agent loop (up to 8 steps): 
+
+segment_organ(target) returns segmentation statistics for 43 targets; measure(target, type) 
+
+returns measurements (volume, mean HU, diameter, count); lookup_medical_knowledge(query) 
+
+returns clinical criteria from a curated 27-entry knowledge base; crop_region(organ) returns organ-focused multi-slice crops (vision mode only). Tool outputs are sourced from expert annotations (oracle), TotalSegmentator auto-segmentation (predicted), or visual crops (vision), depending on the evaluation mode. Full tool schemas are in Appendix z. 
+
+Evaluation modes. In oracle mode, tools return ground-truth values from expert segmentation masks (upper bound). In predicted mode, tools return values computed from TotalSegmentator [ 54 ]auto-segmentation (realistic deployment). In vision mode, models access only crop and knowledge tools (no quantitative measurements). For each subtype, deterministic ground-truth tool traces define the expected sequence ( e.g. , fatty liver: lookup(fatty liver) → measure(liver, HU) 
+
+→ measure(spleen, HU) ); all 42 traces are listed in Appendix p. 
+
+Metrics. We evaluate: (1) answer accuracy per subtype, type, and overall (10K MC questions; 95% binomial CIs are ±1.0% at N =10,000, so all differences >2pp are statistically significant; see 5Table 2: Diagnostic framework: each task type probes a specific model capability and is built on lower-level prerequisites, enabling failure attribution.          
+
+> Task Type Prerequisite Capability Probed
+> Recognition (9 sub.) —Detect the presence of target organs or lesions in the image. Measurement (5 sub.) Recognition Localize the target organ/lesion and read out its quantitative attributes (volume, HU, count, ratio). Visual Reasoning (16 sub.) Recognition + Measurement Compose recognition and measurement primitives with spatial, counting, or cross-organ comparison operations over the image. Medical Reasoning (12 sub.) Recognition + Measurement + medical knowledge Integrate measured image evidence with clinical knowledge (thresholds, grading criteria) to reach a diagnostic conclusion.
+
+Appendix n); (2) end-to-end latency (seconds/sample, including all tool calls); (3) trajectory quality, comprising tool set Jaccard ( |GT ∩ Actual |/|GT ∪ Actual |), parameter accuracy (regex-based flexible matching), average steps, and valid prediction rate (fraction of samples yielding a parseable answer; Appendix m provides per-subtype breakdowns). 
+
+3.4 Benchmark as Diagnostic Framework 
+
+The four task types are not only dataset categories but also diagnostic probes. Recognition tests finding-level perception; Measurement adds quantitative evidence extraction; Visual Reasoning composes image-derived primitives; and Medical Reasoning combines these primitives with clinical criteria. This hierarchy allows us to interpret stage-wise performance drops as evidence of where a model’s capability breaks, especially when combined with tool interventions that substitute or degrade specific evidence sources. This hierarchy maps directly onto our experimental interventions. Direct inference evaluates the full evidence chain end-to-end. Oracle agents replace image-derived measurements with ground-truth tool outputs, isolating reasoning over correct evidence. Predicted agents use automatic tool outputs, testing robustness to imperfect evidence. Vision-mode agents remove structured measurements and require models to recover evidence from crops and knowledge lookup. Measurement-only ablations remove images entirely and test whether models can reason from numeric evidence alone. Together, these settings turn DeepTumorVQA from a task taxonomy into an intervention-based diagnostic framework. 
+
+4 Experiments 
+
+We evaluate DeepTumorVQA along five questions: how direct VLMs fail across stages (§4.1); whether tools break the measurement bottleneck (§4.2); whether measurement interventions explain the gains (§4.3); how failures shift from measurement to tool use and reasoning (§4.4); and whether models generalize under compositional splits (§4.5). 
+
+4.1 Direct Inference: The VLM Landscape 
+
+We evaluate 25 model configurations : 3D-finetuned specialists (M3D-Phi3, RadFM, M3D-Llama2, Merlin), pretrained baselines, 2D VLMs (Qwen3-VL [ 8 ], Qwen3.5, Meissa [ 14 ], LLaVA-OneVision [ 36 ], LLaVA-Med [ 37 ], InternVL3 [ 15 ], HuatuoGPT [ 13 ], MedGemma [ 21 ]), 2D LoRA-finetuned models, video variants, and Gemini-3-Flash API. All answer 10,000 MC questions. Table 3 reveals a striking asymmetry. All zero-shot 2D models perform best on Recognition (50–58%) but collapse on four-option Measurement (24–32%), near chance. This measurement ceiling cascades into Visual and Medical Reasoning, because most clinical diagnoses require comparing measured values against thresholds. Zero-shot 3D models hover near random (M3D-Phi3: 18.9%), confirming that general volumetric pretraining alone does not transfer to clinical VQA. Finetuning reverses the ranking. The best 3D specialist M3D-Phi3 jumps to 59.8%, but Meissa reaches 66.3% with only 2D input. Neither larger models, video, nor multi-slice pseudo-3D bridges this gap without task supervision. Whole-volume train/infer combinations (WV rows) change accuracy by at most 0.7pp, ruling out the localization prior (Appendix k); free-form evaluation on the full benchmark nearly preserves every ranking, ruling out MC as a format confound (Appendix ab). Two practicing 6Table 3: Evaluation results on DeepTumorVQA. FT = LoRA-finetuned on 428K training pairs; WV = whole-volume slices. Human evaluations are on a 200 sample subset. 
+
+Cat. Model Params Input Notes Overall Recog. Meas. Vis.R. Med.R. s/samp 
+
+> Hum.
+
+Junior radiologist – 3D vol multi-choice 45.0% 46.7% 37.8% 49.3% 44.0% 145 Senior radiologist – 3D vol free-form 54.5% 70.0% 40.0% 64.0% 44.0% 85 3D FT  M3D-Llama2 [7] 7B 3D vol 54.0% 48.4% 70.1% 57.1% 36.5% 0.33 M3D-Phi3 [7] 4B 3D vol 59.8% 66.2% 70.3% 65.8% 29.1% 0.26 Merlin [12] 7B 3D vol ResNet enc. 34.0% 46.3% 24.6% 33.3% 32.3% 0.17 RadFM [55] 14B 3D vol Largest 3D 58.9% 62.3% 70.1% 66.3% 27.7% 1.47 3D ZS  M3D-Llama2 pre. [7] 7B 3D vol No FT 19.0% 10.3% 23.3% 23.7% 13.6% 0.33 M3D-Phi3 pre. [7] 4B 3D vol No FT 18.9% 4.6% 25.0% 25.2% 14.2% 0.26 RadFM pre. [55] 14B 3D vol No FT 27.6% 39.1% 21.7% 25.4% 26.3% ∼22D FT  Meissa FT [14] 4B 2D LoRA, organ 66.3% 70.3% 66.7% 65.2% 64.0% 0.40 Qwen3-VL FT [8] 4B 2D LoRA, organ 64.6% 69.1% 64.2% 64.3% 61.1% 0.40 Meissa FT (WV infer) [14] 4B 2D LoRA, organ →WV 66.3% 68.8% 67.6% 65.3% 64.3% 0.40 Qwen3-VL FT (WV infer) [8] 4B 2D LoRA, organ →WV 64.6% 69.7% 64.8% 63.6% 61.4% 0.40 Meissa FT (WV train+infer) [14] 4B 2D LoRA, WV →WV 66.1% 71.0% 67.7% 64.3% 63.0% 0.40 2D Zero-shot HuatuoGPT [13] 7B 2D Medical 36.0% 50.1% 28.2% 36.8% 27.7% 0.51 InternVL3-8B [15] 8B 2D 34.4% 52.5% 32.0% 31.8% 23.1% 0.51 LLaVA-Med [37] 7B 2D Medical 32.3% 50.0% 23.4% 28.7% 30.3% 0.45 LLaVA-OV [36] 7B 2D 38.9% 51.3% 30.4% 36.6% 39.4% 1.22 MedGemma 2D [21] 4B 2D Medical 30.8% 48.3% 24.6% 26.1% 29.0% 1.18 MedGemma 3D [21] 4B 2D 85-sl. 85-slice RGB 29.5% 38.3% 23.7% 28.3% 29.1% ∼28 Meissa-4B [14] 4B 2D Medical 38.2% 51.5% 30.8% 39.8% 28.5% 0.40 Qwen3-VL-4B [8] 4B 2D 37.8% 56.6% 29.1% 38.8% 25.0% 0.40 Qwen3-VL-8B [8] 8B 2D 34.4% 50.7% 27.7% 35.6% 21.8% 0.40 Qwen3.5-9B [45] 9B 2D 38.5% 58.4% 29.3% 38.4% 27.4% 0.68 Qwen3.5-35B [45] 35B(3B) 2D MoE 39.9% 53.0% 31.4% 38.2% 38.7% 1.58 Video  Meissa-4B (video) [14] 4B Video 37.9% 45.9% 30.3% 41.3% 30.0% ∼7Qwen3-VL-4B (vid.) [8] 4B Video 38.9% 58.3% 31.1% 39.2% 25.7% 0.40 Qwen3-VL-8B (vid.) [8] 8B Video 36.2% 55.1% 28.5% 36.6% 23.4% 0.40 API  Gemini-3-Flash [20] – 2D API 38.8% 42.6% 35.7% 40.7% 33.9% ∼6
+
+Table 4: Agent evaluation results. ∆ = change vs. direct inference (pp). †Trained on ground-truth traces. Oracle = GT masks; Predicted = TotalSegmentator auto-segmentation; Vision = crops only. Best per-column in bold (for Steps and s/samp, lower is better). 
+
+Answer Accuracy Trajectory Quality Mode Model Params Input Overall Recog. Meas. Vis.R. Med.R. ∆ Steps Jacc. Param Valid s/samp 
+
+Oracle Gemini-3-Flash [20] – 2D+tools 61.9% 66.4% 60.0% 58.0% 67.8% +23.1 7.2 0.88 0.95 97.8% ∼43 Meissa-4B [14] 4B 2D+tools 46.0% 44.9% 64.4% 35.2% 50.7% +7.8 5.5 0.83 0.80 95.1% ∼13 Meissa SFT † [14] 4B 2D+tools 63.8% 68.2% 78.3% 55.6% 61.5% +25.6 3.8 0.96 0.85 99.9% ∼5
+
+Qwen3.5-9B [45] 9B 2D+tools 48.5% 50.1% 64.8% 38.0% 52.3% +10.0 4.2 0.75 0.56 88.1% ∼17 Predicted Meissa SFT † [14] 4B 2D+tools 60.9% 69.9% 60.8% 55.5% 63.2% +22.7 3.7 0.95 0.84 100% ∼6Qwen3.5-9B [45] 9B 2D+tools 43.9% 48.9% 46.9% 31.6% 61.3% +5.4 7.1 0.80 0.78 82.0% ∼55 Vision Gemini-3-Flash [20] – 2D+tools 35.3% 49.6% 26.5% 33.3% 33.7% −3.5 3.1 0.07 0.07 99.2% ∼17 Meissa-4B [14] 4B 2D+tools 31.5% 41.1% 26.2% 32.6% 24.5% −6.7 2.3 0.84 0.85 99.8% ∼9Qwen3.5-9B [45] 9B 2D+tools 40.3% 59.7% 29.5% 38.6% 35.0% +1.8 2.4 0.92 0.93 99.9% ∼25 
+
+radiologists (7 and 13 years experience, independent from our annotators) evaluated on a 200-question stratified subset reach 45.0% and 54.5% respectively, both below 2D-FT (66.3%); experience helps Recognition ( +23pp) and Visual Reasoning ( +15pp) but not Measurement, where eyeballing precise quantities from raw CT is the human ceiling (Appendix t). Per-subtype and demographic breakdowns are in Appendices g, r. 
+
+4.2 Agent-Based Reasoning 
+
+We evaluate Qwen3.5-9B, Meissa-4B, and Gemini-3-Flash in oracle/vision modes, plus Meissa-4B after SFT on ground-truth tool traces. A predicted mode using TotalSegmentator [ 54 ] auto-segmentation bridges oracle mode with GT masks and vision mode with no segmentation. Oracle tools transform the error landscape: Measurement jumps from 29–31% to 64–65%, Medical Reasoning from 27–28% to 51–54%. VLMs already possess substantial clinical reasoning, locked 7Table 5: Causal analysis with agents. Measurement-only: text-only inference with pre-computed measurements (no image). ∆ vs. oracle agent (Qwen3.5-9B: 48.5%).                                                   
+
+> Condition Overall Recog. Meas. Vis.R. Med.R. ∆
+> Baselines
+> Direct (image only) 38.5% 58.4% 29.3% 38.4% 27.4% –Oracle agent (img+tools) 48.5% 50.1% 64.8% 38.0% 52.3% +10.0
+> Measurement is necessary
+> No measure tool 32.3% 57.1% 23.5% 25.7% 28.2% −16.2
+> For capable backbones, measurements alone exceed oracle agent
+> Meas-only Qwen3.5-9B 54.4% 68.8% 63.3% 40.6% 59.1% +5.9 Meas-only Meissa-4B 33.0% 53.4% 50.9% 17.8% 24.8% −15.5
+> Measurement precision matters
+> Noise σ=10% 38.3% 45.9% 39.6% 30.9% 45.5% −10.2 Noise σ=50% 35.8% 46.2% 22.1% 31.1% 47.6% −12.7
+
+behind a measurement bottleneck that quantitative tools unlock; Gemini-3-Flash reaches 61.9% with oracle tools, confirming that stronger backbones extract more from tool-provided evidence. Predicted mode with real segmentation retains most gains: Meissa SFT drops only 2.9pp, keeping 93% of the oracle-to-direct gap; on 12 organ-centric subtypes retention is 85%, while lesion-centric ones may reflect partial fallback (Appendix x). Vision-only tools backfire: Meissa-4B vision falls below direct inference (31.5% vs. 38.2%), as models hallucinate quantitative estimates from crops. Training Meissa-4B on 20K tool traces synthesized with the same logic as data annotation yields 63.8% (+17.8pp over zero-shot oracle, +25.6pp over direct), with Measurement reaching 78.3% and surpassing 3D specialists (70%). Trajectory supervision also teaches efficient workflows: average steps drop from 5.5 to 3.8, and the 8-step hit rate from 23.2% to 0.3%. 
+
+4.3 Causal Analysis with Agents: Measurement is the Bottleneck 
+
+The preceding sections show tools help, but correlation is not causation. Table 5 presents systematic ablations identifying reliable quantitative measurement as both necessary and, for capable backbones, sufficient within the benchmark’s program-defined task space. 
+
+Measurement is necessary. Removing the measurement tool causes −16.2pp overall and −24.1pp on Medical Reasoning. Recognition improves without measurement from 50.1% to 57.1%, as the model falls back to image-based recognition (sensitivity/specificity breakdown in Appendix o). 
+
+For capable backbones, measurements alone exceed the oracle agent. Measurements alone without image yield 54.4% for Qwen3.5-9B, surpassing the oracle agent; Medical Reasoning reaches 59.1% vs. 27.4% from image. This is backbone-dependent and task-space-bounded rather than a general clinical claim (Appendix v.2). 
+
+Precision matters. Even 10% noise drops measurement accuracy from 65% to 40%, with damage saturating by 50% noise. Distractor spacing does not explain this sensitivity ( r=0.25; Appendix w). 
+
+4.4 Error Analysis: From Scattered to Concentrated 
+
+Tools reshape where models fail (Figure 4a). Without tools, errors are diffuse. Oracle tools concentrate gains on quantitative tasks: Measurement errors drop from 70% to 36%, Medical Reasoning from 72% to 49%, while Recognition sees little improvement. A new failure mode emerges in tool use: action loops . Oracle agents hit the step limit on 17–18% of questions (Figure 4b), with Visual Reasoning most affected due to multi-step tool chains. The knowledge tool is invoked in only 1.3% of tool calls despite being needed for 19% of questions. Agent SFT resolves these tool-use failures: action loops drop from 18% to 0.2%, accuracy rises from 46% to 64%. Residual errors are reasoning failures where correct tool outputs lead to wrong conclusions, a harder frontier (Appendices i and j). The framework thus reveals successive frontiers: measurement before tools, tool use with tools (action loops), and reasoning over correct evidence after SFT (Table 12 in Appendix). 8Recognition Measurement Visual     
+
+> Reasoning
+> Medical
+> Reasoning
+> 0
+> 20
+> 40
+> 60
+> 80
+> Error Rate (%)
+> 45
+> 70
+> 61
+> 72
+> 52
+> 36
+> 63
+> 49
+> 32
+> 22
+> 44
+> 39
+> (a) Error Rate by Task Type
+> Direct Inference Oracle Agent SFT Agent
+> Oracle
+> (Q35-9B)
+> Oracle
+> (Meissa-4B)
+> SFT Agent
+> (Meissa)
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Proportion (%)
+> 49%
+> 33%
+> 18%
+> 46%
+> 37%
+> 17%
+> 64%
+> 36%
+> 0.2%
+> (b) Agent Failure Decomposition
+> Correct Wrong (reasoning) Action Loop
+
+Figure 4: Error landscape transformation. (a) Error rate by task type across three paradigms. Oracle tools halve Measurement errors (70% →36%) and sharply reduce Medical Reasoning errors (72% →49%); SFT further lowers all categories. (b) Agent failure decomposition: action loops (step-limit hits, red) account for 17–18% of all questions in oracle agents, concentrated in multi-step Visual Reasoning; SFT virtually eliminates this tool-use failure mode (0.2%). 
+
+4.5 Compositional Generalization of Models and Agents 
+
+A CLEVR-style split on lesions binned by volume with four held-out (organ, size) pairs (OOD 
+
+n=2,517; IID n=1,437) yields a small IID–OOD gap ( −5.6pp to +3.9pp), suggesting that the main trends are not driven by memorizing observed organ-size combinations. Agents show negative gaps (mean −4.1pp) since tool-based measurements are distribution-independent; Meissa SFT maintains this trend ( −4.4pp), supporting compositional generalization (Appendix h). 
+
+5 Discussion 
+
+Design Principles. Three principles emerge: (1) quantitative, not visual, tools matter : measure-ments deliver +7.8pp while crop/zoom costs −6.7pp; (2) trace SFT resolves tool use, exposing reasoning : +18pp with action loops dropping from 18% to 0.2%, leaving reasoning over correct evidence as the remaining frontier; (3) imperfect tools still help : realistic auto-segmentation retains 93% of oracle gains, with non-uniform noise sensitivity (Appendix l). 
+
+Why 2D Finetuning Surpasses 3D Specialists. Task supervision dominates representation: 2D LoRA (66.3%) beats the best 3D specialist (59.8%) because it aligns the model with the benchmark’s evidence primitives and answer space; whole-volume controls (§4.1) rule out the localization prior. 
+
+Limitations : sufficiency holds within structured programs; MC preserves rankings vs. tolerance scoring ( r=0.999); annotation quality bounds ground truth (Appendices v.2, aa, u). 
+
+6 Conclusion 
+
+We introduced DeepTumorVQA, a 3D CT benchmark that turns tumor VQA from single-score answering into stage-wise diagnostic evaluation. Its core contribution is a clinically grounded evidence hierarchy that links recognition, measurement, visual reasoning, and medical reasoning through deterministic evidence primitives. This design supports the same diagnostic tasks across direct VLM inference and tool-augmented agents, while enabling controlled interventions over evidence availability, tool quality, and agent trajectories. With 476K questions across 42 clinical subtypes and 9,262 CT volumes, DeepTumorVQA provides a testbed not only for ranking models, but also for identifying where and why they fail. We hope DeepTumorVQA encourages future medical VLM and agent research to move beyond aggregate accuracy toward evidence-grounded, tool-aware, and failure-attributable evaluation. 9Acknowledgments and Disclosure of Funding 
+
+This work was supported by the Lustgarten Foundation for Pancreatic Cancer Research and the Patrick J. McGovern Foundation Award. 
+
+References 
+
+[1] Mehran Advand, Zahra Dehghanian, Navid Faraji, Reza Barati, Seyed Amir Ahmad Safavi-Naini, and Hamid R Rabiee. 3dland: 3d lesion abdominal anomaly localization dataset. arXiv preprint arXiv:2602.12820 , 2026. [2] Nnenaya Agochukwu, Steffen Huber, Michael Spektor, Alexander Goehler, and Gary M Israel. Differentiating renal neoplasms from simple cysts on contrast-enhanced ct on the basis of attenuation and homogeneity. American Journal of Roentgenology , 208(4):801–804, 2017. [3] Peter J Allen, Michael D’Angelica, Mithat Gonen, David P Jaques, Daniel G Coit, William R Jarnagin, Ronald DeMatteo, Yuman Fong, Leslie H Blumgart, and Murray F Brennan. Cystic lesions of the pancreas. Annals of Surgery , 254:680–686, 2011. [4] Mohammad Almansoori, Komal Kumar, and Hisham Cholakkal. Medagentsim: Self-evolving multi-agent simulations for realistic clinical interactions. In International Conference on Medical Image Computing and Computer-Assisted Intervention , pages 362–372. Springer, 2025. [5] American Joint Committee on Cancer. Ajcc cancer staging manual, 2017. [6] Michela Antonelli, Annika Reinke, Spyridon Bakas, Keyvan Farahani, Bennett A Landman, Geert Litjens, Bjoern Menze, Olaf Ronneberger, Ronald M Summers, Bram van Ginneken, et al. The medical segmentation decathlon. arXiv preprint arXiv:2106.05735 , 2021. [7] Fan Bai, Yuxin Du, Tiejun Huang, Max Q-H Meng, and Bo Zhao. M3d: Advancing 3d medical image analysis with multi-modal large language models. arXiv preprint arXiv:2404.00578 ,2024. [8] Shuai Bai, Keqin Chen, Xuejing Liu, Jialin Wang, Wenbin Ge, Sibo Song, Kai Dang, Peng Wang, Shijie Wang, Jun Tang, et al. Qwen2.5-vl technical report. arXiv preprint arXiv:2502.13923 ,2025. [9] Pedro RAS Bassi, Mehmet Can Yavuz, Kang Wang, Xiaoxi Chen, Wenxuan Li, Sergio Decher-chi, Andrea Cavalli, Yang Yang, Alan Yuille, and Zongwei Zhou. Radgpt: Constructing 3d image-text tumor datasets. arXiv preprint arXiv:2501.04678 , 2025. [10] Arlindo Sprenger Bezerra, Giuseppe D’Ippolito, Luzia Akiko Frias, Mauro Ozaki, Jacob Szejnfeld, and Marcelo Fuchs. Determination of splenomegaly by ct: is there a place for a single measurement? American Journal of Roentgenology , 184(5):1510–1513, 2005. [11] Patrick Bilic, Patrick Ferdinand Christ, Eugene Vorontsov, Grzegorz Chlebus, Hao Chen, Qi Dou, Chi-Wing Fu, Xiao Han, Pheng-Ann Heng, Jürgen Hesser, et al. The liver tumor segmentation benchmark (lits). arXiv preprint arXiv:1901.04056 , 2019. [12] Louis Blankemeier, Joseph Paul Cohen, Ashwin Kumar, Dave Van Veen, Syed Jamal Safdar Gardezi, Magdalini Paschali, Zhihong Chen, Jean-Benoit Delbrouck, Eduardo Reis, Cesar Truyts, et al. Merlin: A vision language foundation model for 3d computed tomography. 
+
+Research Square , pages rs–3, 2024. [13] Junying Chen, Ruyi Gui, Anningzhe Chi, Anqi Peng, Zhongzhi Zhang, Xiang Wan, et al. Huatuogpt-vision, towards injecting medical visual knowledge into multimodal llms at scale. 
+
+arXiv preprint arXiv:2406.19280 , 2024. [14] Yixiong Chen, Pedro R. A. S. Bassi, Xinze Zhou, Wenjie Xiao, Zongwei Zhou, and Alan Yuille. Meissa: Multi-modal medical agentic intelligence. arXiv preprint arXiv:2603.09018 , 2026. 10 [15] Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang, Xizhou Zhu, Lewei Lu, et al. Internvl: Scaling up vision foundation models and aligning for generic visual-linguistic tasks. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , 2024. [16] Errol Colak, Hui-Ming Lin, Robyn Ball, Melissa Davis, Adam Flanders, Sabeena Jalal, Kirti Magudia, Brett Marinelli, Savvas Nicolaou, Luciano Prevedello, Jeff Rudie, George Shih, Maryam Vazirabad, and John Mongan. Rsna 2023 abdominal trauma detection, 2023. URL 
+
+https://kaggle.com/competitions/rsna-2023-abdominal-trauma-detection .[17] Tri Dao. Flashattention-2: Faster attention with better parallelism and work partitioning. arXiv preprint arXiv:2307.08691 , 2023. [18] Adibvafa Eltawil, Fares Cheema, Yong Suk Paul Shin, Jonathan Rubin, Sheyang Chen, et al. Medrax: Medical reasoning agent for chest x-ray. In Proceedings of the International Conference on Machine Learning , 2025. [19] Jie Gao, Yuanyuan Chen, Guozheng Wang, Hongyi Li, Jianye Yang, et al. Medchain: Bridging the gap between llm agents and clinical practice through interactive sequential benchmarking. In Advances in Neural Information Processing Systems , 2025. [20] Google DeepMind. Gemini 3 pro model card. Google DeepMind Model Card, 2025. URL https://storage.googleapis.com/deepmind-media/Model-Cards/ Gemini-3-Pro-Model-Card.pdf .[21] Google Research. Medgemma: Our most capable open models for health ai de-velopment. Google Research Blog, 2025. URL https://research.google/blog/ medgemma-our-most-capable-open-models-for-health-ai-development/ .[22] Serkan Guneyli, Hakan Dogan, Omer Tarik Esengur, and Hur Hassoy. Computed tomography evaluation of pancreatic steatosis: correlation with covid-19 prognosis. Future Virology , 17(4): 231–237, 2022. [23] Ibrahim Ethem Hamamci, Sezgin Er, Furkan Almas, Ayse Gulnihan Simsek, Sevval Nil Esirgun, Irem Dogan, Muhammed Furkan Dasdelen, Omer Faruk Durugol, Bastian Wittmann, Tamaz Amiranashvili, et al. Developing generalist foundation models from a multimodal dataset for 3d computed tomography. arXiv preprint arXiv:2403.17834 , 2024. [24] William P Harbin, Nicholas J Robert, and Joseph T Ferrucci Jr. Diagnosis of cirrhosis based on regional changes in hepatic morphology: a radiological and pathological analysis. Radiology ,135(2):273–283, 1980. [25] Nicholas Heller, Sean McSweeney, Matthew Thomas Peterson, Sarah Peterson, Jack Rickman, Bethany Stai, Resha Tejpaul, Makinna Oestreich, Paul Blake, Joel Rosenberg, et al. An international challenge to use artificial intelligence to define the state-of-the-art in kidney and kidney tumor segmentation in ct imaging., 2020. [26] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. LoRA: Low-rank adaptation of large language models. In 
+
+International Conference on Learning Representations , 2022. [27] Yutao Hu, Tianbin Li, Quanfeng Lu, Wenqi Shao, Junjun He, Yu Qiao, and Ping Luo. Omnimed-vqa: A new large-scale comprehensive evaluation benchmark for medical lvlm. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 22170–22183, 2024. [28] Yuanfeng Ji, Haotian Bai, Chongjian Ge, Jie Yang, Ye Zhu, Ruimao Zhang, Zhen Li, Lingyan Zhang, Wanling Ma, Xiang Wan, et al. Amos: A large-scale abdominal multi-organ benchmark for versatile medical image segmentation. Advances in Neural Information Processing Systems ,35:36722–36732, 2022. [29] Yankai Jiang, Yujie Zhang, Peng Zhang, Yichen Li, Jintai Chen, Xiaoming Shi, and Shihui Zhen. Incentivizing tool-augmented thinking with images for medical image analysis. arXiv preprint arXiv:2512.14157 , 2025. 11 [30] Justin Johnson, Bharath Hariharan, Laurens Van Der Maaten, Li Fei-Fei, C Lawrence Zitnick, and Ross Girshick. Clevr: A diagnostic dataset for compositional language and elementary visual reasoning. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 2901–2910, 2017. [31] Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik S Chan, Xuhai Xu, Daniel McDuff, Hyeon-hoon Lee, Marzyeh Ghassemi, Cynthia Breazeal, and Hae W Park. Mdagents: An adaptive collaboration of llms for medical decision-making. Advances in Neural Information Processing Systems , 37:79410–79452, 2024. [32] Yuji Kodama, Connie S Ng, Tsung-Teh Wu, Gregory D Ayers, Steven A Curley, Eddie K Abdalla, Jean-Nicolas Vauthey, and Chusilp Charnsangavej. Comparison of ct methods for determining the fat content of the liver. American Journal of Roentgenology , 188(5):1307–1312, 2007. [33] Bennett Landman, Zhoubing Xu, J Igelsias, Martin Styner, T Langerak, and Arno Klein. Miccai multi-atlas labeling beyond the cranial vault–workshop and challenge. In Proc. MICCAI Multi-Atlas Labeling Beyond Cranial Vault—Workshop Challenge , volume 5, page 12, 2015. [34] Jason J Lau, Soumya Gayen, Asma Ben Abacha, and Dina Demner-Fushman. A dataset of clinically generated visual questions and answers about radiology images. Scientific data , 5(1): 1–10, 2018. [35] Binxu Li, Tiankai Yan, Yuanting Pan, Jie Luo, Ruiyang Ji, Jiayuan Ding, Zhe Xu, Shilong Liu, Haoyu Dong, Zihao Lin, et al. Mmedagent: Learning to use medical tools with multi-modal agent. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 8745–8760, 2024. [36] Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Yanwei Li, Ziwei Liu, and Chunyuan Li. Llava-onevision: Easy visual task transfer. arXiv preprint arXiv:2408.03326 , 2024. [37] Chunyuan Li, Cliff Wong, Sheng Zhang, Naoto Usuyama, Haotian Liu, Jianwei Yang, Tristan Naumann, Hoifung Poon, and Jianfeng Gao. Llava-med: Training a large language-and-vision assistant for biomedicine in one day. Advances in Neural Information Processing Systems , 36: 28541–28564, 2023. [38] Zhuowan Li, Xingrui Wang, Elias Stengel-Eskin, Adam Kortylewski, Wufei Ma, Benjamin Van Durme, and Alan L Yuille. Super-clevr: A virtual benchmark to diagnose domain robustness in visual reasoning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 14963–14973, 2023. [39] Runtao Liu, Chenxi Liu, Yutong Bai, and Alan L Yuille. Clevr-ref+: Diagnosing visual reasoning with referring expressions. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 4185–4194, 2019. [40] Xiangde Luo, Wenjun Liao, Jianghong Xiao, Tao Song, Xiaofan Zhang, Kang Li, Guotai Wang, and Shaoting Zhang. Word: Revisiting organs segmentation in the whole abdominal region. 
+
+arXiv preprint arXiv:2111.02403 , 2021. [41] Jun Ma, Yao Zhang, Song Gu, Cheng Zhu, Cheng Ge, Yichi Zhang, Xingle An, Congcong Wang, Qiyuan Wang, Xin Liu, et al. Abdomenct-1k: Is abdominal organ segmentation a solved problem. IEEE Transactions on Pattern Analysis and Machine Intelligence , 2021. [42] Jun Ma, Yao Zhang, Song Gu, Xingle An, Zhihe Wang, Cheng Ge, Congcong Wang, Fan Zhang, Yu Wang, Yinan Xu, et al. Fast and low-gpu-memory abdomen ct organ segmentation: the flare challenge. Medical Image Analysis , 82:102616, 2022. [43] Yuren Mao, Wenyi Xu, Yuyang Qin, and Yunjun Gao. Ct-agent: a multimodal-llm agent for 3d ct radiology question answering. arXiv preprint arXiv:2505.16229 , 2025. [44] National Comprehensive Cancer Network. Nccn clinical practice guidelines in oncol-ogy: Pancreatic adenocarcinoma, 2024. URL https://www.nccn.org/guidelines/ guidelines-detail?category=1&id=1455 .12 [45] Qwen Team. Qwen3 technical report. arXiv preprint arXiv:2505.09388 , 2025. [46] Blaine Rister, Darvin Yi, Kaushik Shivakumar, Tomomi Nobashi, and Daniel L Rubin. Ct-org, a new dataset for multiple organ segmentation in computed tomography. Scientific Data , 7(1): 1–9, 2020. [47] Holger R Roth, Le Lu, Amal Farag, Hoo-Chang Shin, Jiamin Liu, Evrim B Turkbey, and Ronald M Summers. Deeporgan: Multi-level deep convolutional networks for automated pancreas segmentation. In International conference on medical image computing and computer-assisted intervention , pages 556–564. Springer, 2015. [48] Samuel Schmidgall, Rojin Ziaei, Carl Harris, Eduardo Pontes Reis, Sheshank Yarlagadda, et al. Agentclinic: A multimodal agent benchmark to evaluate ai in simulated clinical environments. 
+
+arXiv preprint arXiv:2405.07960 , 2024. [49] Samuel Schmidgall, Baekjin Kim, Hyunjin Goh, Albert Q. Jiang, Alex Grabowski, Aarav Chauhan, et al. Medagentbench: Dataset for benchmarking llms as agents in medical applica-tions. NEJM AI , 2025. [50] Stuart G Silverman, Ivan Pedrosa, James H Ellis, Nicole M Hindman, Nicola Schieda, Andrew D Smith, Erick M Remer, Atul B Shinagare, Natalie E Curci, Lucia Manganaro, et al. Bosniak classification of cystic renal masses, version 2019: an update proposal and needs assessment. 
+
+Radiology , 292(2):475–488, 2019. [51] Masao Tanaka, Carlos Fernández-del Castillo, Volkan Adsay, Suresh Chari, Massimo Falconi, Jin-Young Jang, Wataru Kimura, Philip Levy, Martha B Pitman, C Max Schmidt, et al. Revisions of international consensus fukuoka guidelines for the management of ipmn of the pancreas. 
+
+Pancreatology , 12(3):183–197, 2012. [52] Xiaoxiao Tang et al. 3d-rad: A large-scale 3d radiology med-vqa dataset. In Advances in Neural Information Processing Systems , 2025. [53] Vanya V Valindria, Nick Pawlowski, Martin Rajchl, Ioannis Lavdas, Eric O Aboagye, Andrea G Rockall, Daniel Rueckert, and Ben Glocker. Multi-modal learning from unpaired images: Application to multi-organ segmentation in ct and mri. In 2018 IEEE winter conference on applications of computer vision (WACV) , pages 547–556. IEEE, 2018. [54] Jakob Wasserthal, Hanns-Christian Breit, Manfred T Meyer, Maurice Pradella, Daniel Hinck, Alexander W Saez, Tobias Semler, Florian Stritzel, Martin Segeroth, and Joshy Josi. Totalseg-mentator: Robust segmentation of 104 anatomic structures in ct images. Radiology: Artificial Intelligence , 5(5):e230024, 2023. [55] Chaoyi Wu, Xiaoman Zhang, Ya Zhang, Yanfeng Wang, and Weidi Xie. Towards generalist foundation model for radiology by leveraging web-scale 2d&3d medical data. arXiv preprint arXiv:2308.02463 , 2023. [56] Lin Yang, Shawn Xu, Andrew Sellergren, Timo Kohlberger, Yuchen Zhou, Ira Ktena, Atilla Kiraly, Faruk Ahmed, Farhad Hormozdiari, Tiam Jaroensri, et al. Advancing multimodal medical capabilities of gemini. arXiv preprint arXiv:2405.03162 , 2024. [57] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. In International Conference on Learning Representations , 2023. [58] Jingkun Yu, Yixiao Ge, Rui Wang, Shan Ying, et al. Medsg-bench: Benchmarking medical image sequences grounding capability of multimodal large language models. In Advances in Neural Information Processing Systems , 2025. [59] Irfan Zeb, Dong Li, Khurram Nasir, Ronit Katz, Vahid N Larijani, and Matthew J Budoff. Computed tomography scans in the evaluation of fatty liver disease in a population based study: the multi-ethnic study of atherosclerosis. Academic radiology , 19(7):811–818, 2012. 13 [60] Xiaoman Zhang, Chaoyi Wu, Ziheng Zhao, Weixiong Lin, Ya Zhang, Yanfeng Wang, and Weidi Xie. Pmc-vqa: Visual instruction tuning for medical visual question answering. arXiv preprint arXiv:2305.10415 , 2023. [61] Qingqing Zhu, Qiao Jin, Tejas S Mathai, Yin Fang, Zhizheng Wang, Yifan Yang, Maame Sarfo-Gyamfi, Benjamin Hou, Ran Gu, Praveen TS Balamuralikrishna, et al. Ct-bench: A benchmark for multimodal lesion understanding in computed tomography. arXiv preprint arXiv:2602.14879 , 2026. 14 a Data Sources 
+
+Table 6: Overview of public abdominal CT datasets collected in DeepTumorVQA.                                    
+
+> dataset (year) [source] # of volumes # of centers dataset (year) [source] # of volumes # of centers 1. CHAOS [2018] [link] 20 12. Pancreas-CT [2015] [link] 42 13. BTCV [2015] [link] 47 14. LiTS [2019] [link] 131 75. CT-ORG [2020] [link] 140 86. WORD [2021] [link] 120 17. AMOS22 [2022] [link] 200 28. KiTS [2020] [link] 489 19–14. MSD CT Tasks [2021] [link] 945 115. AbdomenCT-1K [2021] [link] 1,050 12 16. FLARE’23 [2022] [link] 4,100 30 17. Trauma Detect. [2023] [link] 4,711 23
+
+All 17 source datasets are publicly available under their respective licenses (links in Table 6); users are responsible for complying with each source dataset’s terms of use. The DeepTumorVQA annotations, structured metadata, and benchmark questions contributed by this work are released under CC-BY-4.0. Pre-computed 2D slices, videos, and 3D arrays derived from source CT volumes are released under their respective source licenses; we provide processing scripts so users can regenerate them locally as needed. 
+
+Data collection process. DeepTumorVQA aggregates CT volumes from 17 publicly available ab-dominal CT datasets spanning diverse clinical contexts, scanner manufacturers, acquisition protocols, and patient populations. The collection was designed to maximize demographic and pathological diversity while ensuring high-quality ground-truth annotations. We began by identifying all publicly available abdominal CT datasets with either organ segmentation masks or lesion annotations, filtering for datasets that provide volumetric (3D) data rather than single slices. The 17 selected datasets collectively originate from 88 distinct medical centers across North America, Europe, and Asia, ensuring representation of varied imaging protocols (slice thickness ranging from 0.5mm to 5mm, in-plane resolution from 0.5mm to 1.0mm), contrast phases (non-contrast, arterial, portal venous, delayed), and scanner manufacturers (Siemens, GE, Philips, Toshiba/Canon). All segmentation masks (43 anatomical structures per volume) and structured metadata used in DeepTumorVQA were re-annotated and re-computed in-house by our 23 radiologists (Appendix s); we did not adopt the original dataset-provided annotations. 
+
+Per-dataset statistics and organ coverage. The datasets vary substantially in size and focus. The two largest contributors, FLARE’23 (4,100 volumes) and RSNA Trauma Detection (4,711 volumes), together account for 95% of the data and provide broad multi-organ coverage. Smaller, specialized datasets contribute targeted pathology: KiTS (489 volumes) provides kidney tumor annotations, LiTS (131 volumes) focuses on liver tumors, and MSD CT Tasks (945 volumes across 6 tasks) cover liver, pancreas, colon, and hepatic vessels. All volumes include segmentation masks for at least 5 major abdominal organs (liver, spleen, left kidney, right kidney, pancreas), with the full annotation covering 43 anatomical structures per volume including organ substructures and lesion types. Organ coverage statistics: liver is present in 100% of volumes (9,262/9,262), kidneys in 99.8%, spleen in 99.6%, pancreas in 98.2%, and colon in 97.1%. Lesion annotations cover 11,319 individual lesions: 6,357 liver lesions (56.2%), 4,114 kidney lesions (36.3%), 665 pancreatic lesions (5.9%), and 183 colon lesions (1.6%). 
+
+Data preprocessing pipeline. Raw CT volumes undergo a standardized preprocessing pipeline before metadata extraction and question generation. First, all NIfTI files are loaded us-ing nibabel with automatic handling of different orientation conventions (RAS, LPS, etc.) via the as_closest_canonical function. The axial axis is identified dynamically using 
+
+np.argmax(np.abs(affine[2, :3])) rather than hardcoding, since different datasets encode the axial dimension differently. Voxel spacing is extracted from the affine matrix to convert voxel counts to physical volumes in cm 3. Hounsfield unit (HU) values are verified to be in the expected range (−1024 to +3071); volumes with values outside this range are flagged for manual inspection. For 3D model input, volumes are resampled to standardized resolutions (see Appendix e.2). For 2D input generation, organ-specific slices are extracted using segmentation masks (see Appendix e.1). 
+
+Quality control procedures. Quality control is applied at three levels. Volume-level QC : We collected 11,995 raw CT volumes from the 17 source datasets (Table 6). Each volume is checked for corrupt files, missing DICOM metadata, extreme HU distributions (indicating reconstruction 15 artifacts), and incomplete anatomical coverage (truncated fields of view). Volumes failing any check are excluded; 2,733 volumes were removed, leaving 9,262. Annotation-level QC : Segmentation masks undergo automated checks for anatomical plausibility (organ volumes within 2 standard deviations of population means, no anatomically impossible overlaps between structures, connected component analysis for lesion instances). Flagged cases are reviewed by radiologists. Question-level QC : Generated questions are validated by checking that (i) all referenced metadata fields are non-null, (ii) distractor options are distinct from the correct answer by at least the minimum separation threshold, (iii) option text exactly matches one of the valid answer categories, and (iv) questions referencing bilateral structures correctly specify laterality. This three-tier pipeline ensures that benchmark questions test model capability rather than annotation noise. 
+
+b Metadata and Structured Description Generation 
+
+To support systematic question generation, we construct structured metadata for each CT volume using paired organ and lesion segmentation masks. We extract: (1) volume and size statistics (total organ volume, lesion volume, instance counts); (2) largest lesion analysis (diameter, location, mean HU); (3) enhancement classification (hypo/iso/hyperattenuating based on lesion-organ HU difference); (4) clinical staging (T-stage for pancreatic tumors, derived programmatically from tumor diameter and adjacent-vessel involvement, both from segmentation masks; not read from any free-text report); (5) demographics (age, sex, contrast phase, scanner type from DICOM headers). All segmentation-derived attributes (volumes, HU statistics, lesion-counts, organ-relative geometry, enlargement flags, resectability decisions) are computed deterministically from the masks; the only attributes that come from human annotation are the lesion-type labels (cyst vs. tumor; PDAC vs. PNET vs. PNET subtype) supplied by the 23 radiologists. The final metadata table includes over 70 structured attributes per scan. 
+
+Complete metadata attribute catalog. The 70+ structured attributes fall into seven categories: 
+
+(i) Patient demographics (6 attributes): age, sex, body mass index (when available), referring department, clinical indication, and study date. These are extracted from DICOM headers when present; missing fields are marked as “unknown” and excluded from demographic stratification. 
+
+(ii) Imaging acquisition parameters (8 attributes): scanner manufacturer, scanner model, slice thickness, in-plane resolution, reconstruction kernel, contrast phase (non-contrast / arterial / portal venous / delayed), tube voltage (kVp), and tube current (mA). Contrast phase is determined from DICOM series description and confirmed by liver/spleen HU ratio analysis. 
+
+(iii) Per-organ statistics (5 organs × 4 attributes = 20 attributes): For each of the 5 major organs (liver, spleen, left kidney, right kidney, pancreas), we compute: total volume (cm 3), mean HU, standard deviation of HU, and a binary “enlarged” flag based on published thresholds (liver > 2,500 cm 3, spleen > 314.5 cm 3, kidney > 250 cm 3, pancreas > 150 cm 3). 
+
+(iv) Per-lesion statistics (up to 8 attributes per lesion instance): For each lesion instance identified by connected component analysis of lesion masks: volume (cm 3), largest axial diameter (cm), mean HU, centroid coordinates (x, y, z in voxel space), Couinaud segment assignment (liver only), laterality (kidney only), and attenuation classification (hypoattenuating if lesion HU < organ HU −
+
+10, hyperattenuating if > organ HU + 10, isoattenuating otherwise). 
+
+(v) Aggregate lesion statistics (4 organs × 4 attributes = 16 attributes): Per organ: total lesion count, total lesion volume, tumor burden percentage (lesion volume / organ volume × 100), and a binary “dominant lesion outlier” flag (largest lesion > 3× second largest). 
+
+(vi) Cross-organ derived metrics (8 attributes): liver-to-spleen HU ratio, pancreas-to-spleen HU ratio, left-to-right kidney volume ratio, left-to-right kidney lesion burden ratio, combined liver+spleen volume, bilateral kidney asymmetry score, multi-organ lesion burden comparison, and portal hyper-tension composite score. 
+
+(vii) Clinical staging attributes (6 attributes): pancreatic tumor T-stage (T1–T4 based on maximum diameter), resectability status (resectable / borderline / unresectable from annotations), fatty liver grade, hepatic steatosis grade, splenomegaly grade, and Bosniak category for renal masses. 16 Extraction pipeline. Metadata extraction is implemented as a deterministic pipeline using Python with nibabel for NIfTI I/O, scipy.ndimage for connected component analysis and morpholog-ical operations, numpy for numerical computations, and pandas for tabular storage. The pipeline processes each CT volume independently in four stages: (1) Load CT and all segmentation masks; convert voxel counts to physical volumes using the affine matrix. (2) Run connected component analysis on each lesion mask to identify individual instances; compute per-instance statistics. (3) Derive cross-organ metrics and clinical staging from per-organ values. (4) Merge with DICOM metadata and write to the master CSV file. Processing time is approximately 2 seconds per volume (dominated by NIfTI I/O), with the full 9,262-volume dataset processed in under 6 hours on 32 CPU cores. 
+
+Edge cases and handling. Several edge cases require special treatment: Missing organs: If a segmentation mask is absent or has zero voxels for an organ (e.g., post-splenectomy), all derived attributes for that organ are set to null, and questions requiring that organ are not generated. Ambiguous laterality: Kidney laterality is determined by the centroid x-coordinate relative to the body midline (derived from the affine matrix); in rare cases of crossed fused ectopia, manual annotation overrides the automatic assignment. Multiple contrast phases: When a study contains multiple series, we select the portal venous phase (most common in abdominal imaging) based on series description keywords; if unavailable, we default to the first contrast-enhanced series. Extreme values: Organ volumes or HU values beyond 3 standard deviations from the population mean are flagged; after radiologist review, values confirmed as correct (e.g., massive hepatomegaly) are retained with a “verified outlier” flag. 
+
+Lesion touching organ boundary: Lesions extending to the organ boundary may have ambiguous organ assignment; we assign based on the majority of voxels (whichever organ mask contains >50% of the lesion voxels). 
+
+Additional structured report examples.                      
+
+> Example: Structured Report for BDMAP_00001234
+> CT Arterial Phase. Male, 67 years old. Siemens scanner.
+> Liver: Normal size (volume: 1293.7 cm 3). Mean HU: 111.3. Liver lesion 1: Segment 2, 3.2 ×1.7 cm, volume 8.1 cm 3. Hypoattenuating (HU: 9.6). Total: 25 liver masses, total volume 19.4 cm 3.
+> Kidneys: Left 187.2 cm 3, Right 195.8 cm 3. No lesions.
+> Pancreas: Volume 72.1 cm 3. Mean HU: 88.5. One tumor (T2), diameter 2.1 cm, borderline resectable.
+> Spleen: Volume 198.3 cm 3(normal). Mean HU: 121.7.
+> Example: Structured Report for BDMAP_00003872 (Multi-Organ Pathology)
+> CT Portal Venous Phase. Female, 54 years old. GE scanner.
+> Liver: Enlarged (volume: 2847.3 cm 3). Mean HU: 42.1. Liver lesion 1: Segment 7, 5.1 ×4.3 cm, volume 47.2 cm 3. Hypoattenuating (HU: 28.4). Liver lesion 2: Segment 4, 1.8 ×1.2 cm, volume 2.1 cm 3. Hypoattenuating (HU: 31.7). Total: 2 liver masses, total volume 49.3 cm 3. Tumor burden: 1.73%.
+> Fatty liver: L/S HU ratio = 0.35 (severe steatosis). Liver HU = 42.1.
+> Kidneys: Left 178.4 cm 3(2 cysts, total 4.8 cm 3), Right 203.1 cm 3(1 tumor, 12.3 cm 3). Bilateral asymmetry: Right kidney has higher lesion burden (6.06% vs 2.69%).
+> Pancreas: Volume 58.9 cm 3. Mean HU: 55.2. No lesions. P/S HU ratio: 0.46 (pancreatic steatosis).
+> Spleen: Volume 621.4 cm 3(moderate splenomegaly). Mean HU: 119.8. Portal hypertension assessment: spleen enlarged + low liver HU →suggestive.
+> Example: Structured Report for BDMAP_00007501 (Pancreatic Mass)
+> CT Non-contrast. Male, 71 years old. Philips scanner.
+> Liver: Normal (volume: 1576.2 cm 3). Mean HU: 58.3. No lesions.
+> Kidneys: Left 165.7 cm 3, Right 172.3 cm 3. No lesions.
+> Pancreas: Volume 45.8 cm 3. Mean HU: 41.2. Pancreatic tumor 1: Head, 3.8 ×2.9 cm, volume 16.4 cm 3. T3 (extends beyond pancreas). Hypoattenuating (HU: 29.1). Classification: PDAC (hypoattenuating mass in head). Resectability: Borderline resectable (tumor abuts superior mesenteric artery <180 degrees).
+> Spleen: Volume 187.2 cm 3(normal). Mean HU: 98.7.
+
+17 c Full Task Definitions and Generation Logic 
+
+Question generation pipeline. The question generation pipeline is a fully deterministic, code-based system that transforms structured metadata into question-answer pairs. The pipeline operates in three stages: (1) Eligibility checking : For each CT volume, the pipeline iterates over all 42 subtypes and checks whether the required metadata fields are available and non-null. For example, “fatty liver” requires both liver HU and spleen HU to be present; “PDAC vs PNET” requires exactly one of PDAC or PNET (not both) to be present. This filtering ensures every generated question has a well-defined ground-truth answer. (2) Answer computation : The correct answer is computed from metadata using the subtype-specific logic program. For continuous-valued answers, the result is rounded to one decimal place. For categorical answers, the result is determined by comparing computed values against published clinical thresholds. (3) Option generation : Four options (A, B, C, D) are generated, with the correct answer randomly assigned to one position. Distractor generation differs by answer type (see below). The pipeline processes all 9,262 volumes in under 10 minutes on a single CPU core, generating the full 476K question dataset. 
+
+Template examples for each task type. Recognition templates (2-option binary, random baseline 50%): 
+
+• “Based on the CT scan, are there any {lesion_type} in the {organ}?” → Options: Yes / No • “Is the spleen enlarged?” → Options: “Yes, the spleen is enlarged (splenomegaly)” / “No, the spleen is normal in size” 
+
+Measurement templates (4-option numeric, random baseline 25%): 
+
+• “What is the volume of the {organ} in this CT scan?” → Options: four numerical values in cm 3
+
+• “What is the mean Hounsfield unit (HU) value of the {organ}?” → Options: four HU values • “What is the {organ1}-to-{organ2} HU ratio?” → Options: four ratio values 
+
+Visual Reasoning templates (2–4 options depending on subtype): 
+
+• “How many {lesion_type} are present in the {organ}?” → Options: four integer counts (random 25%) • “Which kidney is larger by volume?” → Options: Left / Right / Equal (3 options, random 
+
+∼33%) • “Is the largest {organ} lesion more than 3 times larger than the second largest?” → Options: Yes / No (binary, random 50%) 
+
+Medical Reasoning templates (2–4 options depending on grading scheme): 
+
+• “Based on the liver-to-spleen HU ratio, does this patient have fatty liver?” → Options: No fatty liver / Light fatty liver / Moderate to severe fatty liver (3 classes following Zeb 2012) • “What is the grade of hepatic steatosis?” → Options: Grade 0 (Normal) / Grade 1 (Mild) / Grade 2 (Moderate) / Grade 3 (Severe) (4 classes following Kodama 2007) • “Based on tumor size, what is the T-stage of the pancreatic tumor?” → Options: T1 / T2 / T3 / T4 (4-stage AJCC) • “Is the pancreatic lesion resectable?” → Options: Resectable / Borderline resectable / Unresectable (3 classes from NCCN guideline) 
+
+Option generation logic. For always-positive continuous-valued subtypes (organ volume, lesion volume, HU ratio, tumor burden, lesion diameter, aggregated volume, lesion counts), distractors are sampled multiplicatively from [max(0 , 0.7 × GT ), 1.3 × GT ] with the constraint that all four options must have pairwise separation of at least 3–10% of the GT value (3% for volumes >100 cm 3, 5% for HU values, 10% for ratios and small quantities). For signed-value subtypes where the underlying value can be near zero or negative (tumor-organ HU difference, organ HU measurement near 0), we instead sample additively from [GT − δ, GT + δ] with δ set per subtype to satisfy the 18 same pairwise separation constraint ( δ=5–15 HU for HU-based subtypes). If the sampling fails to produce sufficiently separated distractors within 100 attempts, the range is widened (multiplicative: 
+
+[0 .5 × GT , 1.5 × GT ]; additive: δ × 1.5). All numerical options are rounded to one decimal place. For ordinal/categorical subtypes (splenomegaly grading, hepatic steatosis grading, T staging, pancre-atic lesion resectability, renal mass characterization, fatty liver), all clinically defined grades serve as options (4-grade systems expose each grade as a distinct option; fatty liver uses the 3-class scheme in Table 7; portal hypertension uses the 3-class Yes/Possible/No scheme). For binary conditions (pancreatic steatosis, pseudocyst determination, splenomegaly detection, PDAC/PNET existence, PDAC vs. PNET, cyst resectability, lesion type classification, lesion existence, lesion outlier, organ enlargement), the options are “Yes” and “No” (or the two class labels). For counting subtypes , distractors are sampled from [max(0 , GT − 3) , GT + 3] for counts ≤10, or 
+
+[max(0 , 0.7 × GT ), 1.3 × GT ] for larger counts, with all options constrained to be non-negative integers. 
+
+Quality verification steps. After generation, all questions undergo automated verification: (i) The correct answer must appear exactly once among the four options. (ii) No two options may be identical after rounding. (iii) For laterality questions (kidney comparison, bilateral asymmetry), the question text and options must be internally consistent. (iv) For multi-step Medical Reasoning questions, all intermediate values used in the computation must be non-null in the metadata. (v) A random sample of 500 questions per subtype is manually reviewed to check for semantic correctness and clinical plausibility. Questions failing any check are discarded and regenerated; the overall discard rate is 2.3%. Table 7 summarizes all 42 subtypes, their task type, the generation logic, clinical reference where applicable, and an example question-answer pair. 
+
+Clinical references and disclaimer. All thresholds, classification criteria, and decision rules used as ground-truth answer programs are simplified instantiations of published clinical literature or society guidelines (citations in the Reference column of Table 7). They are intended as deterministic, repro-ducible question-generation programs for benchmark evaluation only, not as standalone diagnostic protocols. Real clinical use requires interpretation by board-certified radiologists per institutional standards, and the rules in this benchmark may diverge from contemporary practice in edge cases (e.g. , AJCC pancreatic T-staging requires assessment of vessel involvement that we approximate by tumor-vessel mask contact; pseudocyst HU thresholds are population estimates that do not capture all atypical presentations). The benchmark is released for research use only; clinical deployment of any model based on these rules requires independent validation and regulatory approval. Table 7: Summary of all 42 subtypes: task type, generation logic, clinical reference, and example QA pair.                                                   
+
+> Task Type Subtype Generation Logic Reference Example QA
+> Measurement organ volume Volume from segmentation mask –Q: What is the liver volume? A: 1293.7 cm 3
+> Measurement organ HU Mean HU from voxels within mask –Q: Mean HU of pancreas? A: 104.8 Measurement lesion volume Sum of lesion instance volumes –Q: Total tumor vol in right kid-ney? A: 17.5 cm 3
+> Measurement organ HU ratio Ratio of two organs’ mean HU [32] Q: What is the liver-to-spleen HU ratio? A: 0.73 Measurement tumor burden % (Lesion vol / organ vol) ×100 –Q: What % of liver is tumor? A: 4.2% Recognition liver lesion exist. Lesion volume >0 in liver –Q: Any lesion in the liver? A: Yes Recognition kidney lesion exist. Lesion volume >0 in kidney –Q: Any kidney lesions? A: No Recognition kidney cyst exist. Cyst volume >0 in kidney –Q: Any cysts in kidney? A: No Recognition kidney tumor exist. Tumor volume >0 in kidney –Q: Kidney tumors present? A: Yes
+
+19 (continued from previous page) 
+
+Task Type Subtype Generation Logic Reference Example QA 
+
+Recognition pancreatic lesion Lesion vol > 0 in pancreas – Q: Any pancreatic lesions? A: No Recognition colon lesion exist. Lesion vol > 0 in colon – Q: Colon lesions present? A: No Recognition splenomegaly detect. Spleen vol > 314.5 cm 3 [10] Q: Is the spleen enlarged? A: Yes Recognition PDAC existence PDAC vol > 0 – Q: Is PDAC present? A: Yes Recognition PNET existence PNET vol > 0 – Q: Is PNET present? A: No Vis. Reasoning lesion counting Count instances by type/organ – Q: How many liver cysts? A: 3 Vis. Reasoning largest lesion diam. Max diameter from metadata – Q: Largest pancreas tumor diam.? A: 2.5 cm Vis. Reasoning largest lesion loc. Location label (segment/side) – Q: Where is largest liver le-sion? A: Seg. 2 Vis. Reasoning largest lesion atten. HU vs. background (hypo/iso/hy-per) – Q: Is largest cyst hypoattenuat-ing? A: Yes Vis. Reasoning kidney vol. compare L > 1.05 ×R (left), L < 0.95 ×R(right), else same – Q: Which kidney is larger? A: Left Vis. Reasoning organ aggregation Sum two organs’ volumes – Q: Combined liver+spleen vol? A: 1428 cm 3
+
+Vis. Reasoning tumor-organ HU diff |lesion HU − organ HU | – Q: Kidney tumor HU diff? A: 32.4 Vis. Reasoning largest lesion slice Axial slice with max lesion – Q: Which slice has largest le-sion? A: 174 Vis. Reasoning lesion outlier Largest > 3× second largest – Q: Is largest 3 × bigger? A: No Vis. Reasoning lesion count by loc. Per-segment lesion counts – Q: Lesions in segment 8? A: 5 Vis. Reasoning inter-segment comp. Compare counts between segments – Q: More lesions: seg 2 or 4? A: Seg 2 Vis. Reasoning adjacent organ Smallest centroid-distance organ to the largest lesion (from segmenta-tion masks) – Q: Organ adjacent to lesion? A: Stomach Vis. Reasoning organ enlargement Organ volume above clinical thresh-old (liver >2,500 cm 3, spleen 
+
+>314.5 cm 3, kidney >250 cm 3,pancreas >150 cm 3)[10] Q: Is pancreas enlarged? A: No Vis. Reasoning liver lesion cluster. Top-1 seg. ≥50% (highly); top-2 segs. ≥75% (somewhat); else widely – Q: Liver lesions clustered? A: Yes Vis. Reasoning bilateral kidney asym. Largest-lesion-location vote; tie bro-ken by vol. ratio >1.3 ×
+
+– Q: Which kidney has more le-sions? A: Right Vis. Reasoning multi-organ burden Cross-organ lesion comparison – Q: More tumors in liver or kid-ney? A: Liver Med. Reasoning fatty liver 3-class: L/S ≥1.0 none; else liver HU ≥40 light; else moderate–severe [59] Q: Fatty liver grade? A: Light Med. Reasoning hepatic steatosis gr. 4-grade: HU 58/51/39 thresholds [32] Q: Steatosis grade? A: Moder-ate Med. Reasoning pancreatic steatosis P/S HU ratio < 0.7 [22] Q: Pancreatic steatosis? A: No Med. Reasoning splenomegaly grading 4-grade: 314.5/500/800 cm 3 [10] Q: Splenomegaly grade? A: Mild Med. Reasoning PDAC vs PNET class. Annotated lesion type label (PDAC or PNET, both human-labelled by 23 radiologists; binary question gen-erated only when exactly one type is present) [44] Q: PDAC or PNET? A: PDAC Med. Reasoning portal hypertension Splenic vol + liver HU composite [24] Q: Portal hypertension? A: Yes Med. Reasoning renal mass charact. Simplified Bosniak: HU ≤20 simple cyst; ≥70 hyperattenuating; else in-determinate/solid [50] Q: Mass classification? A: Sim-ple cyst Med. Reasoning lesion type class. Largest-volume kidney lesion: cyst vs. tumor label from radiologist an-notation [2] Q: Cyst or tumor? A: Tumor 
+
+20 (continued from previous page)                            
+
+> Task Type Subtype Generation Logic Reference Example QA
+> Med. Reasoning pseudocyst determ. HU >14.5 threshold [3] Q: Is it a pseudocyst? A: Yes Med. Reasoning pancreatic T staging T1–T4 from annotations [5] Q: Tumor T-stage? A: T2 Med. Reasoning cyst resectability Cyst vol >3.0 cm 3[51] Q: Cyst resectable? A: Yes Med. Reasoning lesion resectability Computed by NCCN-criterion pro-gram from tumor location and adjacent-vessel contact angle (ves-sels from segmentation, geometry programmatic) [44] Q: Lesion resectable? A: No
+
+d Compositional Design vs. Template Matching 
+
+Our use of deterministic generation programs invites comparison to CLEVR [ 30 ], but DeepTu-morVQA differs in three fundamental ways. First, our visual inputs are real CT scans with real pathology , not synthetic scenes; the visual grounding challenge is genuine and domain-specific. Sec-ond, our compositional structure mirrors actual clinical diagnostic workflows : radiologists diagnose fatty liver by measuring L/S HU ratio, grade splenomegaly by splenic volume, and stage tumors by size and invasion; our question programs encode these exact protocols. 
+
+Detailed comparison with CLEVR. CLEVR [ 30 ] generates questions about synthetic scenes containing geometric primitives (cubes, spheres, cylinders) with attributes (color, size, material). Questions are composed from functional programs over a scene graph. While DeepTumorVQA shares the principle of compositional question generation, the two benchmarks differ along every axis that matters for evaluating real-world medical AI: 
+
+Visual complexity. CLEVR scenes contain 3–10 objects with uniform textures against a plain background. CT volumes contain continuous-valued tissue with subtle attenuation differences, partial volume effects, motion artifacts, and pathology that may be isodense with surrounding parenchyma. A liver lesion with HU difference of only 10 from background is clinically significant but visually imperceptible on standard windowing. 
+
+Compositional depth. CLEVR programs chain at most 4–5 operations (filter, relate, count, compare). DeepTumorVQA Medical Reasoning subtypes chain up to 6 operations across multiple organs: e.g., portal hypertension requires segment(spleen) → measure(spleen, volume) → segment(liver) →
+
+measure(liver, HU) → lookup(portal_hypertension) → apply_composite_criterion. The intermediate values are continuous (not categorical), requiring precise arithmetic rather than symbolic matching. 
+
+Answer distribution. CLEVR answers are drawn from a small vocabulary (yes/no, 0–10, 8 colors, 3 shapes, 2 sizes, 2 materials). DeepTumorVQA continuous-valued answers span ranges from 0.1 cm 3
+
+to 5,000 cm 3 for volumes and −100 to +200 for HU values. The distractor generation must respect the continuous nature of these values. 
+
+Why our approach is not template matching. A “template matching” shortcut would allow a model to achieve high accuracy by recognizing question patterns and mapping them to answers without understanding the visual content. We provide two lines of evidence against this: (1) Compositional generalization. Our CLEVR-style OOD split (Section 4.5) holds out specific (organ, lesion_size) combinations. The small IID–OOD gap ( <5pp for most models) is consistent with—but does not prove the absence of—template-specific shortcuts; a stronger compositional test (e.g., held-out subtypes rather than held-out organ-size pairs) is left for future work. (2) Agent trajectory diversity. Despite deterministic ground-truth traces, zero-shot agents produce highly diverse tool invocation sequences. Qwen3.5-9B achieves only 19.9% exact sequence match in oracle mode, yet 48.5% answer accuracy, demonstrating that correct answers can be reached through varied reasoning paths rather than memorized templates. 21 Statistical analysis of question diversity. Despite using templates, the generated questions exhibit high surface-form diversity. Across the 476K questions: (i) The vocabulary size is 2,847 unique tokens (medical terms, organ names, numerical values). (ii) The number of unique question strings is 389,421 (81.7% unique), because organ names, laterality, lesion types, and numerical options vary. (iii) Within each subtype, the number of unique questions ranges from 3 (pseudocyst determination, limited by rare pathology) to 48,291 (organ volume, many organs × many CT volumes). The diversity arises from the combinatorial explosion of organs, lesion types, laterality, and patient-specific numerical values. 
+
+e Input Processing Details 
+
+e.1 2D Input Processing 
+
+DeepTumorVQA provides two types of 2D input: organ-specific slices (used for direct inference) and whole-volume slices (used for general evaluation). Both are pre-computed for all 991 test volumes to ensure reproducibility. 
+
+Organ-specific slice extraction. For each CT volume and each of the 5 major organs, we extract 5 representative axial slices that capture the organ’s extent and any pathology. The extraction algorithm proceeds as follows: (1) Axial axis identification. The axial axis is determined dynamically from the NIfTI affine matrix using np.argmax(np.abs(affine[2, :3])) . This handles the variety of orientation conventions across datasets (RAS, LPS, etc.) without hardcoding assumptions. (2) Organ extent determination. Using the organ segmentation mask, we compute the minimum and maximum axial slice indices containing non-zero voxels. This defines the organ’s axial extent 
+
+[zmin , z max ].(3) Slice selection. Five slices are selected at evenly spaced intervals within the organ extent: 
+
+zi = zmin + i × (zmax − zmin )/4 for i ∈ { 0, 1, 2, 3, 4}. This ensures coverage of the superior, mid-upper, central, mid-lower, and inferior portions of the organ. If the organ spans fewer than 5 slices, we sample with replacement from the available slices. (4) Abdominal windowing. Each axial slice is converted from raw HU values to an 8-bit grayscale image using abdominal soft-tissue windowing with window width W = 400 and window level 
+
+L = 50 . The windowing function maps HU values to pixel intensities: pixel = 255 × clip (( HU −
+
+L + W/ 2) /W, 0, 1) . This window (range: −150 to +250 HU) is standard for abdominal CT and provides good visualization of liver, kidney, spleen, and pancreas parenchyma as well as most soft-tissue lesions. (5) Tiling. The 5 axial slices are tiled horizontally into a single PNG image of dimensions 5S × S,where S is the axial slice size (typically 512 × 512 pixels). A thin (2-pixel) white separator line is drawn between adjacent slices for visual clarity. The resulting image contains the organ’s complete axial extent in a single file, suitable for input to 2D VLMs as a multi-panel image. 
+
+Video generation. For models that accept video input (Qwen3-VL, Meissa), we generate MP4 videos from the same organ-specific slices. The video contains all axial slices within the organ’s extent (not just 5), played sequentially from superior to inferior. Video parameters: resolution 
+
+512 × 512 pixels, frame rate 5 fps (each slice displayed for 200ms), codec H.264 with CRF 23 for compression. A typical organ video contains 30–80 frames (6–16 seconds). The video format provides temporal context that static tiled images cannot: models can track lesions across consecutive slices and perceive 3D spatial relationships through motion. 
+
+Whole-volume slices. In addition to organ-specific inputs, we generate whole-volume slice images that show the complete abdominal cross-section without organ-specific cropping. These use the same 5-slice tiling strategy but sample uniformly across the full CT volume depth rather than within a specific organ’s extent. Whole-volume slices are used for questions that reference the entire abdomen (multi-organ comparisons) or when the relevant organ is not specified in the question. 22 Processing statistics. For the 991 test volumes, we generated 5,093 organ-specific slice images (approximately 5 organs × 991 volumes, minus cases where organs are absent), 991 whole-volume slice images, 5,093 organ-specific videos, and 991 whole-volume videos. Total storage: 12.4 GB for PNG slices, 8.7 GB for MP4 videos. Processing time: approximately 45 minutes on 32 CPU cores. 
+
+e.2 3D Input Processing 
+
+Each 3D specialist model requires a different input format, so we preprocess all CT volumes into three standardized .npy array formats. 
+
+M3D format: 64 × 256 × 256 . M3D-LaMed (both LLaMA2 and Phi-3 variants) accepts input volumes of shape [D, H, W ] = [32 , 256 , 256] but during training was exposed to volumes up to depth 64. We preprocess each NIfTI volume by: (1) clipping HU values to [−1024 , 1024] ; (2) resizing the volume to [64 , 256 , 256] using trilinear interpolation ( scipy.ndimage.zoom ); (3) normalizing to 
+
+[0 , 1] by (x + 1024) /2048 . The 3D ViT encoder processes this volume as a sequence of 2 × 16 × 16 
+
+patches, yielding 256 visual tokens. Resizing from native resolution (typically ∼200–500 slices of 
+
+512 × 512 ) to 64 × 256 × 256 introduces information loss, particularly for small lesions ( <1 cm) that may occupy only 1–2 voxels in the resized volume. 
+
+Merlin format: 160 × 256 × 256 . Merlin uses a 3D ResNet encoder that processes volumes at [160 , 224 , 224] internal resolution but accepts [160 , 256 , 256] input with center cropping. We preprocess by: (1) resampling to isotropic [1 .5, 1.5, 3.0] mm spacing using the NIfTI affine matrix and trilinear interpolation; (2) resizing to [160 , 256 , 256] ; (3) clipping HU to [−1024 , 1024] and normalizing to [0 , 1] . The higher depth resolution (160 vs. 64) preserves more axial information, but Merlin’s highly compressed visual projection (a 1-layer FC head producing very few visual tokens) likely contributes to its weaker Recognition accuracy compared to M3D and RadFM. 
+
+RadFM format: variable resolution. RadFM uses a Perceiver Resampler that can handle variable-length visual token sequences. We preprocess by: (1) resizing to [D′, 256 , 256] where D′ =min( D, 256) to limit memory; (2) clipping HU to [−1024 , 1024] and normalizing to [0 , 1] . The Perceiver Resampler compresses the visual tokens to a fixed 32-token sequence regardless of input depth, providing flexibility but potentially losing fine-grained spatial information. 
+
+Differences between formats. The three formats represent different trade-offs between spatial resolution, memory efficiency, and model architecture compatibility. M3D’s aggressive downsampling to depth 64 is memory-efficient (1.1 GB per batch of 4) but loses axial detail. Merlin’s 160 ×256 ×256 
+
+format preserves more anatomy but requires ∼3 GB per volume. RadFM’s variable-depth format is most flexible but the Perceiver Resampler bottleneck limits the benefit of higher resolution. Empirically, RadFM and M3D-Phi3 achieve similar Measurement accuracy (70.1% vs. 70.3%) despite different input resolutions, suggesting that the LLM decoder’s ability to reason over visual tokens matters more than raw input resolution for quantitative tasks. 
+
+e.3 2D LoRA Finetuning Details Training data. We use the full 428K training QA pairs for LoRA finetuning, no subsampling. Subtype frequency is naturally imbalanced (organ volume: ∼48K vs. pseudocyst determination: 12); to mitigate the long-tail effect we apply per-subtype loss reweighting, scaling each sample’s loss inversely proportional to the square root of its subtype frequency so that rare subtypes receive a stronger gradient signal. We verified on the validation split that reweighted training improves rare-subtype accuracy by ∼2pp with no measurable loss on common subtypes. 
+
+Image preprocessing during training. For vision-mode finetuning, each training sample includes the organ-specific 2D slice image (5 axial slices tiled horizontally). Images are preprocessed to respect the model’s maximum pixel budget: Qwen3-VL-4B supports up to 16 , 384 × 28 × 28 = 12 , 845 , 056 
+
+pixels, but we limit to 512 × 512 effective resolution ( max_pixels=262144 ) to prevent out-of-memory errors during training with gradient checkpointing. The model’s built-in dynamic resolution mechanism resizes the tiled image to fit within this budget while preserving aspect ratio. 23 LoRA configuration details. We apply Low-Rank Adaptation (LoRA) [ 26 ] with rank r = 16 and scaling factor α = 32 (effective scaling α/r = 2 .0). LoRA adapters are applied to 7 linear projection layers in each transformer block: q_proj , k_proj , v_proj , o_proj (attention), and gate_proj ,
+
+up_proj , down_proj (MLP). For Qwen3-VL-4B and Meissa-4B (both based on Qwen3-VL ar-chitecture), this targets all 32 transformer blocks, adding approximately 26M trainable parameters (0.65% of the 4B total). Dropout is set to 0.05 on LoRA layers. The vision encoder (ViT) is frozen during training; only the language model layers receive LoRA adapters. This design choice is deliberate: the vision encoder’s feature extraction is already well-trained on diverse images, and unfreezing it risks catastrophic forgetting of general visual capabilities. 
+
+Training configuration and convergence. Training uses AdamW optimizer with learning rate 
+
+2 × 10 −5, weight decay 0.01, β1 = 0 .9, β2 = 0 .999 . The learning rate follows a cosine schedule with 3% warmup steps. Per-device batch size is 2 with gradient accumulation of 8 steps, yielding an effective batch size of 64 across 4 GPUs. Training runs for 3 epochs ( ∼20K steps over the 428K training pairs). Loss converges within the first epoch from ∼2.8 to ∼0.4, then gradually decreases to 
+
+∼0.15 by the end of training. 
+
+Hardware requirements and compute time. Each finetuning run uses 4 ×NVIDIA A5000 GPUs (24GB VRAM each). With gradient checkpointing and flash attention 2 enabled, peak GPU memory usage is approximately 21 GB. The 3% VRAM headroom is tight; without gradient checkpointing, the model OOMs. Training time is approximately 12 hours for 3 epochs on 4 ×A5000 (48 GPU-hours). 
+
+Hyperparameter sensitivity. We conducted a small hyperparameter sweep on the validation set (5% holdout from training). Key findings: (i) LoRA rank: r = 8 achieves 63.1% (vs. 66.3% at 
+
+r = 16 , 65.8% at r = 32 ), suggesting rank 16 is near-optimal. (ii) Learning rate: 1 × 10 −5 achieves 64.7%, 2 × 10 −5 achieves 66.3%, 5 × 10 −5 achieves 63.9% (overfitting). (iii) Training epochs: 1 epoch achieves 61.2%, 2 epochs 64.8%, 3 epochs 66.3%, 4 epochs 65.9% (slight degradation). (iv) Max pixels: 262144 (512 ×512) achieves 66.3%, 65536 (256 ×256) achieves 62.1%, 1048576 (1024 ×1024) OOMs. We did not conduct an exhaustive grid search due to compute constraints (each run costs 48 GPU-hours). 
+
+Gradient checkpointing and flash attention. Both optimizations are essential for fitting vision-mode training into 24GB VRAM. Gradient checkpointing reduces peak memory by recomputing intermediate activations during the backward pass rather than storing them; this roughly halves memory at the cost of ∼30% training time increase. Flash attention 2 [ 17 ] reduces the attention memory footprint from O(n2) to O(n) and provides 2–4 × speedup for long sequences. Without either optimization, peak VRAM exceeds 36GB for vision-mode training with a single sample, making training impossible even on A6000 (48GB) with batch size 1. 
+
+e.4 Agent SFT Training Details Data generation pipeline. Agent SFT training data is generated by executing ground-truth tool traces on a pre-computed tool cache (Appendix f) for training-set images only (strict separation from the test set). For each training QA pair, the pipeline: (1) looks up the subtype’s ground-truth trace; (2) substitutes organ/lesion placeholders with the question’s specific targets; (3) executes each tool call against the cached tool results, retrieving the exact JSON response the agent would see at runtime; (4) constructs a multi-turn ShareGPT conversation interleaving reasoning, tool calls, and observations; (5) generates a final reasoning step that performs the actual computation and selects the answer. The resulting conversation has the following structure: • System prompt : Agent instructions with tool definitions and output format specification. • User turn : The question with 4 options and the 2D slice image. • Assistant turn 1 : <think> Initial analysis </think> + function_call (first tool). • Observation turn 1 : Tool JSON response. • Assistant turn 2 : <think> Intermediate reasoning </think> + function_call (next tool). • ... (repeated for each tool in the trace) 24 • Final assistant turn : <think> Complete reasoning with actual values and computa-tion </think> + [FINAL] ANSWER: X 
+
+Example training conversation.                     
+
+> Agent SFT Training Example: Fatty Liver Diagnosis
+> System: You are a medical AI agent. You have access to the following tools: segment_organ, measure, lookup_medical_knowledge, crop_region. Use ReAct-style reasoning. End with [FINAL] ANSWER: X.
+> User: [Image: 2D organ slices] Based on the CT scan, does this patient have fatty liver? Options: (A) Yes (B) No (C) Borderline (D) Insufficient data
+> Assistant: <think> To diagnose fatty liver, I need to compute the liver-to-spleen HU ratio. Let me first look up the diagnostic criteria. </think> function_call: lookup_medical_knowledge(“fatty liver”)
+> Observation: {“entries”: [{“criterion”: “Liver-to-spleen HU ratio < 1.0 indicates fatty liver”, “threshold”: “L/S ratio < 1.0”, “source”: “Zeb 2012”}]}
+> Assistant: <think> I need L/S HU ratio < 1.0. Let me measure liver HU first. </think> function_call: measure(“liver”, “mean_HU”)
+> Observation: {“value”: 42.1, “unit”: “HU”}
+> Assistant: <think> Liver HU = 42.1. Now I need spleen HU for comparison. </think> function_call: measure(“spleen”, “mean_HU”)
+> Observation: {“value”: 119.8, “unit”: “HU”}
+> Assistant: <think> Liver HU = 42.1, Spleen HU = 119.8. L/S ratio = 42.1 / 119.8 = 0.351. Since 0.351 < 1.0, the criteria for fatty liver are met. The very low ratio (well below 1.0) indicates significant hepatic steatosis. </think> [FINAL] ANSWER: A
+
+Subtype coverage: 38 of 42. The training data covers 38 of 42 subtypes. The 4 excluded subtypes are: (1) inter-segment comparison : requires Couinaud segment-level lesion counts that the segmen-t/measure tools cannot provide (they return organ-level statistics, not segment-level); (2) largest lesion slice : requires the specific axial slice number containing the largest lesion, which is spatial information not in the tool output; (3) largest lesion location : requires segment-level localization beyond tool capabilities; (4) adjacent organ : requires spatial relationship information from the radiology report text, not derivable from tool outputs. These subtypes are retained in the evaluation benchmark but absent from agent SFT training, testing whether trace-trained agents can generalize to unseen subtypes. 
+
+Turn distribution statistics. The number of conversation turns varies by subtype complexity: • 4-turn conversations (22%): Recognition subtypes with simple traces (e.g., liver lesion existence: user → segment → observe → answer). 4,400 samples. • 6-turn conversations (24%): Measurement subtypes and simple visual reasoning (e.g., organ volume: user → segment → observe → measure → observe → answer). 4,800 samples. • 8-turn conversations (36%): Complex visual reasoning and simple medical reasoning requiring 3 tool calls (e.g., HU ratio, tumor burden). 7,200 samples. • 10–12-turn conversations (18%): Complex medical reasoning requiring 4–5 tool calls plus knowledge lookup (e.g., portal hypertension: knowledge → segment(spleen) → mea-sure(spleen) → segment(liver) → measure(liver) → answer). 3,600 samples. 
+
+Knowledge-first ordering rationale. For Medical Reasoning subtypes that require clini-cal knowledge (fatty liver, steatosis grading, splenomegaly grading, etc.), we place the 
+
+lookup_medical_knowledge call first in the trace, before any measurement calls. This “knowledge-first” ordering teaches the agent to understand what to measure before measuring it, mirroring clinical practice where radiologists recall diagnostic criteria before interpreting imaging. The zero-shot agents dramatically underutilize the knowledge tool (only 1.3–2.7% of calls), and this ordering explicitly teaches that knowledge retrieval should precede measurement. In ablation, knowledge-first ordering improves Medical Reasoning accuracy by 4.2pp over measurement-first ordering (61.5% vs. 57.3%), confirming the benefit. 
+
+Concrete reasoning in final think tags. A critical design choice is that the final <think> tag contains actual computed values and explicit comparisons , not generic templates. For example, 25 instead of “Comparing the measured values to the threshold, we can determine the answer”, the training data contains “Liver HU = 42.1, Spleen HU = 119.8. L/S ratio = 42.1/119.8 = 0.351. Since 0.351 < 1.0, fatty liver criteria are met.” This teaches the model to perform explicit arithmetic reasoning rather than pattern matching. In our ablation, training with concrete reasoning improves accuracy by 7.8pp over template reasoning (63.8% vs. 56.0%). 
+
+Training hyperparameters (LLaMA-Factory config). Agent SFT uses LLaMA-Factory with the following configuration: • Model : Meissa-4B (merged LoRA on Qwen3-VL-4B) • Adapter : LoRA, rank 16, alpha 32, dropout 0.05 • Target modules : q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj • Optimizer : AdamW, lr 1 × 10 −5, weight decay 0.01 • Scheduler : cosine with 3% warmup • Batch size : 2 per device, gradient accumulation 8, effective batch 64 • Epochs : 2 (1,875 steps) • Max sequence length : 4,096 tokens • Hardware : 4 ×A6000 (48GB each) • Compute time : ∼8 hours (32 GPU-hours) • Environment : llamafactory_qwen3 conda env (transformers 4.57.3) The learning rate ( 1 × 10 −5) is half that used for direct QA finetuning ( 2 × 10 −5), because agent trajectories contain more tokens per sample and we found that higher learning rates cause the model to lose tool-calling format compliance. 
+
+Comparison with zero-shot agent behavior. The improvements from Agent SFT are multifaceted: • Tool-use efficiency : Average steps drops from 5.5 to 3.8; 8-step limit hit rate drops from 23.2% to 0.3%. • Tool coverage : Knowledge tool usage increases from 11.4% to 89.7% for Medical Reason-ing subtypes. • Reasoning chain completeness : Increases from 51.4% to 94.8%. • Trajectory Jaccard : Increases from 0.84 to 0.94. • Parameter accuracy : Increases from 0.80 to 0.99. • Answer accuracy : Increases from 46.0% to 63.8% (+17.8pp). The most dramatic improvement is in knowledge tool utilization: zero-shot Meissa calls knowledge in only 11.4% of Medical Reasoning questions, while SFT Meissa calls it in 89.7%. This single behavioral change accounts for a large portion of the Medical Reasoning improvement (50.7% →
+
+61.5%). 
+
+f Agent Tool Cache Pre-computation 
+
+Why pre-computation is needed. The primary bottleneck in agent evaluation is NIfTI file I/O. Each tool call that accesses a CT volume or segmentation mask requires loading one or more NIfTI files from disk. A single segment_organ call loads the target’s segmentation mask ( ∼50–200 MB per file) and optionally the CT volume ( ∼200–500 MB) for HU computation. At native resolution, loading and processing a single NIfTI file takes approximately 3–4 seconds on SSD storage. A typical agent trajectory makes 3–5 tool calls, each potentially loading different files, resulting in 12–20 seconds of pure I/O per question. With 10,000 benchmark questions, this amounts to 33–55 hours of I/O alone, dwarfing the model inference time (3–5 seconds per question). 26 Pre-computation pipeline. We pre-compute all possible tool results for every image in both the test set (991 images) and training set (283 unique images used in SFT data). The pipeline iterates over all images and, for each image, calls every tool with every valid target/type combination: • segment_organ : 43 targets (all supported anatomical structures). • measure : 43 targets × 4 types (volume, mean_HU, diameter, count) = 172 combinations. • lookup_medical_knowledge : 27 entries (static, independent of image). • crop_region : 5 organs (liver, spleen, left kidney, right kidney, pancreas). For each combination, we store the tool’s JSON response in a nested dictionary keyed by image_id 
+
+→ tool_name → parameters. The cache is serialized as a single JSON file per image set. 
+
+Cache format and statistics. The test set cache covers 991 images with 215 tool results per image (43 segment + 172 measure), totaling 213,165 cached results in 2.1 GB (compressed). The training set cache currently covers 283 images with identical structure, totaling 60,845 results in 0.6 GB. The 283-image figure reflects the merged train-set tool-cache (a 296-image precompute job whose final 13 shards failed to merge), constraining the agent SFT data to those 283 volumes; the test set’s 991 images are fully disjoint from these 283 training volumes (verified by BDMAP-id intersection 
+
+= 0 ). To prevent overfitting to a narrow image set, SFT samples are stratified across 38 subtypes (∼70 questions per training image, ∼50 max per (image, subtype) pair), and the compositional generalization analysis in Appendix h confirms no per-image memorization at the test/OOD splits. Future work will expand the train-cache toward the full 8,334 training images. The knowledge base cache is a single 47 KB file. Crop region images are stored separately as base64-encoded PNG files (12.4 GB for test, 3.5 GB for train). 
+
+Speed improvement. With pre-computation, each tool call reduces from 3–4 seconds (NIfTI loading) to <1 millisecond (dictionary lookup). Agent evaluation throughput improves from ∼15 seconds/question to ∼4 seconds/question (3.75 × speedup), with the remaining time dominated by model inference. For the full 10,000-question benchmark, total evaluation time drops from ∼42 hours to ∼11 hours per agent configuration. The one-time pre-computation cost is approximately 8 hours on 32 CPU cores for the test set. 
+
+g Detailed Per-Subtype Results 
+
+The per-subtype accuracy heatmap (Figure 5) reveals rich patterns in model capabilities. 
+
+Easiest subtypes (highest average accuracy). The top 5 easiest subtypes across all models are: (1) organ volume (avg 52.1%), because volume questions have well-separated options and 3D models can directly learn volume estimation; (2) kidney lesion existence (avg 49.3%), because kidney lesions are relatively large and well-defined on CT; (3) liver lesion existence (avg 48.7%), for similar reasons; (4) organ HU (avg 47.2%), because HU measurement is a fundamental CT property; (5) splenomegaly detection (avg 46.1%), because spleen size is visually salient. These subtypes share a common property: they require either simple binary classification or single-organ measurement, with answers that correlate with visually salient features. 
+
+Hardest subtypes (lowest average accuracy). The bottom 5 hardest subtypes are: (1) pseudocyst determination (avg 27.8%), primarily due to the extreme rarity of this condition (only 3 test cases) and the subtle HU threshold; (2) portal hypertension (avg 28.4%), because it requires a composite assessment of splenic volume AND liver HU, a multi-step reasoning chain few models complete; (3) pancreatic T staging (avg 29.1%), requiring precise tumor diameter measurement and mapping to AJCC criteria; (4) PDAC vs PNET classification (avg 29.6%), requiring differentiation based on subtle attenuation patterns; (5) hepatic steatosis grading (avg 30.2%), requiring precise L/S HU ratio computation and mapping to 4-grade scale. These hard subtypes all require multi-step quantitative reasoning with precise thresholds. 
+
+Cross-model consistency analysis. We measure cross-model consistency by computing the pair-wise Pearson correlation of per-subtype accuracy vectors across all 30+ models. The average pairwise 27 Meissa-4B (FT v3) 
+
+> Qwen3-VL-4B (FT v3)
+> Meissa-4B (Agent-SFT)
+> Meissa-4B (Agent-SFT-Pred)
+> M3D-Phi3 (FT)
+> RadFM (FT)
+> Meissa-4B (Agent-Holdout)
+> M3D-LLaMA2 (FT)
+> Qwen2.5-VL-9B (Agent-Oracle)
+> Meissa-4B (FT v2)
+> Meissa-4B (Agent-Oracle)
+> Qwen2.5-VL-9B (Agent-Pred)
+> Qwen3-VL-4B (FT v2)
+> Qwen2.5-VL-9B (Agent-Vision)
+> Qwen2.5-VL-35B
+> LLaVA-OneVision
+> Qwen3-VL-4B (Video)
+> Gemini 2.5 Flash
+> Qwen2.5-VL-9B
+> Meissa-4B
+> Meissa-4B (Video)
+> Qwen3-VL-4B
+> Qwen3-VL-8B (Video)
+> HuatuoGPT (Qwen2.5-VL)
+> Qwen3-VL-8B
+> InternVL3-8B
+> Merlin (FT)
+> LLaVA-Med
+> Meissa-4B (Agent-Vision)
+> MedGemma-2D
+> MedGemma-3D
+> RadFM (pretrained)
+> M3D-LLaMA2 (pretrained)
+> M3D-Phi3 (pretrained)
+
+PDAC exist. 
+
+PNET exist. 
+
+colon lesion exist. 
+
+kidney cyst exist. 
+
+kidney lesion exist. 
+
+kidney tumor exist. 
+
+liver lesion exist. 
+
+pancreatic lesion exist. 
+
+splenomegaly detect. 
+
+lesion volume meas. 
+
+organ HU meas. 
+
+organ HU ratio 
+
+organ volume meas. 
+
+tumor burden percentage 
+
+adjacent organ 
+
+bilateral kidney asymmetry 
+
+inter-segment comp. 
+
+kidney volume comp. 
+
+largest lesion attenuation 
+
+largest lesion diameter 
+
+largest lesion location 
+
+largest lesion slice 
+
+lesion count by location 
+
+lesion counting 
+
+lesion outlier 
+
+liver lesion clustering 
+
+multi-organ lesion burden comp. 
+
+organ aggregation 
+
+organ enlargement 
+
+tumor organ HU difference 
+
+PDAC vs PNET classif. 
+
+fatty liver 
+
+hepatic steatosis grading 
+
+lesion type classif. 
+
+pancreatic cyst resect. 
+
+pancreatic lesion resect. 
+
+pancreatic steatosis 
+
+pancreatic tumor staging 
+
+portal hypertension assess. 
+
+pseudocyst determ. 
+
+renal mass charact. 
+
+splenomegaly grading 
+
+86 85 77 80 77 71 86 27 40 86 25 62 86 72 76 50 85 33 78 31 22 84 63 50 49 79 42 50 27 56 14 30 7 1
+
+77 77 74 74 77 57 76 39 43 77 30 43 77 72 48 53 77 29 72 30 25 78 70 50 70 58 51 50 28 40 24 37 9 0
+
+85 85 74 85 85 85 83 85 38 82 23 21 74 79 49 53 63 39 61 64 63 51 58 50 36 44 53 50 36 49 30 37 1 3
+
+79 79 83 80 79 79 80 68 27 75 40 32 52 70 47 49 34 27 53 53 27 29 38 50 41 30 58 50 25 26 31 39 8 1
+
+65 68 65 64 50 48 64 36 58 42 60 61 56 36 55 47 58 65 59 55 63 60 55 50 55 60 50 50 64 57 49 43 6 8
+
+63 53 78 61 61 61 63 18 53 61 42 37 63 67 50 59 63 42 55 55 49 59 56 51 51 59 50 50 38 49 52 39 10 6
+
+58 54 56 56 51 51 56 44 61 47 62 57 53 43 47 49 52 51 51 57 54 54 52 50 56 53 50 50 57 53 51 42 7 10 
+
+70 70 38 67 71 71 28 71 60 68 41 33 66 67 56 50 47 39 59 58 47 52 62 50 53 47 52 50 33 51 39 42 10 3
+
+60 60 75 74 60 50 89 59 63 58 65 88 56 47 51 53 50 43 41 52 50 44 43 50 41 40 7 50 45 48 40 40 39 5
+
+85 83 63 57 87 85 72 88 22 29 14 11 28 36 26 34 28 29 30 18 17 27 27 26 24 31 27 20 17 12 22 22 20 22 
+
+61 60 80 70 66 66 84 64 73 28 67 57 29 19 32 30 30 35 30 37 31 29 31 31 31 30 26 25 30 29 25 20 23 25 
+
+63 61 36 39 54 58 48 63 44 20 22 49 30 21 42 17 28 27 37 27 31 31 35 20 35 30 24 26 31 0 20 17 25 30 
+
+67 64 90 60 75 74 95 74 78 27 85 51 31 39 32 32 35 41 29 32 35 30 27 29 25 34 24 23 27 27 23 22 25 26 
+
+68 67 41 35 52 54 54 56 15 25 18 14 27 26 27 27 22 22 24 9 17 21 22 16 22 28 21 22 15 16 26 29 20 20 
+
+56 45 37 35 43 47 30 36 15 28 26 17 29 30 24 27 27 25 30 23 22 26 25 22 28 42 42 27 24 20 36 28 30 27 
+
+50 50 59 58 43 47 46 16 28 26 38 18 20 37 36 17 16 36 40 28 33 24 22 31 41 20 28 33 37 33 30 26 22 9
+
+59 59 40 41 63 65 34 6 16 40 31 10 40 40 45 43 45 46 37 29 39 44 44 45 51 34 47 35 20 31 29 25 9 32 
+
+36 32 66 64 31 34 76 34 39 34 50 51 28 31 31 28 31 34 30 31 27 33 30 31 26 25 33 34 28 30 30 27 27 35 
+
+55 56 48 48 55 55 49 54 30 36 37 0 43 39 44 50 40 38 38 36 34 40 36 45 36 39 44 27 39 41 33 28 41 34 
+
+72 60 53 58 75 75 59 73 18 22 19 13 15 25 18 15 11 16 18 6 5 10 12 9 10 16 22 13 11 16 10 19 12 22 
+
+34 38 38 35 37 35 38 30 30 37 42 23 37 36 41 39 33 45 37 41 44 37 34 50 38 37 35 10 38 26 30 21 10 15 
+
+67 65 36 38 69 71 43 67 9 27 24 4 23 30 28 24 21 27 24 22 29 23 21 21 16 15 27 19 30 15 19 22 27 26 
+
+76 74 76 75 80 82 76 77 26 21 26 22 23 30 39 26 26 45 37 24 12 34 35 25 38 43 33 22 27 26 22 20 12 31 
+
+93 94 78 76 93 92 24 91 37 74 35 31 73 60 54 35 58 33 56 65 71 54 55 54 44 39 29 25 45 17 19 24 31 24 
+
+39 50 50 49 45 54 44 50 24 48 43 37 52 50 50 55 50 55 48 50 50 51 49 50 53 53 51 49 47 28 51 41 36 3
+
+42 43 41 41 47 51 42 49 17 34 44 16 31 30 41 40 40 50 42 40 40 38 40 38 40 34 33 30 40 18 35 27 24 14 
+
+79 79 71 72 68 64 71 33 50 59 63 54 64 54 75 68 57 75 74 48 61 65 51 51 48 62 33 34 53 47 55 25 21 52 
+
+62 61 40 42 62 63 49 62 61 29 28 42 30 24 29 33 31 37 31 33 34 31 30 27 29 25 25 23 28 22 24 22 24 25 
+
+72 73 80 79 73 71 68 67 61 72 56 66 66 61 39 51 60 58 42 69 65 54 42 50 39 28 45 50 37 39 40 36 30 16 
+
+74 73 55 52 83 81 62 81 13 30 7 0 28 26 17 21 25 30 27 25 25 24 30 18 28 23 23 25 26 12 25 19 17 26 
+
+55 40 50 53 40 40 43 57 43 41 55 30 40 59 60 42 40 59 47 40 40 40 41 47 40 48 33 53 48 42 40 40 15 17 
+
+27 28 28 35 42 44 31 44 64 44 41 54 34 49 45 29 41 35 35 34 32 32 37 39 35 29 32 30 38 32 38 29 40 18 
+
+36 33 38 51 32 26 36 30 20 28 54 66 19 19 19 19 23 15 17 32 28 32 26 21 26 13 23 42 51 21 28 25 32 26 
+
+48 47 36 48 52 52 43 52 38 45 69 17 48 45 62 52 45 67 55 55 52 45 36 52 45 52 0 48 50 50 57 36 33 7
+
+53 53 52 53 49 49 56 49 43 51 41 38 51 55 49 54 51 51 43 51 51 51 51 51 53 51 49 49 47 55 52 31 8 4
+
+64 68 65 55 64 64 61 64 18 27 29 15 34 31 40 53 32 33 50 27 27 35 40 47 33 49 36 42 26 34 39 32 33 22 
+
+58 56 51 47 58 51 53 58 54 58 58 73 51 47 49 49 51 40 40 44 33 49 53 51 51 44 56 49 47 44 42 42 36 13 
+
+37 33 27 24 22 19 38 17 16 30 31 12 26 19 28 24 19 36 28 34 33 26 32 22 37 19 30 21 36 23 27 24 18 33 
+
+98 98 77 57 45 50 20 27 46 91 23 86 27 0 27 80 14 2 0 16 14 5 7 27 2 5 18 34 0 30 18 32 0 0
+
+67 67 33 67 33 100 33 33 100 33 33 0 67 67 33 67 33 33 67 67 67 67 67 33 67 67 100 67 67 67 67 67 33 0
+
+87 87 43 78 39 39 83 13 18 13 52 26 13 13 22 26 13 22 13 26 17 17 22 26 26 13 39 30 17 17 22 43 30 26 
+
+80 81 82 85 14 11 30 27 73 78 59 96 47 27 31 37 14 22 14 17 22 11 5 13 1 5 31 17 4 19 18 18 4 9
+
+Recognition 
+
+Measurement 
+
+Visual 
+
+Reasoning 
+
+Medical 
+
+Reasoning 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 
+
+> Accuracy
+
+Figure 5: Per-subtype accuracy heatmap for all models. Rows are models sorted by overall accuracy; columns are 42 subtypes grouped by task type. Darker = higher accuracy. Easiest subtypes: organ HU measurement (73% best), kidney cyst existence (71%), organ volume (70%). Hardest: pseudocyst determination (14%), portal hypertension (20%), hepatic steatosis grading (23%). Recognition subtypes show consistently higher accuracy; Measurement shows a stark 3D/2D divide; Medical Reasoning is universally difficult for zero-shot models. correlation is r = 0 .82 (p < 10 −8), indicating strong agreement: subtypes that are hard for one model tend to be hard for all. However, notable exceptions exist. 3D finetuned models show high Measurement accuracy (70%) but low Medical Reasoning (27–36%), while agents show the reverse pattern (Measurement: 64–78%, Medical Reasoning: 50–68%). This anti-correlation confirms that different evaluation paradigms test genuinely different capabilities. Within the 2D VLM category, the correlation is even higher ( r = 0 .91 ), suggesting that 2D models share similar failure modes despite different architectures. 28 Patterns by task type. Recognition : High variance across models (4.6%–70.3%), driven primarily by whether the model has been finetuned on CT data. Pretrained 3D models achieve only 4.6–39.1% (some below random), while finetuned models reach 62–70%. Measurement : Bimodal distribution with 3D-finetuned/agent models at 60–78% and all others at 21–35%. This is the most discriminative task type. Visual Reasoning : Moderate variance (23–66%), strongly correlated with Measurement because most visual reasoning subtypes require quantitative comparisons. Medical Reasoning :Universally difficult for zero-shot models (13–39%) but dramatically improved by finetuning (41– 64%) or agent tools (50–68%), confirming that medical reasoning requires either learned clinical patterns or tool-provided evidence. 
+
+h Compositional Generalization (Full Analysis) 
+
+CLEVR-style split methodology. To evaluate compositional generalization, we create an in-distribution (IID) vs. out-of-distribution (OOD) split inspired by CLEVR’s systematic generalization tests [ 30 ]. Our split operates on the (organ, lesion_size) factor space. Lesions are binned into three size categories: small ( <2 cm 3), medium (2–20 cm 3), and large ( >20 cm 3), based on clinical significance thresholds. We enumerate all (organ, size) pairs: {liver, kidney, pancreas, colon} ×
+
+{small, medium, large} = 12 combinations. Four combinations are held out for OOD: (liver, small), (kidney, large), (pancreas, medium), and (colon, small). These are chosen to ensure each organ and each size category appears in both IID and OOD, preventing trivial shortcuts. The OOD test set contains n = 2 , 517 questions involving the held-out (organ, size) pairs. The IID test set contains n = 1 , 437 questions involving only seen (organ, size) pairs. Questions not involving organ-specific lesions (e.g., organ volume, spleen-related) are excluded from both sets. Table 8: Compositional generalization: IID vs. OOD accuracy (%) on held-out (organ, size) pairs. 
+
+∆ > 0 = IID advantage (memorization); ∆ < 0 = OOD advantage.                                        
+
+> Category Model IID OOD ∆
+> 3D Finetuned M3D-Phi3 63.1 59.2 +3.9 RadFM 61.5 58.8 +2.7 2D General Gemini-3-Flash 41.3 43.3 −2.0 LLaVA-OV 38.8 37.2 +1.5 HuatuoGPT 37.0 37.9 −1.0 2D Finetuned Meissa FT 64.0 61.3 +2.6 Qwen3-VL FT 63.6 60.1 +3.5 Agent (oracle) Meissa oracle 40.0 46.4 −6.3 Qwen3.5-9B oracle 38.9 40.5 −1.7 Gemini-3-Flash oracle 52.3 53.3 −1.0 Meissa SFT oracle 50.8 55.2 −4.4
+
+Per-model IID vs. OOD breakdown. Table 8 in the main text summarizes the results. Here we provide additional analysis: 
+
+3D Finetuned models show the largest IID advantage: M3D-Phi3 (+3.9pp) and RadFM (+2.7pp). This mild memorization is expected because these models are trained on the same CT volumes (though different questions) and may learn volume-specific features. However, the gap is small relative to the overall accuracy ( <7% relative), indicating predominantly compositional generalization. 
+
+2D General models show inconsistent patterns: Gemini-3-Flash and HuatuoGPT perform slightly 
+
+better on OOD ( −2.0pp, −1.0pp), while LLaVA-OV favors IID (+1.5pp). These small, mixed-direction differences suggest that zero-shot 2D models do not systematically exploit distributional correlations. 
+
+2D Finetuned models show moderate IID advantage (+2.6pp, +3.5pp), similar to 3D finetuned models. This confirms that LoRA finetuning on the training data introduces mild distributional bias, but the bias is small. 
+
+Agent models consistently show negative gaps (OOD advantage): Meissa oracle ( −6.3pp), Qwen3.5-9B oracle ( −1.7pp), Gemini oracle ( −1.0pp), Meissa SFT oracle ( −4.4pp). The mean agent gap is 29 −3.4pp. This OOD advantage arises because tool-based measurements are distribution-independent :the segment and measure tools return ground-truth values regardless of whether the (organ, size) combination was seen during training. Agents benefit from novel combinations that happen to be easier (e.g., large kidney lesions are more salient to measure accurately than small ones). 
+
+Analysis of agent negative gaps. The consistent negative gaps for agents ( −1.0 to −6.3pp) require explanation, since one might expect IID and OOD to be equal for tool-based systems. Two factors contribute: (1) The OOD held-out combinations (liver/small, kidney/large, pancreas/medium, colon/small) happen to include the “easiest” instance of each organ: large kidney lesions are trivially detectable, and medium pancreatic lesions are well-sized for measurement. (2) The IID set, by construction, excludes these easy combinations, making the average IID question slightly harder. This asymmetry is inherent to the split design and does not indicate that agents are actually better at generalization; rather, it confirms that tool-based systems are insensitive to the specific distributional factors we control. 
+
+Compositional overfitting risks. Meissa SFT oracle maintains the negative gap ( −4.4pp) despite being trained on tool traces. The training data’s 38-subtype coverage means the model is exposed to diagnostic procedures (e.g., “to diagnose fatty liver, measure L/S HU ratio”) rather than (organ, size)-specific shortcuts. Since the procedures are organ-agnostic, the trained agent’s procedural supervision plausibly transfers to held-out (organ, size) combinations within the trained subtypes; we do not claim transfer to subtypes excluded from SFT (4 of 42). 
+
+i Detailed Error Analysis 
+
+We classify oracle agent failures (Qwen3.5-9B, 10K questions, ∼51.5% overall failure rate) into four categories. Percentages below are reported as fractions of all 10K questions , consistent with the main-text Figure 4. (1) Step-limit hits: 17–18% of all questions (∼1,750 questions; about one-third of all failures): Models enter action loops of redundant tool calls ( e.g. , repeatedly segmenting the same organ), reflecting tool-use orchestration failures rather than knowledge gaps. (2) Reasoning failures: ∼25% of all questions (about half of failures): The model invokes correct tools and receives correct values, but draws wrong conclusions ( e.g. , measuring liver HU=33.1 but failing to also measure spleen HU for the L/S ratio required by fatty liver criteria). (3) Insufficient tool use: 
+
+∼9% of all questions (about one-sixth of failures): The model calls fewer tools than the ground-truth trace requires, typically skipping measurement or knowledge steps. (4) Invalid tool calls: <0.5% :All tool names and basic parameters are syntactically correct in nearly all cases. This reveals that the primary bottleneck lies in tool-use orchestration , not tool execution : models know which tools exist but fail to construct complete diagnostic workflows. Both the 17–18% step-limit rate and 9% insufficient-tool rate are directly addressable through trajectory-level training. 
+
+Tool-use failure analysis. Step-limit failures concentrate in Medical Reasoning subtypes (where they account for >25% of all Medical Reasoning questions) and complex Visual Reasoning ( ∼20%). Typical loop patterns include: (i) Segment-measure oscillation : The model repeatedly calls segment then measure for the same target, as if expecting different results ( ∼47% of step-limit failures). (ii) Incomplete multi-organ traces : The model measures one organ correctly but fails to proceed to the second organ required for comparison tasks (e.g., L/S ratio; ∼31%). (iii) Knowledge avoidance : The model measures all required values but loops back to measurement instead of calling the knowledge tool to retrieve diagnostic criteria ( ∼22%). After Agent SFT, the step-limit hit rate drops from 17–18% to 0.2% (Figure 4), with residual loops concentrated in the 4 subtypes excluded from SFT training. 
+
+Reasoning failure analysis. Reasoning failures (37%) occur when the model receives correct tool outputs but reaches an incorrect conclusion. Common patterns include: (i) Threshold misapplication 
+
+(44%): The model applies the wrong threshold or inverts the comparison direction. For example, using L/S ratio > 1.0 (instead of < 1.0) for fatty liver diagnosis. (ii) Arithmetic errors (28%): The model makes computational mistakes when combining multiple measurements. For example, computing tumor burden as lesion volume − organ volume instead of lesion volume / organ volume 
+
+× 100. (iii) Partial evidence reasoning (18%): The model uses only a subset of the available evidence. For example, diagnosing portal hypertension based on spleen size alone without checking liver HU. 30 (iv) Answer format mismatch (10%): The model computes the correct value but selects the wrong option due to rounding differences or unit confusion (cm 3 vs. mL). 
+
+Insufficient tool use analysis. Insufficient tool use (24%) means the model provides an answer after fewer tool calls than the ground-truth trace requires. The most common omissions are: (i) Skipping measurement after segmentation (56%): The model segments an organ and infers the answer from the segmentation output (voxel count) without calling the measure tool for the actual value. This sometimes works for binary questions but fails for quantitative ones. (ii) Skipping knowledge lookup 
+
+(33%): As noted in the main text, the knowledge tool is invoked in only 1.3% of all tool calls despite being required for all 12 Medical Reasoning subtypes. (iii) Single-organ shortcuts (11%): For bilateral or multi-organ comparison tasks, the model measures only one side/organ and guesses the answer. 
+
+Comparison of error patterns between models. Qwen3.5-9B and Meissa-4B show distinct error profiles. Qwen3.5-9B has more tool-use failures (38% vs. 31% for Meissa) but fewer reasoning failures (37% vs. 42%), suggesting it is better at computation but worse at orchestrating tool calls. Meissa-4B makes more reasoning errors because its smaller 4B parameter count limits arithmetic reasoning, but its medical agent pretraining provides better tool invocation patterns. After Agent SFT, Meissa’s error profile shifts dramatically: tool-use failures drop from 31% to 2%, reasoning failures drop from 42% to 28%, and insufficient tool use drops from 27% to 5%, with the remaining 65% of failures being genuine reasoning errors where the model has all necessary information but draws incorrect conclusions, which represents a much harder category to address. 
+
+Tool usage patterns. segment_organ accounts for 58% of tool calls, measure for 41%, and 
+
+lookup_medical_knowledge for only 1.3% (Qwen3.5-9B oracle), reflecting severe underutiliza-tion given its role in Medical Reasoning. Trajectory quality diverges between modes: oracle agents achieve 20–22% exact sequence match (complex traces), while vision agents achieve 64–80% (sim-pler traces). Meissa-4B shows higher Jaccard (0.84 vs. 0.75) and parameter accuracy (0.80 vs. 0.56) than Qwen3.5-9B in oracle mode, but lower step efficiency (0.65), indicating more redundant calls. 
+
+j Failure Case Visualization 
+
+We present 6 concrete failure cases illustrating different error modes and the impact of tool augmenta-tion and agent training. Each case shows the question, model behavior, and analysis connecting to the paper’s claims. 
+
+> Case 1: Direct Inference Fails, Oracle Agent Succeeds (Measurement Bottleneck)
+
+Liver (BDMAP_00000095)                          
+
+> Question: What percentage of the liver volume is occupied by tumors?
+> Options: (A) 1.5% (B) 3.8% (C) 7.2% (D) 12.1%
+> Correct Answer: (A) 1.5%
+> Direct inference (Qwen3.5-9B): “Based on the CT images, the liver appears to have several small hypodense lesions. Estimating the tumor burden, I would say approximately 7–10% of the liver volume is affected. Answer: C ”
+> Analysis: The model correctly identifies lesions (Recognition: pass) but grossly overestimates volume from visual appearance. Small lesions that appear prominent on 2D slices occupy minimal 3D volume.
+> Oracle agent (Qwen3.5-9B):
+> Step 1: segment_organ(“liver”) →mask found, 1,642,318 voxels Step 2: measure(“liver”, “volume”) →1293.7 cm 3
+> Step 3: segment_organ(“liver_tumor”) →mask found, 24,891 voxels Step 4: measure(“liver_tumor”, “volume”) →19.4 cm 3
+> Step 5: <think> Tumor burden = 19.4/1293.7 ×100 = 1.50%. Answer: A </think>
+
+31 Analysis: Oracle tools provide exact measurements, enabling precise computation. This exemplifies the measurement bottleneck: the direct model has correct qualitative understanding but fails to read out the quantitative values required by the task. 
+
+Case 2: Oracle Agent Fails (Tool-Use Action Loop) Liver (BDMAP_00000005) 
+
+Spleen (BDMAP_00000005) 
+
+Question: Based on the liver-to-spleen HU ratio and splenic volume, does this patient show signs of portal hypertension? 
+
+Options: (A) Yes (B) No (C) Borderline (D) Insufficient data 
+
+Correct Answer: (A) Yes 
+
+Oracle agent (Meissa-4B, zero-shot): 
+
+Step 1: segment_organ(“liver”) → mask found Step 2: measure(“liver”, “mean_HU”) → 45.3 HU Step 3: segment_organ(“spleen”) → mask found Step 4: measure(“spleen”, “volume”) → 621.4 cm 3
+
+Step 5: segment_organ(“liver”) → mask found (REDUNDANT) Step 6: measure(“liver”, “volume”) → 2847.3 cm 3 (WRONG METRIC) Step 7: segment_organ(“spleen”) → mask found (REDUNDANT) Step 8: measure(“spleen”, “mean_HU”) → 119.8 HU 
+
+[MAX STEPS REACHED — no answer produced] Analysis: The model correctly identifies both organs and obtains the needed values (liver HU=45.3, spleen vol=621.4) by step 4, but fails to proceed to the knowledge lookup and answer. Instead, it re-segments both organs and measures irrelevant quantities, consuming all 8 allowed steps. This is a pure tool-use failure: all necessary information was available by step 4, yet the agent looped on redundant actions instead of orchestrating a correct call to the knowledge tool. 
+
+Case 3: Vision Agent Makes It Worse (Hallucinated Measurement) Right Kidney (BDMAP_00000006) 
+
+Question: What is the volume of the right kidney? 
+
+Options: (A) 142.3 cm 3 (B) 178.9 cm 3 (C) 203.1 cm 3 (D) 231.7 cm 3
+
+Correct Answer: (C) 203.1 cm 3
+
+Direct inference (Meissa-4B): “Looking at the CT slices, the right kidney appears normal in size. Based on typical kidney volumes, I estimate approximately 170–190 cm 3. Answer: B ” (Incorrect, but reasonable estimate) 
+
+Vision agent (Meissa-4B): 
+
+Step 1: crop_region(“kidney”) → [5 kidney-focused axial slices] Step 2: <think> From the cropped kidney images, I can see the right kidney clearly. Measuring from the images, the kidney spans approximately 10cm in length and 5cm in width. Estimating volume as an ellipsoid: π/ 6 × 10 × 5 × 4 ≈ 105 cm 3. Answer: A</think> 
+
+Analysis: The vision agent is worse than direct inference. After receiving the cropped image, the model attempts to estimate volume from 2D measurements, producing a gross underestimate (105 vs. 203 cm 3). The crop actually hurt by encouraging the model 
+
+32 to attempt visual measurement rather than acknowledging uncertainty. This exemplifies Finding 6: vision-only tools backfire for quantitative tasks. 
+
+Case 4: Agent SFT Succeeds Where Zero-Shot Fails (Learned Workflow) Liver (BDMAP_00000134) 
+
+Question: What is the grade of hepatic steatosis based on CT findings? 
+
+Options: (A) None (B) Mild (C) Moderate (D) Severe 
+
+Correct Answer: (D) Severe 
+
+Zero-shot oracle (Meissa-4B): 
+
+Step 1: segment_organ(“liver”) → mask found Step 2: measure(“liver”, “mean_HU”) → 28.4 HU Step 3: <think> Liver HU is 28.4, which is very low. This suggests severe fatty liver. Answer: D </think> 
+
+Result: Correct answer (D), but the reasoning is incomplete, as it did not measure spleen HU or look up the grading criteria. The model “got lucky” because liver HU 28.4 is so low that any reasonable threshold classifies it as severe. 
+
+Agent SFT oracle (Meissa-4B): 
+
+Step 1: lookup_medical_knowledge(“hepatic steatosis grading”) → {Kodama 2007: None ≥58, Mild 51–58, Moder-ate 39–51, Severe <39} Step 2: measure(“liver”, “mean_HU”) → 28.4 HU Step 3: measure(“spleen”, “mean_HU”) → 119.8 HU Step 4: <think> Liver HU = 28.4. Per Kodama 2007 criteria: Severe steatosis requires liver HU < 39. Since 28.4 < 39, grade = Severe. Additionally, L/S ratio = 28.4/119.8 = 0.237, well below 1.0 confirming fatty liver. Answer: D </think> 
+
+Analysis: Both models get the correct answer, but the SFT model follows the complete diagnostic workflow: knowledge first, then measurements, then explicit threshold comparison. This matters because on borderline cases (e.g., liver HU = 52, right at the mild/moderate boundary), the zero-shot model’s incomplete reasoning would likely fail. The SFT model’s learned workflow is robust to edge cases. 
+
+Case 5: Measurement-Only Succeeds Without Image (Sufficient Statistic) Spleen (BDMAP_00000099) 
+
+Question: What grade of splenomegaly does this patient have? 
+
+Options: (A) None (B) Mild (C) Moderate (D) Severe 
+
+Correct Answer: (C) Moderate 
+
+Direct inference (Qwen3.5-9B, with image): “The spleen appears moderately enlarged on these CT images. Based on visual assessment, I would estimate moderate splenomegaly. Answer: C ” (Correct) 
+
+Measurement-only (Qwen3.5-9B, NO image): 
+
+Input: “Spleen volume: 621.4 cm 3. Liver volume: 2847.3 cm 3. Liver HU: 45.3. Spleen HU: 119.8.” 
+
+<think> Spleen volume is 621.4 cm 3. The standard grading from Bezerra et al.: None < 314.5 cm 3, Mild 314.5–500 cm 3, Moderate 500–800 cm 3, Severe > 800 cm 3. Since 500 < 621.4 < 800, this is moderate splenomegaly. Answer: C </think> 
+
+Analysis: The measurement-only model achieves the correct answer without seeing any image , by applying internalized clinical criteria to the provided numerical values. This exemplifies the sufficiency finding: for well-structured diagnostic tasks with clear thresholds, measurements are a sufficient statistic. The image adds no information beyond what the numbers provide. Notably, Qwen3.5-9B (9B parameters) correctly recalls the Bezerra grading thresholds from pretraining, while Meissa-4B (4B parameters) with identical input selects the wrong grade, confirming that sufficiency depends on model capability. 
+
+33 Case 6: Noise Causes Failure (Precision Matters) Liver (BDMAP_00000118) 
+
+Spleen (BDMAP_00000118) 
+
+Question: What is the liver-to-spleen HU ratio? 
+
+Options: (A) 0.73 (B) 0.88 (C) 1.02 (D) 1.15 
+
+Correct Answer: (A) 0.73 
+
+Oracle agent (no noise): 
+
+measure(“liver”, “mean_HU”) → 87.4 HU 
+
+measure(“spleen”, “mean_HU”) → 119.8 HU Ratio = 87.4 / 119.8 = 0.729 ≈ 0.73. Answer: A (Correct) 
+
+Oracle agent (10% Gaussian noise): 
+
+measure(“liver”, “mean_HU”) → 95.1 HU (noisy: true=87.4) 
+
+measure(“spleen”, “mean_HU”) → 108.2 HU (noisy: true=119.8) Ratio = 95.1 / 108.2 = 0.879 ≈ 0.88. Answer: B (Incorrect) 
+
+Analysis: With only 10% Gaussian noise on the measurement values, the computed ratio shifts from 0.73 to 0.88, causing the model to select a different option. The noise on the numerator and denominator compounds: liver HU increases by 8.8% while spleen HU decreases by 9.7%, producing a 20.6% change in the ratio. This sensitivity to noise is especially severe for ratio-based subtypes (HU ratio, tumor burden percentage) where errors in two measurements combine multiplicatively. This exemplifies why measurement precision is non-negotiable (Finding in main text): even moderate noise in a predicted segmentation model would cause catastrophic accuracy drops on quantitative subtypes. 
+
+k Input Modality Analysis 
+
+Table 9 compares image vs. video input across models that support both modalities. Table 9: Input modality comparison: 2D PNG slices vs. video (MP4) vs. 3D multi-slice. 
+
+Overall Recog. Meas. Vis.R. ∆
+
+Model Img Vid Img Vid Img Vid Img Vid 
+
+Qwen3-VL-4B 37.8 38.9 56.6 58.3 29.1 31.1 38.8 39.2 +1.1 Qwen3-VL-8B 34.4 36.2 50.7 55.1 27.7 28.5 35.6 36.6 +1.8 Meissa-4B 38.2 37.9 51.5 45.9 30.8 30.3 39.8 41.3 −0.3 
+
+2D 3D 2D 3D 2D 3D 2D 3D 
+
+MedGemma 1.5 30.8 29.5 48.3 38.3 24.6 23.7 26.1 28.3 −1.3 
+
+Input protocol comparison. Table 10 summarizes the input preprocessing and supervision dif-ferences across model families. The 2D finetuned models receive organ-specific slices centered on the query’s target anatomy. The whole-volume control in the main text (Section 4.1) shows that this localization prior contributes at most 0.7pp to 2D-FT accuracy under all four train/inference combinations; the 6.5pp 2D-over-3D advantage is therefore attributable to task supervision rather than to input preprocessing. 
+
+Why video does not help substantially. Video input provides at most marginal gains (+1–2pp) for two fundamental reasons. First, the diagnostic information in our benchmark is largely contained in a small number of key slices: lesion detection requires seeing the slice containing the lesion, and organ 34 Table 10: Input protocol comparison across model families.                         
+
+> Family Input Localization Supervision Best Acc
+> 3D Pretrained Full volume None Pretraining 27.6% 3D Finetuned Full volume None 428K QA 59.8% 2D General Organ slices Organ-centered None 38.8% 2D Finetuned Organ slices Organ-centered 428K QA 66.3% Agent (oracle) Full vol + tools Tool-provided None/SFT 63.8%
+
+measurement requires representative slices. Our 5-slice tiled image already captures the organ’s extent, so the additional 25–75 slices in the video provide redundant information. Second, current 2D VLMs process video by sampling frames and treating them as a multi-image input; the temporal (i.e., spatial z-axis) relationship between frames is not explicitly modeled. Without z-axis inductive biases, seeing more slices dilutes the model’s attention across frames rather than building a coherent 3D representation. The small gains observed (+1.1 to +1.8pp for Qwen3-VL) are concentrated in Recognition, where seeing more slices increases the chance of seeing a lesion-containing slice. 
+
+Why Meissa loses with video. Meissa-4B shows a negative video effect ( −0.3pp overall, −5.6pp Recognition). Meissa was trained as a medical agent with single-image input; its reasoning prompts are optimized for interpreting a tiled multi-slice image. Video input disrupts this training distribution, causing the model to misinterpret frame sequences. The Vision Reasoning improvement (+1.5pp) suggests that for spatial comparison tasks (which kidney is larger), the additional views help, but this is offset by Recognition degradation. 
+
+Per-subtype video vs. image comparison. Examining individual subtypes reveals that video helps most for: kidney volume comparison (+3.2pp average across models, because bilateral comparison benefits from seeing both kidneys in sequence), lesion counting (+2.1pp, because more slices reveal more lesion instances), and organ enlargement assessment (+1.8pp, because volume estimation improves with more views). Video hurts most for: PDAC/PNET existence ( −2.7pp, because these small pancreatic lesions are diluted among many irrelevant frames), lesion attenuation assessment (−1.9pp, because HU differences are subtle and attention dilution makes them harder to detect), and colon lesion existence ( −1.4pp, because colon lesions are rare and the additional frames add noise). 
+
+MedGemma 3D analysis. MedGemma 1.5 4B in “3D mode” inputs up to 85 axial slices as separate RGB images, where each channel encodes a different HU windowing: R=wide ( −1024 to 1024 HU), G=soft tissue ( −135 to 215 HU), B=brain (0 to 80 HU). This produces 85 × 256 = 21 , 760 
+
+visual tokens, consuming the model’s entire context window. Despite this massive input, 3D mode achieves 29.5% vs. 30.8% for 2D ( −1.3pp) and is 24 × slower ( ∼28 seconds/sample vs. 1.18 seconds). The failure has three causes: (1) the 2D ViT encoder lacks z-axis positional encoding, so slices are processed independently without spatial coherence; (2) the enormous token count (21,760) overwhelms the language model’s attention, diluting focus on diagnostically relevant slices; (3) the RGB windowing scheme, while clever, produces unnatural-looking images that differ from the natural images the ViT was pretrained on. A dedicated 3D encoder (as in M3D or Merlin) is necessary for true volumetric reasoning. 
+
+l Robustness Analysis Details 
+
+Table 11 provides the full per-type breakdown for all agent ablation conditions. 
+
+Full noise degradation analysis. The noise ablation adds Gaussian noise N (0 , σ 2v2) to each measurement value v, where σ ∈ { 0.1, 0.25 , 0.5}. This complements our predicted-mode experi-ments (Section 4.2) by characterizing sensitivity to measurement noise in a controlled setting. While TotalSegmentator predicted tools show only −2.9pp degradation for SFT agents, the noise ablation reveals which task types are most vulnerable. The degradation pattern is highly non-uniform across task types: 
+
+Measurement: Catastrophic degradation from 64.8% (no noise) to 39.6% (10% noise), 27.5% (25%), 22.1% (50%). This is because measurement questions have tightly-spaced numerical options 35 Table 11: Detailed ablation results for all agent tool perturbation conditions on Qwen3.5-9B oracle and measurement-only inference (no image).                                                          
+
+> Condition NOverall Recog. Meas. Vis.R. Med.R.
+> Oracle (full) 7,729 48.5% 50.1% 64.8% 38.0% 52.3% Noise σ=10% 845 38.3% 45.9% 39.6% 30.9% 45.5% Noise σ=25% 843 36.9% 48.0% 27.5% 30.4% 48.2% Noise σ=50% 841 35.8% 46.2% 22.1% 31.1% 47.6% No measure tool 1,145 32.3% 57.1% 23.5% 25.7% 28.2% No knowledge tool 1,081 51.6% 54.3% 67.5% 45.4% 47.1% Meas-only Qwen3.5-9B 10,000 54.4% 68.8% 63.3% 40.6% 59.1% Meas-only Meissa-4B 10,000 33.0% 53.4% 50.9% 17.8% 24.8%
+
+Table 12: Error attribution. Each row identifies a failure source, the benchmark component that isolates it, quantitative evidence, and the implication. 
+
+Failure Source Evidence Signal Implication 
+
+Quantification No-measure ablation −16.2pp Numbers are necessary Reasoning w/ numbers Meas-only > oracle +5.9pp Backbone can reason from numbers Precision 10% noise −10.2pp Approximate tools are risky Planning Zero-shot loop rate 17–18% Tools alone insufficient Knowledge No-knowledge ablation +3.1pp Parametric knowledge suffices Residual Post-SFT errors 36% err Reasoning over correct evidence 
+
+(3–10% apart), so even small noise pushes the computed value past the nearest option boundary. The degradation is sharper for ratio-based subtypes (organ HU ratio, tumor burden) because noise compounds across the numerator and denominator. 
+
+Medical Reasoning: Moderate resilience from 52.3% to 45.5% (10%), 48.2% (25%), 47.6% (50%). Medical Reasoning is more robust because its answers are categorical (grades, stages, yes/no), with wider thresholds. For example, splenomegaly grading uses thresholds at 314.5, 500, and 800 cm 3; a spleen of 621.4 cm 3 would need >28% noise to cross a grade boundary. The slight improvement from 25% to 50% noise (48.2% → 47.6%) is not significant and reflects sampling variance. 
+
+Recognition: Moderate degradation from 50.1% to 45.9% (10%), 48.0% (25%), 46.2% (50%). Recognition is affected because some recognition subtypes rely on volume thresholds (splenomegaly detection: spleen > 314.5 cm 3). For subtypes that only check presence/absence (lesion existence), noise on the volume does not change the answer (any non-zero volume still indicates lesion presence), explaining the relative resilience. 
+
+Visual Reasoning: Severe degradation from 38.0% to 30.9% (10%), 30.4% (25%), 31.1% (50%). Visual Reasoning suffers because comparison tasks (which kidney is larger, multi-organ burden) are sensitive to noise that reverses the ordering. If the true volumes are 187 and 196 cm 3 (left vs. right kidney), even 5% noise can swap the ranking. 
+
+Per-subtype noise sensitivity. The most noise-sensitive subtypes are: organ HU ratio ( −37.2pp at 10% noise), tumor burden percentage ( −31.8pp), kidney volume comparison ( −28.4pp), and lesion volume ( −26.1pp). The least noise-sensitive are: liver lesion existence ( −1.2pp, binary answer unaffected by volume noise), colon lesion existence ( −0.8pp), and PDAC existence ( −1.5pp). This confirms that noise sensitivity is directly proportional to the precision required by the subtype: binary subtypes are noise-robust, while ratio and comparison subtypes are noise-fragile. 
+
+Knowledge tool ablation analysis. Removing the knowledge tool improves overall accuracy by 3.1pp (51.6% vs. 48.5%). Examining per-subtype effects: (i) For the 12 Medical Reasoning subtypes, knowledge removal has mixed effects: splenomegaly grading drops 5.2pp (the model needs the grading thresholds), but fatty liver improves 2.8pp (the model already knows the L/S < 1.0 criterion and the knowledge tool introduces processing overhead). (ii) For non-Medical-Reasoning subtypes, knowledge removal universally helps (+3–7pp), because these subtypes never need knowledge but the tool’s mere availability causes some models to waste steps querying it. This finding suggests that 36 knowledge tools should be provided selectively (only for Medical Reasoning subtypes) rather than universally, and that well-trained models internalize common clinical criteria during pretraining. 
+
+Measurement-only: sufficiency depends on model capability. Providing only pre-computed measurements (no image) to Qwen3.5-9B yields 54.4% overall, exceeding the full oracle agent (48.5%) by 5.9pp. However, Meissa-4B with identical input achieves only 33.0%, worse than its own direct inference (38.2%). The 4B model’s Visual Reasoning collapses to 17.8% (below 25% random), indicating it cannot perform text-based spatial comparisons that Qwen3.5-9B handles at 40.6%. This dramatic capability gap (54.4% vs. 33.0% with identical input) demonstrates that measurement sufficiency requires a reasoning backbone capable of: (i) multi-step arithmetic (computing ratios, percentages); (ii) threshold comparison (mapping values to clinical grades); (iii) spatial reasoning from text (determining which kidney is larger from numerical values). Qwen3.5-9B’s larger parameter count (9B vs. 4B) and more diverse pretraining provide these capabilities. 
+
+Noise primarily destroys Measurement. With 10% noise, Measurement drops from 64.8% to 39.6% ( −25.2pp) while Medical Reasoning only drops from 52.3% to 45.5% ( −6.8pp). Noise effects saturate: marginal degradation from 10% →50% decreases, suggesting a floor effect where the model ignores noisy values and relies on heuristics. 
+
+m Per-Subtype Agent Trajectory Evaluation 
+
+Table 13 breaks down trajectory quality by question type for both oracle configurations. Table 13: Agent trajectory quality by question type (oracle mode).                                               
+
+> Model Type NAcc Jaccard Param Exact%
+> Qwen3.5-9B Recognition 817 49.6% 0.817 0.360 47.1% Measurement 776 67.5% 0.698 0.541 24.4% Vis. Reasoning 1545 37.6% 0.828 0.710 11.1% Med. Reasoning 733 48.8% 0.544 0.496 3.1% Meissa-4B Recognition 1914 45.1% 0.479 0.639 2.7% Measurement 1912 64.3% 0.988 0.845 77.0% Vis. Reasoning 3779 35.8% 0.886 0.895 1.9% Med. Reasoning 1805 50.6% 0.945 0.719 24.7%
+
+Meissa-4B achieves near-perfect Jaccard for Measurement (0.988) but fails on Recognition (0.479). Qwen3.5-9B shows the opposite: high Recognition Jaccard (0.817) but low Medical Reasoning sequence match (3.1%). Both achieve highest accuracy on Measurement despite different trajectories, suggesting tool outputs compensate for procedural differences. 
+
+Trajectory quality vs. answer accuracy correlation. Interestingly, trajectory quality metrics do not strongly predict answer accuracy. Meissa-4B achieves Measurement Jaccard of 0.988 (near-perfect tool set match) and 77.0% exact sequence match, yet its Measurement accuracy (64.3%) is only moderately higher than Qwen3.5-9B’s (67.5%) despite Qwen3.5-9B’s much lower Jaccard (0.698) and exact match (24.4%). This disconnect occurs because Qwen3.5-9B compensates for imperfect tool traces with stronger reasoning: it may call extra or differently-ordered tools but still arrives at correct conclusions from the tool outputs. Conversely, Meissa-4B follows traces faithfully but sometimes fails to draw correct conclusions from the results, suggesting that tool invocation quality and answer reasoning quality are partially independent capabilities. 
+
+Agent SFT trajectory improvements. After SFT training, Meissa-4B’s trajectory quality improves dramatically across all types: Recognition Jaccard from 0.479 to 0.912 (+0.433), Medical Reasoning exact match from 24.7% to 87.3% (+62.6pp), and overall reasoning chain completeness from 51.4% to 94.8%. The most striking change is in knowledge tool utilization: zero-shot Meissa calls knowledge in 11.4% of Medical Reasoning questions, while SFT Meissa calls it in 89.7%. This single behavioral change accounts for the Medical Reasoning accuracy improvement from 50.6% to 61.5%. 37 n Statistical Robustness 
+
+All models are evaluated on the same fixed 10,000-question benchmark with greedy decoding, remov-ing decoding-level variance. The residual uncertainty is the sampling variance of the 10K-question test set, with the caveat that questions sharing the same CT volume are not strictly independent. We report binomial confidence intervals as a conservative reference; a clustered bootstrap that resamples at the volume level (991 test volumes) yields CIs roughly 1.3 × wider but does not change any qualitative conclusion at the task-type level. 
+
+Detailed confidence interval calculations. For a model with accuracy p on N questions, the 95% binomial confidence interval is p ± z0.975 
+
+pp(1 − p)/N where z0.975 = 1 .96 . At representative accuracy levels: • N = 10 ,000 , p = 0 .50 : CI = ±0.98% (overall accuracy comparisons) • N = 10 ,000 , p = 0 .25 : CI = ±0.85% (near-random models) • N = 10 ,000 , p = 0 .65 : CI = ±0.94% (best models) • N = 2 ,023 , p = 0 .50 : CI = ±2.18% (per-type: Recognition, N = 2 ,023 )• N = 1 ,905 , p = 0 .50 : CI = ±2.24% (per-type: Medical Reasoning, N = 1 ,905 )• N = 1 ,000 , p = 0 .50 : CI = ±3.10% (ablation conditions) • N = 240 , p = 0 .50 : CI = ±6.32% (individual subtype, ∼240 questions) 
+
+Effect size analysis. We report Cohen’s h (arcsine-transformed difference) for key comparisons, which accounts for the fact that differences near 50% are easier to achieve than differences near the extremes: • 3D FT vs. 2D zero-shot (59.8% vs. 39.9%): h = 0 .404 , large effect • 2D FT vs. 3D FT (66.3% vs. 59.8%): h = 0 .134 , small-medium effect • Oracle agent vs. direct (48.5% vs. 38.5%): h = 0 .203 , medium effect • Agent SFT vs. zero-shot oracle (63.8% vs. 46.0%): h = 0 .361 , large effect • No-measure ablation vs. oracle (32.3% vs. 48.5%): h = 0 .333 , large effect • Meas-only vs. oracle (54.4% vs. 48.5%): h = 0 .118 , small effect All key findings correspond to medium-to-large effect sizes, reinforcing their practical significance. 
+
+o Sensitivity and Specificity Breakdown 
+
+Of the 9 Recognition subtypes, 8 use 2-option binary format (Yes/No) and splenomegaly detection uses a 2-option binary with sentence-form labels (“the spleen is enlarged” / “the spleen is normal in size”); the random baseline for Recognition is therefore 50%, not 25%. The remaining 33 subtypes use 3- or 4-option multiple choice (numeric measurement, grading, staging, classification), giving a benchmark-wide weighted random baseline of approximately 30–35%. The benchmark curation ensures roughly balanced option position distributions within each subtype. For the 9 Recognition subtypes, per-model accuracy ranges from 40–70% (vs. 50% random), confirming discriminative questions even after accounting for the higher binary chance level. Below we report per-subtype Recognition accuracy aggregated across all evaluated models. 
+
+Per-subtype recognition analysis. Among the 9 Recognition subtypes, we observe the following per-subtype patterns: 
+
+Liver lesion existence (avg 51.2%): The most balanced subtype. 3D models excel (M3D-Phi3: 68.4%) because liver lesions are common and visible in volumetric data. 2D models average 45.3%, limited by the 5-slice sampling potentially missing small lesions. 
+
+Kidney lesion/tumor/cyst existence (avg 48.7%, 47.1%, 46.3% respectively): These three related subtypes show a hierarchy: overall kidney lesion detection is easiest, followed by tumor-specific, then 38 cyst-specific. The cyst-tumor differentiation is harder because cysts and tumors can appear similar on limited 2D slices without contrast information. 
+
+Splenomegaly detection (avg 52.8%): Surprisingly high accuracy even for zero-shot 2D models (avg 48.1%), suggesting that spleen size is visually salient. However, this subtype cheats somewhat: splenomegaly detection in oracle mode uses a volume threshold (314.5 cm 3), converting it to a measurement task. 
+
+PDAC existence (avg 38.2%) and PNET existence (avg 36.7%): The hardest recognition subtypes, because pancreatic lesions are small, often isodense with surrounding parenchyma, and the pancreas itself is a challenging organ to visualize on 2D slices due to its retroperitoneal location and variable morphology. 
+
+Pancreatic lesion existence (avg 41.5%) and Colon lesion existence (avg 39.8%): Moderate difficulty. Colon lesions are rare in our dataset (131 total), making this subtype particularly challenging for models that rely on frequency priors. The full per-subtype heatmap in Figure 5 provides the complete breakdown across all models. 
+
+p Agent Tool Trace Ground Truth 
+
+For each of the 42 question subtypes, we define deterministic ground-truth tool traces in both oracle and vision agent modes. We use shorthand: S = segment_organ , M = measure , K =
+
+lookup_medical_knowledge , C = crop_region . Table 14 lists all traces. Table 14: Ground-truth tool traces for all 42 subtypes. S = segment, M = measure, K = knowledge lookup, C = crop. 
+
+Subtype Type Oracle Trace Vision Trace 
+
+liver lesion exist. Recog. S(liver_tumor) C(liver) kidney lesion exist. Recog. S(kidney_tumor |cyst) C(kidney) kidney tumor exist. Recog. S(kidney_tumor) C(kidney) kidney cyst exist. Recog. S(kidney_cyst) C(kidney) pancreatic lesion Recog. S(pancreas_tumor) C(pancreas) colon lesion exist. Recog. S(colon_tumor) C(colon) splenomegaly detect. Recog. K(splenomegaly) → S(spleen) → M(spleen, vol) K(splenomegaly) → C(spleen) PDAC existence Recog. S(pdac) C(pancreas) PNET existence Recog. S(pnet) C(pancreas) organ volume Meas. S({organ}) → M({organ}, vol) C({organ}) organ HU Meas. S({organ}) → M({organ}, HU) C({organ}) lesion volume Meas. S({lesion}) → M({lesion}, vol) C({organ}) organ HU ratio Meas. S(org1) → M(org1, HU) → S(org2) → M(org2, HU) C(org1) → C(org2) tumor burden % Meas. S({organ}) → M({organ}, vol) → S({lesion}) →
+
+M({lesion}, vol) C({organ}) lesion counting Vis.R. S({lesion}) → M({lesion}, count) C({organ}) largest lesion diam. Vis.R. S({lesion}) → M({lesion}, diam) C({organ}) largest lesion loc. Vis.R. S({lesion}) C({organ}) largest lesion atten. Vis.R. S({lesion}) → M({lesion}, HU) → S({organ}) →
+
+M({organ}, HU) C({organ}) kidney vol. compare Vis.R. S(kidney_L) → M(kidney_L, vol) → S(kidney_R) →
+
+M(kidney_R, vol) C(kidney_L) → C(kidney_R) organ aggregation Vis.R. S(org1) → M(org1, vol) → S(org2) → M(org2, vol) C(org1) → C(org2) tumor-organ HU diff Vis.R. S({lesion}) → M({lesion}, HU) → S({organ}) →
+
+M({organ}, HU) C({organ}) largest lesion slice Vis.R. S({lesion}) C({organ}) lesion outlier Vis.R. S({lesion}) → M({lesion}, vol) C({organ}) lesion count by loc. Vis.R. S({lesion}) → M({lesion}, count) C({organ}) inter-segment comp. Vis.R. S({lesion}) → M({lesion}, count) C({organ}) 
+
+39 (continued) 
+
+Subtype Type Oracle Trace Vision Trace 
+
+adjacent organ Vis.R. S({lesion}) C({organ}) organ enlargement Vis.R. S({organ}) → M({organ}, vol) C({organ}) liver lesion cluster. Vis.R. S(liver_tumor |cyst) → M(liver, count) C(liver) bilateral kidney asym. Vis.R. S(kidney_L) → M(kidney_L) → S(kidney_R) →
+
+M(kidney_R) → S(lesion) C(kidney_L) → C(kidney_R) multi-organ burden Vis.R. S(org1_lesion) → M(org1) → S(org2_lesion) →
+
+M(org2) C(org1) → C(org2) fatty liver Med.R. K → S(liver) → M(liver, HU) → S(spleen) →
+
+M(spleen, HU) K → C(liver) hepatic steatosis gr. Med.R. K → S(liver) → M(liver, HU) → S(spleen) →
+
+M(spleen, HU) K → C(liver) pancreatic steatosis Med.R. K → S(pancreas) → M(pancreas, HU) → S(spleen) →
+
+M(spleen, HU) K → C(pancreas) splenomegaly grading Med.R. K → S(spleen) → M(spleen, vol) K → C(spleen) PDAC vs PNET Med.R. K → S(pancreas_tumor) → M(pancreas_tumor, HU) K → C(pancreas) portal hypertension Med.R. K → S(spleen) → M(spleen, vol) → S(liver) → M(liver, HU) K → C(spleen) → C(liver) renal mass charact. Med.R. K → S(kidney_mass) → M(kidney_mass, HU) K → C(kidney) lesion type class. Med.R. K → S(kidney) → S(kidney_mass) → M(kidney_mass, HU) K → C(kidney) pseudocyst determ. Med.R. K → S(pancreas_cyst) → M(pancreas_cyst, HU) K → C(pancreas) pancreatic T staging Med.R. K → S(pancreas_tumor) → M(pancreas_tumor) K → C(pancreas) cyst resectability Med.R. K → S(pancreas_cyst) → M(pancreas_cyst, vol) K → C(pancreas) lesion resectability Med.R. K → S(pancreas_tumor) → M(pancreas_tumor) K → C(pancreas) 
+
+Traces use regex-based parameter matching with {organ} placeholders substituted from question metadata at evaluation time. All trace definitions are implemented in 
+
+eval/agent_trajectory_eval.py and released with the benchmark code. 
+
+q Training Details 
+
+3D Model Architectures. Table 15 compares the four 3D specialist models. Table 15: Model architectures for the four 3D specialist VLMs. 
+
+Component RadFM M3D (LLaMA2 / Phi-3) Merlin 
+
+Vision Encoder 3D ViT 3D ViT 3D ResNet Input size [256,256,64] [256,256,32] [224,224,160] CT spacing direct resize direct resize [1.5, 1.5, 3] mm LLM Decoder LLaMA2-13B LLaMA2-7B / Phi-3-4B RadLLaMA-7B Projector Perceiver Resampler 3D Pooling + MLP 1-layer FC Visual tokens 32 256 1Pretraining data 16M 2D+3D 120K 3D CT 14K 3D Abdomen CT LLM tuning full LoRA (r=16) LoRA (r=128) 
+
+3D Training Hyperparameters. All models are trained with AdamW and cosine scheduling in mixed precision. Training takes ∼48 hours per model. 
+
+2D LoRA and Agent SFT. 2D LoRA finetuning (Qwen3-VL-4B, Meissa-4B) on the full 428K training pairs and Agent SFT (Meissa-4B on 20K trace samples) reuse separate configurations; full hyperparameters, data preparation, and ablations are in Appendix e.3 (2D LoRA) and Appendix e.4 (Agent SFT). 40 Table 16: Training hyperparameters for 3D finetuned VLMs.                                  
+
+> Item RadFM M3D (LLaMA2 / Phi-3) Merlin
+> Learning rate 5e-6 5e-5 1e-4 Optimizer AdamW (8-bit) AdamW AdamW Mixed precision FP16 BF16 BF16 Per device batch size 4 (model parallel) 11Gradient accumulation 888LR scheduler Cosine Cosine Cosine Warmup ratio 00.03 0.03 Training iterations 25k 33k 25k GPU hardware 4×A5000 24GB 4×A6000 48GB 4×A5000 24GB Compute time 48 hours 48 hours 48 hours
+
+Figure 6: Accuracy by question type across demographic and imaging factors. 
+
+r Accuracy Breakdown across Demographic Factors 
+
+We stratify accuracy by age, sex, CT scanner manufacturer, and contrast phase (Figure 6). Recognition and measurement are stable across subgroups, while medical reasoning shows more sensitivity to scanner and contrast phase variations. Specifically, non-contrast CT scans show 3–5pp lower Medical Reasoning accuracy than contrast-enhanced scans, because HU-based diagnoses (fatty liver, steatosis grading) are calibrated for specific contrast phases. Scanner manufacturer effects are minimal ( <2pp) for all task types, confirming that our preprocessing pipeline successfully normalizes inter-scanner variability. Age and sex show no statistically significant effects after controlling for pathology prevalence. 
+
+s Annotator Details 
+
+Table 17 provides details on the 23 radiologists who annotated lesions for DeepTumorVQA. Annotator backgrounds range from senior abdominal imaging specialists (up to 35 years experience) to general radiologists and residents with high-volume CT reading experience. Initial segmentations were performed by general radiologists and residents. Senior specialists (S1–S7) oversaw the process by double-checking all annotations, adjudicating ambiguous cases, and ensuring anatomical and diagnostic consistency. The annotation workflow followed a three-41 Table 17: Detailed information of the 23 annotators.             
+
+> No. Annotator ID Experience (yr) CT read/year
+> 1–7 Specialists (S1–S7) 19–35 high 8–18 General Radiologists (G1–G11) 8–13 high 19–23 Residents (R1–R5) 3–5 high
+
+stage protocol: (1) Initial annotation : General radiologists and residents performed organ and lesion segmentation using semi-automatic tools (3D Slicer with interactive thresholding and region growing). Average annotation time was 25 minutes per volume for organs and 15 minutes per lesion. (2) Peer review : Each annotation was reviewed by a different annotator at the same or higher seniority level. Discrepancies exceeding 10% in volume or involving lesion count disagreements were flagged. (3) Specialist adjudication : Senior specialists (S1–S7) resolved all flagged cases and performed a final quality audit on a random 20% sample of non-flagged cases. The inter-annotator agreement (Dice coefficient) for organ segmentation was 0.94 (liver), 0.96 (spleen), 0.92 (kidney), and 0.87 (pancreas). Lesion detection sensitivity among annotators (using specialist consensus as ground truth) was 0.91 for liver, 0.94 for kidney, 0.88 for pancreas, and 0.85 for colon. 
+
+t Radiologist Baseline Evaluation 
+
+To calibrate model accuracy against trained clinicians, two practicing radiologists—a junior (7 years experience) and a senior (13 years), independent from the 23 annotators in Appendix s —answered a 200-question stratified subset of the benchmark (Recognition 30, Measurement 45, Visual Reasoning 75, Medical Reasoning 50; 116 distinct CT volumes). Both view the full 3D volume in 3D Slicer with multi-planar reformatting and free windowing, substantially richer than the 5-slice tiled image given to 2D models. 
+
+Protocols. The junior answers the standard 4-option MC questions (same interface as all model rows in Table 3). The senior answers the same 200 questions in free-form (no options shown) and produces raw text. To enable an apples-to-apples row in Table 3, each free-form answer is mapped to the corresponding MC option deterministically: numeric subtypes use closest-option mapping (alphabetical tie-break), binary subtypes use yes/no semantic match, categorical subtypes use normalized exact match with longest-containment fallback; 19 ambiguous cases are resolved by manual adjudication. Per-question wall time is 145 s (junior, MC) and 85 s (senior, free-form). 
+
+Results. Headline numbers appear in the Human eval rows of Table 3 (MC protocol) and the 
+
+Human eval row of Table 23 (senior, raw free-form scoring). Per question type the senior − junior gap is +23.3pp on Recognition, +14.7pp on Visual Reasoning, +2.2pp on Measurement, and 
+
+0pp on Medical Reasoning: experience translates strongly into lesion detection and cross-organ comparison, but not into eyeballing precise volumes/HU (a human ceiling) and not into multi-step pathology classification (which often requires contrast-phase or clinical context absent from a single CT volume). Both baselines fall below 2D-FT (66.3%) and 3D-FT (59.8%); the senior is comparable to M3D-Llama2 FT (54.0%) and the junior sits between zero-shot 2D ( ∼38%) and 3D-FT. 
+
+Caveats. The two annotators differ in both seniority and answer format, so the +9.5pp senior-over-junior gap conflates the two factors; reporting both rows under MC scoring discards information present in the senior’s free-form answer, so the gap is a lower bound on the pure seniority effect. The 200-question subset gives ±6.9pp binomial 95% CI on Overall, so absolute numbers should be read as a calibrating reference rather than a precise comparison. 
+
+u Evaluation of Annotation Quality 
+
+To validate annotation quality, we trained segmentation models on our data and evaluated generaliza-tion on external datasets. 
+
+Organ Segmentation. A U-Net model trained on our organ masks achieves strong out-of-distribution performance on TotalSegmentator and Johns Hopkins Hospital datasets (Table 18). 42 Table 18: Organ segmentation DSC (%) on external datasets. “Ours” = model trained on DeepTu-morVQA annotations.                         
+
+> Organ TotalSeg (ours) TotalSeg (iid) JHH (ours) JHH (iid)
+> Liver 94.7 96.3 95.0 98.6 Spleen 95.2 98.4 95.0 97.1 Kidney (R) 92.5 94.7 92.2 98.4 Kidney (L) 89.0 94.4 91.6 96.1 Pancreas 83.5 89.4 80.9 87.8
+
+The OOD performance gap (2–6pp) is consistent with domain shift between datasets and does not indicate annotation quality issues. Pancreas segmentation shows the largest gap (5.9pp on TotalSegmentator), expected given the pancreas’s anatomical variability and small size. 
+
+Lesion Detection. A nnUNet model trained on our lesion annotations achieves high sensitivity even for small ( ≤2cm) tumors (Table 19). Table 19: Lesion detection performance on an external dataset.                   
+
+> Lesion Type Sensitivity (%) Specificity (%)
+> Large Tumors >2cm
+> Liver Tumor (HCC) 89.4 73.4 Kidney Tumor (RCC) 97.3 73.4 Pancreas Tumor (PDAC) 91.4 76.6
+> Small Tumors ≤2cm
+> Liver Tumor (HCC) 79.6 73.4 Kidney Tumor (RCC) 92.0 78.3 Pancreas Tumor (PDAC) 76.9 76.6
+
+The high sensitivity ( >76% even for small tumors) on external data confirms that our annotations capture clinically relevant lesions. The lower sensitivity for small liver tumors (79.6%) and small pancreatic tumors (76.9%) reflects the inherent challenge of detecting sub-2cm lesions, which are at the boundary of radiological visibility on standard-resolution CT. 
+
+v Ethics, Limitations, and Reproducibility 
+
+v.1 Broader Impact Statement Potential benefits. DeepTumorVQA advances the evaluation of medical AI systems in several ways. By providing a comprehensive, open-source benchmark with ground-truth annotations, it enables reproducible comparison of medical VLMs and agents. The compositional question design identifies specific capability gaps (recognition vs. measurement vs. reasoning), guiding targeted improvements. The finding that measurement is the causal bottleneck provides a clear engineering target for the community: improving quantitative tools will have outsized impact on diagnostic accuracy. The agent training framework demonstrates that small models (4B parameters) can achieve strong diagnostic performance when equipped with reliable tools, potentially democratizing access to AI-assisted diagnosis. 
+
+Potential risks. Several risks must be considered. First, clinical deployment without validation :The benchmark evaluates models on structured multiple-choice questions, which differ fundamentally from clinical practice. High benchmark accuracy should not be interpreted as clinical readiness. Models achieving 66% on DeepTumorVQA still fail on one-third of diagnostic questions and re-quire extensive clinical validation before any patient-facing deployment. Second, overconfidence in tool-augmented agents : Our findings show that oracle tools dramatically improve accuracy. While our predicted-mode experiments with TotalSegmentator demonstrate that realistic auto-segmentation retains most oracle gains (60.9% vs. 63.8% for Meissa SFT), this applies to well-validated segmen-tation models on common organs; performance may degrade substantially for rare pathologies or out-of-distribution anatomies where auto-segmentation quality is lower. Third, automation bias : As AI diagnostic tools become available, clinicians may over-rely on model outputs, particularly when the model provides detailed reasoning chains (as our agent trajectories do). The benchmark’s error 43 analysis shows that models produce confident but wrong answers in 37% of failures, highlighting the danger of trusting model explanations without verification. 
+
+Dual use considerations. The released data, tools, and models are intended exclusively for research on medical AI evaluation and development. The CT volumes are de-identified and sourced from publicly available datasets. The diagnostic tools operate on pre-computed annotations, not raw clinical images, limiting direct clinical application. However, the agent training framework could theoretically be adapted to build diagnostic systems; we strongly discourage clinical deployment of any models trained on this benchmark without independent clinical validation and regulatory approval. 
+
+Data privacy considerations. All CT volumes in DeepTumorVQA are sourced from publicly available, de-identified datasets that have undergone institutional review board (IRB) approval at their respective institutions. No personally identifiable information (PII) is included in our metadata, annotations, or benchmark questions. The structured reports we generate contain only anatomical measurements and diagnostic classifications derived from segmentation masks, with no reference to patient identity, clinical history, or treatment information. The annotations, structured metadata, and benchmark questions contributed by this work are released under CC-BY-4.0 (requiring attribution but allowing unrestricted research use); the underlying CT volumes remain governed by their respective source-dataset licenses and users must comply with each source’s terms of use. 
+
+v.2 Limitations (Detailed) 
+
+We expand on the limitations mentioned in the main text discussion. 
+
+Annotation quality and coverage. Dataset construction relies on segmentation quality from 23 radiologists, introducing noise for ambiguous cases. Specific limitations include: (i) Small lesion detection : Lesions <5mm may be missed by annotators, particularly in the pancreas and colon. Our nnUNet validation shows 76.9% sensitivity for small ( <2cm) pancreatic tumors, implying 
+
+∼23% of small lesions are potentially unannotated. This affects Recognition accuracy for these subtypes. (ii) Lesion type classification : The distinction between cyst and tumor is based on HU thresholds and annotator judgment; borderline cases (complex cysts with solid components) may be misclassified. (iii) Couinaud segment assignment : Liver lesion segment assignment is approximate and may vary between annotators, affecting the inter-segment comparison subtype. (iv) Limited pathology diversity : The dataset focuses on common abdominal pathologies (HCC, RCC, PDAC, cysts). Rare conditions (cholangiocarcinoma, metastases from extrahepatic primaries, rare cystic neoplasms) are underrepresented. 
+
+Benchmark scope. The benchmark focuses on abdominal CT, covering 5 major organs (liver, kidney, pancreas, spleen, colon). Extension to other anatomies (chest, brain, pelvis) and modalities (MRI, PET-CT, ultrasound) is planned but not included. The current task space, while covering 42 subtypes, does not capture all clinically relevant assessments: texture analysis (liver fibrosis scoring), morphological assessment (tumor margin characterization), temporal comparison (treatment response evaluation), and multi-phase analysis (arterial vs. portal venous enhancement patterns) are not included. These require annotations beyond segmentation masks. 
+
+Multiple-choice format. The 4-option multiple-choice format enables unambiguous evaluation across 30+ models but introduces limitations: (i) Models can exploit option patterns (e.g., the correct answer distribution is approximately uniform by construction, which a model could learn). (ii) The format does not test the ability to generate precise numerical answers; our distractor spacing (3–10% of GT) defines the effective precision tested. (iii) Clinical diagnosis often involves open-ended reporting, not selecting from predefined options. To address this, we run a full free-form evaluation of all models (Appendix ab) and train free-form variants of Meissa-4B and Qwen3-VL-4B. The qualitative conclusions of the MC protocol (2D-FT > 3D-FT > zero-shot 2D > pretrained 3D; measurement bottleneck for zero-shot models; finetuning value) are preserved under free-form scoring, with within-category re-orderings concentrated in the 3D-FT row (RadFM overtakes M3D-Phi3 due to better numeric generation) and the top-2 2D-FT pair (Qwen3-VL FF overtakes Meissa FF on Med. Reasoning). These are within-category swaps rather than cross-category reversals, supporting the MC findings as conclusions about model families rather than format artifacts. 44 Agent evaluation constraints. Agent evaluation is computationally expensive ( ∼4–72 second-s/sample depending on configuration) and limited by: (i) Maximum step limit : The 8-step limit may be insufficient for complex Medical Reasoning traces requiring 5–6 tool calls plus reasoning. Our error analysis shows 38% of failures hit this limit. (ii) Tool quality spectrum : We evaluate three tool tiers—oracle (GT), predicted (TotalSegmentator), and vision (crops only). Predicted mode shows realistic auto-segmentation retains most oracle gains ( −2.9pp for SFT agents), but covers only common abdominal organs where TotalSegmentator achieves high DSC ( >90%). Performance with less mature segmentation models or for rare anatomical structures may degrade more substantially. (iii) Text-based tool interface : Tools return JSON text, not visual overlays. In clinical practice, radiologists see segmentation overlays on the CT image, enabling visual verification. (iv) Single-turn questions : Each question is independent; the benchmark does not test multi-turn diagnostic conversations where earlier answers inform later questions. 
+
+Generalization claims. Our sufficiency finding (measurements alone support strong reasoning) is demonstrated within DeepTumorVQA’s structured task space. Broader clinical diagnosis requires capabilities not captured here: assessing tumor margin invasion from CT morphology, character-izing lesion enhancement patterns across contrast phases, evaluating post-treatment response, and integrating clinical history with imaging findings. The sufficiency of measurement is specific to our benchmark’s task definitions, where answers can be computed from quantitative metadata; this should not be extrapolated to all of clinical radiology. 
+
+Agent tool interface. The current agent environment abstracts tool outputs as structured JSON text, omitting visual feedback (segmentation mask overlays) that radiologists rely on. This design isolates quantitative reasoning from visual interpretation but limits evaluation of multimodal integration capabilities. Future versions should incorporate visual tool outputs to assess whether agents can leverage spatial context from segmentation overlays. 
+
+Knowledge base scope. The 27-entry knowledge base covers well-codified criteria for the 12 Medical Reasoning subtypes. Its minimal impact (+3.1pp when removed) reflects that capable models internalize common clinical thresholds during pretraining. A larger, less codified knowledge base covering rare conditions would likely show greater tool benefit, but testing this requires expanding beyond well-established diagnostic criteria. 
+
+v.3 Reproducibility Statement 
+
+We provide comprehensive details to ensure full reproducibility of all results reported in this paper. 
+
+Exact software versions. All experiments use the following software stack: • Python : 3.10.14 • PyTorch : 2.8.0 (CUDA 12.4) for most models; 2.10.0 for RadFM and Qwen3.5 • Transformers : 4.57.3 for Qwen3-VL, Meissa, MedGemma, M3D, Merlin; 5.3.0 for Qwen3.5 • vLLM : 0.11.0 (for Meissa inference) • LLaMA-Factory : 0.9.1 (for agent SFT training) • nibabel : 5.2.0 (NIfTI I/O) • scipy : 1.12.0 (image processing) • numpy : 1.26.4 • pandas : 2.1.4 
+
+Hardware requirements. 
+
+• Direct inference (4B models) : 1 ×NVIDIA A5000 (24GB VRAM), ∼1 hour for 10K questions • Direct inference (7–9B models) : 1 ×NVIDIA A6000 (48GB VRAM), ∼2 hours for 10K questions 45 • Direct inference (35B MoE) : 4 ×NVIDIA A6000 (192GB total), ∼4.5 hours for 10K questions • Agent evaluation (oracle) : 1 ×A5000 or A6000, ∼11 hours for 10K questions (with tool cache) • Agent evaluation (without cache) : 1 ×GPU + fast SSD, ∼42 hours for 10K questions • 3D model finetuning : 4 ×A5000 or 4 ×A6000, ∼48 hours per model • 2D LoRA finetuning : 4 ×A5000, ∼12 hours per model • Agent SFT training : 4 ×A6000, ∼8 hours • Tool cache pre-computation : 32 CPU cores, ∼8 hours for 991 test images • 2D slice/video generation : 32 CPU cores, ∼45 minutes for 991 images 
+
+Runtime estimates for full evaluation. Reproducing all 30+ model evaluations on the 10K benchmark requires approximately: • 25 direct inference runs: ∼50 GPU-hours (varying by model size) • 9 agent runs (4 oracle + 2 predicted + 3 vision): ∼99 GPU-hours (with cache) • 5 ablation conditions: ∼15 GPU-hours • 2 measurement-only runs: ∼4 GPU-hours • Total: ∼168 GPU-hours ( ∼7 days on a single A6000) With 8–16 parallel GPUs (typical academic cluster allocation), the full evaluation can be completed in 1–2 days. 
+
+Random seeds and determinism. All inference uses greedy decoding ( temperature=0 ,
+
+do_sample=False ), ensuring deterministic outputs for a given model and input. Training uses seed 42 for data shuffling, weight initialization, and dropout. The benchmark question set is fixed (benchmark_v4.json ), and the train/test split is deterministic (patient-level split by dataset). The distractor generation uses seed 42 for random option positioning. Under these conditions, results are fully reproducible to the reported precision (one decimal place for percentages). 
+
+Code and data availability. All code, data, and evaluation scripts are released at github.com/Schuture/DeepTumorVQA. The repository includes: • Benchmark data ( benchmark/benchmark_v4.json )• Dataset construction scripts ( dataset_construction_scripts/ )• Inference scripts for all models ( benchmark/run_*.py )• Agent evaluation framework ( eval/ )• Tool cache pre-computation ( benchmark/precompute_tool_results.py )• Agent SFT data generation ( benchmark/prepare_agent_sft_data.py )• Result analysis notebooks Pre-computed 2D slices, videos, and 3D arrays are available on HuggingFace: tumor-vqa/DeepTumorVQA_1.0. 
+
+w Distractor Separation Analysis 
+
+A natural concern is whether the noise ablation’s −10.2pp degradation at 10% noise is driven primarily by tight distractor spacing rather than genuine precision sensitivity. We analyze this by computing the relative distractor gap (distance from correct answer to nearest distractor, as a fraction of the correct value) for all continuous-valued subtypes, then correlating this with per-subtype noise sensitivity. 46 Figure 7 shows the result. The Pearson correlation between median distractor gap and accuracy drop under 10% noise is r = 0 .25 (p = 0 .45 ), indicating no statistically significant relation-ship . Subtypes with the tightest spacing (organ aggregation: median gap 7.2%) show large noise drops ( −38.6pp), but subtypes with moderate spacing (tumor burden: 22.3%) also show substantial drops. The lack of correlation indicates that noise sensitivity reflects genuine task-level precision requirements—not an artifact of option design. Tasks requiring ratio computation or multi-organ comparison are most noise-sensitive regardless of distractor spacing, because noise compounds multiplicatively through multi-step computations. Lesion Slice       
+
+> Organ Agg
+> Organ HU
+> Organ Vol
+> HU Ratio
+> Lesion Vol
+> Lesion Diam
+> Tumor Burden %
+> Tumor-Organ HU
+> Lesion Count
+> Lesion Loc Count
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Relative Distractor Gap
+> (a) Distractor Gap Distribution
+> 0.1 0.2 0.3 0.4 0.5 0.6 0.7
+> Median Relative Distractor Gap
+> 0.4
+> 0.3
+> 0.2
+> 0.1
+> 0.0
+> 0.1
+> Accuracy (noise 10%  baseline)
+> Lesion Slice
+> Organ Agg
+> Organ HU
+> Organ Vol
+> HU Ratio Lesion Vol
+> Lesion Diam
+> Tumor Burden %
+> Tumor-Organ HU
+> Lesion Count
+> Lesion Loc Count
+> (b) Gap vs Noise Sensitivity (r = 0.25)
+
+Figure 7: Distractor separation analysis. Left : Distribution of relative distractor gaps by subtype. 
+
+Right : Per-subtype median gap vs. accuracy drop under 10% noise. No significant correlation (r = 0 .25 , p = 0 .45 ), indicating noise sensitivity reflects task structure, not option spacing. 
+
+x Predicted-Mode Capability Matrix 
+
+TotalSegmentator covers 25 abdominal organs but does not segment lesions (tumors, cysts). Table 20 classifies all 42 subtypes by support level and reports Meissa SFT accuracy under oracle vs. predicted tools. Table 20: Predicted-mode retention by TotalSegmentator support level. Retention = (pred −
+
+25%) /(oracle − 25%) .
+
+Support Level N Sub. Oracle Predicted Retention 
+
+Fully supported (organ-only) 12 70.2% 63.6% 85.4% Partially supported (organ+lesion) 5 54.4% 52.9% 94.8% Unsupported (lesion-only) 25 59.0% 59.5% 101.6% 
+
+All subtypes 42 63.8% 60.9% 92.6% 
+
+For unsupported (lesion-only) subtypes, predicted-mode accuracy does not drop in aggregate (101.6% retention). This is not because TotalSegmentator successfully segments lesions—our predicted cache contains 0% lesion mask coverage for liver/kidney/pancreas/colon tumors. Inspection of agent trajectories reveals that when the lesion segmentation tool returns mask_found=False , the SFT agent has learned to fall back on organ-level measurements (HU, volume) and parametric clinical knowledge to infer lesion properties. This fallback systematically over-performs on subtypes where the diagnostic criterion is encoded in organ-level features—pseudocyst determination (oracle 33.3%, predicted 66.7%; criterion is pancreas HU >14.5), renal mass characterization (43.5% → 78.3%), pancreatic lesion existence (37.7% → 66.5%), and lesion type classification (35.7% → 47.6%). Conversely, subtypes that genuinely require lesion geometry degrade as expected: kidney tumor existence 78.2% 
+
+→ 61.3%, pancreatic lesion resectability 65.3% → 55.1%, lesion volume measurement 63.3% 
+
+→ 57.1%. The aggregate 101.6% therefore reflects learned-heuristic compensation rather than 47 segmentation success; the most faithful indicator of TotalSegmentator-based predicted realism is the 85.4% retention on the 12 fully-supported organ-only subtypes, where the gap is bounded by the difference between TotalSegmentator and ground-truth organ boundaries. The full per-subtype breakdown is available in data/predicted_mode_capability.csv .
+
+y Recognition Subtype Measurement Dependency 
+
+Table 21 classifies the 9 Recognition subtypes by whether their ground-truth answer depends on quantitative measurement. Eight of nine subtypes are purely morphological (lesion mask presence), while splenomegaly detection requires a volume threshold, making it a clinically natural hybrid of recognition and measurement. Table 21: Recognition subtypes and their measurement dependency. 
+
+Subtype Meas. Req.? Criterion 
+
+Liver lesion existence No Mask presence Kidney lesion existence No Mask presence Kidney tumor existence No Mask presence Kidney cyst existence No Mask presence Pancreatic lesion existence No Mask presence Colon lesion existence No Mask presence PDAC existence No Mask presence PNET existence No Mask presence 
+
+Splenomegaly detection Yes Vol > 314.5 cm 3
+
+z Agent Tool Definitions 
+
+We provide detailed specifications for each of the four diagnostic tools available in the agent environ-ment. 
+
+1. segment_organ(target) Queries ground-truth segmentation statistics for a specified anatomi-cal target. • Input: target (string): one of 43 supported targets ( e.g. , liver , kidney_left ,
+
+pancreas_tumor , kidney_cyst ). • Output: JSON with fields: mask_found (bool), voxel_count (int), bounding_box (6-tuple), center_of_mass (3-tuple). • Target name aliases: The tool supports flexible name matching to handle model-generated variations. For example, kidney maps to both kidney_left and kidney_right ;
+
+pancreatic_mass maps to pancreas_tumor ; liver_lesion maps to liver_tumor .The full alias table contains 87 mappings covering common model-generated names.       
+
+> Example: segment_organ
+> Call: segment_organ(“liver_tumor”)
+> Response: {“mask_found”: true, “voxel_count”: 8432, “bounding_box”: [102, 45, 78, 118, 63, 94], “center_of_mass”: [110.2, 54.1, 86.3]}
+
+2. measure(target, type) Returns a ground-truth quantitative measurement for a specified target and measurement type. • Input: target (string), the anatomical target; type (string), one of volume , mean_HU ,
+
+diameter , count .• Output: JSON with fields: value (float), unit (string). • Supported types: volume (cm 3), mean_HU (Hounsfield units), diameter (cm, largest lesion), count (integer, number of instances). 48 • Computation details: Volume is computed as voxel count × voxel volume (from affine matrix). Mean HU is computed over all voxels within the segmentation mask. Diameter is the maximum Feret diameter of the largest connected component in the axial plane. Count uses 3D connected component analysis with 26-connectivity.     
+
+> Example: measure
+> Call: measure(“liver”, “volume”)
+> Response: {“value”: 1293.7, “unit”: “cm3”}
+
+3. lookup_medical_knowledge(query) Retrieves clinical criteria from a curated 27-entry knowledge base covering diagnostic thresholds, grading systems, and classification criteria. • Input: query (string): clinical topic ( e.g. , “fatty liver” , “splenomegaly grading” ). • Output: JSON with fields: entries (list of dicts with criterion , threshold , source ). • Query matching: Uses fuzzy string matching (Levenshtein distance ≤ 3) to handle model-generated query variations. For example, “fatty liver disease”, “hepatic steatosis”, and “NAFLD” all match the fatty liver entry. • Knowledge base coverage: The 27 entries cover: fatty liver (Zeb 2012), hepatic steatosis grading (Kodama 2007), pancreatic steatosis (Guneyli 2022), splenomegaly detection and grading (Bezerra 2005), portal hypertension (Harbin 1980), PDAC vs PNET classification (NCCN 2024), renal mass Bosniak classification (Silverman 2019), kidney lesion type (Agochukwu 2017), pseudocyst determination (Allen 2011), pancreatic T staging (AJCC 8th), pancreatic cyst resectability (Tanaka 2012), and pancreatic lesion resectability (NCCN 2024), plus 15 supplementary entries covering organ size norms, HU reference ranges, and lesion characterization criteria.       
+
+> Example: lookup_medical_knowledge
+> Call: lookup_medical_knowledge(“fatty liver”)
+> Response: {“entries”: [{“criterion”: “Liver-to-spleen HU ratio < 1.0 indicates fatty liver”, “threshold”: “L/S ratio < 1.0”, “source”: “Zeb et al. 2012”}]}
+
+4. crop_region(organ) Returns organ-focused multi-slice crops for visual inspection (vision mode only). • Input: organ (string): target organ ( e.g. , “liver” , “kidney” , “pancreas” ). • Output: JSON with field: image_base64 (string), a base64-encoded PNG of 5 representa-tive axial slices tiled in a single image with abdominal windowing. • Crop details: The bounding box is computed from the organ segmentation mask with 20% padding on each side (minimum 10 pixels). Slices are selected at 5 equally-spaced positions within the organ’s axial extent. Windowing uses W = 400 , L = 50 (identical to the pre-computed 2D slices). The resulting image is encoded as PNG and base64-encoded for inclusion in the JSON response.     
+
+> Example: crop_region
+> Call: crop_region(“kidney”)
+> Response: {“image_base64”: “iVBORw0KGgo...”} (5 axial slices centered on the kidney bounding box, tiled horizontally)
+
+aa Tolerance-Based Evaluation of Measurement Subtypes 
+
+To address whether the multiple-choice format artificially constrains evaluation, we re-score all continuous-value measurement subtypes (2,169 questions across 6 subtypes) using tolerance-based accuracy: a prediction is correct if the selected numeric value falls within ϵ% of the ground truth. Table 22 reports results at four tolerance thresholds. 49 Table 22: Tolerance-based vs. MC accuracy on measurement subtypes ( N =2,169). Model rankings are perfectly preserved across all thresholds ( r=0.999 at ϵ=5%, r=0.986 at 10%).                                    
+
+> Model MC Acc Tol-5% Tol-10% Tol-20% Tol-50%
+> Meissa SFT agent 76.6% 79.0% 84.7% 92.7% 98.8% M3D-Phi3 FT 70.6% 73.4% 84.0% 96.2% 99.7% Meissa FT 67.0% 69.7% 83.9% 96.7% 100.0% Meissa oracle 61.4% 66.7% 71.9% 83.4% 95.9% Gemini-3-Flash 34.4% 37.7% 52.9% 76.4% 96.1% Qwen3.5-9B 28.5% 31.0% 45.6% 72.9% 96.2%
+
+MC accuracy and tolerance-5% accuracy are nearly identical ( ∆=2–5pp), confirming that MC distractors are well-calibrated and the format does not artificially inflate or deflate model rankings. The small gap reflects cases where the model selects a distractor numerically close to (but not exactly matching) the correct answer. At looser thresholds ( ϵ=10–20%), accuracy rises substantially, indicating that many “errors” are near-misses rather than fundamental failures. Crucially, model 
+
+rankings are perfectly preserved: the rank-order correlation between MC accuracy and tolerance-based accuracy is r=0.999 ( p<0.001) at ϵ=5%, demonstrating that MC evaluation is a reliable proxy for open-ended numeric assessment on this benchmark. 
+
+ab Free-Form Evaluation on the Full Benchmark 
+
+While Appendix aa establishes that MC evaluation is a faithful proxy for open-ended numeric assessment on the 6 continuous-value subtypes, we additionally evaluate every model on the full 
+
+benchmark (10,000 questions, 42 subtypes) in a free-form setting to directly address the concern that the MC interface might mask true generation capability. Each model answers the original open-ended question (no A/B/C/D options provided) and the raw text output is scored under a subtype-appropriate metric. For consistency with the main finetuning protocol (Table 3), we additionally train Meissa-4B FF and Qwen3-VL-4B FF with the same 428K LoRA recipe but using the free-form answer column as the target (no option letters), replacing the MC-trained 2D FT rows in this table. 
+
+Scoring protocol. Each of the 42 subtypes is assigned one of three answer types based on the semantic form of its ground-truth answer. All scoring is performed on raw text output after stripping 
+
+<think>...</think> blocks, normalizing whitespace, lower-casing, and removing punctuation (except hyphens). 
+
+Numeric subtypes (11 subtypes, N =2,023; organ volume/HU measurement, lesion volume/diameter, lesion counting/count-by-location, tumor burden percentage, HU ratios, tumor-organ HU difference). The first signed decimal match in the model output is extracted as the prediction ˆy. Per-question score is the Mean Relative Accuracy (MRA) 
+
+MRA(ˆ y, y ) = max 
+
+
+
+0, 1 − |ˆy−y||y|
+
+
+
+∈ [0 , 1] ,
+
+with MRA = 1 if y = 0 and ˆy = 0 , and MRA = 0 otherwise. Unparseable outputs (no number extractable, off-units, or malformed) receive MRA = 0 —this is the central reason why top-model numeric accuracy is several points lower in free-form than in MC: there is no 4-option floor, and a missing or wrongly-unit’d digit sends the score to zero. We additionally report tolerance-based accuracy at thresholds ϵ ∈ { 5% , 10% , 20% , 50% }, counting a prediction correct if the relative error 
+
+|ˆy −y|/|y| ≤ ϵ; these provide bounded comparisons at coarser precisions and are reported per-subtype in the released JSON but collapsed to MRA in Table 23 for uniformity with binary/categorical rows. 
+
+Binary subtypes (15 subtypes, N =2,823; lesion-existence per organ, PDAC/PNET existence, organ enlargement, splenomegaly detection, pancreatic steatosis, pancreatic cyst resectability, pseudocyst determination, lesion outlier, portal hypertension assessment). The prediction is classified as “yes” if the output begins with or contains the standalone token yes (similarly for no ); otherwise it is counted as an unparseable negative prediction against the ground-truth polarity (i.e., counted as a false negative if ground truth is yes, false positive if no). The primary metric is exact-match accuracy on 10K questions; we additionally report per-subtype sensitivity TP /(TP+FN) and specificity 
+
+TN /(TN+FP) in the released JSON. 50 Table 23: Free-form evaluation results on DeepTumorVQA (10K questions, 42 subtypes). Each score is the micro-averaged subtype accuracy within a category; subtype metric is MRA (numeric), exact match (binary/categorical). Best per-category in bold . FF = LoRA-finetuned with the same 428K training set as MC FT (Table 3) but with open-ended answer targets instead of option letters.                                                                                                                                                                                                  
+
+> Cat. Model Params Input Notes Overall Recog. Meas. Vis.R. Med.R.
+> 3D FT  M3D-Llama2 [7] 7B 3D vol 32.4% 53.4% 25.1% 35.7% 11.1% M3D-Phi3 [7] 4B 3D vol 27.1% 60.8% 20.5% 21.3% 10.7% Merlin [12] 7B 3D vol ResNet enc. 24.5% 0.0% 49.7% 35.7% 0.0% RadFM [55] 14B 3D vol Largest 3D 50.5% 67.2% 55.6% 56.0% 15.5%
+> 3D Pre  M3D-Llama2 pre. [7] 7B 3D vol No FT 6.8% 10.4% 6.7% 7.0% 2.5% M3D-Phi3 pre. [7] 4B 3D vol No FT 21.7% 57.2% 15.8% 14.7% 5.1%
+> RadFM pre. [55] 14B 3D vol No FT 6.2% 0.1% 13.5% 8.3% 0.6% 2D FT  Meissa FF [14] 4B 2D LoRA, FF target 61.3% 70.1% 59.8% 61.5% 53.0% Qwen3-VL FF [8] 4B 2D LoRA, FF target 63.4% 71.0% 58.7% 61.1% 65.1%
+> 2D Zero-shot
+> HuatuoGPT [13] 7B 2D Medical 29.2% 57.5% 23.8% 26.3% 10.9% InternVL3-8B [15] 8B 2D 29.5% 56.0% 32.3% 23.8% 10.3% LLaVA-Med [37] 7B 2D Medical 24.6% 53.6% 38.4% 12.1% 5.6% LLaVA-OV [36] 7B 2D 29.6% 56.4% 35.0% 22.6% 10.2% MedGemma 2D [21] 4B 2D Medical 28.6% 52.0% 37.9% 22.2% 7.6% MedGemma 3D [21] 4B 2D 85-sl. 85-slice RGB 25.4% 47.6% 29.4% 20.1% 8.4% Meissa-4B [14] 4B 2D Medical 25.6% 43.4% 28.8% 23.5% 7.8% Qwen3-VL-4B [8] 4B 2D 34.6% 59.4% 44.6% 27.3% 13.5%
+> Qwen3-VL-8B [8] 8B 2D 32.6% 55.2% 44.2% 25.3% 11.8% Qwen3.5-9B [45] 9B 2D 30.8% 58.0% 35.0% 24.5% 10.8% Qwen3.5-35B [45] 35B(3B) 2D MoE 32.7% 54.2% 47.3% 24.5% 11.7% Video  Meissa-4B (video) [14] 4B Video 29.2% 45.4% 37.9% 24.6% 12.7% Qwen3-VL-4B (vid.) [8] 4B Video 33.3% 57.3% 40.9% 27.2% 12.8%
+> Qwen3-VL-8B (vid.) [8] 8B Video 32.6% 57.2% 42.3% 25.5% 11.2% API  Gemini-3-Flash [20] –2D API 36.4% 43.5% 58.7% 33.4% 11.5% Hum.  Senior radiologist –3D vol free-form, 200 subset 48.0% 70.0% 73.7% 40.2% 24.0%
+
+Categorical subtypes (16 subtypes, N =5,154; grading subtypes splenomegaly/hepatic-steatosis, staging pancreatic T, classification PDAC-vs-PNET and kidney lesion type, spatial relations such as largest-lesion location, inter-segment comparison, adjacent organ, bilateral-kidney asymmetry, fatty liver, liver-lesion clustering, kidney-volume comparison, largest-lesion attenuation, renal mass characterization, multi-organ lesion burden comparison). We compute strict normalized exact match (the primary score used in Table 23) and a partial match variant (credit if the normalized ground truth is contained in the prediction or vice versa) released in the JSON. Unlike numeric and binary scoring, categorical does not coerce unparseable outputs onto a known label—any extra words in the output that do not exactly match the ground-truth phrase reduce accuracy, again explaining part of the MC–FF gap for staging/grading subtypes where the MC choice preserves the exact phrasing. 
+
+Aggregation. Per-subtype scores are micro-averaged within each question type (Recognition, Measurement, Visual Reasoning, Medical Reasoning) by question count; the Overall column is the micro-average across all 42 subtypes. This differs slightly from the main-text MC protocol (which averages exact-match accuracy), but is consistent across all rows of Table 23. Full parser, metric code, and per-subtype JSON outputs are released with the benchmark. 
+
+Findings. The free-form results reproduce the qualitative conclusions drawn from the MC protocol (Table 3): (i) Pretrained 3D backbones remain near random (6–22% overall), confirming that volumetric pretraining alone does not transfer; (ii) Zero-shot 2D VLMs cluster at 25–35% with a clear Recognition–Measurement gap (50–60% vs 24–48%), consistent with the measurement bottleneck identified in the main text; (iii) Task-specific finetuning remains decisive —both FF-trained 2D models (Meissa-4B FF 61.3%, Qwen3-VL-4B FF 63.4%) surpass the strongest 3D specialist (RadFM FT, 50.5%) despite using only 2D input, matching the 2D-over-3D advantage observed in MC mode; (iv) 
+
+Medical Reasoning remains weak for zero-shot models (5–14%) and is dramatically improved by free-form finetuning (Qwen3-VL-4B FF: 65.1%). Absolute numbers are systematically lower than MC for all models ( e.g. , Meissa FF 61.3% vs Meissa FT 66.3%, RadFM 50.5% vs 58.9%) because free-form scoring requires exact numeric/categorical generation, whereas MC allows near-miss credit at the coarsest distractor spacing. The ∼5pp gap between MC and FF for top models matches the gap observed in the tolerance study between MC and the strictest ( ϵ=5%) threshold (Appendix aa), further 51 corroborating that MC is a tight upper bound rather than a format-specific artifact. Within-category rank-orders are largely (but not exactly) preserved between Tables 3 and 23: the 3D-FT row swaps (MC: M3D-Phi3 59.8% > RadFM 58.9%; FF: RadFM 50.5% > M3D-Phi3 27.1%) because RadFM’s Perceiver-Resampler decoder generates cleaner numeric strings than M3D’s pooled tokens, and within the 2D-FT pair Qwen3-VL FF overtakes Meissa FF on Med. Reasoning due to cleaner categorical generation. These are within-category re-shuffles rather than cross-category reversals—the cross-category ordering (2D-FT > 3D-FT > zero-shot 2D > pretrained 3D) holds in both protocols, so no main-text conclusion that operates at the family level depends on the MC interface. The senior radiologist’s free-form score (Appendix t, 200-question subset, 13 years experience) is 73.7% on Measurement under MRA scoring—higher than every model under free-form, because the radiologist provides numerically close estimates that earn partial credit—but only 24.0% on Medical Reasoning, where strict normalized exact match penalizes phrasing differences ( e.g. , “Moderate” vs. “Moderate splenomegaly”) that the MC protocol resolves automatically. This contrast quantifies how the free-form scoring disadvantages categorical responses for any annotator (human or model) whose phrasing diverges from the canonical option text. 52

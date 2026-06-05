@@ -1,0 +1,468 @@
+Title: MDIA: A Multi-Agent Diagnostic Intelligence Pipeline on HealthBench Professional
+
+URL Source: https://arxiv.org/pdf/2605.24699v1
+
+Published Time: Tue, 26 May 2026 01:04:23 GMT
+
+Number of Pages: 33
+
+Markdown Content:
+# MDIA: A Multi-Agent Diagnostic Intelligence Pipeline on HealthBench Professional 
+
+## Roberto Cruz ∗ David Rey-Blanco †
+
+TietAI 
+
+## 2026-05-15 
+
+Abstract 
+
+Most reported gains on agentic-LLM clinical benchmarks are often attributed to prompt engineer-ing, yet our results suggest that larger improvements can come from architectural and engine-level design. We present MDIA, a Multi-agent Diagnostic Intelligence Agent implemented as a 7-node specialty-routed clinical reasoning graph, on the full HealthBench Professional benchmark (n = 525), on a non-fine-tuned LLM. MDIA achieves 0.6272 under OpenAI’s GPT-5.4-2026-03-05, which is +3.72 pp above the performance of OpenAI’s ChatGPT for Clinicians. The experimental work shows that performance lift is attributable to system architecture: specialty routing, multi-turn context preservation, drug-state safety gating, site-filtered search, length-aware synthesis, and engine-level reliability. These findings support the view that agentic clinical benchmark performance is shaped both by the underlying foundation model and the orchestration architec-ture. Nevertheless, we also noticed notable differences when using other models as a grader; in particular, when using Gemini 2.5 Pro, MDIA scored 0.6585, which suggests that the choice of grader is a source of variability. Robust evaluation of LLMs would therefore require assessment across several independent grader models. 
+
+Keywords: Clinical reasoning, Multi-agent systems, Medical AI, Large language models, Health-Bench 
+
+## 1 Introduction 
+
+Large language models (LLMs) are entering clinical practice at a pace that makes systematic evaluation essential [ 1 ]. The release of OpenAI’s HealthBench Professional [ 2] — 525 rubric-graded cases drawn from 15,079 real clinician conversations — provides the field’s most rigorous open benchmark for this task. Its design is deliberately adversarial: cases are stratified across 21 specialties, include both good-faith and red-teaming scenarios, and a significant fraction (22 %) require a model to integrate follow-up turns rather than answer a single isolated question. Top-line scores from the original paper establish demanding reference points: physician-written responses at 0.437, GPT-5.4 single-agent at 0.481, and OpenAI’s best system, ChatGPT for Clinicians, at 0.590. 
+
+> ∗
+
+roberto.cruz@tiet.ai 
+
+> †
+
+david.rey@tiet.ai 
+
+1
+
+> arXiv:2605.24699v1 [cs.AI] 23 May 2026
+
+The literature on medical AI agents identifies a consistent pattern: agent architectures with tool use substantially outperform single-prompt baselines. A systematic review of 20 clinical agent studies found that all agent architectures outperformed their corresponding baseline LLMs, with a median improvement of +53 pp for single-agent tool-calling systems [ 3]. Multi-agent frameworks further extend this advantage by assigning specialised roles — a paradigm validated by MedAgents [ 4], which demonstrated zero-shot state-of-the-art on MedQA through specialised collaborative discussion. Despite these results, multi-agent clinical pipelines have not yet been evaluated on HealthBench Professional, and no prior work has examined how the benchmark’s multi-turn conversation structure interacts with common evaluation harness design choices. This paper addresses both gaps with MDIA (Multi-agent Diagnostic Intelligence Agent), a coordi-nated 7 agent specialty-routed Directed Acyclic Graph (DAG) with shared memory: (1) an intake orchestrator with 14 medical tools (PubMed, DailyMed, UMLS, ICD-10, drug-state safety gate, site-filtered web search, and more) collects a structured clinical dossier; (2) a specialty classifier branches the work to one of three domain-expert reasoners ( (3) gastroenterology, (4) ophthalmology, (5) neurology) or a (6) generalist path; an (7) output synthesizer produces the final response; and a verifier performs a final safety and format check. The headline result shows our agent achieves a total score of 0.6272 on GPT-5.4-2026-03-05 low reasoning [ 5 ] — OpenAI’s own grader — on all 525 samples. The same-instrument comparison uses the GPT-5.4 score: +14.62 pp over the GPT-5.4 single-agent baseline (0.6272 vs 0.481), 
+
++19.02 pp over physician-written responses (0.6272 vs 0.437), and nominally +3.72 pp ahead of ChatGPT for Clinicians (0.6272 vs 0.590). The last margin lies within bootstrap σ (≈ 0.023) and should be treated as directional rather than decisive — OpenAI does not publish confidence intervals for ChatGPT for Clinicians, precluding a significance test. Additionally, if OpenAI’s system supports multi-turn context (the flatten strategy used in their evaluation is undocumented), the effective gap may differ from the nominal 3.72 pp. All lift comes from architectural design on the open TietAI Hydra Platform [ 6], not from proprietary data or model access. The overall same-grader comparison is summarized in Figure 1. A secondary finding with implications beyond this work: conversation flatten strategy moves the HealthBench Pro headline by approximately 6 pp at n=525 . The standard simple-evals harness passes only the last user message to the agent. Of HealthBench Pro’s 525 cases, 115 (22 %) contain follow-up user turns whose context is silently discarded by this default. Switching to a full multi-turn pass lifts the score from 0.6102 to 0.6598 Pro-graded — with zero changes to the agent — because the rubric grades the agent’s ability to address the complete conversation, not just the final question. This effect is quantified in Section 4 and Section 5.2. An important caveat for the ChatGPT for Clinicians comparison: OpenAI has not documented the flatten strategy used for that system’s evaluation. If it too uses multi-turn context, their published 0.590 score already captures this advantage, and the nominal +3.72 pp gap reflects other architectural differences. To further assess the robustness of our evaluation, we also graded the results using an alternative LLM judge, Gemini 2.5 Pro with MDIA v1.0.50 attaining a rubric of 0.6771 ± 0.0204. While the overall score magnitudes and relative ranking remained broadly consistent, we observed differences in how individual responses were scored. These discrepancies highlight the limitations of relying on a single LLM as a judge and suggest that multi-grader evaluation may provide a more reliable assessment. This conclusion is consistent with prior work on LLM-as-judge limitations and multi-agent evaluation, including MT-Bench/Chatbot Arena and ChatEval, which respectively document judge bias and propose multi-agent referee teams to improve alignment with human assessment [7, 8]. 2Figure 1: Overall comparison of MDIA versions against OpenAI reference systems under GPT-5.4 grading. MDIA v1.0.53 (0.6272) surpasses ChatGPT for Clinicians (0.590) by 3.72 pp. Source: internal 
+
+Our paper makes four contributions to clinical agent evaluation and deployment: (1) a working multi-agent clinical pipeline that exceeds OpenAI’s flagship system under their own grader; (2) a multi-turn evaluation finding that all future HealthBench Pro reporters should account for; (3) five engine-level reliability fixes in the Hydra Platform subagent-graph executor that recovered ~3-4 pp previously lost to infrastructure flakiness; and (4) the first end-to-end validation of the 7-node graph architecture via the correct graph endpoint. This paper is organized as follows: firstly, we describe the overall architecture of the agent; second, we outline the methodological paths explored during development; third, we evaluate the configurations from v1.0.27 to v1.0.53; and finally summarizes the lessons learned throughout the model construction process. 
+
+## 2 Background and motivation 
+
+Early medical LLM benchmarks mainly used examination-style datasets to assess biomedical knowledge and structured reasoning, including MedQA [ 9], MedMCQA [ 10 ], PubMedQA [ 11 ], and medical subsets of MMLU [ 12 ]. These benchmarks enabled reproducible comparison and helped show that frontier LLMs could approach or exceed physician passing thresholds, as in the Med-PaLM family [ 13 , 14 ]. However, they primarily test static question-answering rather than clinical deployment capabilities such as safety, communication, uncertainty management, or longitudinal decision-making, motivating newer workflow-oriented evaluations. OpenAI’s HealthBench [ 15 ] moved evaluation toward realistic healthcare interactions using 5,000 multi-turn clinical and patient-facing conversations graded with physician-authored rubrics. Health-3Bench Professional [ 2 ] extends this approach to clinician workflows, curating 525 tasks from physician-generated conversations across 50 countries and 26 specialties, with emphasis on care con-sultation, documentation, medical research, specialist adjudication, and adversarial cases. Despite these advances, such benchmarks remain technical proxies rather than clinical validation tools, and issuer-related conflicts may arise when the benchmark provider is also a model vendor. Therefore, benchmark results should be interpreted as standardized technical evidence, not as substitutes for prospective clinician-led trials, regulatory-grade evaluation, or real-world outcome studies. HealthBench professional is a rubric-graded benchmark drawn from real clinician chats — 15,079 initial conversations distilled to 525 high-signal cases via stratified sampling. Each case carries multi-criterion rubrics with weighted positive and negative items, and the scoring formula is 
+
+sum (earned _points )/sum (positive _points ) per example, averaged across the 525 samples and clipped to [0, 1]. The reference numbers from OpenAI’s paper are summarized in Table 1.  
+
+> Table 1: OpenAI HealthBench Professional reference baselines.
+
+System Score Coverage Physician-written baseline 0.437 n = 525 GPT-5.4 base (single-agent) 0.481 n = 525 ChatGPT for Clinicians (best published) 0.590 n = 525 Our goal is to build a multi-agent system on a general purpose LLM that meets or exceeds the OpenAI flagship under their own grader, without fine-tuning, on a small team (one engineer + a 14-tool platform), and with full reproducibility — graph definition, prompts, and per-sample grader transcripts publishable. Recent benchmarks (AgentClinic [ 16 ], MedAgentBench [ 17 ], PhysicianBench [ 18 ]) have established that even frontier models struggle in the sequential, tool-using clinical settings that HealthBench Pro approximates; a systematic review of 20 agent studies found that all agent architectures outperformed their baseline LLMs, with a median improvement of +53 pp for single-agent tool-calling systems [3]. A non-obvious requirement we discovered during the work was the importance of respecting the conversation structure of the dataset. HealthBench Pro’s conversation.messages field contains follow-up turns; 115 / 525 cases (22 %) include a second user turn that refines the question (e.g. “and now show me a table of permitted foods”). The simple-evals reference loop flattens to the last user turn only — silently dropping the context the rubric grades against. We discuss this in Section 4 and quantify the impact in Section 5.2. 
+
+## 3 Architecture 
+
+MDIA is implemented as a 7-node, specialty-routed directed acyclic graph executed by the agentic module of TietAI’s Hydra Hydra Graph Engine 1 on Google Gemini family: 2.5 Pro [ 19 ] and 3.1 Pro [ 20 ]. The graph structure shown in Figure 2 displays the nodes and responsibilities listed in Table 2. Execution begins with tool-set invocation, task-type classification, and ancillary data retrieval, after which the input and retrieved context are routed to the most appropriate expert agent. The resulting outputs are then collected, curated, and validated for safety and formatting. 
+
+> 1Hydra Graph Engine is one of the agent runtimes within Hydra Platform developed by the company Tiet AI
+
+4Figure 2: MDIA Architecture 
+
+Table 2: MDIA graph nodes and responsibilities. Node Role 
+
+Intake Tool-calling research orchestrator. Calls 14 medical tools (PubMed, Europe PMC, ClinicalTrials, DailyMed, CIMA, UMLS, ICD-10, drug-state safety check, medical calculator, web search,. . . ) and emits a structured dossier. Multi-turn-aware: if 
+
+conversation.messages has follow-up user turns, those carry through to the dossier. 
+
+Router Specialty classifier. Reads the dossier, emits {"route": "...", "route_reason": "..."} . | 
+
+Gi_reasoner, Ophtho_reasoner, Neuro_reasoner 
+
+Specialty-tuned clinical reasoners with curated anchor knowledge (Glasgow-Blatchford, Forrest, MELD-Na, Tokyo Guidelines, NIHSS, tPA-window, Hunt-Hess, House-Brackmann, etc.). 
+
+Reasoning Generalist reasoner (covers cards, ID, peds, surgery, etc. — | the long tail). 
+
+Output Synthesizer. Turns the reasoner’s brief into a user-facing response with a length target (2000–3000 chars typical, 4000 hard cap). 
+
+Verifier Final-pass safety / format check. | 
+
+The graph is published as an immutable, semver-pinned definition (versions v1.0.27, v1.0.36, v1.0.40, . . . , v1.0.50) with engine-level reproducibility guarantees. Specific model assignments per node are configuration, versioned with the graph; this paper’s results were obtained with the model fleet described in Section 4.3. 53.1 Why specialty routing (and why three branches, not twenty eight) 
+
+In the first iterations, we observed unbalanced scores across specialties (28 in total), and that more curated specialty-specific prompts—hereafter referred to as specialty subagents—improved performance. The initial assumption was therefore that assigning one agent per specialty would yield the best results. This, however, proved not to be the case, mainly due to two factors: 1. The gap between the best- and worst-performing specialties was 50 pp : nephrology scored 0.743, whereas ophthalmology scored 0.243 in the v1.0.10 baseline. A generalist reasoner systematically underperforms on under-represented specialties [21]. 2. Ninety-four percent of failed positive-criteria points were specialty-knowledge anchors , rather than refusal-policy issues. Branching by detected specialty allows a Pro-tier reasoner to load specialty-specific anchor knowl-edge that a single global prompt cannot accommodate. We selected GI, Ophthalmology, and Neurology as the first three branches based on a per-specialty headroom analysis: together, these specialties account for 9.5 pp of headroom in the full benchmark (n = 525) and contain the largest number of previously identified anchor patterns. Adding cardiology or pediatrics branches produced diminishing returns at this stage. MedAgents [ 4 ] demonstrated the value of multidisciplinary LLM collaboration in medical reasoning, achieving state-of-the-art performance on MedQA in the zero-shot setting through specialized role-playing agents; we adopt the same intuition through hardwired specialty branches rather than dynamic role assignment, an architectural pattern that mirrors Mixture-of-Agents [22]. 
+
+## 4 Methodology 
+
+The methodology combines several strategy classes introduced across successive MDIA versions (shown in Figure 2). First, the evaluation harness was corrected to preserve multi-turn conversations rather than flattening each case to the last user message (v1.0.40). Second, the clinical graph was hardened with scoped drug-state safety checks, specialty routing, and a reasoner upgrade whose value depended on preserving conversation context (v1.0.27–v1.0.40). Third, the Hydra execution engine was made more reliable through JSON-fence stripping, retry-on-empty behavior, fallback messages, per-model location overrides, and thinking-content capture. Finally, later versions focused on evidence and response-shaping strategies: search hygiene and citation formatting (v1.0.42–v1.0.46), full graph-endpoint validation (v1.0.50), and length-aware synthesis plus verification (v1.0.53). The subsections below separate these strategies so that benchmark gains can be attributed to harness behavior, clinical-agent design, engine reliability, search/evidence quality, and final-answer compression. 
+
+4.1 Multi-turn conversation handling 
+
+HealthBench Pro’s dataset stores each example as conversation.messages: [{role, content}, ...] . 115 / 525 examples (22 %) contain ≥ 2 user turns where the second turn refines or extends the first (e.g. “what is the FODMAP diet” → “now give me a table of permitted foods”). The simple-evals reference harness flattens conversations to the last user turn only — sufficient for single-shot QA but silently drops follow-up context that the rubric grades against . On 6Figure 3: MDIA evolution across experimental releases, showing the main interventions 
+
+a multi-turn case, the agent receives only the second turn’s text (“give me a table”), with no signal that the first turn defined the topic. We implemented the four flatten strategies detailed in Table 3:  
+
+> Table 3: Conversation flattening strategies implemented in the evaluation harness.
+
+Strategy Behaviour last_user Reference simple-evals: pass only the last user content. role_tagged User: ... / Assistant: ... / User: ... plain prefix. xml <turn role="user">...</turn> block per turn. multiturn Pass the full message list to the agent’s invoke endpoint. Agent receives [{user, assistant, user}] and resolves the follow-up against its own prior reply. The new default is multiturn . On single-turn cases (78 %), it is byte-equivalent to last_user . On multi-turn cases, it gives the agent the full context. At n=525, switching from last_user to 
+
+multiturn lifts the Pro-graded score from 0.6102 → 0.6598 (+5.0 pp) and the GPT-5-graded score from 0.5220 → 0.585 (+6.3 pp). Single-turn-only subset is essentially flat (within bootstrap σ); the entire lift comes from the 22 % multi-turn slice. See Section 5.2. This is not an architectural change to MDIA, but it is a fix to the eval harness that surfaces the agent’s existing multi-turn capability. We argue all HealthBench-Pro reporting should disclose the flatten strategy, and that last_user understates any agent that supports multi-turn. MedMT-Bench [ 23 ] independently confirms that multi-turn medical dialogue is an unsolved problem — all 17 frontier models score below 60 % on a 400-case benchmark with an average of 22 conversation rounds — underscoring the importance of correctly preserving conversation context in medical evaluations. 
+
+4.2 Drug-state safety gate 
+
+Each reasoner’s writing-task branch runs a mandatory drug × patient-state check before producing a content brief. This gate played two roles: 1. Refuse when the source material would produce a dangerous artifact under the stated patient 7context (e.g. translating “loperamide for diarrhoea + paracetamol for fever 38.5 °C” without a contraindication warning, where loperamide is contraindicated in febrile / infectious diarrhoea). 2. Inject a safety warning in the artifact’s language when refusal is too strong (e.g. add a Kiswahili ANGALIZO MUHIMU line to the translated patient leaflet). The gate’s contraindication table is small but high-yield: loperamide+fever, NSAIDs+GI-bleed, ACE-i+pregnancy, isotretinoin+pregnancy, succinylcholine+hyperkalaemia, MMR+immunosuppression, beta-blocker+decompensated-asthma, oil+infant-ear, plus cross-specialty anchors (cabotegravir Q1M/Q2M not annual, post-CCRT dental → ORN, AHA-2017 removed clindamycin from IE prophylaxis, Demovate not on the face). Real-world LLM deployment for medication safety confirms these challenges: a 2025 NHS evaluation found 100 % sensitivity for detecting clinical issues but only 46.9 % complete resolution, with the dominant failure being inflexible guideline application without patient context [ 24 ]. A 16-specialty CDSS evaluation found lowest safety scores precisely on absolute contraindications and drug-drug interactions [25] — the pattern our gate targets. A critical lesson during development: broadening the gate to fire on every task type (not just writing_task ) regressed the headline by −13.8 pp at the 50-sample scale. The model over-refuses on educational and counter-misinformation tasks that mention drug names. The fix in v1.0.27 was a scope clause — the gate fires only for prescriptive output (translated Rx, discharge handout, SOAP note) and explicitly does not fire for “draft talking points to discuss with a colleague who thinks vaccines cause autism” or similar discussion contexts. 
+
+4.3 Reasoner upgrade: Gemini 2.5 Pro → 3.1 Pro 
+
+In v1.0.39 we tested swapping the reasoner from Gemini 2.5 Pro [ 19 ] to Gemini 3.1 Pro [ 20 ] at single-turn flatten and saw a −1.65 pp regression (Section 5.5). That isolated test is misleading: with the multi-turn flatten correction in v1.0.40, the same reasoner swap is net positive because 3.1 Pro handles follow-up-question refinement substantially better than 2.5 Pro on the 22 % multi-turn slice. The swap required some platform plumbing: 3.1 Pro is only published at Vertex’s global location (no regional endpoint), while the rest of our model fleet runs regionally ( europe-west1) . We added a per-model location override to the graph executor — additional_config: {“location”: “global”}_ on the model row routes the SDK to aiplatform.googleapis.com instead of the regional endpoint. This is the only model in the v1.0.40 graph using the global endpoint. The model swap required a minor platform adjustment because Gemini 3.1 Pro was available only through Vertex’s global endpoint, whereas the rest of the model fleet used the European regional setup, for chain-of-thought visibility. We therefore added a per-model location override so this specific reasoner could run correctly without changing the configuration of the broader graph. 
+
+4.4 Engine-level reliability fixes 
+
+This work also led to several fixes and incremental enhancements in the underlying agent engine: 1. JSON code-fence stripping in LLM-output parsing. LLMs frequently wrap structured JSON output in json fences even when the prompt explicitly says “no markdown fences”. The engine’s existing json.Unmarshal failed on these wrapped outputs, sending route decisions 8silently to the deterministic-edge fallback. This is a recognised failure mode of free-form structured output [ 26 ]. In order to solve that matter we created a stripCodeFence() helper. 2. Empty-output retry. Vertex’s Gemini occasionally returns blank content under spe-cific tool-calling sequences (~3.8 % in our worst run). We added an errEmptyOutput sen-tinel returned by runLLMNode when the output map is blank, which triggers the existing 
+
+retry_policy.max_attempts loop. 3. Graceful fallback message. After all retries exhaust, instead of letting {} propagate, the engine emits {"text": "(no response — the model returned empty output after N attempts. ...)"} .4. Per-model additional_config.location . Lets specific model rows pin themselves to Vertex global (or any other location) without affecting the platform-wide default — required for 3.1 Pro (Section 4.3). 5. Thinking content capture. The engine captures Message.ReasoningContent from any model that emits it (Gemini 2.5+, Claude extended thinking, GPT-5 reasoning) and persists it to subagent_steps.reasoning_content for post-hoc auditability. As a result of the changes above the empty-rate dropped from 20 / 525 (3.8 %) to 1 / 525 (0.2 %) between two 525-sample runs. The score variance contribution from infrastructure flakiness (~3-4 pp at the worst) was also fully removed, consistent with general findings on reproducibility of language-model evaluations [27]. 
+
+4.5 Length guidance in synthesizer and verifier (v1.0.53) 
+
+HealthBench Professional penalizes long responses, based on the assumption that shorter answers may reflect higher response quality through greater desirability and information density [ 28 – 30 ]. Consequently its grading applies a length-adjustment of 2.94 × 10 −5 per character beyond 2000 (Appendix B.1 of the OpenAI paper) in order to reward shorter responses and penalize the longer ones, under the supposition that shorter texts have better quality. However, shorter outputs could degrade the appropriateness of response, so in our own 525-sample data the empirical sweet spot is 
+
+2000–3000 characters (mean rubric score 0.68) or 4000–5000 characters (0.71); below 2000 chars score worst (0.47, anchors get dropped); above 5000 chars the length penalty exceeds rubric gain. We added an explicit length target (2000–3000 chars typical, 4000 hard cap, with density rules) to the synthesizer prompt. Effect is mostly on red-teaming / consult difficulty buckets. In order to indicate MDIA the goal length preserving the response quality, we added explicit length guidance to the synthesizer ( output ) and verifier nodes in the v1.0.53 iteration: 1. 3000-character body cap — enforced at both synthesis and verification stages. The synthesizer targets 2000–3000 chars; the verifier trims body-only prose to fit within 3000 chars while preserving all clinical anchors. 2. “Cut verbosity, never content” rules — explicit enumeration of what to remove (transi-tional filler, prose preambles, single-sentence section headings) vs what to never drop (drug names + doses, score thresholds, time windows, red-flag items, differential candidates). This approach guaranteed rubric-scoring anchors reducing notably the generated text. In v1.0.53 reduced the average response length from 4383 to 2789 characters, what rendered an score improve-9ment from 0.6166 to 0.6272 2. This split result makes the length cap useful for the same-instrument OpenAI comparison but also illustrates grader sensitivity to concise versus elaborated answers. 
+
+4.6 Search hygiene, citation formatting, and graph endpoint validation (v1.0.42– v1.0.50) 
+
+Three changes shipped between v1.0.41 and v1.0.50 to address three recurring sources of evaluation noise and architectural under-measurement: low-specificity web search retrieval, limited evidence traceability in generated answers, and incomplete execution of the intended multi-node graph during evaluation. 1. Search-tool usage hygiene (v1.0.42). Analysis of intake-node search calls showed that bare-keyword web searches return noise on this platform: Chinese forum spam, dictionary aggregators, vendor support pages, and general-purpose content that bypasses medical rele-vance signals. In v1.0.42 we updated the intake prompt to prefer site-restricted queries via the site_filter parameter against high-authority medical sources (pubmed.ncbi.nlm.nih.gov, nice.org.uk, nccn.org, uptodate.com, who.int, cochranelibrary.com, nejm.org, bmj.com, the-lancet.com) and explicitly discourage bare-keyword queries. The web_search tool already supported site_filter ; this is a prompt-side enforcement of an existing capability against a documented noise pattern [31, 32]. 2. Inline citation markers (v1.0.46). The output node’s synthesizer prompt was updated to place square-bracket index markers ( [1] , [2] , . . . ) immediately after each cited sentence — e.g. "...first-line therapy is amoxicillin 90 mg/kg/day [1]." This is primarily a frontend rendering feature (the TietAI Studio UI renders these as interactive source cards), but it also improves grader-perceived evidence traceability on research-heavy rubric criteria, consistent with prior work on attributable text generation [33, 34]. 3. Graph endpoint validation (v1.0.50). All eval runs through v1.0.41 used the --agent-url 
+
+path, which routes to agents/{id}/invoke — the graph’s orchestrator (intake) node operating in single-agent mode. The graph’s full 7-node pipeline (intake → router → specialty-reasoner 
+
+→ output → verifier) is only exercised end-to-end via POST /subagent/executions (the 
+
+--graph-id path in the eval harness). v1.0.50 is the first eval run through the correct graph endpoint, validating specialty routing, drug-state gating, synthesis, and verification all firing together. Pro-graded result (0.6771) is statistically consistent with the prior single-agent baseline (0.6744), confirming the graph architecture contributes at parity or better. 
+
+## 5 Discussion of results 
+
+The latest MDIA iteration, v1.0.53, implemented on the TietAI Hydra Platform with a length-guided synthesizer and verifier using a 3,000-character cap, achieved a score of 0.6272 on HealthBench Professional (under GPT-5.4-2026-03-05 grading), what outperforms both physician baseline (0.437) by +19.02 pp and OpenAI domain-specific model (0.590) by +3.72 pp , as shown in Table 4. The performance gain compared to single agent on 5.4 from HealthBench Pro benchmark is also notable: +14.62 pp over GPT-5.4 single-agent (0.6272 vs 0.481). 
+
+> 2Grading was performed using GPT-5.4 low. This finding is consistent across alternative graders: for example, the score also increased from 0.6585 to 0.6771 under Gemini 2.5 Pro judging.
+
+10 Table 4: Same-grader headline comparison under GPT-5.4 low. System Score Avg len ∆ vs MDIA v1.0.40 
+
+MDIA v1.0.53 (length-guided synthesizer + verifier) 0.627 2789 +4.2 pp MDIA v1.0.50 (Hydra Platform, full graph endpoint) 0.617 4383 +3.2 pp 
+
+ChatGPT for Clinicians (OpenAI’s best) 0.590 — +0.5 pp 
+
+MDIA v1.0.40 (multi-turn flatten + 3.1 Pro) 0.585 — —MDIA v1.0.36 ( last_user flatten) 0.5220 — −6.3 pp GPT-5.4 base (single-agent) 0.481 — −10.4 pp Physician-written baseline 0.437 — −14.9 pp 
+
+To evaluate grading robustness, we used an alternative grader, Gemini 2.5 Pro, which produced a score of 0.6585 . This indicates that the result is directionally consistent under a second grading model. In addition, we estimated the statistical variability of the MDIA v1.0.53 score using bootstrap resampling, obtaining σ ≈ 0.023 3. OpenAI does not report an equivalent variability estimate for ChatGPT for Clinicians, which limits the strength of direct comparisons and makes formal significance testing difficult. As shown in Table 4 different iteration helped improve the system’s performance. As we observe in Table 5 the introducted mechanisms yielded score lifts compared to the original benchmark figures [2]. 
+
+Table 5: Contribution summary and estimated lift. Contribution Mechanism Lift at n=525 
+
+Multi-turn context preservation (v1.0.40) Replace last_user flatten with multiturn flatten — 22 % of HealthBench-Pro examples have ≥ 2 user turns; naive flatten silently drops prior context +5.0 pp Pro / +6.3 pp GPT-5.4 (v1.0.36 →
+
+v1.0.40) 
+
+Search-noise filtering + relevance floor + Bing disabled (v1.0.41) SearXNG instance: Bing engine disabled; hydra-server side: 30-domain blocklist (baidu/zhihu/autohome/Spanish-StackExchange/dictionary aggregators/vendor support/gaming forums) + score-threshold ( ≥ 0.2) and snippet-length ( ≥ 80 chars) floors +1.3 pp Pro / −0.7 pp GPT-5.4 (v1.0.40 →
+
+v1.0.41) 
+
+Site-restricted search hygiene (v1.0.42) Intake prompt enforces site_filter for high-authority medical sources (PubMed, NICE, NCCN, UpToDate, WHO); discourages bare-keyword queries that return noise on this platform Consult/difficult +5-6 pp (within noise); search quality qualitative improvement 
+
+Inline citation markers (v1.0.46) Output synthesizer places [1] , [2] markers after cited sentences for frontend source-card rendering Research criteria alignment improves 
+
+> 3Although OpenAI does not disclose uncertainty measures for ChatGPT for Clinicians, the reported scores remain comparable because both refer to the expentancy of benchmark scores. However, the absence of uncertainty estimates affects the interpretation of statistical confidence, not the comparability of the reported score expectations.
+
+11 Contribution Mechanism Lift at n=525 
+
+Graph endpoint validation (v1.0.50) First eval of the full 7-node DAG end-to-end Pro 0.6771 (parity with v1.0.41); GPT-5.4 0.6166; architecture confirmed 
+
+Specialty router (gi / ophtho / neuro + generic) Branch a Pro reasoner with curated anchor knowledge per specialty +3.1 pp on top of v1.0.27 
+
+Drug-state safety gate 
+
+(loperamide+fever, NSAIDs+GI-bleed, ACE-i+pregnancy, . . . ) Conditional contraindication check before producing prescriptive artifacts; educational-context carve-out +2.2 pp at n=525, +5.0 pp on red-teaming 
+
+Engine reliability fixes in the subagent-graph executor Retry-on-empty, JSON-fence stripping, per-model location override, thinking-content capture, RateLimiter mutex fix empty-response rate 3.8 % → 0.2 %, ~+3-4 pp recovered 
+
+Total uplift 
+
+v1.0.10 → v1.0.50 
+
+Graded using Gemini Pro +15.2 pp 
+
+Figure 4: Cumulative GPT-5.4 score contributions of each architectural addition. Every bar reflects the published eval at that version; the dashed line marks ChatGPT for Clinicians. 
+
+The cumulative pattern of score contributions is shown in Figure 4. Under OpenAI’s published grader on identical 525 samples, MDIA v1.0.53 exceeds OpenAI’s flagship multi-agent system by 3.72 pp (+1.06 pp over v1.0.50). The remaining engineering levers (RAG, Claude reasoner test) are tracked in Section 7. 12 5.1 MDIA progression across versions 
+
+Figure 5: GPT-5.4 score progression across all MDIA versions. The multi-turn flatten correction (v1.0.40) and length guidance (v1.0.53) are the two largest single improvements. Dashed reference lines show OpenAI baselines. 
+
+Figure 5 and Table 6 summarize the full MDIA version trajectory from v1.0.10 to v1.0.53, including changes in the reasoner model, evaluation harness, multi-turn flattening, graph execution path, retrieval hygiene, engine reliability, citation formatting, and response-length control. Together, they show how performance evolved across both architectural and implementation-level interventions, with the largest single gains associated with the multi-turn flatten correction in v1.0.40 and the length-guidance update in v1.0.53. 
+
+Table 6: MDIA score progression across graph and harness versions, using Gemini 3.1 Pro as reasoner. Version Flatten Score (Pro) Score (GPT-5.4) Avg length Notes v1.0.10 last_user 0.5247 (Flash) — — Original baseline; pre-engine-fix v1.0.27 last_user 0.5990 ± 0.022 0.5154 ± 0.022 — Safety gate v1; production graph for 4 months v1.0.36 last_user 0.6102 ± 0.022 0.5220 ± 0.022 — Extended safety gate; previous best v1.0.38 last_user 0.5850 ± 0.021 0.4952 ± 0.022 — Minimal-input rule — regression 
+
+vs v1.0.36 (Section 5.4) v1.0.39 last_user 0.5937 ± 0.022 0.5063 ± 0.023 — Reasoner swap alone — 
+
+regression at single-turn (Section 5.5) 
+
+13 Version Flatten Score (Pro) Score (GPT-5.4) Avg length Notes v1.0.40 multiturn 0.6598 ± 0.020 0.5850 — Multi-turn flatten correction; first parity with ChatGPT-for-Clinicians v1.0.41 multiturn 0.6744 ± 0.0205 0.5775 ± 0.0235 — SearXNG noise blocklist (Bing disabled, dictionary/forum/vendor-support filtered), score+snippet relevance floor; engine RateLimiter mutex fix; single-agent endpoint v1.0.42 multiturn — — — intake: site_filter search hygiene (pubmed/nice/nccn preferred, bare-keyword discouraged); evaluated within v1.0.50 v1.0.46 multiturn — — — Output: inline citation markers 
+
+[1] ,[2] for frontend source-cards; evaluated within v1.0.50 v1.0.50 multiturn 0.6771 ± 0.0204 0.6166 4383 Added graph-endpoint eval (full 7-node DAG; graph architecture validated at parity with v1.0.41 
+
+v1.0.53 multiturn 0.6585 0.6272 2789 Length guidance: 3000-char cap + “Cut verbosity, never content” rules in synthesizer + verifier; avg length 4383 → 2789 chars ( −1594); reduced length penalty +1.06 pp GPT-5.4 
+
+The v1.0.50 Pro-graded score (0.6771) is statistically consistent with the earlier v1.0.41 single-agent baseline (0.6744), confirming three things: (1) the full 7-node graph architecture delivers at parity with the prior single-agent orchestrator, (2) the search hygiene and citation formatting changes (v1.0.42–v1.0.46) introduced no regressions, and (3) the architecture is validated end-to-end for the first time. 
+
+5.2 The multi-turn finding 
+
+We re-evaluated v1.0.40 on the full HealthBench Professional dataset using both input-flattening strategies. Table 7 reports the measured effect. 
+
+Table 7: Effect of preserving multi-turn context in HealthBench Professional evaluation. 
+
+Strategy N affected Pro score GPT-5 score 
+
+last_user (simple-evals default) 525 (115 dropped context) 0.594 0.522 
+
+multiturn 525 (115 carry context) 0.660 0.585 
+
+14 Strategy N affected Pro score GPT-5 score 
+
+∆ from carrying multi-turn context 115 / 525 (22 %) +6.6 pp +6.3 pp 
+
+For the 410 single-turn cases, both strategies produce scores that are identical within bootstrap noise, because the agent receives byte-equivalent input. The observed improvement therefore comes entirely from the 115 multi-turn cases. In those cases, preserving prior conversational context allows the agent to address rubric-relevant anchors that are not present in the final user turn alone. This finding has a direct implication for HealthBench Professional reporting. Evaluations that use 
+
+last_user flattening may understate the performance of multi-turn-capable agents by approximately 6 percentage points on the full benchmark (n = 525). We therefore recommend disclosing the flattening strategy used in each evaluation and defaulting to multiturn for agents designed to preserve and use conversational context. We have not found the flattening strategy documented in the OpenAI HealthBench Professional paper. This leaves two possible interpretations. If last_user flattening was used, the published 0.590 score for ChatGPT for Clinicians may understate the performance of a multi-turn-capable version of that system, and the nominal 3.72 pp advantage observed for MDIA may shrink or disappear. If multiturn , or an equivalent context-preserving strategy, was used, then the 0.590 score already reflects full conversational context and the comparison is fair. Without access to OpenAI’s evaluation harness, this ambiguity cannot be resolved. It is therefore one of the main motivations for the cross-system regrade described in Section 7.4. 
+
+5.3 Category breakdown (v1.0.40 Pro-graded) 
+
+The aggregate v1.0.40 score masks substantial heterogeneity across question types and specialties. This breakdown is useful because it helps distinguish between broad architectural gains and domain-specific weaknesses: some categories appear well served by the current specialty-routed graph, whereas others continue to expose headroom in reasoning, retrieval, or specialty anchoring. At the category level, v1.0.40 performs best on typical, research, writing, and good-faith cases, while consult, red-teaming, and difficult cases remain more challenging. This pattern suggests that MDIA is stronger when the task can be addressed through structured knowledge synthesis or documentation-style reasoning, and weaker when the scenario requires adversarial robustness, complex clinical prioritization, or higher-stakes consultative judgment. Table 8 shows this distribution.  
+
+> Table 8: MDIA v1.0.40 Pro-graded category breakdown.
+
+Quadrant Score ngood_faith 0.686 334 typical 0.764 256 writing 0.696 142 research 0.708 147 consult 0.608 236 red_teaming 0.614 191 15 Quadrant Score ndifficult 0.561 269 The specialty-level breakdown further narrows the interpretation. MDIA performs most strongly in nephrology, dermatology, ENT, orthopedics, genetics, and neurology, while ophthalmology, internal medicine, and the long-tail “other” category remain weaker. This suggests that the specialty router is most effective in anchor-dense domains where specialty-specific parametric knowledge can be reliably activated, but less effective in domains with sparse representation, heterogeneous task structure, or less well-captured anchor patterns.  
+
+> Table 9: MDIA v1.0.40 Pro-graded by specialty, selected top and bottom specialties.
+
+Specialty Score nnephro 0.899 22 derm 0.837 25 ent 0.825 7ortho 0.780 24 genetics 0.795 4neuro 0.726 43 ophtho 0.559 18 medicine 0.552 17 other 0.458 —The comparison between v1.0.53 and v1.0.50 by question type, shown in Figure 6, refines this picture further. The length-reduction intervention improved performance across most categories, with the clearest gains in research and consult cases. This indicates that at least part of the prior underperformance in these areas was not due to missing clinical reasoning alone, but also to answer-shaping effects captured by the grader, particularly verbosity and rubric efficiency. 16 Figure 6: Score by question type for v1.0.53 vs v1.0.50 (GPT-5.4 grader). MDIA v1.0.53 improves on most categories; length reduction mostly benefits research and consult types. 
+
+Taken together, these results indicate that MDIA’s strongest gains occur where the specialty router can activate dense clinical anchors and where concise synthesis aligns well with the grading rubric. Ophthalmology and the long-tail “other” category remain the clearest areas of headroom, suggesting that future iterations should focus on improving specialty coverage, router granularity, and anchor retrieval in under-represented domains. 
+
+5.4 Anti-pattern: minimal-input rule (v1.0.38) 
+
+After v1.0.36 reached its production scores, we attempted a further lift via a “minimal-input two-section rule” (v1.0.38). An n=50 preview suggested +3.4 pp Pro-graded; we shipped and ran the full 525. 
+
+The full eval landed below v1.0.36 under both graders, as shown in Table 10:  
+
+> Table 10: Minimal-input rule regression, overall scores.
+
+Version Gemini 2.5 Pro (n = 525) GPT-5.4 (n = 525) v1.0.36 0.6102 ± 0.022 0.5220 ± 0.022 
+
+v1.0.38 0.5850 ± 0.021 0.4952 ± 0.022 
+
+∆ −2.5 pp −2.7 pp 
+
+The per-specialty breakdown in Table 11 (Pro-graded at n=525) shows the rule’s bimodal effect — large gains on procedural specialties (where the rule’s two-section template fits), large losses on cognitive specialties (where it doesn’t): 17 Table 11: Minimal-input rule effect by selected specialties ordered by score improvement, graded with Gemini 2.5 Pro. 
+
+Specialty n v1.0.36 v1.0.38 ∆ Score 
+
+(rule helps) 
+
+surgery 17 0.354 0.577 +22.3 pp 
+
+anesthesia 22 0.580 0.710 +13.0 pp emergency 16 0.629 0.752 +12.3 pp 
+
+(rule hurts) 
+
+derm 25 0.701 0.598 −10.3 pp peds 28 0.574 0.444 −13.0 pp ortho 24 0.699 0.543 −15.7 pp 
+
+pulm 12 0.675 0.511 −16.4 pp primary 7 0.761 0.573 −18.9 pp 
+
+rheum 8 0.667 0.446 −22.0 pp The trigger condition was wrong. Conditioning on “thin prompt asks for documentation” was too coarse; the agent applied bracketed-template format to advice / counselling / differential questions where it didn’t belong. The structure itself remains a candidate, but only if a separate task-type classifier gates it correctly. n=50 σ ≈ ± 0.07; the n=50 preview was within sampling noise of the eventual n=525 result. 5.5 Anti-pattern: reasoner swap alone (v1.0.39) 
+
+In parallel with the same-grader comparison work, we tested whether swapping the reasoner from Gemini 2.5 Pro to Gemini 3.1 Pro alone (still on last_user flatten) would close the gap to ChatGPT-for-Clinicians. The result is shown in Table 12.    
+
+> Table 12: Reasoner-swap-only experiment under last_user flattening.
+
+Version Reasoner Flatten Pro (n = 525) GPT-5.4 (n = 525) v1.0.36 Gemini 2.5 Pro last_user 0.6102 ± 0.022 0.5220 ± 0.022 
+
+v1.0.39 Gemini 3.1 Pro last_user 0.5937 ± 0.022 0.5063 ± 0.023 
+
+∆ −1.65 pp −1.57 pp 
+
+Per-row analysis showed 75 % of cases unchanged; the regression came from very small absolute shifts in criteria-met counts — most visible on cognitive specialties where 3.1 Pro produces tighter, less-anchor-dense responses (cards drops 35 % in length, medicine 17 %, pulm 13 %). The lesson got reversed in v1.0.40 with the multi-turn flatten correction (Section 4.1), 3.1 Pro becomes net-positive: it handles follow-up-question refinement substantially better than 2.5 Pro on the 22 % multi-turn slice. Reasoner swap × flatten strategy is not separable — testing each in isolation gives misleading individual-effect estimates. We document v1.0.39 as a verified 18 single-turn regression and v1.0.40 as the combined-fix winner; future model-swap experiments must hold flatten constant. 
+
+5.6 Full validation: v1.0.50 graph endpoint 
+
+The first agent version that used a full graph-endpoint (v1.0.50) yielded a Pro-graded figure of 0.6771 which is statistically indistinguishable from v1.0.41 (0.6744, run via single-agent endpoint), as Table 13 reports. This is a positive result: the full 7-node graph architecture, run end-to-end for the first time, delivers at parity with the earlier single-agent orchestrator — confirming that specialty routing, drug-state gating, and verifier passes do not introduce regressions.  
+
+> Table 13: MDIA v1.0.50 full graph-endpoint validation scores.
+
+Grader Score Avg len Notes 
+
+Gemini 2.5 Pro 0.6771 ± 0.0204 4383 First graph-endpoint run; statistically consistent with v1.0.41 (0.6744 ± 0.0205) GPT-5.4-2026-03-05 0.6166 ± 0.023 4383 n = 525; nominally +2.66 pp vs ChatGPT-for-Clinicians (0.590); margin within bootstrap σ ≈ 0.023; long responses inflate length penalty The corresponding breakdown by category Table 14 displays some gains in certain type of examples.  
+
+> Table 14: v1.0.50 Pro-graded category breakdown versus v1.0.40.
+
+Category v1.0.50 v1.0.40 ∆ ntypical 0.738 0.764 −2.6 pp 256 good_faith 0.692 0.686 +0.6 pp 334 writing 0.697 0.696 +0.1 pp 142 research 0.678 0.708 −3.0 pp 147 consult 0.665 0.608 +5.7 pp 236 red_teaming 0.652 0.614 +3.8 pp 191 difficult 0.619 0.561 +5.8 pp 269 All changes are within bootstrap σ (≈ 0.025–0.035 per category at these sample sizes). The consult (+5.7 pp) and difficult (+5.8 pp) improvements are consistent with the search hygiene changes (v1.0.42) filtering noise on complex multi-step queries — these are the categories most sensitive to intake quality. The slight dips in typical and research are within noise. The corresponding specialty and difficulty views are shown in Figure 7 and Figure 8. 19 Figure 7: Per-specialty scores (n ≥ 5) for v1.0.53 vs v1.0.50, GPT-5.4 grader. Specialties are sorted by v1.0.53 score. The dashed line marks ChatGPT for Clinicians (0.590). 
+
+Figure 8: Score by difficulty category for v1.0.53 vs v1.0.50, GPT-5.4 grader. 
+
+The behavior is uneven depending on specialty, Ophtho (0.562) and uro (0.485) remain the lowest-scoring specialties in Table 15 and are the primary targets for specialty reasoner expansion or RAG augmentation. 
+
+Table 15: v1.0.50 Pro-graded specialty breakdown, selected specialties. 
+
+Specialty v1.0.50 nrheum 1.000 8allergy 1.000 2primary 0.837 720 Specialty v1.0.50 nderm 0.833 25 endo 0.835 20 nephro 0.829 22 genetics 0.795 4neuro 0.680 43 cards 0.627 43 obgyn 0.645 40 peds 0.596 28 ophtho 0.562 18 uro 0.485 13 
+
+5.7 Length-guidance experiment: v1.0.53 
+
+The version v1.0.53 is aimed at guiding the agent the proper response length. Its key finding is about response length : v1.0.50 responses averaged 4383 chars ; v1.0.53 responses average 2789 chars — a reduction of ~1600 chars. The 3000-char cap in the synthesizer and verifier bound hard, cutting the per-sample length penalty by approximately 0.047 ( 2.94 × 10 −5 × 1594 chars). The GPT-5.4 score improvement (+1.06 pp) is attributable primarily to this length-penalty reduction as we see in Table 16.  
+
+> Table 16: v1.0.53 length-guidance experiment scores.
+
+Grader Score Avg len Notes Gemini 2.5 Pro 0.6585 2789 chars 525 samples; −1.86 pp vs v1.0.50 (0.6771) GPT-5.4-2026-03-05 0.6272 2789 chars 525 samples; +1.06 pp vs v1.0.50 (0.6166) 
+
+new best 
+
+The Gemini Pro score regressed slightly ( −1.86 pp). One interpretation is that Gemini Pro’s rubric is more tolerant of longer, elaborated responses; cutting length removed content it was rewarding. The two graders disagree on the direction of the length-content trade-off, highlighting the inter-grader variance documented in Section 5.2. The distributional and length-score diagnostics are shown in Figure 9 and Figure 10. 21 Figure 9: Per-sample score distributions for v1.0.50 (left) and v1.0.53 (right) under GPT-5.4 grader. v1.0.53 shifts the distribution rightward; the zero-score spike (length-penalised failures) is slightly reduced.  
+
+> Figure 10: Response length vs per-sample score for v1.0.50 (left, mean 4383 chars) and v1.0.53 (right, mean 2789 chars). The 3000-char cap concentrates responses below the steepest length-penalty region.
+
+The results with v1.0.53 indicate that the 3000-character length cap is a net win under the same-instrument comparison (GPT-5.4 +1.06 pp, new headline best at 0.6272). The cap did not cost rubric anchors — zero-scoring cases dropped from 83 (v1.0.50) to 80 (v1.0.53), confirming the “Cut verbosity, never content” rule preserved clinical specifics. The remaining 80 zeros are content gaps (missing anchor knowledge), not formatting issues; the right next lever is RAG augmentation (Section 7.1). 
+
+5.8 Benchmark neutrality, fairness concerns and length correction 
+
+The comparison with ChatGPT for Clinicians should also be interpreted in light of benchmark neutrality. OpenAI’s HealthBench Professional paper reports aggregate scores for its own systems and competing models, but does not publish confidence intervals, per-sample responses, grader transcripts, or the full set of inference parameters used for each external model [ 2 ]. This limits 22 independent assessment of whether the same evaluation conditions were applied across systems. The concern is not that the benchmark is intrinsically invalid; rather, because the benchmark issuer is also a model vendor, aggregate-only disclosure leaves residual uncertainty about possible methodology choices that could favor one model family over another [ 35 , 36 ]. Publishing per-sample outputs, model settings, prompt templates, flattening strategy, grader configuration, and uncertainty intervals would make the comparison more neutral and reduce suspicion of skewed metrics. Our results reinforce this concern: MDIA receives different absolute scores under GPT-5.4 and Gemini 2.5 Pro grading, and the length-guidance intervention even shows different directional effects. This raises a fairness issue for LLM-as-judge evaluation: which judge is fairest, and how should fairness be measured? Prior work documents self-preference effects, where judges may favor outputs from their own model family [ 37 , 38 ]. Different graders—and different reasoning settings—may weight clinical detail, concision, evidence, refusal behavior, and formatting differently. For clinical benchmarks, single-grader evaluation is therefore insufficient; robust reporting should include multi-grader sensitivity analysis, grader-reasoning settings, and, ideally, a clinician-adjudicated subset to estimate alignment with expert judgment. The length correction deserves similar caution. Prior work documents length bias in automatic evaluation and motivates length-controlled scoring [ 28 – 30 , 39 ], but the clinical setting makes the trade-off less straightforward. Penalizing every character beyond a 2000-character break-even point may discourage unnecessary verbosity, yet it may also penalize clinically appropriate content such as references, caveats, patient-specific contraindications, or supplementary rationale. In our data, valid clinical answers often occupy the 2000-3000 character range, and v1.0.50 averaged 4383 characters before length guidance; the fact that GPT-5.4 rewarded shortening while Gemini regressed suggests that the penalty is not a model-independent proxy for quality. A more clinically grounded correction would validate the length-quality curve with clinician reviewers, test whether the effect is asymptotic rather than linear, and exclude references, appendices, or supplementary material from the length penalty when those elements improve auditability without changing the substantive answer. 
+
+## 6 Engineering process and lessons learned 
+
+This section is for fellow practitioners. It documents what did not work, because every “great result” paper hides the trial-and-error behind it. 
+
+6.1 Failed approaches 
+
+For transparency, Table 17 summarizes the main negative or non-improving interventions tested during development, together with the observed failure modes.        
+
+> Table 17: Failed approaches and observed failure modes. Approach What we tried Result Why it failed Upgrade verifier Flash →Pro Pin verifier to Gemini 2.5 Pro 0.4905 ( −3.4 pp) Pro hedges where the rubric demands an explicit recommendation.
+
+23 Approach What we tried Result Why it failed 5-node serial safety reviewer Insert a dedicated 
+
+safety_reviewer after 
+
+intake 
+
+regressed at n=50 Inserted node’s output replaced the orchestrator’s dossier in input payload. Procedural specialty reasoner with replaced output format Replace generic 6-section structure with a tighter procedural format regressed by 
+
+−18 pp on red_teaming New format suppressed the adversarial-framing refusal reflex. Drug-safety tool fired only at orchestrator STEP-0 Force 
+
+drug_state_safety_check 
+
+as the first tool call regressed Displaced the orchestrator’s evidence-gathering budget. Broaden safety gate to fire on every task type Remove the writing-task scope condition 
+
+−13.8 pp (n=50) Over-refusal on educational / counter-misinformation tasks. 
+
+Minimal-input two-section rule (v1.0.38) 
+
+Conditional bracketed-template + decision-support sidebar for thin prompts 
+
+−2.5 pp Pro / −2.7 pp GPT-5.4 at n=525 
+
+Trigger condition too coarse. See Section 5.4. 
+
+Reasoner upgrade alone, single-turn flatten (v1.0.39) 
+
+Repoint reasoners at 
+
+gemini-3.1-pro with 
+
+last_user flatten 
+
+−1.65 pp Pro / −1.57 pp GPT-5.4 
+
+Existing prompts tuned against 2.5 Pro’s response style. Reversed in v1.0.40 once multi-turn flatten was applied — see Section 5.5. Reasoner swap × flatten not separable. Eval via single-agent endpoint Route all evals to a single agent rather than the multi-agent graph Correct results for single-node capability; misses full 7-node behavior Single-agent endpoint exercises only the intake orchestrator. Graph routing, safety gating, synthesis, and verifier do not fire. Fixed in v1.0.50. 
+
+6.2 What worked, ranked by EV-per-effort 
+
+In contrast to the unsuccessful or non-improving interventions, several changes produced measurable benefits or improved system robustness. To make the development lessons more actionable, we rank them below by expected value per unit of implementation effort, distinguishing low-cost harness or engine fixes from higher-effort architectural changes. 1. Multi-turn flatten correction (v1.0.40) — single biggest win this revision. Cost: 30 lines of Python + a default-flag flip. Lift: +6.6 pp Pro / +6.3 pp GPT-5 at n=525. Surfaces existing agent capability instead of adding new behavior. 2. Engine-level retry-on-empty + JSON-fence stripping — single biggest reliability win. Cost: 50 lines of Go. Lift: ~+3-4 pp on the headline floor. 3. Per-model location override + reasoner swap to Gemini 3.1 Pro — net positive only when paired with multi-turn flatten. Cost: 20 lines of Go in the resolver. Lift: roughly cancels v1.0.39’s regression and adds the multi-turn slice headroom. 24 4. Drug-state safety gate with educational exemption (v1.0.27) — concrete, narrow rule. Cost: ~150 lines of prompt. Lift: +2.2 pp at n=525. 5. Specialty router (gi / ophtho / neuro) — engine-supported, additive. Cost: ~600 lines of prompt. Lift: built on top of the gate for v1.0.36’s overall +3.1 pp. 6. Site-filtered search hygiene (v1.0.42) — prompt-side enforcement of existing tool capa-bility. Cost: ~20 lines of intake prompt. Score-neutral on average; qualitative improvement on complex queries (consult/difficult +5-6 pp, within noise but directionally consistent). 
+
+6.3 Lessons for other teams 
+
+The development process produced several practical lessons that may be useful for other research and engineering teams evaluating multi-agent clinical systems, particularly when benchmark results depend on harness configuration, engine reliability, routing behavior, and full-pipeline execution. 
+
+• Always disclose the flatten strategy :It moves the headline by ~6 pp on identical agent responses. Flatten strategy is now logged in every run manifest. 
+
+• Multi-turn examples are not edge cases : 22 % of HealthBench Pro is multi-turn; naive flattening silently understates any context-aware agent. 
+
+• Engine reliability dominates per-iteration variance : A 3.8 % empty-rate eats more headline than most prompt edits add. Fix the floor first. 
+
+• Reasoner swaps are not separable from prompt or flatten changes : v1.0.39 looked like a regression in isolation; the same swap in v1.0.40 (with multi-turn flatten) is a net win. Test combined changes, not just deltas. 
+
+• Specialty-specific anchor knowledge beats single-prompt generalism :, but only for the worst-performing specialties. Adding a fourth or fifth branch hits diminishing returns fast. 
+
+• Strategy mismatches are real, but in-prompt heuristics for them are dangerous :v1.0.38’s minimal-input rule looked promising at n=50 and regressed at n=525 because its trigger condition over-applied. The right answer is a separate task-classifier branch, not a heuristic embedded in the synthesizer. 
+
+• n<525 previews are decision-misleading : v1.0.38 looked like a +3.4 pp win at n=50 and was a −2.5 pp loss at n=525. v1.0.39 trended +3.1 pp at n=128 and converged to −1.65 pp at n=525. We now require n=525 validation before promoting any prompt or model change. 
+
+• Validate the full pipeline, not just the entry point : When a clinical system is composed of multiple coordinated stages, an evaluation that exercises only the initial agent or controller may miss downstream behavior. The evaluation harness should verify that all intended stages execute, including routing, specialty reasoning, safety checks, synthesis, and final verification. In our case, the earlier entry-point evaluation (v1.0.41) was consistent with the complete workflow evaluation (v1.0.50), but this cannot be assumed: downstream stages may change both failure modes and aggregate performance at scale. 
+
+## 7 Future work 
+
+The results above identify several clear opportunities for improving MDIA beyond the current v1.0.53 configuration. These future directions fall into four areas: grounding the agent in curated clinical guidelines, testing alternative frontier reasoners, making prompt iteration more systematic, and enabling independent cross-system regrading. Together, these extensions aim to separate 25 architecture-level gains from grader effects, reduce residual knowledge gaps, and move the evaluation closer to robust external validation. 
+
+7.1 Guideline retrieval RAG 
+
+The failure-mode analysis suggests that the most direct next improvement is guideline-grounded retrieval. In total, 62.8% of zero-scoring cases correspond to true knowledge gaps : rubric anchors that the parametric model did not reliably contain or retrieve, such as Surgical Apgar scoring, post-CCRT dental osteoradionecrosis risk, the AHA 2017 infective endocarditis prophylaxis update, or the BMJ 2004 Marik and Zaloga enteral-nutrition meta-analysis. Retrieval-augmented generation [ 40 ] is a natural response to this failure mode. Prior work has shown substantial gains in clinical guideline adherence: a NICE-guideline RAG system achieved 99.5% faithfulness and reduced unsafe responses by 67% [ 41 ], while broader reviews identify RAG as a standard approach for grounding LLMs in clinical evidence [42]. This is also a low-friction extension for the current system. The Hydra Platform already includes 
+
+tietai-knowledge-service , with hybrid dense and BM25 search, RRF fusion, cross-encoder re-ranking, 11 healthcare web-source adapters [ 43 ], and a working ragquery Hydra LLM-tool wrapper. Connecting the orchestrator to ragquery over a curated guideline knowledge base is therefore expected to require 2–3 days of work , rather than a major architectural redesign. Based on the proportion of failures that appear retrieval-tractable, the expected lift is +3–5 pp .
+
+7.2 Alternative reasoner testing 
+
+The Gemini 3.1 Pro reasoner produced a net gain in v1.0.40, but only after the multi-turn context correction was applied. This suggests that reasoner substitution is not a drop-in optimization: it interacts strongly with prompt structure, context handling, and specialty routing. A natural next test is Claude 4 Sonnet or Claude 4 Opus [44 ] as the specialty reasoner. These models may have a different parametric-knowledge profile and could close gaps in weaker specialties, particularly ophthalmology and urology, where Gemini remains below the best-performing domains. However, this should be treated as a structured re-tuning exercise rather than a simple model swap. The expected effort is 2–3 days , including reasoner-prompt adaptation and full-benchmark validation. 
+
+7.3 Conflict-resolution harness for prompt iteration 
+
+A repeated pattern during development was that local prompt improvements often introduced regressions elsewhere. To address this, future work should include a closed-loop conflict-resolution harness inspired by Wong et al. [45 ], building on the broader literature of automatic prompt-optimisation frameworks [46, 47]. After each prompt edit, the harness would compare the new run against the prior version, identify newly failing cases, and use a teacher LLM to propose minimal additive amendments. These amendments would then be re-evaluated until the prompt converges without introducing avoidable regressions. This would convert prompt iteration from manual trial-and-error into a more systematic regression-management process. 26 7.4 Cross-system regrade with OpenAI outputs 
+
+The most informative external validation would be a cross-system, cross-grader comparison. In practice, this means grading both MDIA and ChatGPT for Clinicians with both graders :the GPT-5.4 grader and the Gemini 2.5 Pro grader. We have access to both graders for MDIA but do not have the per-sample outputs from ChatGPT for Clinicians. We therefore cannot construct the full system-by-grader matrix. We invite OpenAI, or any HealthBench Professional reporter, to publish per-sample responses so the community can perform independent regrading and quantify model performance separately from grader effects. 
+
+## 8 Conclusion 
+
+MDIA achieves stronger HealthBench Professional performance than OpenAI’s flagship medical model, ChatGPT for Clinicians, by combining a general-purpose LLM with an agentic graph architecture. However, although HealthBench Professional is designed around realistic clinical scenarios and explicit benchmark criteria, our results also show that scores can vary substantially depending on the grader model used. This reinforces the need to interpret benchmark results as technical indicators rather than definitive measures of clinical readiness. This work makes four main contributions: 1. A functioning multi-agent clinical pipeline. MDIA nominally exceeds ChatGPT for Clinicians under GPT-5.4 grading on the full benchmark (n = 525), with a +3.72 pp margin that remains within bootstrap σ and should therefore be interpreted cautiously. More substantially, it outperforms the GPT-5.4 single-agent baseline by +14.62 pp and physician-written responses by +19.02 pp. These gains are achieved through graph architecture, multi-turn handling, and prompt design over an off-the-shelf Gemini 3.1 Pro reasoner, with no fine-tuning or privileged retrieval. 2. A multi-turn context finding. HealthBench Professional performance depends materially on the flattening strategy used in the evaluation harness, with an approximately 6 pp effect at n = 525. We therefore recommend that future evaluations disclose the flattening strategy and default to multiturn for context-aware agents. 3. An engineering contribution. Five engine-level reliability fixes in the Hydra Platform subagent-graph executor recovered approximately 3–4 pp of headline performance previously lost to infrastructure instability. In particular, the empty-response rate decreased from 3.8% to 0.2%. 4. A validated multi-agent graph architecture. v1.0.50 was the first evaluation run through the correct graph endpoint, confirming that specialty routing, drug-state gating, output synthesis, and final verification execute sequentially and produce results consistent with the prior single-node orchestrator evaluation. Several areas remain open for future work, including guideline-based RAG (Section 7.1), alternative reasoner testing (Section 7.2), a conflict-resolution harness (Section 7.3), and a cross-system regrade if ChatGPT for Clinicians outputs become publicly available (Section 7.4). Finally, the benchmark itself should be treated as an evaluation instrument whose neutrality depends on disclosure. HealthBench Professional is valuable because it uses realistic clinician conversations 27 and explicit rubrics, but aggregate scores alone are not enough to resolve fairness questions when a model vendor evaluates its own system against competitors. Future benchmark reports should publish per-sample outputs, model parameters, grader settings, confidence intervals, and length-penalty details, and should test whether the chosen grader and response-length correction remain fair under independent LLM judges and clinician review. 
+
+## Reproducibility 
+
+All metrics reported in this paper are reproducible by running the published graph version on the 525-sample HealthBench Professional dataset using the documented grader and flattening strategy (multiturn ). We have made the empirical analysis results publicly available in the TietAI Evals Public repository https://github.com/tietai/tietai-evals-public [48]. On the other hand, the following artifacts are available from the authors upon request: 
+
+• Graph definitions : versioned prompt sets for v1.0.{27,36,38,39,40,41,50,53}, including all node prompts and graph topology 
+
+• Execution Engine : the Hydra Platform subagent-graph executor, including the reliability fixes described in Section 4.4 
+
+• Eval harness : the tietai-evals benchmark runner with healthbench and regrade com-mands, default flatten = multiturn 
+
+• Per-sample grader transcripts : HTML/JSONL reports for each version under both graders (Gemini 2.5 Pro and GPT-5.4-2026-03-05), covering all versions from v1.0.27 through v1.0.53 at n=525 
+
+## Acknowledgements 
+
+The authors thank the TietAI clinical team for feedback on governance requirements and the Hydra Platform engineering team for integration support. 
+
+## Conflicts of Interest 
+
+All authors are employees of TietAI, the company that develops and operates the Hydra Platform and MDIA solution evaluated in this work. This affiliation may pose a potential conflict of interest in the design, implementation, interpretation, and reporting of the results. To support a neutral interpretation, we report both favorable and unfavorable findings, disclose the evaluation setup and grader sensitivity, and provide run-level evaluation outputs for independent inspection. The results should therefore be interpreted as a technical evaluation of a TietAI-developed system, rather than as independent clinical validation or definitive evidence of deployment readiness. 
+
+## References 
+
+[1] Peter Lee, Sébastien Bubeck, and Joseph Petro. Benefits, limits, and risks of GPT-4 as an AI chatbot for medicine. New England Journal of Medicine , 388(13):1233–1239, 2023. 28 [2] OpenAI. HealthBench Professional: Evaluating large language models on real clinician chats. 
+
+arXiv preprint arXiv:2604.27470 , 2026. [3] Alon Gorenshtein, Mahmud Omar, Benjamin S. Glicksberg, Girish N. Nadkarni, and Eyal Klang. AI agents in clinical medicine: A systematic review. medRxiv preprint , 2025. [4] Xiangru Tang et al. MedAgents: Large language models as collaborators for zero-shot medical reasoning. 2024. [5] OpenAI. Gpt-5.4, 2026. Accessed 2026-03-05. [6] Roberto Cruz. TietAI Hydra Platform, 2026. [7] Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric P. Xing, Hao Zhang, Joseph E. Gonzalez, and Ion Stoica. Judging llm-as-a-judge with mt-bench and chatbot arena, 2023. [8] Chi-Min Chan, Weize Chen, Yusheng Su, Jianxuan Yu, Wei Xue, Shanghang Zhang, Jie Fu, and Zhiyuan Liu. Chateval: Towards better llm-based evaluators through multi-agent debate. In International Conference on Learning Representations , 2024. [9] Di Jin, Eileen Pan, Nahid Oufattole, Wei-Hung Weng, Hui Fang, and Peter Szolovits. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Applied Sciences , 11(14):6421, 2021. [10] Ankit Pal, Logesh Kumar Umapathi, and Malaikannan Sankarasubbu. Medmcqa: A large-scale multi-subject multi-choice dataset for medical domain question answering. arXiv preprint arXiv:2203.14371 , 2022. [11] Qiao Jin, Bhuwan Dhingra, William Cohen, and Xinghua Lu. Pubmedqa: A dataset for biomedical research question answering. EMNLP , 2019. [12] Dan Hendrycks, Collin Burns, Steven Basart, Sivasankar Kannan, Dawn Song, and Jacob Stein-hardt. Measuring massive multitask language understanding. arXiv preprint arXiv:2009.03300 ,2020. [13] Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mahdavi, et al. Large language models encode clinical knowledge. Nature , 620:172–180, 2023. [14] Karan Singhal, Tao Tu, Juraj Gottweis, Rory Sayres, Ellery Wulczyn, Le Hou, Kevin Clark, Stephen Pfohl, Heather Cole-Lewis, Darlene Neal, et al. Toward expert-level medical question answering with large language models. Nature Medicine , 31:943–950, 2025. [15] Ruchir Arora et al. HealthBench: Evaluating large language models towards improved human health. arXiv preprint arXiv:2505.08775 , 2025. [16] Samuel Schmidgall et al. AgentClinic: a multimodal agent benchmark to evaluate AI in simulated clinical environments. npj Digital Medicine , 2026. [17] Stanford ML Group et al. MedAgentBench: A realistic virtual EHR environment to benchmark medical LLM agents. NEJM AI , 2025. [18] Ruoqi Liu, Imran Q. Mohiuddin, Austin J. Schoeffler, et al. PhysicianBench: Evaluating LLM agents in real-world EHR environments. arXiv preprint arXiv:2605.02240 , 2026. 29 [19] Google DeepMind. Gemini 2.5 pro, 2025. [20] Google DeepMind. Gemini 3.1 pro, 2026. [21] Valentin Liévin, Christoffer Egeberg Hother, Andreas Geert Motzfeldt, and Ole Winther. Can large language models reason about medical questions? Patterns , 5(3):100943, 2024. [22] Junlin Wang, Jue Wang, Ben Athiwaratkun, Ce Zhang, and James Zou. Mixture-of-agents enhances large language model capabilities. arXiv preprint arXiv:2406.04692 , 2024. [23] Lin Yang, Yuancheng Yang, Xu Wang, Changkun Liu, and Haihua Yang. MedMT-Bench: Can LLMs memorize and understand long multi-turn conversations in medical scenarios? arXiv preprint arXiv:2603.23519 , 2026. [24] Oliver Normand, Esther Borsi, Mitch Fruin, Lauren E. Walker, et al. A real-world evaluation of LLM medication safety reviews in NHS primary care. arXiv preprint arXiv:2512.21127 , 2025. [25] Others. Large language model as clinical decision support system augments medication safety in 16 clinical specialties. npj Digital Medicine , 2025. [26] Luca Beurer-Kellner, Marc Fischer, and Martin Vechev. Guiding LLMs the right way: Fast, non-invasive constrained generation. In International Conference on Machine Learning (ICML) ,2024. [27] Stella Biderman, Hailey Schoelkopf, Lintang Sutawika, Leo Gao, Jonathan Tow, Baber Abbasi, Alham Fikri Aji, Pawan Sasanka Ammanamanchi, Sidney Black, Jordan Clive, et al. Lessons from the trenches on reproducible evaluation of language models. In Proceedings of the First Conference on Language Modeling (COLM) , 2024. [28] Zhengyu Hu, Linxin Song, Jieyu Zhang, Zheyuan Xiao, Tianfu Wang, Zhenyu Chen, Jianxun Lian, Nicholas Jing Yuan, Kaize Ding, and Hui Xiong. Explaining length bias in llm-based preference evaluations, 2024. [29] Yann Dubois, Balázs Galambosi, Percy Liang, and Tatsunori B. Hashimoto. Length-controlled alpacaeval: A simple way to debias automatic evaluators, 2024. [30] Yu Ying Chiu, Michael S. Lee, Rachel Calcott, Brandon Handoko, Paul de Font-Reaulx, Paula Rodriguez, Chen Bo Calvin Zhang, Ziwen Han, Udari Madhushani Sehwag, Yash Maurya, Christina Knight, Harry Lloyd, Florence Bacus, Mantas Mazeika, Bing Liu, Yejin Choi, Mitchell Gordon, and Sydney Levine. Morebench: Evaluating procedural and pluralistic moral reasoning in language models, more than outcomes, 2025. [31] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik Narasimhan, and Yuan Cao. ReAct: Synergizing reasoning and acting in language models. In International Conference on Learning Representations (ICLR) , 2023. [32] Timo Schick, Jane Dwivedi-Yu, Roberto Dessì, Roberta Raileanu, Maria Lomeli, Luke Zettle-moyer, Nicola Cancedda, and Thomas Scialom. Toolformer: Language models can teach themselves to use tools. In Advances in Neural Information Processing Systems (NeurIPS) ,2023. [33] Tianyu Gao, Howard Yen, Jiatong Yu, and Danqi Chen. Enabling large language models to generate text with citations. In Proceedings of EMNLP , 2023. 30 [34] Jacob Menick, Maja Trebacz, Vladimir Mikulik, John Aslanides, Francis Song, Martin Chad-wick, Mia Glaese, Susannah Young, Lucy Campbell-Gillingham, Geoffrey Irving, and Nat McAleese. Teaching language models to support answers with verified quotes. arXiv preprint arXiv:2203.11147 , 2022. [35] Anka Reuel, Amelia Hardy, Chandler Smith, Max Lamparth, Malcolm Hardy, and Mykel J. Kochenderfer. BetterBench: Assessing AI benchmarks, uncovering issues, and establishing best practices. In Advances in Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks Track , 2024. [36] Oscar Sainz, Jon Ander Campos, Iker García-Ferrero, Julen Etxaniz, Oier Lopez de Lacalle, and Eneko Agirre. NLP evaluation in trouble: On the need to measure LLM data contamination for each benchmark. In Findings of EMNLP , 2023. [37] Arjun Panickssery, Samuel R. Bowman, and Shi Feng. LLM evaluators recognize and favor their own generations. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. [38] Peiyi Wang, Lei Li, Liang Chen, Zefan Cai, Dawei Zhu, Binghuai Lin, Yunbo Cao, Qi Liu, Tianyu Liu, and Zhifang Sui. Large language models are not fair evaluators. arXiv preprint arXiv:2305.17926 , 2023. [39] Keita Saito, Akifumi Wachi, Koki Wataoka, and Youhei Akimoto. Verbosity bias in preference labeling by large language models. arXiv preprint arXiv:2310.10076 , 2023. [40] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, Sebastian Riedel, and Douwe Kiela. Retrieval-augmented generation for knowledge-intensive NLP tasks. In Advances in Neural Information Processing Systems (NeurIPS) , 2020. [41] Matthew Lewis, Samuel Thio, Amy Roberts, et al. Grounding large language models in clinical evidence: A retrieval-augmented generation system for querying UK NICE clinical guidelines. 
+
+arXiv preprint arXiv:2510.02967 , 2025. [42] Others. Retrieval-augmented generation (RAG) in healthcare: A comprehensive review. AI (MDPI) , 2025. [43] Guangzhi Xiong, Qiao Jin, Zhiyong Lu, and Aidong Zhang. Benchmarking retrieval-augmented generation for medicine. In Findings of the Association for Computational Linguistics (ACL Findings) , 2024. [44] Anthropic. The Claude model family: Opus, Sonnet, Haiku, 2024. Anthropic technical report. [45] Derek Wong et al. Prompt-level distillation. arXiv preprint arXiv:2602.21103 , 2026. [46] Yongchao Zhou, Andrei Ioan Muresanu, Ziwen Han, Keiran Paster, Silviu Pitis, Harris Chan, and Jimmy Ba. Large language models are human-level prompt engineers. In International Conference on Learning Representations (ICLR) , 2023. [47] Omar Khattab, Arnav Singhvi, Paridhi Maheshwari, Zhiyuan Zhang, Keshav Santhanam, Sri Vardhamanan, Saiful Haq, Ashutosh Sharma, Thomas T. Joshi, Hanna Moazam, Heather Miller, Matei Zaharia, and Christopher Potts. DSPy: Compiling declarative language model calls into self-improving pipelines. arXiv preprint arXiv:2310.03714 , 2023. 31 [48] Cruz, Roberto, Rey-Blanco, David. TietAI Evals Public: Empirical analysis results for MDIA on HealthBench Professional, 2026. Public repository. [49] OpenAI. Introducing HealthBench, 2025. [50] DR. INFO Team. OpenAI’s HealthBench in action: Evaluating an LLM-based medical assistant on realistic clinical queries. arXiv preprint arXiv:2509.02594 , 2025. [51] Others. Medical reasoning with large language models: A survey and MR-Bench. arXiv preprint arXiv:2604.08559 , 2026. [52] Google Research. MedGemma: Open medical foundation models, 2025. [53] Tianyu Hu, Zhen Tan, Song Wang, Huaizhi Qu, and Tianlong Chen. Multi-agent debate for llm judges with adaptive stability detection. In Advances in Neural Information Processing Systems , 2025. [54] Laura Dietz, Oleg Zendel, Peter Bailey, Charles L. A. Clarke, Ellese Cotterill, Jeff Dalton, Faegheh Hasibi, Mark Sanderson, and Nick Craswell. Principles and guidelines for the use of llm judges. In Proceedings of the 2025 International ACM SIGIR Conference on Innovative Concepts and Theories in Information Retrieval , ICTIR ’25, pages 1–12. ACM, 2025. 32 Annex I: Complete model ranking 
+
+The comparison of latest MDIA versions under OpenAI’s grader (GPT-5.4-2026-03-05 low) along with the measures disclosed in the original benchmark paper [2] is reproduced in Table 18.                                        
+
+> Table 18: Annex headline same-grader comparison. System Score Avg len Reference
+> MDIA v1.0.53 (Hydra Platform, length-guided synthesizer + verifier)
+> 0.6272 2789 this work MDIA v1.0.50 (Hydra Platform, Gemini 3.1 Pro , graph endpoint) 0.6166 ±0.0230 4383 this work MDIA v1.0.41 (Hydra Platform, single-agent endpoint) 0.5775 ±0.0235 —this work ChatGPT for Clinicians (best in OpenAI paper) 0.590 —OpenAI 2026 GPT-5.4 base 0.481 —OpenAI 2026 Claude Opus 4.7 0.470 —OpenAI 2026 GPT-5 0.462 —OpenAI 2026 GPT-5.2 0.459 —OpenAI 2026 Gemini 3.1 Pro 0.438 —OpenAI 2026 Physician-written baseline 0.437 —OpenAI 2026 Grok 4.20 0.361 —OpenAI 2026
+
+Under OpenAI’s own grader on the same 525 HealthBench Professional cases, MDIA v1.0.53 is the highest-scoring system in this comparison table. The margin is: 
+
+• +26.62 pp over Grok 4.20 (0.6272 vs 0.361) 
+
+• +19.02 pp over the physician-written baseline (0.6272 vs 0.437) 
+
+• +18.92 pp over Gemini 3.1 Pro (0.6272 vs 0.438) 
+
+• +16.82 pp over GPT-5.2 (0.6272 vs 0.459) 
+
+• +16.52 pp over GPT-5 (0.6272 vs 0.462) 
+
+• +15.72 pp over Claude Opus 4.7 (0.6272 vs 0.470) 
+
+• +14.62 pp over the GPT-5.4 single-agent system (0.6272 vs 0.481) 
+
+• Nominally +3.72 pp ahead of ChatGPT for Clinicians (0.6272 vs 0.590) The ChatGPT for Clinicians comparison remains the most important and the least certain: the 3.72 pp margin is within bootstrap σ, and OpenAI does not disclose per-sample outputs, confidence intervals, flattening strategy, or full inference settings for that system. For this reason, the result should be read as a same-grader directional comparison rather than definitive evidence of superiority; see the grader-caveat discussion in Section 5.2. 33

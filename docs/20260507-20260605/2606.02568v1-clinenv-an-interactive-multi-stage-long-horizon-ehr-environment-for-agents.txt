@@ -1,0 +1,758 @@
+Title: ClinEnv: An Interactive Multi-Stage Long Horizon EHR Environment for Agents
+
+URL Source: https://arxiv.org/pdf/2606.02568v1
+
+Published Time: Tue, 02 Jun 2026 03:20:03 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# CLIN ENV : An Interactive Multi-Stage Long Horizon EHR Environment for Agents 
+
+Yuxing Lu 1,2, Yushuhong Lin 1, Wenqi Shi 3, J. Ben Tamo 1
+
+Xukai Zhao 4, Jinzhuo Wang 2, May Dongmei Wang 11Georgia Institute of Technology 
+
+> 2
+
+Peking University 
+
+> 3
+
+University of Texas Southwestern Medical Center 
+
+> 4
+
+Tsinghua University 
+
+Abstract 
+
+Clinical practice is not the selection of an an-swer from enumerated options: a physician gathers heterogeneous information incremen-tally and commits to sequential, irreversible decisions under uncertainty. Static benchmarks cannot probe and existing interactive medical benchmarks each compromise on at least one of them. We present C LIN ENV , an interac-tive benchmark that evaluates LLMs as attend-ing physicians over real inpatient admissions under a paradigm we term Longitudinal Inpa-tient Simulation. Each case is automatically constructed into an ordered sequence of de-cision stages; at every stage the model must actively query four specialized agents before committing to medications, procedures, and diagnoses. CLIN ENV scores both what the model decides, through deterministic ontology-grounded matching, and how it gathers infor-mation. Across seven models, the strongest reaches only 0.31 decision F1, and outcome quality is sharply decoupled from process qual-ity. Difficulty concentrates in management decisions and later stages, where models re-cover discharge diagnoses far more reliably than management actions (0.51 vs. 0.17 F1) and continue to issue redundant queries as cases progress. C LIN ENV makes this information-acquisition gap, invisible to outcome-only eval-uation, directly measurable. 
+
+1 Introduction 
+
+Large language models now approach or exceed expert performance on medical licensing examina-tions (Singhal et al., 2023; Nori et al., 2023) and structured clinical question answering (Jin et al., 2021). Yet real inpatient practice is not the selec-tion of an answer from enumerated options. An attending physician navigates a hospitalization in which information is incomplete and must be ac-tively sought, decisions are sequential and irre-versible, and each decision spans medications, pro-cedures, and diagnoses that are eventually veri-fied against the patient’s recorded course. Static multiple-choice benchmarks cannot probe any of these properties. Coding agents illustrate how evaluation infras-tructure drives progress, moving from static func-tional tests (Chen et al., 2021) to executable in-teractive environments (Jimenez et al., 2024) that double as training signals. Medical evaluation has begun a similar shift, but existing interactive bench-marks each make a structural compromise. Data-interaction benchmarks (Lee et al., 2022; Jiang et al., 2025) treat the EHR as a queryable database and score atomic operations, measuring data-access skill rather than clinical reasoning. Diagnostic-conversation benchmarks (Schmidgall et al., 2024; Luo et al., 2026) rely on LLM-simulated patients, bounding ground truth to short exam vignettes and scoring via LLM-as-judge. Coding-style ex-ecutable benchmarks (Xu et al., 2025; Mao et al., 2025) reduce clinical reasoning to code or formulas the model must produce. None evaluates an LLM as an attending physician managing a real, multi-stage hospitalization with deterministic verification of its decisions. We introduce C LIN ENV , which evaluates LLMs as attending physicians navigating real admissions through three components (Figure 1). An auto-mated pipeline converts raw admissions into or-dered multi-stage cases with structured ground-truth decisions extracted from the EHR timeline and discharge documentation, requiring no manual annotation. An interactive multi-agent environment withholds clinical information until requested: at each stage the model must query four specialized agents (patient, nurse, laboratory, history) before committing to decisions. A dual evaluation frame-work scores both what the model decides, via de-terministic ontology-grounded matching (ATC for medications, hierarchical ICD F1 for diagnoses and procedures), and how it gathers information, 
+
+> arXiv:2606.02568v1 [cs.AI] 1 Jun 2026
+
+via process metrics for coverage and laboratory and medication cost efficiency. We refer to the paradigm defined by these properties, real EHR trajectories, multi-stage decisions, active informa-tion acquisition, and deterministic process-aware scoring, as Longitudinal Inpatient Simulation .Across seven LLMs, we find that even the strongest reaches only 0.31 decision F1 and recovers diag-noses far more reliably than management (0.51 vs. 0.17 F1), suggesting that outcome-only bench-marks may substantially overestimate clinical readi-ness and that information seeking is a distinct, mea-surable dimension of clinical competence. Our contributions are: (i) An automated case construction pipeline that converts raw admissions into multi-stage cases without manual annotation (Section 3.2); (ii) An interactive multi-agent clinical environ-ment requiring active information acquisition be-fore each decision (Section 3.3, 4); (iii) A dual evaluation framework covering decision accuracy and process quality (Section 5). 
+
+2 Related Work 
+
+We organize prior medical LLM benchmarks by the capability they evaluate (Table 1). 
+
+Knowledge benchmarks. PubMedQA (Jin et al., 2019), MedMCQA (Pal et al., 2022), MedQA (Jin et al., 2021), the medical subsets of MMLU (Hendrycks et al., 2020), and the aggre-gated MultiMedQA (Singhal et al., 2023) probe factual recall through specified multiple-choice questions. This family equates clinical competence with knowledge retrieval, with no information acquisition or commitment under uncertainty. 
+
+Data-interaction benchmarks. EHRSQL (Lee et al., 2022), MIMIC-SQL (Wang et al., 2020), and FHIR-AgentBench (Lee et al., 2025) treat the EHR as a queryable artifact accessed via SQL or APIs; MedAgentBench (Jiang et al., 2025) extends this with physician-authored interactive tasks on 100 patient profiles. These benchmarks measure proficiency at executing well-specified operations against patient data. Their tasks are atomic and externally defined, so they assess data-access skill rather than the clinical reasoning that determines which data matters or what action it warrants. 
+
+Diagnostic-conversation benchmarks. Agent-Clinic (Schmidgall et al., 2024) pairs a doctor                                                             
+
+> Table 1: Design-dimension coverage across medical LLM benchmarks. ✓= supported, △= partial, ✗= not supported. Extended version in Appendix A.
+> Real Multi- Active Det. Proc. Benchmark EHR stage info score metrics
+> MedQA / MultiMedQA ✗✗✗✓✗
+> EHRSQL / MIMIC-SQL ✓✗✗✓✗
+> FHIR-AgentBench ✓✗✗✓✗
+> MedAgentBench △✗✓✓✗
+> AgentClinic ✗✗✓✗✗
+> MedDialBench / MAQuE ✗✗✓✗✗
+> HELPMed / AMIE ✗✗✓✗✗
+> MedCalc-Env ✗△✗✓✗
+> MedAgentGym △✗✓✓✗
+> CLIN ENV ✓✓✓✓✓
+
+agent with an LLM-played patient agent and a mea-surement agent that expose information only on query, and the doctor must converge on a diagnosis. MedDialBench (Luo et al., 2026), MAQuE (Gong et al., 2025), HELPMed (Bean et al., 2025), and AMIE (Tu et al., 2024) extend this paradigm with adversarial behaviors, behavioral layering, or hu-man participants. This family established the im-portance of interactive evaluation, but two lim-itations follow from its simulator-based design: ground truth is bounded by what the simulator was given (typically exam vignettes), and intermediate behavior is scored via LLM-as-judge over free-text dialogue. C LIN ENV addresses both by deriv-ing multi-decision trajectories from real admission records and scoring each decision deterministically against structured EHR ground truth via Hungarian matching and ontology-based partial credit. 
+
+Coding-style executable benchmarks. MedA-gentGym (Xu et al., 2025) and MedCalc-Env (Mao et al., 2025) draw an analogy to coding agent benchmarks (HumanEval (Chen et al., 2021), SWE-bench (Jimenez et al., 2024)), proposing executable environments for biomedical code and calculation. CLIN ENV shares this spirit but targets clinical deci-sions themselves (which drug to start, which diag-nosis to commit to), verified against medical ontolo-gies physicians use, rather than code or formulas the model must produce. 
+
+The LIS paradigm. Table 1 confirms that no ex-isting benchmark jointly satisfies the dimensions defining the LIS paradigm (Section 1): real EHR longitudinal trajectories, multi-stage sequential de-cisions, active information acquisition across het-erogeneous sources, deterministic ontology-based scoring, and cost-aware process metrics. C LIN ENV 
+
+is the first to instantiate all five. Figure 1: Overview of C LIN ENV . Patients’ admissions are preprocessed into event timelines, converted into multi-stage cases via a five-step pipeline, and evaluated in an interactive environment where the model queries specialized agents before committing decisions, scored on both process and outcome quality. 
+
+3 CLIN ENV Construction 
+
+3.1 Data Preprocessing 
+
+CLIN ENV is built from MIMIC-IV v3.1 (Johnson et al., 2023b) and MIMIC-IV-Note v2.2 (Johnson et al., 2023a). For each hospitalization, we com-bine structured EHR tables with clinical notes into an admission-level timeline by subject_id and 
+
+hadm_id . Structured sources include admissions, laboratory and microbiology results, medication or-ders and administrations, ICU charted events, fluid input/output events, procedure events, and ICD-coded diagnoses and procedures; note sources in-clude discharge notes and radiology reports. Each retained row becomes a provenance-bearing event with a canonical event_time , source_table , and the original table-specific clinical fields. Events are sorted into one timeline per admission. Notes supply narrative context for decision extraction and history access, while structured records provide timestamped observations and coded ground truth for evaluation. Appendix B describes the prepro-cessing procedure and examples. 
+
+3.2 Automated Case Construction 
+
+Each admission is processed by a four-phase pipeline that segments the patient timeline into an ordered sequence of clinical stages, with ground-truth decision sets derived entirely from structured records and discharge documentation. Claude-Sonnet-4.6 is used as the planning backbone throughout. 
+
+Phase A: Decision Extraction. The planner reads the discharge note to extract every attending-level physician decision made during the hospi-talization. When a full free-text discharge note is available it is used directly; otherwise, four sections are stitched together as a fallback: Chief Complaint, History of Present Illness, Brief Hospital Course, and Discharge Diagnosis. Each decision is anno-tated with a type (medication, procedure, or plan). 
+
+Phase B: Temporal Anchoring. Given a time-line of T events and decisions d1, . . . , d n, Phase B localizes each decision to a specific event or event range via a sequential forward sliding-window agent. Let ℓ0 = 0 . For decision di, a window          
+
+> W(s) = s, min( s+W−1, T −1) (1)
+
+is presented to an LLM agent equipped with 
+
+mark_single and mark_range tool calls, begin-ning at s = ℓi−1. If the agent marks anchor ai
+
+within the window, the anchor is recorded and 
+
+ℓi = ai; the next decision di+1 begins its search from ℓi + 1 . If no anchor is found, the window advances ( s ← s + W ) and the agent retries. If the timeline is exhausted without a match, di is left unanchored and ℓi = ℓi−1. Decisions anchored exclusively to pre-admission events are discarded. 
+
+Phase C: Stage Construction and Validation. 
+
+Given anchor index di for decision i, the context window for stage k is defined as Ck = [ prev _end +1, di − 1] , where prev _end is the last event in-dex consumed by the preceding stage. A deci-sion is skipped if (a) no context window exists (prev _end ≥ di − 1), or (b) the decision is a medi-cation whose drug is already actively present in Ck.A final diagnosis stage is appended to every case: its context spans all events from the last decision through discharge, and its ground truth is derived from a separate diagnostic scan. 
+
+Phase D: Diagnostic Groundability Scan. Asliding-window scan identifies which of the admis-sion’s discharge ICD codes are groundable, i.e., actively evidenced or managed within the event timeline. Given a timeline of T events, we parti-tion it into overlapping windows:             
+
+> Wi=iS, min( iS +W, T ),i= 0 ,1, . . . ,
+> T−WS
+> 
+> (2)
+
+where W is the window size and S < W is the stride. Only ICD codes confirmed by at least one window contribute to the final diagnosis stage. 
+
+Phase E: Classification and Enrichment. Each stage’s raw decision description is classified into one of four types (medication, procedure, diagno-sis, plan) via LLM. For medication, the action type is further assigned as one of { start , stop , switch ,
+
+adjust }; adjust decisions optionally carry a di-rection ( increase or decrease ). Ground-truth fields are then enriched deterministically from EHRs with zero LLM calls: drug names are read from prescription, pharmacy, and eMAR tables; ICD codes for procedures and diagnoses are taken directly from the corresponding coded EHR events. The resulting stage Sk is defined as:        
+
+> Sk= ( Ck,Gk,Ak)(3)
+
+where Ck = [ start k, end k] is the visible event window, Gk = {gk 
+
+> 1
+
+, . . . , g kmk } is the struc-tured ground-truth decision set, and Ak ⊆{patient , nurse , lab , history } is the set of ac-tivated information sources for this stage. 
+
+3.3 Multi-Source Clinical Environment 
+
+The evaluation environment exposes clinical infor-mation through four specialized agents (Table 2), each powered by GPT-5.4-mini and restricted to a designated readview Va, which is a filtered projec-tion of the EHR events relevant to that role. The patient agent answers in lay language from demographics and clinical history; the nurse agent reports bedside vital signs, fluid balance, and medication administration; the lab agent resolves natural-language test queries against the stage’s available results via semantic matching, returning nothing for tests not on record; and the history agent supplies prior discharge summaries when ear-lier admissions exist. Table 2 lists each readview, and Appendix C.4 gives the full agent specifica-tions. 
+
+3.4 Interaction Modes 
+
+The evaluation interface exposes the information-gathering and decision-submission tools summa-rized in Table 3. 
+
+Direct Mode. The model to be evaluated receives the complete observation for stage k:       
+
+> Odirect
+> k=P,E[start k ,end k](4)
+
+where P denotes static patient context and 
+
+E[start k ,end k ] is the cumulative event sequence up to the end of the stage. The model submits decisions directly without gathering information. 
+
+Interactive Mode. The model begins each stage with no clinical data. Its observation at turn t accu-mulates through sequential tool calls:        
+
+> Ointeractive
+> k(t) = {(q1, r 1),(q2, r 2), . . . , (qt, r t)}(5)
+
+where qi is the i-th tool call and ri the correspond-ing agent response. Exactly one tool call is per-mitted per turn. The episode terminates when the model calls finalize_decision or after 60 turns, whichever comes first. 
+
+Structured Submission Interface. To isolate clinical reasoning quality from output-format con-founds, the submission interface is constrained in two coupled ways. First, only the submit tools corresponding to ground truth types present in Sk
+
+are exposed; types absent from Gk are withheld entirely. Second, the model receives the exact re-quired submission count per type:           
+
+> n(t)
+> k={g∈ G k:g. type = t},t∈ T k(6)
+
+where Tk denotes the set of ground truth types in stage Sk. Because the model submits exactly n(t)
+
+> k
+
+items per type, the per-type Hungarian matching operates on equal-sized sets, so precision and recall differ only by match quality rather than count mis-match. Benchmark scores therefore reflect the ac-curacy of clinical decisions rather than the model’s ability to infer the submission format or the number of items expected. 
+
+4 CLIN ENV Benchmark 
+
+The C LIN ENV benchmark is publicly available on Physionet, 1 and the source code repository is acces-sible on GitHub. 2 We also release a demo website     
+
+> 1CLIN ENV Huggingface Link. Must meet PhysioNet’s compliance standards before use.
+> 2CLIN ENV GitHub Link.
+
+Table 2: Clinical information agents and their readviews. 
+
+Agent Readview Va Role 
+
+Patient Demographics, chief complaint, history of present illness, past medical history Simulates subjective patient reporting in lay language Nurse Vitals, fluid balance, medication administration records Reports bedside objective observations Lab Laboratory and microbiology results Resolves test-name queries and returns test results History Prior discharge summaries Supplies longitudinal clinical context 
+
+Table 3: Available tools by evaluation mode. 
+
+Tool Mode Function 
+
+ask_patient Interactive Query patient agent 
+
+ask_nurse Interactive Query nurse agent 
+
+order_lab Interactive Query lab agent 
+
+get_history_summary Interactive List prior admissions 
+
+get_history_detail Interactive Retrieve full discharge note 
+
+submit_medication Both Submit medication de-cision 
+
+submit_diagnosis Both Submit diagnosis 
+
+submit_procedure Both Submit procedure deci-sion 
+
+submit_plan Both Submit other manage-ment decision 
+
+finalize_decision Both Advance to next stage 
+
+for interactive evaluation. 3 We sample 3,509 admis-sions from 1,809 patients, keeping only admissions that produce at least one valid decision stage and stratifying by horizon so that short and long admis-sions are both well represented. This gives 9,297 decision stages and 26,043 ground-truth decisions (Table 4), with 2.65 stages per case and 49.8% of cases long-horizon ( ≥3 stages). Diagnoses ac-count for most decisions (71.7%), followed by medications (21.4%) and procedures (6.9%); each medication carries an action type ( start , stop ,
+
+switch , adjust ) for the action-gated scoring of Section 5.1. Because the cases come from real admissions rather than a curated question bank, CLIN ENV spans the breadth of inpatient practice: 2,128 distinct ICD codes and 488 distinct drugs, with 3.67 information agents available per stage and 32.8 key clinical facts per readview on aver-age. Appendix D gives the sampling protocol and construction-quality checks; Figures 4 and 5 fur-ther visualize the clinical entity distribution and case-length structure. 
+
+5 CLIN ENV Evaluation 
+
+5.1 Clinical Decision Accuracy 
+
+Matching is performed independently within each type group (diagnosis, medication, procedure) via  
+
+> 3
+
+CLIN ENV Interactive Evaluation Demo Link 
+
+Table 4: C LIN ENV benchmark composition. 
+
+Property Value 
+
+Admissions 3,509 Unique patients 1,809 Cases 3,509 single-stage 718 (20.5%) two-stage 1,043 (29.7%) long-horizon ( ≥3) 1,748 (49.8%) Decision stages (total) 9,297 Decisions (total) 26,043 diagnosis 18,664 (71.7%) medication 5,571 (21.4%) procedure 1,808 (6.9%) Medication action types start / stop 79.1% / 7.5% switch / adjust 3.8% / 9.5% Distinct ICD codes 2,128 Distinct drugs 488 Avg. stages per case 2.65 Avg. decisions per stage 2.80 Avg. available agents / stage 3.67 Avg. key facts per readview 32.8 
+
+the Hungarian algorithm (Kuhn, 1955), which max-imises the total matched score within each group. The results are then concatenated to form the full stage-level assignment. Stage-level F1 is the har-monic mean of continuous precision and recall de-rived from the matched scores. 
+
+Medication Scoring. Action type serves as a hard gate ( start /stop /switch /adjust ) within the medication group: a submission whose action dis-agrees with its matched ground truth scores zero regardless of drug similarity, driving the Hungarian algorithm to prefer action-consistent assignments. When actions agree, drug similarity is scored via ATC-hierarchy partial credit (Chen et al., 2012). An exact name match yields 1.0 directly. Other-wise, both names are resolved to ATC codes via the RxNorm API. Let ˆc and c∗ denote the predicted and ground-truth ATC codes, and ℓ the length of their longest common prefix.                 
+
+> sAT C =
+> 
+> 1.0ℓ≥ | c∗|
+> 0.8ℓ= 5 (chemical subgroup)
+> 0.6ℓ= 4 (pharmacological class)
+> 0.3ℓ= 3 (therapeutic group)
+> 0.1ℓ= 1 (anatomical group)
+> 0.0otherwise (7)
+
+The condition ℓ ≥ |c∗| grants full credit when the predicted code is at least as specific as the ground truth, accommodating drugs whose RxNorm entry does not reach Level 5. For adjust 
+
+decisions, the final medication score incorporates a direction penalty:       
+
+> smed =
+> (
+> sAT C if direction matches or is unspecified
+> 0.5·sAT C if directions conflict (8)
+
+where a direction conflict arises only when both the submission and the ground truth explicitly spec-ify opposing directions (increase vs. decrease); if either omits it, no penalty applies. 
+
+Diagnosis and Procedure Scoring. Because the model submits free text while ground truth car-ries structured ICD codes, submitted text is first mapped to a candidate ICD code via a two-step pipeline: (1) an embedding index over the full ICD vocabulary (ICD-9-CM, ICD-10-CM, ICD-9-PCS, ICD-10-PCS) retrieves the top-15 candidates by cosine similarity; (2) an LLM reranker selects the best match. The predicted code ˆc and ground-truth code c∗ are each expanded to their full ancestor sets in the ICD hierarchy, and Hierarchical F1 (HDF1) is computed over these sets:       
+
+> HDF1 (ˆ c, c ∗) = 2|ˆA ∩ A ∗||ˆA| +|A ∗|(9)
+
+where ˆA = {ˆc} ∪ anc (ˆ c) and A∗ = {c∗} ∪ anc (c∗).
+
+5.2 Clinical Process Quality 
+
+Beyond what the model decides, we evaluate how it gathers information through two process metrics that are only applicable in interactive mode. 
+
+Information Elicitation Quality. For each ac-tivated agent role a ∈ A k, a judge is given the complete readview Va and the responses that agent 
+
+a returned during the stage. The judge enumerates the key clinical facts Ia present in Va and marks each fact as covered or not based on whether it appears in the dialogue. Per-role coverage is:        
+
+> cov a=|{ i∈Ia:covered (i)}| |Ia|(10)
+
+Stage-level coverage is the macro-average across activated roles:     
+
+> cov =1
+> |A k|
+> X
+> a∈A k
+> cov a(11)
+
+Coverage alone does not penalize over-querying. We additionally report an efficiency score that discounts coverage when the model issues more information-gathering queries than there are sources to consult. Let K be the number of information-gathering queries in the stage and |A k|
+
+the number of activated agents. An efficient interac-tion extracts what each source holds in roughly one well-formed query, so we normalize by the average number of queries per source:     
+
+> eff =cov
+> max (1 , K/ |A k|)(12)
+
+When K ≤ |A k|, no penalty applies; beyond that, efficiency is suppressed in proportion to the redundancy of the model’s querying. Normalizing by the source count rather than by the total num-ber of available facts makes efficiency a distinct axis from coverage, rewarding models that gather relevant information parsimoniously. 
+
+Laboratory Cost Efficiency. Each lab test or-dered by the model is mapped to a reimbursement fee using the CMS Clinical Laboratory Fee Sched-ule via embedding retrieval and LLM reranking, following the same two-step pipeline as ICD scor-ing. Tests ordered beyond those evidenced in the ground-truth clinical picture are treated as unneces-sary expenditure; the wasted ratio is defined as:     
+
+> rwaste =
+> P
+> t∈T excess fee (t)
+> P
+> t∈T ordered fee (t)(13)
+
+where Tordered is the set of tests the model or-dered and Texcess is the subset not supported by the ground-truth record. 
+
+Drug Acquisition Cost. For each stage, we esti-mate the financial burden of newly initiated phar-macotherapy. The daily cost is estimated via a two-step pipeline. First, the drug name is resolved to an RxNorm CUI, which is then mapped to an NDC code and a unit price p from the NADAC (National Average Drug Acquisition Cost) database. Second, the RxNorm CUI is mapped to an ATC code, from which the WHO-defined daily dose (DDD) is re-trieved. Each component is matched against the WHO ATC/DDD index via embedding retrieval fol-lowed by LLM reranking. The estimated daily cost for a single drug is then: c = p × DDD and the stage-level metric is the total daily cost C = P 
+
+> i
+
+ci
+
+across all qualifying submissions. 
+
+6 Results 
+
+6.1 Overall Performance on C LIN ENV 
+
+Table 5 reports overall performance. GPT-5.4 leads on every outcome metric, with the highest deci-Table 5: Overall and long-horizon C LIN ENV performance. The long-horizon subset contains admissions with at least three decision stages. Values are stage-macro averages. Dx/Rx/Proc are type-specific match scores. Lab waste is the ratio of aggregate wasted lab cost. 
+
+Model # Stage Outcome quality ↑ Information seeking Cost ↓
+
+F1 Dx Rx Proc. Coverage Efficiency Turns Waste Lab $ Rx $/day GPT-5.4 * All 0.306 0.511 0.097 0.379 0.430 0.274 9.0 10.4% 117 64 
+
+Long Horizon ≥3 0.235 0.507 0.089 0.296 0.416 0.221 11.9 2.3% 124 87 
+
+GPT-5.4-mini * All 0.258 0.448 0.083 0.295 0.214 0.152 6.8 7.0% 106 72 
+
+Long Horizon ≥3 0.213 0.482 0.071 0.281 0.246 0.154 9.0 6.6% 56 109 
+
+GPT-5.4-nano * All 0.254 0.438 0.085 0.322 0.331 0.281 4.4 4.1% 178 50 
+
+Long Horizon ≥3 0.215 0.456 0.089 0.270 0.340 0.257 5.8 7.3% 156 75 
+
+Llama-3.1-70B All 0.226 0.366 0.101 0.246 0.140 0.090 14.1 35.8% 27 68 
+
+Long Horizon ≥3 0.194 0.386 0.103 0.212 0.156 0.085 18.1 10.2% 20 51 
+
+Llama-3.1-8B All 0.202 0.362 0.082 0.249 0.205 0.134 8.3 6.5% 219 53 
+
+Long Horizon ≥3 0.172 0.356 0.076 0.249 0.210 0.115 10.7 3.1% 270 63 
+
+Gemma-3-27B All 0.228 0.386 0.087 0.258 0.180 0.105 7.6 35.3% 132 41 
+
+Long Horizon ≥3 0.195 0.415 0.081 0.251 0.201 0.103 8.8 24.9% 147 47 Gemma-3-12B All 0.197 0.376 0.070 0.235 0.137 0.077 8.8 13.0% 184 34 
+
+Long Horizon ≥3 0.164 0.400 0.072 0.218 0.136 0.065 10.9 8.5% 218 31  
+
+> *
+
+Proprietary LLMs were accessed under a Zero Data Retention Policy required by PhysioNet. 
+
+sion F1 (0.306), diagnosis score (0.511), procedure score (0.379), and information coverage (0.430). Even so, it comes nowhere near saturating the benchmark: C LIN ENV demands active informa-tion gathering and structured commitments across diagnoses, medications, and procedures, and is far harder than single-step clinical recognition. Outcome and process quality come apart. Llama-3.1-70B posts the best medication score overall (0.101) yet has the lowest coverage (0.140), the most turns (14.1), and the highest laboratory waste (35.8%). GPT-5.4-nano is the mirror image: com-petitive accuracy with the fewest turns (4.4) and the lowest waste (4.1%). It reaches most of GPT-5.4’s coverage with half the queries, making it the most information-efficient model (0.281 vs. 0.274) even though GPT-5.4 gathers more in absolute terms. Endpoint accuracy alone therefore hides large dif-ferences in how models gather and spend evidence. Long-horizon admissions are uniformly harder: every model scores lower on cases with at least three stages than on the full set, and GPT-5.4 drops from 0.306 to 0.235. The next analyses ask how case horizon and decision type drive this difficulty. 
+
+6.2 Long-Horizon Case Difficulty 
+
+Figure 2 traces performance by stage index over management stages, those carrying a medication or procedure decision; we set aside the diagnosis stage that closes every case, whose higher scores (Table 5) would otherwise mask the management trajectory. Decision F1 falls sharply with stage index for every model (Figure 2a): GPT-5.4 drops from 0.21 at the first management stage to below 0 1 2 3 4              
+
+> Stage index
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> Decision F1
+> (a) Outcome F1
+> 01234
+> Stage index
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> Coverage
+> (b) Information Coverage
+> 01234
+> Stage index
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> Efficiency
+> (c) Coverage Efficiency
+> GPT-5.4 GPT-5.4-mini GPT-5.4-nano Llama-70B Llama-8B Gemma-27B Gemma-12B
+
+Figure 2: Per-stage performance on C LIN ENV . De-cision F1 (a) declines monotonically with stage index. Information coverage (b) rises; coverage efficiency (c) falls. Shaded bands are standard errors. 
+
+0.03 by the fourth, and the others converge toward zero. Later decisions must be reconciled with a longer record of prior actions and observations, and every model finds this progressively harder. Information access is not the bottleneck. Cover-age holds roughly constant for GPT-5.4 and even rises for weaker models as the record grows (Fig-ure 2b), yet decisions still degrade. What collapses instead is efficiency (Figure 2c): GPT-5.4’s query count climbs from about four to over fifty per stage while coverage stays near 0.45, so late stages are dominated by redundant queries that surface no new information and yield worse decisions. The binding constraint is therefore late-stage clinical reasoning, not information access, a dissociation that outcome-only evaluation cannot detect. 
+
+6.3 Information Seeking Reduces Waste 
+
+If gathering information simply meant querying more, higher coverage would buy more wasted tests. Figure 3 shows the reverse: coverage and laboratory waste are inversely related, so models 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45  
+
+> Information Coverage
+> 0.0%
+> 10.0%
+> 20.0%
+> 30.0%
+> 40.0%
+> Laboratory Waste Ratio  Higher coverage
+> Lower waste
+> GPT-5.4
+> GPT-5.4-mini GPT-5.4-nano
+> Llama-70B
+> Llama-8B
+> Gemma-27B
+> Gemma-12B
+> LLM Family
+> GPT
+> Llama
+> Gemma
+
+Figure 3: Coverage-waste on C LIN ENV . Information coverage is inversely related to laboratory waste: models that gather more relevant information also waste less. 
+
+that retrieve more of the relevant information also waste less. GPT-5.4 sits in the favorable corner, pairing the highest coverage with low waste, while Llama-70B and Gemma-27B fall into the opposite region with low coverage and waste above 35% .GPT-5.4-nano reaches moderate coverage at the lowest waste of any model ( ∼4%), so efficient in-formation seeking does not require scale. Coverage and waste thus reflect one underlying skill, knowing which information is worth acquir-ing, rather than two independent axes: a model that knows what to look for both retrieves the relevant evidence and refrains from tests the clinical picture does not warrant. C LIN ENV measures this skill directly, and the frontier gives a concrete target for clinical agents, the high-coverage, low-waste corner, rather than decision accuracy in isolation. 
+
+6.4 Diagnosis Recovered; Management Not 
+
+The stage analysis points to decision type as the underlying axis of difficulty, which Table 6 makes explicit. On diagnosis-only stages, models recover the discharge diagnoses reasonably well (0.40 pooled, 0.51 for GPT-5.4), but on management stages F1 collapses to 0.13. The gap is roughly threefold and holds for every model: recognizing what the patient has is far easier than committing to what to do about it. This also explains why the ap-pended diagnosis stage inflates whole-case scores and why, once it is removed, the management tra-jectory in Section 6.2 falls so steeply. Medications are the limiting case. Every model assigns the correct action type ( start , stop ,
+
+switch , adjust ) for 53–73% of medication de-cisions, yet medication match scores stay around 0.10 at best. With the action gate largely satisfied, the residual error is one of drug identity: models propose a plausible class of therapy but rarely the specific agent the treating team selected, and ATC partial credit reflects that distance. Action accu-
+
+Table 6: Decision-type decomposition. Diagnosis-only stages score far above management stages. Lab miss is the fraction of laboratory queries absent from the stage.                                             
+
+> Model Diag Mgmt Action Med Lab F1 F1 acc. score miss
+> GPT-5.4 0.511 0.172 0.56 0.097 14% GPT-5.4-mini 0.440 0.139 0.57 0.083 19% GPT-5.4-nano 0.416 0.147 0.53 0.085 11%
+> Llama-70B 0.358 0.140 0.70 0.101 61% Llama-8B 0.325 0.121 0.73 0.082 60% Gemma-27B 0.383 0.126 0.56 0.087 73% Gemma-12B 0.360 0.090 0.68 0.070 66%
+
+racy does not track the final score, Llama-8B has the highest action accuracy (0.73) but one of the lowest medication scores (0.082), confirming that choosing the right drug, not the right action, is the binding difficulty. This difficulty is not relieved by gathering more information. At the stage level, coverage and decision F1 are essentially uncorrelated (Pearson 
+
+r=0 .08 overall, 0.04 within GPT-5.4), so retriev-ing more of the record does not by itself yield better decisions. What models retrieve is also lopsided: every model consults the nurse channel most and the laboratory least (GPT-5.4 covers 0.89 of nurse facts but 0.25 of lab facts), and the weaker models waste tests because their laboratory queries miss, 60–73% of their lab orders name tests not present in the stage, against 11–19% for the GPT mod-els. Competence on C LIN ENV is thus bounded by clinical judgment, selecting the right management action and the right test, rather than by the ability to retrieve information. 
+
+7 Conclusion 
+
+We presented C LIN ENV , which evaluates LLMs as attending physicians over real, multi-stage admis-sions. Under its Longitudinal Inpatient Simulation paradigm, cases are built automatically from EHR timelines, clinical information is withheld until the model actively queries one of four agents, and ev-ery decision is scored deterministically alongside process metrics for coverage and cost. Across the evaluated models, the strongest attains only mod-est decision F1, and outcome quality is decoupled from how efficiently models gather information. Difficulty concentrates in management decisions and later stages, where accuracy collapses even as coverage holds, indicating that clinical reasoning, not information access, is the binding constraint. CLIN ENV makes this gap, invisible to outcome-only evaluation, directly measurable. 8 Limitations 
+
+Because C LIN ENV grounds every decision in the management actually recorded for each admission, it measures concordance with real clinical practice rather than against a single optimal answer; a clini-cally reasonable alternative may therefore score as a miss. This property is intrinsic to any benchmark derived from real EHR trajectories and bounds how scores should be read, but does not affect the rela-tive comparison of models on the same fixed cases. Cases come from one US academic medical cen-ter and use English notes with US coding and pric-ing systems (ICD, ATC, the CMS Clinical Labora-tory Fee Schedule, and NADAC); generalization to other settings, languages, and coding standards is left to future work. Finally, construction and some scoring steps use LLMs, but all structured ground truth (drug names, ICD codes) is derived determin-istically from EHRs rather than from model output, which keeps the evaluation targets independent of the models under test. 
+
+9 Ethical Considerations 
+
+CLIN ENV is derived from MIMIC-IV and MIMIC-IV-Note, which are de-identified and distributed through PhysioNet under a credentialed data use agreement; we comply with those terms, expose no protected health information, and require users to hold the appropriate PhysioNet credentials. C LI -
+
+> N
+
+ENV is a research benchmark for measuring LLM behavior, not a clinical decision-support tool: the models evaluated here fall far short of safe clinical use, and strong benchmark scores do not imply safe or equitable behavior in practice, particularly given the single-center source. We intend the benchmark to expose capability gaps and thereby discourage premature claims of clinical readiness. 
+
+References 
+
+Andrew M Bean, Rebecca Payne, Guy Parsons, Hannah Rose Kirk, Juan Ciro, Rafael Mosquera, Sara Hincapié Monsalve, Aruna S Ekanayaka, Lionel Tarassenko, Luc Rocher, and 1 others. 2025. Clin-ical knowledge in llms does not translate to human interactions. arXiv preprint arXiv:2504.18919 .Lei Chen, Wei-Ming Zeng, Yu-Dong Cai, Kai-Yan Feng, and Kuo-Chen Chou. 2012. Predicting anatomical therapeutic chemical (atc) classification of drugs by integrating chemical-chemical interactions and simi-larities. PloS one , 7(4):e35254. Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, and 1 others. 2021. Evaluating large language models trained on code. arXiv preprint arXiv:2107.03374 .Linlu Gong, Ante Wang, Yunghwei Lai, Weizhi Ma, and Yang Liu. 2025. The dialogue that heals: A comprehensive evaluation of doctor agents’ inquiry capability. arXiv preprint arXiv:2509.24958 .Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. 2020. Measuring massive multitask language under-standing. arXiv preprint arXiv:2009.03300 .Yixing Jiang, Kameron C Black, Gloria Geng, Danny Park, James Zou, Andrew Y Ng, and Jonathan H Chen. 2025. Medagentbench: a virtual ehr environ-ment to benchmark medical llm agents. Nejm Ai ,2(9):AIdbp2500144. Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. 2024. Swe-bench: Can language mod-els resolve real-world github issues? In International Conference on Learning Representations , volume 2024, pages 54107–54157. Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. 2021. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Ap-plied Sciences , 11(14):6421. Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William Co-hen, and Xinghua Lu. 2019. Pubmedqa: A dataset for biomedical research question answering. In Proceed-ings of the 2019 conference on empirical methods in natural language processing and the 9th interna-tional joint conference on natural language process-ing (EMNLP-IJCNLP) , pages 2567–2577. Alistair Johnson, Tom Pollard, Steven Horng, Leo An-thony Celi, and Roger Mark. 2023a. MIMIC-IV-Note: Deidentified free-text clinical notes. Phys-ioNet . Version 2.2. Alistair EW Johnson, Lucas Bulgarelli, Lu Shen, Alvin Gayles, Ayad Shammout, Steven Horng, Tom J Pol-lard, Sicheng Hao, Benjamin Moody, Brian Gow, and 1 others. 2023b. Mimic-iv, a freely accessible elec-tronic health record dataset. Scientific data , 10(1):1. Harold W Kuhn. 1955. The hungarian method for the assignment problem. Naval research logistics quar-terly , 2(1-2):83–97. Gyubok Lee, Elea Bach, Eric Yang, Tom Pollard, Al-istair Johnson, Edward Choi, Jong Ha Lee, and 1 others. 2025. Fhir-agentbench: Benchmarking llm agents for realistic interoperable ehr question answer-ing. arXiv preprint arXiv:2509.19319 .Gyubok Lee, Hyeonji Hwang, Seongsu Bae, Yeonsu Kwon, Woncheol Shin, Seongjun Yang, Minjoon Seo, Jong-Yeup Kim, and Edward Choi. 2022. Ehrsql: A practical text-to-sql benchmark for electronic health records. Advances in Neural Information Processing Systems , 35:15589–15601. Xiaotian Luo, Xun Jiang, and Jiangcheng Wu. 2026. Meddialbench: Benchmarking llm diagnostic robust-ness under parametric adversarial patient behaviors. 
+
+arXiv preprint arXiv:2604.06846 .Kangkun Mao, Jinru Ding, Jiayuan Chen, Mouxiao Bian, Ruiyao Chen, Xinwei Peng, Sijie Ren, Linyang Li, and Jie Xu. 2025. Medcalc-eval and medcalc-env: Advancing medical calculation capabilities of large language models. arXiv preprint arXiv:2510.27267 .Harsha Nori, Nicholas King, Scott Mayer McKinney, Dean Carignan, and Eric Horvitz. 2023. Capabili-ties of gpt-4 on medical challenge problems. arXiv preprint arXiv:2303.13375 .Ankit Pal, Logesh Kumar Umapathi, and Malaikan-nan Sankarasubbu. 2022. Medmcqa: A large-scale multi-subject multi-choice dataset for medical do-main question answering. In Conference on health, inference, and learning , pages 248–260. PMLR. Samuel Schmidgall, Rojin Ziaei, Carl Harris, Eduardo Reis, Jeffrey Jopling, and Michael Moor. 2024. Agentclinic: a multimodal agent benchmark to eval-uate ai in simulated clinical environments. arXiv preprint arXiv:2405.07960 .Karan Singhal, Shekoofeh Azizi, Tao Tu, S Sara Mah-davi, Jason Wei, Hyung Won Chung, Nathan Scales, Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl, and 1 others. 2023. Large language models encode clinical knowledge. Nature , 620(7972):172–180. Tao Tu, Anil Palepu, Mike Schaekermann, Khaled Saab, Jan Freyberg, Ryutaro Tanno, Amy Wang, Brenna Li, Mohamed Amin, Nenad Tomasev, and 1 others. 2024. Towards conversational diagnostic ai. arXiv preprint arXiv:2401.05654 .Ping Wang, Tian Shi, and Chandan K Reddy. 2020. Text-to-sql generation for question answering on elec-tronic medical records. In Proceedings of The Web Conference 2020 , pages 350–361. Ran Xu, Yuchen Zhuang, Yishan Zhong, Yue Yu, Zifeng Wang, Xiangru Tang, Hang Wu, May D Wang, Peifeng Ruan, Donghan Yang, and 1 others. 2025. Medagentgym: A scalable agentic training environ-ment for code-centric reasoning in biomedical data science. arXiv preprint arXiv:2506.04405 .A Extended Related Work 
+
+This appendix provides per-benchmark detail and an extended comparison referenced in Section 2. We describe task setup, data source, and scale for each cited work; the categorical argument and con-densed comparison appear in the main text. 
+
+Knowledge benchmarks. MedQA (Jin et al., 2021) contains 12,723 USMLE-style multiple-choice questions; MedMCQA (Pal et al., 2022) provides 194k questions from Indian medical en-trance exams; PubMedQA (Jin et al., 2019) con-tains 273k yes / no / maybe questions derived from PubMed abstracts; MMLU-Health (Hendrycks et al., 2020) covers approximately 2k items across clinical knowledge, anatomy, college medicine, medical genetics, and professional medicine; Mul-tiMedQA (Singhal et al., 2023) aggregates these and adds consumer-facing health QA sets. All are static multiple-choice or short-answer formats with fully specified vignettes. 
+
+EHR query benchmarks. EHRSQL (Lee et al., 2022) provides 24k natural-language questions paired with SQL queries over MIMIC-III and eICU; MIMIC-SQL (Wang et al., 2020) contains 10k sim-ilar pairs over MIMIC-III; FHIR-AgentBench (Lee et al., 2025) provides 2,931 questions over MIMIC-IV-FHIR with both SQL and FHIR-API answers. Tasks are single-shot translations from natural lan-guage to structured queries, scored by execution match against the EHR database. 
+
+MedAgentBench. MedAgentBench (Jiang et al., 2025) provides 300 physician-authored tasks across 10 categories (chart review, order placement, result retrieval, among others) operating on 100 patient profiles drawn from Stanford STARR. The envi-ronment exposes a FHIR-compliant API matching modern EMR systems, and success is scored by post-action database state. Tasks are atomic and pre-specified rather than emerging from longitudi-nal patient management. 
+
+AgentClinic. AgentClinic (Schmidgall et al., 2024) composes a doctor agent with an LLM-played patient agent, a measurement agent that re-turns test results, and optionally a moderator. Cases are derived from MedQA and NEJM Image Chal-lenges; the doctor agent must converge on a single diagnosis through bounded dialogue turns. Evalua-tion covers diagnostic accuracy and patient-centric metrics such as compliance and confidence; inter-mediate dialogue quality relies on LLM-as-judge. 
+
+Other simulated-patient benchmarks. MedDi-alBench (Luo et al., 2026) introduces 24 parametric adversarial patient behaviors layered onto consul-tation cases; MAQuE (Gong et al., 2025) adds in-cremental behavioral layers across 3,000 simulated patients, measuring each layer’s marginal effect on diagnostic accuracy; HELPMed (Bean et al., 2025) evaluates LLMs with real human participants play-ing patient roles, reporting dramatic accuracy drops relative to standalone settings; AMIE (Tu et al., 2024) is a diagnostic dialogue system evaluated in randomized OSCE-style consultations against primary-care physicians. 
+
+Coding-style executable benchmarks. 
+
+MedCalc-Env (Mao et al., 2025) is an RL environment built on the InternBootcamp frame-work for multi-step medical calculation, covering 700+ tasks across specialties. MedAgentGym (Xu et al., 2025) provides 72k task instances across 129 categories of biomedical coding scenarios (SQL queries over MIMIC-III and eICU, calculator-style reasoning, data-analysis code generation), posi-tioned as a training-time analog of SWE-Gym. Both target code or formula production as the unit of evaluation rather than the clinical decisions themselves. 
+
+Coding agent benchmarks referenced for anal-ogy. HumanEval (Chen et al., 2021) introduced executable function-level code evaluation via unit tests; SWE-bench (Jimenez et al., 2024) scaled this to repository-level GitHub issue resolution with ex-ecutable test suites. The deterministic-verification spirit of these benchmarks informs the scoring de-sign of C LIN ENV , though the unit of evaluation differs (clinical decisions rather than code). Table 7 expands the main-text comparison with automatic construction and structured-action di-mensions. 
+
+B Data Preprocessing Details 
+
+B.1 Input Sources 
+
+Table 8 summarizes the source groups used to build the admission timelines. All tables are linked at the admission level using subject_id and hadm_id .Rows without a valid admission identifier are ex-cluded before timeline construction. Table 7: Extended design-dimension comparison across representative medical LLM benchmarks. ✓ =supported, △ = partial or limited, ✗ = not supported. The seven dimensions extend Table 1 with automatic case construction from raw records and structured action space matched to attending-physician decisions.                                                                                                                               
+
+> Benchmark Real EHR Multi-Auto Active Structured Deterministic Process / trajectory stage construction info-seek action scoring cost Static medical knowledge benchmarks
+> MedQA (Jin et al., 2021) ✗✗✗✗✗✓✗
+> MedMCQA (Pal et al., 2022) ✗✗✗✗✗✓✗
+> PubMedQA (Jin et al., 2019) ✗✗✗✗✗✓✗
+> MultiMedQA (Singhal et al., 2023) ✗✗✗✗✗✓✗
+> EHR query and data-access benchmarks
+> EHRSQL (Lee et al., 2022) ✓✗✓✗△✓✗
+> MIMIC-SQL (Wang et al., 2020) ✓✗✓✗△✓✗
+> FHIR-AgentBench (Lee et al., 2025) ✓✗✓✗△✓✗
+> MedAgentBench (Jiang et al., 2025) △✗✗✓✓✓✗
+> Interactive diagnostic and simulated-patient benchmarks
+> AgentClinic (Schmidgall et al., 2024) ✗✗✗✓△✗✗
+> MedDialBench (Luo et al., 2026) ✗✗△✓✗✗✗
+> MAQuE (Gong et al., 2025) ✗✗△✓✗✗✗
+> HELPMed (Bean et al., 2025) ✗✗✗✓✗✗✗
+> AMIE (Tu et al., 2024) ✗✗✗✓✗✗✗
+> Executable and coding-style medical agent benchmarks
+> MedCalc-Env (Mao et al., 2025) ✗△✗✗△✓✗
+> MedAgentGym (Xu et al., 2025) △✗△✓△✓✗
+> CLIN ENV (Ours) ✓✓✓✓✓✓✓
+
+B.2 Timeline Construction 
+
+For each admission, preprocessing follows deter-ministic steps that do not use LLMs: 1. discover the selected structured and note CSV files and stream them in chunks; 2. normalize subject_id and hadm_id , then drop rows missing either key; 3. assign a canonical event_time using the first available timestamp in this priority or-der: charttime , starttime , admittime ,
+
+chartdate , stoptime , endtime ;4. serialize each row as an event with 
+
+source_table , event_time when avail-able, and table-specific payload fields, while removing identifiers and internal processing columns; 5. group events by admission and sort them by timestamp, source_table , and original row or-der for deterministic tie breaking. The preprocessor writes one JSON timeline per admission under subject/admission-specific directo-ries. Each file is a JSON array of ordered events. In the preprocessing release used by this work, the re-sulting timeline collection contains 229,482 admis-sion files across 24,760 subjects and 237,814,500 retained events. 
+
+B.3 Event Schema Example 
+
+Each event keeps provenance through 
+
+source_table and preserves only fields meaning-ful for the source row. Table 9 shows schematic examples; patient-specific note text is omitted. 
+
+B.4 Worked Preprocessing Example 
+
+Consider an admission with an admission row at 
+
+t0, laboratory results at t1, a medication order at t2,a discharge note at t3, and ICD-coded diagnoses assigned to the same hadm_id . The preprocessor converts these heterogeneous rows into the ordered sequence:  
+
+> [eadm (t0), e lab (t1), e med (t2), e note (t3), e icd ](14)
+
+where each e retains its original source_table .Later pipeline stages use the same sequence differ-ently: Phase A reads the discharge-note event to extract decisions; Phase B anchors those decisions against the ordered timeline; Phase C partitions timeline intervals into stage contexts; and Phase D enriches ground truth from the structured medica-tion, diagnosis, and procedure events. This separation keeps data preprocessing inde-pendent from benchmark scoring. The timeline builder standardizes timing and provenance, while the case-construction pipeline decides which events become patient, nurse, lab, and history readviews Table 8: Source groups used in admission-level preprocessing. Each row lists a structured or note source, the fields extracted from it, and how those fields enter the admission-level event timeline that downstream case construction and agent readviews draw on. 
+
+Group Tables Main retained information 
+
+Encounter context hosp_admissions_df Admission/discharge timing, admission type, de-mographics, insurance, language, and discharge disposition Laboratory and mi-crobiology 
+
+hosp_labevents_df ,
+
+hosp_microbiologyevents_df 
+
+Test labels, values, units, reference ranges, ab-normality flags, specimens, organisms, and com-ments Medication orders and administrations 
+
+hosp_prescriptions_df ,
+
+hosp_pharmacy_df , hosp_emar_detail_df 
+
+Drug names, dose, route, frequency, order status, administration type, and infusion details ICU observations and flowsheets 
+
+ehr_chartevents_df ,
+
+ehr_datetime_events_df ,
+
+ehr_inputevents_df ,
+
+ehr_outputevents_df ,
+
+ehr_ingredientevents_df ,
+
+ehr_procedureevents_df 
+
+Vitals, bedside measurements, fluid inputs and outputs, procedure events, ingredients, rates, and durations Coded outcomes hosp_diagnoses_icd_df ,
+
+hosp_procedures_icd_df 
+
+ICD diagnosis and procedure codes, code ver-sions, and mapped long-title descriptions Clinical notes note_df , radiology_note Discharge summaries, narrative hospital course, chief complaint, history, and radiology report text 
+
+Table 9: Timeline event schemas after preprocessing. Representative events from each source. Every event preserves its source provenance and the source-specific clinical fields later used for case construction, agent readviews, and ground-truth scoring. 
+
+Event type Example retained fields Use in C LIN ENV 
+
+Admission source_table , event_time , admission type, race, gender, age Initial patient context and admission boundary Lab result source_table , event_time , label, value, unit, reference range, flag Lab-agent responses and evidence for clinical stages Medication source_table , event_time , drug or medi-cation name, dose, route, frequency, status Medication ground-truth enrichment and nurse/pharmacy evidence Note source_table , event_time , text Discharge-note decision extraction and prior-admission history ICD code source_table , ICD code, ICD version, long-title description Diagnosis and procedure ground truth 
+
+and which structured records define evaluation tar-gets. 
+
+C Source-Level Implementation Details 
+
+This appendix records implementation details from the released C LIN ENV source pipeline. The goal is to make the benchmark construction and evaluation process auditable without moving code-level detail into the main paper. 
+
+C.1 Case Generation Artifacts 
+
+The pipeline persists enough state to audit each case without inspecting the raw database again. The planning record stores extracted decisions, time-line anchors, stage context bounds, and enrichment outputs. The prepared case record stores the ex-ecutable stage sequence, role-specific readviews, available agents, submission hints, and held-out ground-truth items. The model-execution record stores the full dialogue and submitted decisions for each stage, and the evaluation record stores matching assignments and process metrics. The case manifest contains one JSONL record per pre-pared admission with subject_id , hadm_id , and the number of constructed stages. Table 10 summa-rizes these retained artifacts. 
+
+C.2 Admission Loading and Timeline Separation 
+
+The source loader intentionally separates static admission-level records from the clinical event timeline. Admission rows become metadata; diagnosis-code rows become held-out diagnosis candidates; discharge-note rows become narrative context for decision extraction. All other source rows enter the event timeline with a sequential Table 10: Auditable artifacts retained by the C LIN ENV construction pipeline. Each layer persists the reader-visible information needed to reconstruct, inspect, or score a benchmark item, making every case fully traceable back to its source EHR.        
+
+> Layer Retained audit information
+> Admission loading Separates admission metadata, discharge note, ICD diagnosis records, and timestamped clinical events; assigns sequential event indices. Prior history Collects same-patient admissions before the current hospitalization and stores both summary fields and full discharge-note detail. Planning Extracts decisions, anchors them to timeline events, constructs stages, merges very small contexts, and enriches ground truth from structured records. Readviews Builds cumulative patient, nurse, lab, and history views for each stage while preserving stage boundaries. Runtime Runs direct or interactive episodes, exposes only active tools, records submissions and dialogue traces. Evaluation Computes ontology-grounded outcome scores and process metrics for information coverage, laboratory cost, and medication cost.
+
+index , event_time , source_table , and source-specific payload. Events before admission time are retained but flagged as pre_admission ; anchoring later rejects decisions that can only be grounded be-fore the admission begins. This separation prevents coded outcomes and discharge summaries from being passively exposed to the model while still making them available for planning and scoring. Prior admissions are loaded only for the same patient and only when their admission time pre-cedes the current admission. The history view stores a summary level: admission and discharge time, chief complaint, brief hospital course, and discharge diagnosis, plus a full-note detail level retrievable by index through the history tool. 
+
+C.3 Planner Safeguards 
+
+The planner includes several implementation safe-guards that are easy to miss from the main descrip-tion: • Sequential anchoring: Phase B uses a forward search over 20-event windows. The next deci-sion begins after the previous accepted anchor, preserving the temporal order extracted from the discharge note. • Leakage expansion: after a single anchor is found, a local scan examines up to 10 events be-fore and after the anchor. Neighboring records for the same drug, procedure, or action are ab-sorbed into the anchor range so that these records are not included as pre-decision evidence. • Continuation filtering: medication decisions are skipped when the same drug already appears as active medication in the proposed context win-dow, preventing routine continuation orders from becoming artificial decisions. • Small-context merging: stages with fewer than 10 context events are merged into an adjacent stage when possible, reducing nearly empty deci-sion points that would be hard to evaluate mean-ingfully. • Groundable diagnoses: diagnosis ground truth is filtered through a separate sliding-window scan over the event timeline using 100-event windows and 50-event stride; only ICD codes judged ev-idenced or managed in at least one window are retained. After stages are constructed, Phase D converts raw decisions to structured gts . Medication fields such as drug name, dose, route, frequency, product strength, and order status are copied from prescrip-tion, pharmacy, or eMAR records. Procedure and diagnosis fields are copied from ICD-coded rows, including code, version, and long-title description. LLM calls classify decision type and medication action, but the final evaluable fields are copied from structured source records. 
+
+C.4 Information Agent Specifications 
+
+Each information agent is powered by GPT-5.4-mini and restricted to a designated readview Va, a filtered projection of the EHR events relevant to that role. 
+
+Patient Agent. The patient agent simulates sub-jective reporting from the patient’s perspective. Given a query, it draws from demographics, chief complaint (CC), history of present illness (HPI), and past medical history (PMH) to produce lay-language responses that reflect how a real patient might describe their symptoms and background, without access to objective clinical measurements. Nurse Agent. The nurse agent reports bedside observations from the nursing record. It has access to vital signs, fluid balance, and medication admin-istration records (MAR), and responds to queries about the patient’s current physiological status and treatment as observed at the bedside. 
+
+Lab Agent. The lab agent does not expose re-sults passively. Given a natural language query 
+
+q and the set of available test labels Lk in stage 
+
+Sk, it identifies the matching subset L′ ⊆ L k via LLM-based semantic matching that handles abbre-viations, panel expansions (e.g., CBC, BMP), and synonyms, then returns value, unit, and reference range for each matched item. Tests not in Lk return a null response. 
+
+History Agent. The history agent supplies longi-tudinal context from prior discharge summaries. It is activated only when the patient has at least one prior admission on record, preventing uninforma-tive interactions when no historical data exists. 
+
+Agent Activation. Agent a is activated in stage 
+
+Sk only if its readview Va intersects the current context window, preventing uninformative interac-tions with agents that have no relevant data for the stage. The history agent is additionally gated on whether the patient has any prior admissions. 
+
+C.5 Readview Construction and Tool Exposure 
+
+Readviews are cumulative within an admission: at stage k, each role can see records from event index 0 through the stage end, filtered to that role’s al-lowed source tables. The patient readview contains static demographics, chief complaint, history of present illness, and past medical history. The nurse readview contains bedside observations, charted events, fluid input and output, administered medica-tions, pharmacy and prescription records, radiology summaries, and procedure events. The lab read-view contains laboratory and microbiology events, excluding degenerate test labels shorter than two characters. Tool exposure is stage-specific. The patient and history roles are available by default when their data exist, while nurse and lab tools are acti-vated only when the current stage window contains matching events. During interactive evaluation, only submit tools corresponding to ground-truth types in the current stage are exposed. Duplicate submissions with the same type, value, and medi-cation action are ignored by the runtime. 
+
+C.6 Runtime State Across Stages 
+
+The interactive runtime allows at most 60 turns per stage and permits one tool call per turn. To keep the longitudinal state clinically coherent, each new stage receives filtered prior-stage context: information-seeking dialogue is retained, while prior submit and finalize calls are removed. The environment then injects the previous stage’s con-firmed ground-truth decisions into the context, so later stages condition on what actually happened in the hospitalization rather than on earlier model errors. In direct mode, the same information is shown as prior realized events. 
+
+C.7 Evaluation Implementation Details 
+
+Outcome evaluation uses type-wise Hungarian matching. Diagnosis and procedure submissions are mapped to ICD codes by embedding re-trieval over ICD-9-CM, ICD-10-CM, ICD-9-PCS, and ICD-10-PCS vocabularies followed by LLM reranking, then scored with hierarchical F1 over code ancestors. Medication submissions are action-gated before drug similarity is computed: mis-matched actions score zero, while action-consistent pairs receive ATC-hierarchy partial credit. For 
+
+adjust decisions, opposing explicit directions halve the drug score. Process evaluation is computed from the saved dialogue trace. Information coverage is judged separately for patient, nurse, and lab responses by comparing retrieved dialogue content against each role’s complete readview, then macro-averaged across roles. The implemented efficiency metric is the coverage value multiplied by N/ (N + K),where N is the number of judged key facts and K
+
+is the number of information-gathering tool calls. Laboratory cost scoring parses lab tool outputs, counts unresolved or unavailable lab requests as wasted queries, and estimates test cost by matching ordered tests to the CMS Clinical Laboratory Fee Schedule. Medication-cost scoring resolves sub-mitted drugs through RxNorm, maps to NDC unit prices from NADAC, obtains defined daily doses from the WHO ATC/DDD index when possible, and reports estimated daily drug acquisition cost for submitted medication decisions. Figure 4: Frequent clinical entities in C LIN ENV . Top diagnosis, medication, and procedure entities among structured ground-truth decisions. 
+
+D CLIN ENV Statistics 
+
+This appendix details the sampling protocol and construction-quality checks for C LIN ENV ; its com-position is summarized in Table 4 (Section 4). 
+
+D.1 Sampling Protocol 
+
+CLIN ENV contains 3,509 cases, one per admission, drawn from 1,809 patients. We discard admissions that yield no valid decision stage after construction, then sample the remainder to span the full range of case horizons, from single-stage admissions to trajectories of up to nine stages. Admissions with no usable discharge note, or with no groundable decisions after Phase C enrichment, are excluded. 
+
+D.2 Construction Quality 
+
+CLIN ENV is constructed without manual annota-tion, so the integrity of each stage rests on three properties that are guaranteed by construction and remain verifiable against the source record: • Decision precision: every extracted decision cor-responds to an attending-level action actually recorded during the admission (a prescription, procedure, or coded discharge diagnosis), rather than a hallucinated or non-decision item. • Anchor validity: each decision carries the time-line event index it was extracted from, placing it at the point in the admission where the action was taken. • Enrichment accuracy: the structured ground-truth fields (drug name, action type, dose, ICD code) are copied directly from the corresponding table row, not generated. Because every stage is built deterministically from logged events, the ground truth can always be traced back to the originating row. Appendix E presents a complete worked example for a single admission, showing the information environment the model observes and the held-out ground truth at each stage. 
+
+D.3 Clinical entities follow common inpatient patterns. 
+
+Figure 4 shows the most frequent diagnosis, med-ication, and procedure entities in the benchmark. Chronic inpatient comorbidities such as essential hypertension, hyperlipidemia, GERD, and diabetes dominate the diagnosis distribution, while medica-tion and procedure decisions are more dispersed. 
+
+D.4 Longer timelines are less decision-dense. 
+
+Figure 5 plots each case’s timeline event span against its decision density, colored by case horizon. Decision density declines as timelines lengthen (Pearson r = −0.365 , p < 0.001 ), showing that longer admissions add more context per decision rather than simply more decisions. 
+
+E CLIN ENV Example 
+
+To make the construction concrete, we trace a single admission end to end. We use admission 
+
+21569907 from MIMIC-IV, the same chest-pain and anemia case used in Appendix F. The pipeline segments this admission into three sequential de-cision stages. We first show the source admission and the multi-source information environment ex-posed to the model, then walk through each stage: what the model can observe, the decision it must commit, and the held-out ground truth it is scored against. Patient-facing fields are drawn from the stored readviews, and structured ground-truth fields are copied from the paired case record. Figure 5: Decision density by timeline span. Each point is an admission, colored by constructed case horizon. Longer event timelines are associated with lower decision density, so long-horizon cases require models to reason over more observations per clinical decision. 
+
+Source admission 10146904/21569907 
+
+Demographics. Female with coronary artery disease, hypertension, hypercholesterolemia, GERD, prior ane-mia, diverticulosis, and prior EGD noted in the history. 
+
+Chief complaint. Chest wall pain and fatigue. 
+
+HPI (excerpt). “. . . a month-long course of chest pain that has worsened over the last week. . . fatigued and short of breath. . . slightly lightheaded. . . pain is located under her left breast and is worse with palpation. . . received 2 units pRBCs because of a Hct of 22.9. . . denies bleeding, including hematochezia, melena, hematuria or vomitus streaked with blood. . . ” 
+
+History agent. The runtime may expose prior-admission context through the history tool, but this trace has no us-able prior-admission summary detail. 
+
+Held-out decisions. The admission contains three held-out decisions: EGD, oral iron supplementation, and later tramadol for rib pain control. 
+
+Information environment at Stage 0 
+
+The model does not receive the raw timeline. Instead, at each stage it may query four specialized agents, each returning a structured readview: • Patient: chief complaint, HPI, past medical history, and sex. • Nurse: active medication administrations and nurs-ing events, including packed-cell transfusion cod-ing, chest imaging, pantoprazole, tramadol, ac-etaminophen, home cardiac medications, and bowel-preparation orders. • Lab: cardiac markers and serial CBC results, includ-ing hemoglobin 9.2–9.9 g/dL, MCV 76 fL, and ele-vated RDW during Stage 0. • History: prior-admission lookup, which may return no usable summary for this patient. 
+
+Coverage and laboratory-cost metrics (Section 5) are computed over exactly which of these facts the model chooses to retrieve before committing each decision. 
+
+Stage 0 Context events [0, 58] → anchor event 59 
+
+What the model sees. Early chest-pain evaluation and anemia workup: a packed-cell transfusion code, chest radiograph with no acute pulmonary process, chest CT with no PE, medication records including pantopra-zole and tramadol, serial microcytic anemia labs, and a Golytely bowel-preparation order. 
+
+Decision to commit. A procedure decision for evalua-tion of suspected occult GI blood loss / iron-deficiency anemia. 
+
+Held-out ground truth. Procedure : “Performed esophagogastroduodenoscopy (EGD).” Enrichment (from hosp_procedures_icd ): ICD-9 4513 , “Other en-doscopy of small intestine.” 
+
+Stage 1 Context events [61, 104] → anchor event 106 
+
+What the model sees. The admission has progressed past the endoscopic procedure. The Stage 1 window contains follow-up coagulation, chemistry, and hematol-ogy results, including hemoglobin 9.5 g/dL, MCV 74 fL, hypochromia, microcytes, and potassium replacement. 
+
+Decision to commit. A medication decision to treat per-sistent microcytic anemia. 
+
+Held-out ground truth. Medication / start :“Started iron supplements.” Enrichment (from 
+
+hosp_prescriptions ): Ferrous Gluconate , 325 mg, route PO, 325 mg tablet. Stage 2 Context events [107, 145] → anchor event 147 
+
+What the model sees. Later inpatient medication and lab context: sucralfate orders, another chemistry panel, hemoglobin 9.4 g/dL, MCV 74 fL, coagulation labs, and scheduled acetaminophen. 
+
+Decision to commit. A medication decision for ongo-ing rib or chest wall pain control after the initial chest-pain/anemia workup. 
+
+Held-out ground truth. Medication / start : “Started tramadol for rib pain control.” Enrichment (from 
+
+hosp_prescriptions ): TraMADOL (Ultram) , 50 mg, route PO, 50 mg tablet. 
+
+This example illustrates the three properties of Ap-pendix D.2: each decision is an action the attend-ing actually took (the EGD, ferrous gluconate or-der, and tramadol order), each is anchored to the exact timeline position it occurred at, and each structured field is copied from the corresponding row. The clinical thread is also coherent: the same microcytic-anemia signal that appears in the Stage 0 dialogue motivates the EGD and the later iron supplement decision, while Stage 2 shifts to symptom control. 
+
+F Representative Dialogue Traces 
+
+The worked example above shows the construction-time artifact for a single admission. Here we show the complementary runtime artifact: a saved inter-active dialogue in which the model must ask role-specific agents for information before submitting structured decisions. Figure 6 gives a visual exam-ple of the same runtime interface: active model inquiries, environment responses, submitted ac-tion, held-out target, and process diagnostics are all recorded at the stage level. 
+
+Dialogue trace source 10146904/21569907 
+
+Run. gpt5.4 , interactive mode. 
+
+Constructed stages. The paired case record contains three stages: Stage 0 requires one procedure decision, Stage 1 requires one medication decision, and Stage 2 requires one medication decision. 
+
+Why this trace is useful. The model queries the patient, nurse, laboratory, and history tools; the trace includes both successful retrievals and unavailable requests, mak-ing it a compact example of how C LIN ENV scores both decisions and information-seeking process. 
+
+Dialogue example A Stage 0 procedure decision 
+
+Required submission. One procedure. 
+
+Transcript excerpt. Model → ask_patient : “Hello, I’m Dr. [Name], one of the attending physicians. 
+
+Can you tell me what brought you to the hospital today? What symptoms are you experiencing?” 
+
+Patient → Model: “I came in because I’ve been having chest pain for about a month, and it got worse over the last week. I’ve also been feeling really tired and a little short of breath. This morning I just didn’t feel like myself and felt a bit lightheaded, so I called my doctor and they told me to come in.” 
+
+Model → order_lab : Complete Blood Count (CBC). 
+
+Lab → Model: Hemoglobin 9.2 g/dL, hematocrit 29.3%, MCV 76 fL, RDW 16.1%; repeat hemoglobin 9.9 g/dL. 
+
+Model → order_lab : Iron studies. 
+
+Lab → Model: “No results available for ’Iron studies’. The test was not ordered or did not result for this patient.” 
+
+Model → ask_patient : “Have you had any episodes of nausea, vomiting (especially coffee-ground looking vomit), or any dark/tarry stools? Also, have you been feeling more tired than usual or had any shortness of breath with activity?” 
+
+Patient → model: “No, I haven’t had any nausea or vomiting, and I haven’t noticed any coffee-ground looking vomit or dark, tarry stools. I have been feeling more tired than usual, and I’ve also had some shortness of breath.” 
+
+Model → submit_procedure :
+
+procedure_name = “Esophagogas-troduodenoscopy.” 
+
+Environment → model: “status: recorded; type: procedure; remaining: all done.” 
+
+Held-out ground truth. Procedure : “Performed esoph-agogastroduodenoscopy (EGD).” 
+
+Dialogue example B Stage 1 medication decision 
+
+Required submission. One medication. 
+
+Transcript excerpt. Model → ask_patient : “How are you feel-ing now? Has the chest pain improved? Have you had any procedures done since you’ve been here, like an endoscopy (a cam-era down your throat to look at your stom-ach)?” 
+
+Patient → model: “I’m feeling better now. I’m not having the chest pain right now, and it has improved since I first came in. I don’t think I’ve had an endoscopy since I’ve been here.” 
+
+Model → order_lab : Iron studies (Iron, TIBC, Ferritin). 
+
+Lab → Model: “No results available for ’Iron studies (Iron, TIBC, Ferritin)’. The test was not ordered or did not result for this patient.” 
+
+Model → order_lab : Hemoglobin. 
+
+Lab → Model: Hemoglobin 9.2 g/dL, 9.9 g/dL, and 9.5 g/dL on serial measure-Figure 6: Runtime stage-level evaluation example. The model actively queries nurse, patient, and laboratory agents before submitting a medication action. The environment records both the outcome mismatch against the held-out EHR target and process diagnostics such as information coverage and laboratory cost. 
+
+ments. 
+
+Model → ask_nurse : “Has the patient had any procedures done during this admission? Specifically, has an EGD (upper endoscopy) or colonoscopy been performed? Also, has the patient had any stool guaiac or fecal oc-cult blood test done?” 
+
+Nurse → Model: “Based on the bedside data available, I do not see documentation of an EGD or colonoscopy being performed during this admission.” 
+
+Model → submit_medication : action = start, drug_name = “Ferrous Sulfate.” 
+
+Environment → model: “status: recorded; type: medication; action: start; value: Fer-rous Sulfate; remaining: all done.” 
+
+Held-out ground truth. Medication / start : Ferrous Gluconate . This example illustrates why the medica-tion scorer uses ontology-aware drug matching rather than exact string identity alone, and why unavailable lab requests contribute to process cost metrics. 
+
+G Additional Result Analyses 
+
+Stage position explains the apparent late-stage rebound. Table 11 reports stage-position aver-ages over the benchmark. In multi-stage cases, first and intermediate stages are predominantly man-agement decisions: 98.87% first-stage rows and 99.07% intermediate rows contain medication or procedure ground truth. Final stages are predom-inantly diagnostic: 89.31% final-stage rows are diagnosis-only. As a result, all-stage averages can rebound at the final stage even though management stages become harder with longer context. 
+
+Table 11: Decision F1 by stage position. Single denotes single-stage cases; First , Interm. , and Final are positions within multi-stage cases. Final-stage scores rebound be-cause final stages are overwhelmingly diagnosis-only (89 .3% ), whereas first and intermediate stages are al-most entirely management decisions. 
+
+Model Single First Interm. Final 
+
+GPT-5.4 0.499 0.214 0.115 0.473 GPT-5.4-mini 0.384 0.147 0.118 0.429 GPT-5.4-nano 0.356 0.165 0.134 0.397 Llama-3.1-70B 0.322 0.148 0.124 0.346 Llama-3.1-8B 0.297 0.145 0.094 0.305 Gemma-3-27B 0.341 0.141 0.107 0.367 Gemma-3-12B 0.334 0.109 0.073 0.330 Long-horizon degradation is consistent across LLM families. Every model loses decision F1 on admissions with at least three stages (Table 12). The absolute drop ranges from 0.029 to 0.072 F1, while interaction length increases for every model. The largest turn increase is for Llama-3.1-70B (+4.0 turns), but this extra interaction does not translate into better coverage or lower waste in the main results.                               
+
+> Table 12: Long-horizon degradation relative to all evaluated stages. ∆F1and relative drop compare deci-sion F1 on admissions with at least three stages against the full set; ∆turns is the corresponding change in in-teraction length. Every model loses accuracy and takes more turns, and the extra interaction does not recover the lost performance.
+> Model ∆F1Rel. drop ∆turns
+> GPT-5.4 0.072 23.4% +2.9 GPT-5.4-mini 0.045 17.6% +2.1 GPT-5.4-nano 0.039 15.5% +1.4 Llama-3.1-70B 0.033 14.4% +4.0 Llama-3.1-8B 0.029 14.6% +2.4 Gemma-3-27B 0.033 14.5% +1.2 Gemma-3-12B 0.033 16.8% +2.0
+
+Decision type remains the dominant accuracy gap. Averaged across models, diagnosis match-ing is much stronger than management matching: mean diagnosis score is 0.412, mean procedure score is 0.284, and mean medication score is only 0.086. Even the best medication score is 0.101 (Llama-3.1-70B), far below the weakest diagnosis score (0.362). Medication action selection alone does not explain the gap: Llama-3.1-8B and Llama-3.1-70B have the highest medication-action accura-cies among submitted medication decisions (0.733 and 0.704), but still obtain low medication match scores. The bottleneck is therefore not only choos-ing whether to start, stop, switch, or adjust treat-ment; it is selecting the correct drug identity. 
+
+Process metrics separate useful interaction from volume. Across the seven model-level points in Table 5, information coverage is strongly correlated with decision F1 (Pearson r = 0 .865 ), moderately anticorrelated with aggregate laboratory waste ratio (r = −0.496 ), and almost uncorrelated with mean laboratory spending ( r = 0 .103 ). Turn count is negatively correlated with coverage ( r = −0.404 )and positively correlated with waste ( r = 0 .644 ). Thus, longer dialogues do not automatically re-trieve more useful information; the relevant distinc-tion is whether the model asks clinically targeted questions and orders tests that the ground-truth clin-ical picture supports.

@@ -1,0 +1,775 @@
+Title: Traj-Evolve: A Self-Evolving Multi-Agent System for Patient Trajectory Modeling in Lung Cancer Early Detection
+
+URL Source: https://arxiv.org/pdf/2606.02812v1
+
+Published Time: Wed, 03 Jun 2026 00:15:10 GMT
+
+Number of Pages: 17
+
+Markdown Content:
+## Traj-Evolve: A Self-Evolving Multi-Agent System for Patient Trajectory Modeling in Lung Cancer Early Detection 
+
+Sihang Zeng 1,2 , Matthew Thompson 3, Ruth Etzioni 2, Meliha Yetisgen 1
+
+> 1
+
+University of Washington, 2Fred Hutch Cancer Center, 3Google 
+
+zengsh@uw.edu , melihay@uw.edu 
+
+Abstract 
+
+Modeling patient trajectories from longitudi-nal electronic health records (EHRs) requires reasoning over sparse, noisy, and long-context multimodal sequences. Existing LLM-based multi-agent systems address context length but process patients in isolation, failing to mirror how clinicians leverage accumulated experi-ence from similar prior cases. We present Traj-Evolve, a self-evolving multi-agent sys-tem with two complementary evolving mech-anisms. First, an Experience Pool (ExPool) acts as a non-parametric memory, indexing rejection-sampled reasoning traces to retrieve similar patients as few-shot contexts. Second, multi-agent reinforcement learning (MARL) via reward-ranked fine-tuning parametrically optimizes inter-agent and agent-memory collab-oration. A leave-one-out cross-retrieval strat-egy unifies the two, aligning training- and inference-time behavior under retrieval aug-mentation. On a lung cancer prediction task utilizing up to five years of multimodal EHRs, Traj-Evolve outperforms 9 strong baselines on the overall population and a challenging never-smoker population. Analysis of the evolving dynamics highlights three key findings: (1) expanding the ExPool shifts optimal retrieval from diverse to specific samples; (2) under MARL, the manager agent’s prediction loss converges quickly while the worker agents’ temporal reasoning continues to benefit from more verified patients; and (3) the two mech-anisms are complementary on the predicted risk, where ExPool improves specificity while MARL improves sensitivity. 
+
+1 Introduction 
+
+Lung cancer is the leading cause of cancer-related mortality worldwide (Sung et al., 2021; Lancaster et al., 2022), and early detection substantially im-proves patient outcomes (Lancaster et al., 2022). Longitudinal electronic health records (EHRs) of-fer a uniquely powerful opportunity for early de-tection, as they accumulate a rich, multimodal clin-ical history including diagnoses, procedures, lab-oratory values, vital signs, medications, and un-structured clinical notes, which collectively encode subtle disease trajectories preceding a cancer di-agnosis (Jensen et al., 2012; Kim et al., 2019). Within these trajectories lie early signals of risk and their trends, such as recurrent respiratory symp-toms, chronic pulmonary conditions, or incidental radiographic findings documented years before di-agnosis (D’Arcy et al., 2025; Ganti et al., 2021). Extracting and temporally reasoning over these signals from long and noisy patient trajectories, however, is challenging. Recent studies evaluated LLM-based approaches for generalizable model-ing from heterogeneous EHR data (Cui et al., 2025; Kruse et al., 2025; Zeng et al., 2025, 2026). Among these, Traj-CoA is a multi-agent framework that leverages chain-of-agents and a long-term memory to facilitate temporal reasoning over patient trajec-tories for cancer early detection, eliminating com-plex feature engineering while achieving zero-shot performance comparable to supervised machine learning and deep learning models (Zeng et al., 2025, 2026). Despite these advances, existing LLM-based lon-gitudinal EHR modeling systems share a funda-mental limitation: they are static. Every patient is processed in isolation, relying solely on the LLM’s frozen parametric knowledge and a fixed prompt. This stands in sharp contrast to expert clinical prac-tice, where diagnostic judgement is continually re-fined by accumulated experience with similar pa-tients. This process is central to how clinicians recognise atypical presentations, such as early lung cancer in a never-smoker with an otherwise unre-markable history (Eva, 2005; Patel et al., 2005). For lung cancer early detection, where cases are clini-cally heterogeneous and often subtly distinguished from controls by patterns distributed across years of records, the inability of a system to learn from 1
+
+> arXiv:2606.02812v1 [cs.AI] 1 Jun 2026
+
+past verified cases can limit both performance and robustness, particularly in minority subgroups such as never-smokers. Emerging research on self-evolving LLM agents has the potential to address this gap. Rather than treating the model as immutable, self-evolving agents continually update their behavior through interaction and feedback, evolving their mem-ory, prompts, tools, or parameters as new expe-rience accumulates (Gao et al., 2025a; Zhang et al., 2025c). For example, memory-based approaches save the problem-solving trajectories as experience into an external database, which could guide fu-ture decisions through retrieval-augmented gen-eration (RAG) (Shinn et al., 2023; Zhao et al., 2024; Wu et al., 2025; Zhou et al., 2025a; Tang et al., 2025). In parallel, reinforcement-learning (RL) based approaches such as reward-ranked fine-tuning (RAFT) (Dong et al., 2023; Xiong et al., 2025; Zhang et al., 2025b) and multi-agent RL variants (Ma et al., 2024; Liao et al., 2025; Zhang et al., 2025a) enable collaborative agent systems to internalise successful reasoning patterns directly into their parameters. In healthcare, self-evolving agents have been explored in synthetic or simulated patient interac-tions (Li et al., 2024; Almansoori et al., 2025) and medical question answering (Chen et al., 2025). Designing self-evolving systems for patient trajec-tory modeling in early cancer detection poses a distinct challenge: it requires complex temporal reasoning over years of noisy, multimodal data and the ability to draw reusable insights from hetero-geneous clinical cases. Existing techniques may not be readily applicable to this scenario, and per-formance remains unclear. To our knowledge, no prior work has designed self-evolving agents to en-hance longitudinal EHR modeling for real-world early cancer detection. To bridge this gap, we present Traj-Evolve, a self-evolving multi-agent framework for patient tra-jectory modelling that extends the Traj-CoA archi-tecture (Zeng et al., 2025) with two complementary evolutionary mechanisms, an evolving experience pool (ExPool) and multi-agent reinforcement learn-ing (MARL). Collectively, these mechanisms en-able Traj-Evolve to learn from its own experience as it processes more patients, continually refining its temporal reasoning and learning from “patients-like-me", eventually improving performance over time. These two mechanisms transform patient tra-jectory modeling from a static, isolated prediction task into a continuously improving clinical learning system. We evaluated Traj-Evolve on a large longitudinal cohort from a medical center, using five years of multimodal EHR history to predict incident lung cancer within the subsequent year among the over-all population and the particularly challenging sub-group of never-smokers. We benchmarked against a comprehensive suite of baselines spanning clini-cal risk models, supervised machine learning, se-quential deep learning, clinical BERT-based mod-els, and LLM-based systems. The main contributions of this work are: • We introduce Traj-Evolve, to our knowledge, the first self-evolving multi-agent framework for longitudinal EHR modelling applied to a real-world clinical prediction task. • We design two complementary evolutionary mechanisms: an evolving experience pool (ExPool) that provides non-parametric, few-shot “patients-like-me” retrieval, and a MARL procedure that parametrically optimizes inter-agent and agent-memory collaboration using rejection-sampled high-reward trajectories. • We demonstrate that Traj-Evolve achieves state-of-the-art discrimination for one-year lung cancer prediction in the overall popu-lation and the challenging never-smoker pop-ulation. • We provide detailed analyses of the self-evolving dynamics, supporting the vision of a continuously improving clinical decision-support system. Traj-Evolve       
+
+> Patient 1
+> Longitudinal EHR
+> Prediction
+> (Reasoning +
+> Predicted Risk)
+> Experience Pool
+> Long-Term Memory
+> Worker
+> Agent
+> Worker
+> Agent
+> Worker
+> Agent
+> Worker
+> Agent Manager
+> Agent
+> Diagnosis
+> Predict Update
+> ExPool MARL
+> Patient 2 New Patient No Diagnosis
+> Predict Predict
+> Update
+> ExPool MARL
+> Experience
+> CoA Summary
+> Patients-like-me
+> Verification and Update
+> LTM
+
+Figure 1: Overview of the Traj-Evolve architecture and self-evolving workflow. The top panel illustrates the self-evolving process, wherein the system accumu-lates experience from prior verified patients to iteratively update Traj-Evolve and facilitate prediction for a new patient. The bottom panel details the pipeline. 
+
+22 Related Works 
+
+LLM-based Patient Trajectory Modeling Re-cent work increasingly leverages strong LLMs for zero- or few-shot reasoning over heteroge-neous clinical histories, including DT-GPT for clin-ical variable forecasting (Makarov et al., 2025), EHR2Path for scalable patient pathway prediction (Pellegrini et al., 2025), TIMER for temporal in-struction tuning (Cui et al., 2025), and Kruse et al. (2025) for long-context summarization. Yet single-LLM pipelines remain limited by the lost-in-the-middle phenomenon (Liu et al., 2024) on very long EHRs and by the complexity in specific clinical pre-diction tasks, motivating multi-agent designs to de-compose longitudinal EHR modeling into simpler subtasks. MoMA (Gao et al., 2025b) coordinates modality-specialized agents for clinical prediction, CARE-AD (Li et al., 2025b) and ClinNoteAgents (Zhou et al., 2025b) decompose reasoning across specialist agents, and Traj-CoA (Zeng et al., 2025, 2026) extend chain-of-agents (Zhang et al., 2024) with long-term memory for cancer early detection. Complementary efforts such as CliCARE (Li et al., 2025a) and TRACE (Qu and Färber, 2026) fur-ther explore temporal knowledge graph and dual-memory approaches. However, these systems are static: each patient is reasoned about in isolation, with no mechanism or evaluation for accumulating verified clinical experience over time. 
+
+Self-Evolving Agents Gao et al. (2025a) orga-nize self-evolving agents along three axes: what, when, and how to evolve. Along what to evolve, prior work targets memory, prompts, tools, or model parameters; along when, adaptation can be intra- or inter-test-time; along how, it is driven by textual feedback or scalar rewards in single-or multi-agent settings. For example, memory-evolving methods such as Reflexion (Shinn et al., 2023), ExpeL (Zhao et al., 2024), Memento (Zhou et al., 2025a), and Agent KB (Tang et al., 2025) store and retrieve past trajectories as non-parametric experience. Parameter-evolving meth-ods internalize successful experience via model training, including supervised fine-tuning and re-inforcement learning (Zelikman et al., 2022; Zuo et al., 2025; Dong et al., 2023; Wang et al., 2025) and multi-agent extensions (Zhang et al., 2025a; Ma et al., 2024; Liao et al., 2025). These two fami-lies are typically pursued in isolation. In healthcare, self-evolution has so far been confined to simulated or interactive settings, including Agent Hospital (Li et al., 2024), MedAgentSim (Almansoori et al., 2025), MDTeamGPT (Chen et al., 2025), and Evo-Clinician (He et al., 2026). To our knowledge, no prior work has applied self-evolving agents to longitudinal EHR modeling for real-world clinical prediction. Traj-Evolve fills this gap by jointly evolving memory (ExPool) and parameters (MARL) at inter-test-time, unified by a leave-one-out cross-retrieval procedure that aligns training- and inference-time augmentation for lung cancer early detection. 
+
+3 Methods 
+
+3.1 Problem Formulation Lung Cancer Early Detection Let P = {pi}Ni=1 
+
+denote a cohort of patients. For each patient pi, we observe a longitudinal multimodal EHR sequence 
+
+Xi = (ti,j , e i,j ) Ti
+
+> j=1
+
+, ti,j ≤ t⋆i , (1) where t⋆i is the patient-specific index date (time of prediction), Ti is the number of dated entries within the available EHR, and each event ei,j at time ti,j consists of either a structured record (di-agnosis, medication, lab, vital, or procedure code) or unstructured clinical text (notes and radiology reports). The binary target yi ∈ { 0, 1} indicates whether pi receives a first primary lung-cancer di-agnosis within one year after t⋆i .The task of lung cancer early detection is to learn a function fθ : Xi 7 → (si, r i) that maps the longitudinal record to an integer risk score si ∈{1, . . . , 10 } and a natural-language rationale ri.
+
+Self-Evolving System Beyond standard gener-alization, we additionally require fθ to improve as more patients are seen and verified, yielding a self-evolving system. We formalize this as follows. Patients arrive sequentially as a stream p1, p 2, . . . .At each step t, the system maintains an experience set Et that summarises all patients that have been processed and verified by a known diagnostic sta-tus so far. The primary objective of a self-evolving system is to continuously improve the performance of fθ(Et) as the experience set Et grows. This cap-tures two coupled challenges: fθ(Et) must perform complex temporal reasoning over long and noisy EHRs to produce (st, r t), and it additionally needs to construct and leverage Et so that performance improves with |E t|.We randomly split the dataset into training Dtr ,validation Dval , and test set Dtest . In practice, we 3simulated the stream of verified patients by drawing a random sample from the training set that grew incrementally over time. 
+
+3.2 Background: Traj-CoA Base System 
+
+We build on Traj-CoA (Zeng et al., 2025, 2026), a static chain-of-agents (CoA) (Zhang et al., 2024) backbone that handles long-context EHRs. Each Xi
+
+is serialized into an LLM-friendly XML representa-tion and segmented into Ci chronologically ordered chunks {ci, 1, . . . , c i,C i } such that each chunk fits within the LLM context limit. A sequence of Ci worker agents, all parameter-ized by θw, processes the chunks sequentially. Con-cretely, the ℓ-th worker maintains a running sum-mary ui,ℓ and a long-term episodic memory (LTM) 
+
+Mi,ℓ . The final worker summary ui = ui,C i encap-sulates the full EHR trajectory, while Mi = Mi,C i
+
+stores a condensed timeline of lung-cancer-related events extracted across all chunks. A manager agent πθm then synthesizes both signals to produce the final output: 
+
+(si, r i) = πθm
+
+ ui, Mi
+
+. (2) This zero-shot pipeline decomposes complex temporal reasoning into inter-agent and agent-memory collaboration tasks, improving patient tra-jectory modeling performance. However, it treats each patient in isolation, conditioning only on the LLM’s parametric knowledge. This creates a gap with expert clinical practice, which relies on accu-mulated case experience. To bridge this gap, we de-sign two complementary self-evolving mechanisms atop Traj-CoA for our self-evolving Traj-Evolve system (Figure 1). 
+
+3.3 Evolving Experience Pool (ExPool) 
+
+Inspired by the procedural memory approach that saves successful reasoning traces for future prob-lem solving of similar tasks (Tang et al., 2025), we design an evolving experience pool (ExPool, Figure 2A). ExPool equips Traj-Evolve with a non-parametric procedural memory that saves cer-tain reasoning traces of verified patients. As Traj-Evolve generates predictions that can be subse-quently verified against ground-truth diagnostic sta-tus (e.g., confirmed cancer diagnosis or benign sta-tus), these verified reasoning traces can serve as ex-perience for future cases. This design is analogous to expert clinical reasoning, in which a patient’s pre-sentation is rarely adjudicated in isolation but rather Retrieve Top k " Patients-like-me"            
+
+> Experience Pool (Vector Database)
+> Train
+> Set
+> Patient Worker Agents with
+> LTM
+> Summary 1
+> Summary 2
+> Summary m
+> ...
+> Manager Agent
+> Prediction 1
+> Prediction 2
+> ...
+> Prediction m
+> Ground Truth Diagnosis
+> Summary Prediction Ground
+> Truth
+> Test
+> Set
+> Patient Worker Agents with
+> LTM Summary Manager Agent Prediction Train
+> Set
+> Patient Worker Agents with
+> LTM
+> Summary 1
+> Summary 2
+> Summary m
+> ...
+> Manager Agent
+> Prediction 1
+> Prediction 2
+> ...
+> Prediction m
+> Ground Truth Diagnosis
+> MARL Data
+> Manager
+> Input
+> Manager
+> Output
+> Worker
+> Input
+> Worker
+> Output
+> ExPool
+> with ExPool (optional) Train
+> Set
+> ExPool
+> ExPool Construction
+> MARL Data
+> Leave-one-out Cross-Retrieval
+> MARL Data Construction (with ExPool)
+> Worker
+> Agent
+> Manager
+> Agent
+> Train
+> Train AConstruction and Inference with ExPool
+> BConstruction of MARL Data with/without ExPool
+> CCombining ExPool and MARL
+
+Figure 2: Methodological design of the self-evolving mechanisms. (A) Construction and inference pipeline for the ExPool. (B) Construction of MARL training data. (C) Integration of ExPool and MARL. 
+
+by analogy to remembered cases that share a sim-ilar longitudinal clinical pattern. Correct reason-ing traces may offer reusable diagnostic patterns, while incorrect predictions may expose model vul-nerabilities and trigger self-reflection. These data-driven patterns evolve the system beyond its current boundary, forming the self-evolving capability. 
+
+ExPool Construction To capture the current sys-tem’s boundary, i.e., the optimal diagnostic ability, we constructed ExPool using a rejection sampling approach that selected best-of-N from a set of roll-out reasoning traces. Formally, for each patient 
+
+pi ∈ D tr , we draw m independent roll-outs from the base system under an elevated sampling tem-perature τ > 1 to diversify reasoning traces, 
+
+(u(j)
+
+i , M(j)
+
+i , s (j)
+
+i , r (j)
+
+i ) mj=1 ∼ fθ(Xi; τ ), (3) and retain a single optimal trace via label-conditioned rejection sampling 
+
+j⋆i =
+
+(
+
+arg max j s(j)
+
+i , yi = 1 ,
+
+arg min j s(j)
+
+i , yi = 0 . (4) Notably, these optimal reasoning traces may mix correct and incorrect predictions, which provides different signals for ExPool. 4These selected traces then populate ExPool, a vector database where the retrieval keys are the embeddings of the final worker agent summaries: 
+
+vi = ϕ(u⋆i ), (5) in which ϕ(·) denotes an embedding model and index each experience as a key-value pair 
+
+E =
+
+n vi, (r⋆i , s ⋆i , y i)o
+
+> i∈D tr
+
+, (6) where the value stores the manager’s rationale, pre-dicted risk, and ground-truth label. This design makes it feasible to embed and index long patient trajectories in the latent space, providing an effi-cient approach for experience retrieval. 
+
+ExPool Inference During inference, ExPool functions using a retrieval-augmented generation (RAG) (Xu et al., 2024) mechanism. For each new patient pq, we adopt semantic retrieval by querying 
+
+E with vq = ϕ(uq) and returning the top-k near-est neighbors as “patients-like-me” using cosine similarity: 
+
+Nk(q) = [Top- k]i∈E 
+
+v⊤ 
+
+> q
+
+vi
+
+∥vq∥ ∥ vi∥ . (7) The semantic matching is chosen over exact match-ing because it yields a soft neighborhood that bal-ances diversity and specificity. Retrieved patients may exhibit different clinical profiles, matching the patient pq in diverse ways. Rather than collapsing this heterogeneity into a hard label via majority vot-ing, we delegate the comparative reasoning to the manager agent, conditioning it on the full retrieved set: 
+
+(sq, r q) = πθm
+
+ uq, Mq, {(r⋆i , s ⋆i , y i)}i∈N k (q)
+
+.
+
+(8) ExPool therefore provides the manager agent with diverse but clinically relevant “patients-like-me” as in-context examples, and the manager agent comprehensively reasons over all information for prediction. As ExPool continuously scales with newly verified patients, the retrieval of highly spe-cific neighbors becomes increasingly precise, shift-ing the system from isolated predictions to a pro-gressively self-evolving framework. 
+
+3.4 Multi-Agent Reinforcement Learning (MARL) 
+
+ExPool adapts the system at inference time, but it leaves the underlying agent parameters (θw, θ m)
+
+unchanged and acts only on the final manager step. The intermediate worker reasoning, which decides what gets distilled into Mi (agent-memory com-munication) and how the chunk-by-chunk sum-mary is built up (inter-agent communication), does not receive a learning signal from the verified out-comes. To close this gap, we introduce a second self-evolving mechanism that internalizes success-ful reasoning traces directly into the model param-eters, adapting reward-ranked fine-tuning (RAFT) (Dong et al., 2023), a reinforcement learning strat-egy that optimizes models using the reasoning trace with the highest reward among all self-generated roll-outs, to our multi-agent setting. (Figure 2B) 
+
+Reward and Accepted Set Parallel to the con-struction of ExPool, we generated m roll-outs with an elevated temperature. We use the ground-truth label yi as a binary reward signal. Unlike ExPool, which retains the optimal trace per patient regard-less of its correctness, MARL retains only clinically consistent traces in its accepted set A:
+
+A = (i, j ) : R(s(j) 
+
+> i
+
+, y i) = 1 , (9) where the reward function is 
+
+R(s, y ) = 
+
+(
+
+1[s ≥ 6] , y = 1 ,
+
+1[s ≤ 4] , y = 0 . (10) Eq. (10) acts as a hard rejection filter, ensuring the resulting fine-tuning data consists exclusively of logically sound and clinically accurate reasoning traces. 
+
+Decoupled Optimization For each accepted trace (i, j ) ∈ A , we decompose the roll-out into per-agent input-output pairs. Let xwi,j,c and ywi,j,c 
+
+denote the input and output of the c-th worker, and let xmi,j , ymi,j denote the manager pair. To preserve temporal balance across the chain, we subsample worker positions to retain the first, the last, and two randomly selected intermediate worker agents per reasoning trace. 
+
+Ci,j = {1, C i} ∪ Sample 2
+
+ {2, . . . , C i − 1},
+
+(11) yielding the worker and manager training sets 
+
+Dw = (xwi,j,c , ywi,j,c ) : ( i, j ) ∈ A , c ∈ C i,j ,
+
+(12) 
+
+Dm = (xmi,j , ymi,j ) : ( i, j ) ∈ A . (13) 5The worker and manager parameters are updated independently to preserve their specialized roles: 
+
+θ⋆w = arg min 
+
+> θw
+
+X
+
+> (x,y)∈D w
+
+− log πθw (y | x), (14) 
+
+θ⋆m = arg min 
+
+> θm
+
+X
+
+> (x,y)∈D m
+
+− log πθm (y | x). (15) Optimizing θw refines sequential inter-agent rea-soning and worker-memory collaboration, while optimizing θm refines how the final summary and the LTM are aggregated into a risk estimation. As verified patient cohort expands, this MARL approach benefits from larger training data and drives continuous self-evolution through reinforc-ing successful temporal reasoning and collabora-tive memory distillation to progressively enhance Traj-Evolve’s intrinsic diagnostic capabilities. 
+
+3.5 Combining ExPool and MARL 
+
+ExPool provides retrieved “patients-like-me” but does not update parameters; Vanilla MARL up-dates parameters but lacks an explicit mechanism to incorporate similar patients during final risk esti-mation. We unify the two through a leave-one-out cross-retrieval procedure that prevents data leakage and matches training and inference input formats, while injecting retrieval signals into the optimiza-tion. (Figure 2C) For each pi ∈ D tr , we construct a patient-specific dynamic pool E−i = E \{ i} from which we retrieve 
+
+Nk(i) for the manager agent during the MARL roll-out phase. The manager input is augmented with the retrieved patients for prediction, after which the rejection filter in Eq. (10) is applied to obtain the accepted set A loo . Formally, the accepted set is defined as: 
+
+A loo =
+
+n
+
+(i, j ) : R s(j) 
+
+> i
+
+(E−i), y i
+
+ = 1 
+
+o
+
+, (16) where s(j) 
+
+> i
+
+(E−i) denotes the j-th roll-out condi-tioned on neighbours retrieved from E−i. This methodological synthesis yields optimal traces that benefit from the augmented context provided by “patients-like-me” from the dynamic ExPool, thereby generating potentially better training data compared to MARL in isolation. The worker and manager agents were subsequently trained us-ing the standard MARL protocol, while inference was conducted utilizing the standard ExPool RAG methodology on the full ExPool from all training patients. 
+
+4 Experiments 
+
+Dataset We predict first primary lung cancer di-agnoses within a one-year window using an in-house longitudinal EHR dataset. The input Xi com-prises up to five years of EHR history before the index date t⋆i (the completion of a chest radiology exam). Cases and controls are 1:10 matched on index exam type and date. The training set Dtr con-tains 13 , 629 patients. We evaluate on two disjoint, held-out test sets: an overall cohort ( n = 1 , 000 )and a clinically more challenging never-smoker cohort ( n = 835 ). Notably, patients inputs are ex-ceptionally long, with median XML token counts exceeding 60k overall and 80k for never-smokers (Table 3; Appendix A). 
+
+Implementation Details Traj-Evolve uses GPT-OSS-20B (OpenAI et al., 2025) as the base LLM and nomic-embed-text-v1.5 (Nussbaum et al., 2024) for ExPool embeddings. During roll-out, we sample m = 4 traces at temperature τ = 1 .5. Both MARL agents are trained via QLoRA (Dettmers et al., 2023) for one epoch. 
+
+Baselines We compare against five baseline cat-egories (Appendix B.2): (1) clinical risk mod-els (LCRAT (Katki et al., 2016)); (2) supervised ML (Logistic Regression, XGBoost (Chen and Guestrin, 2016)); (3) sequential deep learning (RE-TAIN (Choi et al., 2016), PatientTM (Silva and Matos, 2022)); (4) clinical BERT (Clinical Mod-ernBERT (Lee et al., 2025)); and (5) GPT-OSS-20B-based LLM pipelines (vanilla LLM, RAG, and Traj-CoA (Zeng et al., 2025)). Further details are in Appendix B.2. 
+
+Evaluation For binary risk classification, we re-port AUROC, AUPRC, and F1 as primary metrics, alongside sensitivity, specificity, PPV, and NPV from the predicted risk si and binary target yi. All results are reported as bootstrap means and stan-dard errors over 1, 000 resamples of each test set. 
+
+5 Results 
+
+5.1 Main Results Overall Population As shown in Table 1, Traj-Evolve achieves state-of-the-art discrimination in the overall population. The combined Traj-Evolve (ExPool+MARL) achieves the best AUROC (0.86), AUPRC (0.32), and F1 (0.42). It outperforms the strongest static LLM baseline, Traj-CoA (AUROC 0.81), as well as LCRAT (0.69), XGBoost (0.76), 6Table 1: Model performance comparison on overall population. 
+
+Model Family Model Fine-tuning Data Modalities AUROC AUPRC Sensitivity Specificity PPV NPV F1 
+
+Clinical LCRAT Zero-shot Clinical 0.690 (0.027) 0.169 (0.028) 0.789 (0.137) 0.538 (0.140) 0.154 (0.033) 0.965 (0.014) 0.252 (0.034) ML LR SFT Codes 0.752 (0.027) 0.267 (0.042) 0.705 (0.081) 0.703 (0.074) 0.197 (0.034) 0.960 (0.009) 0.304 (0.036) Xgboost SFT Codes 0.755 (0.027) 0.261 (0.042) 0.713 (0.069) 0.712 (0.057) 0.201 (0.030) 0.962 (0.008) 0.312 (0.034) DL RETAIN SFT Codes 0.699 (0.029) 0.195 (0.032) 0.661 (0.158) 0.654 (0.157) 0.179 (0.056) 0.953 (0.014) 0.268 (0.044) PatientTM SFT Codes, Texts 0.683 (0.028) 0.189 (0.033) 0.710 (0.105) 0.595 (0.105) 0.154 (0.026) 0.955 (0.011) 0.249 (0.029) BERT Clinical ModernBERT SFT All 0.740 (0.027) 0.241 (0.040) 0.674 (0.086) 0.718 (0.077) 0.199 (0.034) 0.957 (0.009) 0.303 (0.036) LLM GPT-OSS-20B Zero-shot All 0.794 (0.024) 0.262 (0.040) 0.734 (0.067) 0.748 (0.062) 0.230 (0.038) 0.966 (0.008) 0.347 (0.041) RAG Zero-shot All 0.806 (0.024) 0.296 (0.047) 0.788 (0.067) 0.712 (0.061) 0.218 (0.036) 0.972 (0.008) 0.339 (0.040) Traj-CoA Zero-shot All 0.814 (0.023) 0.302 (0.059) 0.727 (0.093) 0.767 (0.099) 0.253 (0.053) 0.970 (0.010) 0.371 (0.055) Traj-Evolve (ExPool) Few-shot All 0.837 (0.020) 0.315 (0.042) 0.705 (0.049) 0.805 (0.013) 0.271 (0.030) 0.964 (0.007) 0.391 (0.035) Traj-Evolve (MARL) SFT All 0.843 (0.023) 0.309 (0.042) 0.813 (0.045) 0.798 (0.021) 0.272 (0.032) 0.979 (0.006) 0.408 (0.037) Traj-Evolve (ExPool+MARL) SFT All 0.860 (0.020) 0.323 (0.045) 0.724 (0.086) 0.841 (0.094) 0.293 (0.057) 0.971 (0.009) 0.417 (0.062) 
+
+zero-shot GPT-OSS-20B (0.79), and RAG (0.81). The two self-evolving variants, ExPool (0.84) and MARL (0.84), also outperform all baselines when evaluated independently. These results show that both mechanisms contribute meaningful improve-ments. 
+
+Never-smoker Population Table 2 presents the never-smoker population results. For this co-hort, traditional models degrade sharply (LCRAT 0.61; XGBoost 0.71), reflecting their reliance on smoking-related features. Traj-Evolve remains ro-bust with the ExPool variant (0.82), MARL variant (0.82), and the combined system (AUROC 0.84; AUPRC 0.28; F1 0.31). These results demonstrate that the self-evolving design of Traj-Evolve can effectively adapt to this clinically challenging pop-ulation. 
+
+Reasoning Quality Using a pairwise LLM-as-a-judge protocol similar to Zeng et al. (2026), we compare the final outputs from the static Traj-CoA and our Traj-Evolve system (Figure 3). Traj-Evolve is preferred over Traj-CoA in 69% of overall judg-ments, with consistent wins on detail, clinical reasoning, and temporal coherence rubrics (68%– 73%). This indicates Traj-Evolve’s reasoning qual-ity also improves alongside discrimination. Overall 
+
+> Correctness
+> Detail
+> Reasoning
+> Temporal
+
+Rubric 
+
+0% 
+
+25% 
+
+50% 
+
+75% 
+
+100%   
+
+> Proportion
+> 0.69
+> 0.32
+> 0.69 0.73 0.68
+
+Traj-Evolve Win 
+
+(ExPool+MARL) Traj-CoA Win Tie 
+
+Figure 3: LLM-as-a-judge evaluation compares Traj-Evolve and Traj-CoA. 
+
+5.2 Evolutionary Dynamics of ExPool Retrieval quality improves monotonically with pool size. As ExPool grows from <100 to 5,000 verified patients, average embedding distance be-tween an index patient and its top-k neighbors de-creases (Figure 4A), Spearman correlations on age and predicted risk increase (Figure 4B), and purity by case status, sex, and smoking status rises well above random retrieval baselines (Figure 4C). The pool therefore retrieves progressively more clini-cally relevant neighbors as experience accumulates. 
+
+Optimal k shifts from diversity to specificity. 
+
+Predictive AUROC (Figure 4D) reveals a tradeoff between retrieval diversity and specificity. When ExPool is small, a larger k is best, potentially lever-aging diversity to compensate for sparse coverage; once ExPool matures, a smaller k wins, indicating that dense pools may prefer specificity-driven re-trieval. Across all sizes, the few-shot framework remains above the zero-shot static Traj-CoA base-line. 0 1000 2000 3000 4000 5000                 
+
+> ExPool size
+> 0.80
+> 0.81
+> 0.82
+> 0.83
+> 0.84
+> AUROC
+> k=5
+> k=10
+> k=15 01000 2000 3000 4000 5000
+> ExPool size
+> 0.35
+> 0.45
+> 0.55
+> 0.65
+> Spearman correlation
+> Attribute
+> Age
+> Risk score
+> k
+> 5
+> 10
+> 15 01000 2000 3000 4000 5000
+> ExPool size
+> 0.09
+> 0.11
+> 0.13
+> 0.15
+> Average distance
+> k
+> 5
+> 10
+> 15 01000 2000 3000 4000 5000
+> ExPool size
+> 50
+> 60
+> 70
+> 80
+> 90
+> Purity (%)
+> Attribute
+> Case status
+> Sex
+> Never-smoker
+> k
+> 5
+> 10
+> 15 C
+> AB
+> D
+
+Figure 4: Evolution of the ExPool. As ExPool size increases: A, average distance to retrieved neighbors de-creases; B, index-neighbor Spearman correlations (age, risk score) increase; and C, retrieval purity (case status, sex, never-smoker) improves. Dashed lines in C indi-cate random retrieval baselines. D, AUROC trajectories for k ∈ { 5, 10 , 15 } retrieved patients (mean of 3 seeds). The dashed line denotes the baseline without ExPool (0.814). 
+
+7Table 2: Model performance comparison on never-smoker population                                                                                                                                  
+
+> Model Family Model Fine-tuning Data Modalities AUROC AUPRC Sensitivity Specificity PPV NPV F1
+> Clinical LCRAT Zero-shot Clinical 0.606 (0.046) 0.046 (0.012) 0.726 (0.123) 0.580 (0.108) 0.059 (0.024) 0.985 (0.005) 0.107 (0.031) ML LR SFT Codes 0.678 (0.046) 0.055 (0.013) 0.690 (0.103) 0.685 (0.088) 0.070 (0.017) 0.985 (0.005) 0.127 (0.027) Xgboost SFT Codes 0.706 (0.050) 0.078 (0.022) 0.616 (0.092) 0.819 (0.049) 0.105 (0.026) 0.985 (0.004) 0.178 (0.038) DL RETAIN SFT Codes 0.571 (0.047) 0.045 (0.015) 0.776 (0.160) 0.442 (0.157) 0.047 (0.018) 0.985 (0.007) 0.087 (0.020) PatientTM SFT Codes, Texts 0.623 (0.040) 0.043 (0.009) 0.834 (0.109) 0.468 (0.117) 0.051 (0.010) 0.989 (0.006) 0.096 (0.018) BERT Clinical ModernBERT SFT All 0.755 (0.036) 0.103 (0.037) 0.825 (0.087) 0.640 (0.091) 0.074 (0.017) 0.991 (0.004) 0.134 (0.028) LLM GPT-OSS-20B Zero-shot All 0.755 (0.049) 0.197 (0.065) 0.622 (0.105) 0.823 (0.069) 0.115 (0.044) 0.985 (0.004) 0.190 (0.065) RAG Zero-shot All 0.780 (0.047) 0.185 (0.057) 0.697 (0.125) 0.786 (0.111) 0.120 (0.054) 0.988 (0.005) 0.196 (0.069) Traj-CoA Zero-shot All 0.775 (0.048) 0.227 (0.081) 0.665 (0.127) 0.817 (0.115) 0.136 (0.061) 0.987 (0.005) 0.215 (0.080) Traj-Evolve (ExPool) Few-shot All 0.819 (0.047) 0.269 (0.087) 0.542 (0.105) 0.927 (0.009) 0.194 (0.050) 0.984 (0.005) 0.286 (0.064) Traj-Evolve (MARL) SFT All 0.822 (0.040) 0.259 (0.062) 0.728 (0.084) 0.854 (0.049) 0.158 (0.043) 0.989 (0.004) 0.257 (0.057) Traj-Evolve (ExPool+MARL) SFT All 0.835 (0.048) 0.279 (0.082) 0.680 (0.096) 0.905 (0.011) 0.200 (0.048) 0.988 (0.004) 0.309 (0.057)
+
+5.3 Evolutionary Dynamics of MARL Decoupled training yields asymmetric learning curves. Worker and manager agents both show sharp initial loss decreases followed by stabiliza-tion (Figure 5A). However, the manager loss con-verges quickly, while the worker loss continues to decline through 5,000 training samples. This is con-sistent with the intuition that manager summariza-tion can be easier to internalize than fine-grained, sequential temporal reasoning and collaborative memory distillation across worker agents and the LTM. 
+
+Test AUROC scales with verified experience 
+
+Test AUROC rises from about 0.81 to 0.83 as the MARL training pool grows to 5,000 samples (Fig-ure 5B). The simultaneous decrease of worker loss and continued AUROC gains suggest that optimiz-ing temporal reasoning may bridge the accumula-tion of verified experience and task performance. 0 1,000 2,000 3,000 4,000 5,000       
+
+> Training samples
+> 0.5
+> 1
+> 2
+> 5
+> Training loss (log 10  scale)  Worker agent
+> Manager agent 01000 2000 3000 4000 5000
+> Training samples
+> 0.80
+> 0.81
+> 0.82
+> 0.83
+> Test AUROC AB
+
+Figure 5: Evolving MARL performance during agent training. A, Loss curves for the worker and manager agents across training iterations. B, Model performance (mean of 3 seeds) as the number of training samples increases. 
+
+5.4 Mechanism Analysis ExPool and MARL exert complementary effects on the score distribution. Density plots of Traj-Evolve risk scores against the static Traj-CoA (Fig-ure 6) reveal distinct optimization patterns of the two evolving strategies. ExPool acts primarily on the negative class, pulling control scores downward (improving specificity) at the cost of mildly depress-ing some case scores. MARL acts primarily on am-biguous mid-range cases, lifting them toward high risk estimates (improving sensitivity). Their combi-nation preserves both effects, producing the clean-est separation between cases and controls. This analysis is also consistent with the observed per-formance metrics in Table 1 and Table 2, where Traj-Evolve generally has a higher specificity with ExPool, a higher sensitivity with MARL, and a bal-anced sensitivity and specificity for the combined system. 1 3 5 7 9          
+
+> Traj-CoA predicted risk
+> 1
+> 3
+> 5
+> 7
+> 9
+> Traj-Evolve (ExPool) predicted risk
+> Control
+> Case 13579
+> Traj-CoA predicted risk
+> 1
+> 3
+> 5
+> 7
+> 9
+> Traj-Evolve (ExPool + MARL) predicted risk
+> Control
+> Case 13579
+> Traj-CoA predicted risk
+> 1
+> 3
+> 5
+> 7
+> 9
+> Traj-Evolve (MARL) predicted risk
+> Control
+> Case ABC
+
+Figure 6: Optimization properties of Traj-Evolve’s self-evolving mechanisms. Density scattered plots com-paring the predicted risk scores of Traj-Evolve variants against the static Traj-CoA baseline. Arrows illustrate the strength of how Traj-Evolve changes the scores over Traj-CoA (wider means stronger). Scattered points are presented in a jittered way to facilitate visualization. 
+
+6 Conclusion 
+
+We present Traj-Evolve, a self-evolving multi-agent framework for lung cancer early detection from longitudinal EHRs. By combining non-parametric few-shot retrieval (ExPool) with para-metric reasoning internalization (MARL), Traj-Evolve emulates the continuous learning of expe-rienced clinicians. Traj-Evolve establishes a new state-of-the-art for one-year lung cancer predic-tion and shows particular robustness in challenging subgroups like never-smokers. Furthermore, we demonstrate that ExPool and MARL are highly complementary, improving specificity and sensi-tivity, respectively. Future work will extend this framework to real-world streaming settings with richer reward signals and additional clinical tasks. 8Limitations 
+
+First, our evaluation was conducted within a single-institution retrospective case-control design. Prospective and multi-institutional validation will be essential to characterize calibration, generaliz-ability across health systems and patient popula-tions, and performance under genuine deployment prevalence. Second, the self-evolving mechanisms depend on ground-truth diagnostic labels. In clini-cal practice, definitive labels for incident lung can-cer may take months to years to materialize and are subject to verification noise, loss to follow-up, and ascertainment bias. The current frame-work also assumes that label-conditioned rejection sampling reliably identifies the optimal reasoning trace, yet a roll-out with the correct final predic-tion does not guarantee correct intermediate rea-soning. Incorporating process-level reward signals (Zhang et al., 2025b) may mitigate these issues. Finally, this paper focused on one-year incident lung cancer prediction with a five-year look-back window. Extending Traj-Evolve to other outcomes, longer or shorter prediction horizons, and contin-uously updating patient trajectories in real-world streaming settings will be necessary to establish the framework as a general-purpose paradigm for self-evolving longitudinal EHR modeling. 
+
+Ethical Considerations 
+
+We receive approval from the Institutional Re-view Board (IRB) to access the patient data. All code and data are stored and executed on HIPAA-compliant servers. 
+
+Acknowledgement 
+
+This work was supported by the National Insti-tutes of Health (NIH)—National Cancer Institute (Grant Nos. 1R01CA248422-01A1). Additional support was provided by the NIH under award num-ber R35CA274442 to R.E. and the Rosalie and Harold Rea Brown Endowed Chair at Fred Hutch Cancer Center to R.E. 
+
+References 
+
+Mohammad Almansoori, Komal Kumar, and Hisham Cholakkal. 2025. Medagentsim: Self-evolving multi-agent simulations for realistic clinical interac-tions. In International Conference on Medical Image Computing and Computer-Assisted Intervention ,pages 362–372. Springer. Kai Chen, Xinfeng Li, Tianpei Yang, Hewei Wang, Wei Dong, and Yang Gao. 2025. Mdteamgpt: A self-evolving llm-based multi-agent framework for multi-disciplinary team medical consultation. arXiv preprint arXiv:2503.13856. Tianqi Chen and Carlos Guestrin. 2016. XGBoost: A Scalable Tree Boosting System. In Proceedings of the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining , pages 785–794. ArXiv:1603.02754 [cs]. Edward Choi, Mohammad Taha Bahadori, Jimeng Sun, Joshua Kulas, Andy Schuetz, and Walter Stewart. 2016. Retain: An interpretable predictive model for healthcare using reverse time attention mechanism. Advances in neural information processing systems ,29. Hejie Cui, Alyssa Unell, Bowen Chen, Jason Alan Fries, Emily Alsentzer, Sanmi Koyejo, and Nigam H Shah. 2025. Timer: Temporal instruction modeling and evaluation for longitudinal clinical records. npj Digital Medicine, 8(1):577. Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and Luke Zettlemoyer. 2023. QLoRA: Efficient Finetuning of Quantized LLMs. arXiv preprint .ArXiv:2305.14314 [cs]. Hanze Dong, Wei Xiong, Deepanshu Goyal, Yihan Zhang, Winnie Chow, Rui Pan, Shizhe Diao, Jipeng Zhang, Kashun Shum, and Tong Zhang. 2023. Raft: Reward ranked finetuning for generative foundation model alignment. arXiv preprint arXiv:2304.06767. Monica E D’Arcy, Ruth M Pfeiffer, Marie C Bradley, Phuc H Hoang, Thi-Van-Trinh Tran, John PMcElderry, Mengying Li, Michael Kebede, Curt T DellaValle, Sara Rivas, and 1 others. 2025. Inflamma-tory diseases and risk of lung cancer among individu-als who have never smoked. Nature communications, 16(1):5095. Kevin W Eva. 2005. What every teacher needs to know about clinical reasoning. Medical education, 39(1):98–106. Apar Kishor Ganti, Alyssa B Klein, Ion Cotarla, Brian Seal, and Engels Chou. 2021. Update of incidence, prevalence, survival, and initial treatment in patients with non–small cell lung cancer in the us. JAMA oncology, 7(12):1824–1832. Huan-ang Gao, Jiayi Geng, Wenyue Hua, Mengkang Hu, Xinzhe Juan, Hongzhang Liu, Shilong Liu, Jiahao Qiu, Xuan Qi, Yiran Wu, and 1 others. 2025a. Asurvey of self-evolving agents: What, when, how, and where to evolve on the path to artificial super intelligence. arXiv preprint arXiv:2507.21046. Jifan Gao, Mahmudur Rahman, John Caskey, Made-line Oguss, Ann O’Rourke, Randall Brown, Anne Stey, Anoop Mayampurath, Matthew M. Churpek, Guanhua Chen, and Majid Afshar. 2025b. MoMA: 
+
+9a mixture-of-multimodal-agents architecture for en-hancing clinical prediction modelling. npj Digital Medicine, 9(1):46. Yufei He, Juncheng Liu, Zhiyuan Hu, Yulin Chen, Yue Liu, Yuan Sui, Yibo Li, Nuo Chen, Jun Hu, Bryan Hooi, Xinxing Xu, and Jiang Bian. 2026. EvoClin-ician: A Self-Evolving Agent for Multi-Turn Medi-cal Diagnosis via Test-Time Evolutionary Learning. arXiv preprint. ArXiv:2601.22964 [cs.AI]. Peter B Jensen, Lars J Jensen, and Søren Brunak. 2012. Mining electronic health records: towards better research applications and clinical care. Nature Reviews Genetics, 13(6):395–405. Hormuzd A Katki, Stephanie A Kovalchik, Christine D Berg, Li C Cheung, and Anil K Chaturvedi. 2016. Development and validation of risk models to select ever-smokers for ct lung cancer screening. Jama ,315(21):2300–2311. Ellen Kim, Samuel M Rubinstein, Kevin T Nead, An-drzej P Wojcieszynski, Peter E Gabriel, and Jeremy L Warner. 2019. The evolving use of electronic health records (ehr) for research. In Seminars in radiation oncology, volume 29, pages 354–361. Elsevier. Maya Kruse, Shiyue Hu, Nicholas Derby, Yifu Wu, Samantha Stonbraker, Bingsheng Yao, Dakuo Wang, Elizabeth Goldberg, and Yanjun Gao. 2025. Large language models with temporal reasoning for lon-gitudinal clinical summarization and prediction. In Findings of ACL. EMNLP. Conference on Empirical Methods in Natural Language Processing , volume 2025, pages 20715–20735. Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, and Ion Stoica. 2023. Ef-ficient Memory Management for Large Language Model Serving with PagedAttention. arXiv preprint. ArXiv:2309.06180 [cs.LG]. Harriet L Lancaster, Marjolein A Heuvelmans, and Matthijs Oudkerk. 2022. Low-dose computed to-mography lung cancer screening: Clinical evidence and implementation research. Journal of internal medicine, 292(1):68–80. Simon A. Lee, Anthony Wu, and Jeffrey N. Chiang. 2025. Clinical ModernBERT: An efficient and long context encoder for biomedical text. arXiv preprint. ArXiv:2504.03964 [cs]. Dongchen Li, Jitao Liang, Wei Li, Xiaoyu Wang, Long-bing Cao, and Kun Yu. 2025a. CliCARE: Ground-ing Large Language Models in Clinical Guidelines for Decision Support over Longitudinal Cancer Elec-tronic Health Records. Junkai Li, Yunghwei Lai, Weitao Li, Jingyi Ren, Meng Zhang, Xinhui Kang, Siyu Wang, Peng Li, Ya-Qin Zhang, Weizhi Ma, and 1 others. 2024. Agent hospi-tal: A simulacrum of hospital with evolvable medical agents. arXiv preprint arXiv:2405.02957. Rumeng Li, Xun Wang, Dan Berlowitz, Jesse Mez, Honghuang Lin, and Hong Yu. 2025b. CARE-AD: a multi-agent large language model framework for Alzheimer’s disease prediction using longitudinal clinical notes. npj Digital Medicine, 8(1):541. Junwei Liao, Muning Wen, Jun Wang, and Weinan Zhang. 2025. Marft: Multi-agent reinforcement fine-tuning. arXiv preprint arXiv:2504.16129. Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paran-jape, Michele Bevilacqua, Fabio Petroni, and Percy Liang. 2024. Lost in the Middle: How Language Models Use Long Contexts. Transactions of the Association for Computational Linguistics , 12:157– 173. Place: Cambridge, MA. Hao Ma, Tianyi Hu, Zhiqiang Pu, Boyin Liu, Xiaolin Ai, Yanyan Liang, and Min Chen. 2024. Coevolv-ing with the other you: Fine-tuning llm with se-quential cooperative multi-agent reinforcement learn-ing. Advances in Neural Information Processing Systems, 37:15497–15525. Nikita Makarov, Maria Bordukova, Papichaya Queng-daeng, Daniel Garger, Raul Rodriguez-Esteban, Fabian Schmich, and Michael P Menden. 2025. Large language models forecast patient health trajec-tories enabling digital twins. npj Digital Medicine, 8(1):588. Zach Nussbaum, John X. Morris, Brandon Duderstadt, and Andriy Mulyar. 2024. Nomic Embed: Training a Reproducible Long Context Text Embedder. OpenAI, Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Altman, Andy Applebaum, Edwin Arbus, Rahul K. Arora, Yu Bai, Bowen Baker, Haiming Bao, Boaz Barak, Ally Bennett, Tyler Bertao, Nivedita Brett, Eugene Brevdo, Greg Brockman, Sebastien Bubeck, Che Chang, and 107 others. 2025. gpt-oss-120b & gpt-oss-20b Model Card. arXiv preprint .ArXiv:2508.10925 [cs]. Vimla L Patel, José F Arocha, and Jiajie Zhang. 2005. Thinking and reasoning in medicine. The Cambridge handbook of thinking and reasoning, 14(727-750):1. Chantal Pellegrini, Ege Özsoy, David Bani-Harouni, Matthias Keicher, and Nassir Navab. 2025. From ehrs to patient pathways: Scalable modeling of longi-tudinal health trajectories with llms. arXiv preprint arXiv:2506.04831. Zhan Qu and Michael Färber. 2026. TRACE: Tem-poral Reasoning via Agentic Context Evolution for Streaming Electronic Health Records (EHRs). Marcus D. Ruopp, Neil J. Perkins, Brian W. Whitcomb, and Enrique F. Schisterman. 2008. Youden Index and Optimal Cut-Point Estimated from Observations Affected by a Lower Limit of Detection. Biometrical journal. Biometrische Zeitschrift, 50(3):419–430. 
+
+10 Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. 2023. Re-flexion: Language agents with verbal reinforcement learning. Advances in neural information processing systems, 36:8634–8652. João Figueira Silva and Sérgio Matos. 2022. Modelling patient trajectories using multimodal information. Journal of Biomedical Informatics, 134:104195. Hyuna Sung, Jacques Ferlay, Rebecca L Siegel, Mathieu Laversanne, Isabelle Soerjomataram, Ahmedin Je-mal, and Freddie Bray. 2021. Global cancer statistics 2020: Globocan estimates of incidence and mortality worldwide for 36 cancers in 185 countries. CA: a cancer journal for clinicians, 71(3):209–249. Xiangru Tang, Tianrui Qin, Tianhao Peng, Ziyang Zhou, Daniel Shao, Tingting Du, Xinming Wei, Peng Xia, Fang Wu, He Zhu, and 1 others. 2025. Agent kb: Leveraging cross-domain experience for agentic prob-lem solving. arXiv preprint arXiv:2507.06229. Zihan Wang, Kangrui Wang, Qineng Wang, Pingyue Zhang, Linjie Li, Zhengyuan Yang, Xing Jin, Ke-fan Yu, Minh Nhat Nguyen, Licheng Liu, Eli Got-tlieb, Yiping Lu, Kyunghyun Cho, Jiajun Wu, Li Fei-Fei, Lijuan Wang, Yejin Choi, and Manling Li. 2025. RAGEN: Understanding Self-Evolution in LLM Agents via Multi-Turn Reinforcement Learn-ing. arXiv preprint. ArXiv:2504.20073 [cs.LG]. Rong Wu, Xiaoman Wang, Jianbiao Mei, Pinlong Cai, Daocheng Fu, Cheng Yang, Licheng Wen, Xue-meng Yang, Yufan Shen, Yuxin Wang, and 1 others. 2025. Evolver: Self-evolving llm agents through an experience-driven lifecycle. arXiv preprint arXiv:2510.16079. Wei Xiong, Jiarui Yao, Yuhui Xu, Bo Pang, Lei Wang, Doyen Sahoo, Junnan Li, Nan Jiang, Tong Zhang, Caiming Xiong, and 1 others. 2025. A minimalist approach to llm reasoning: from rejection sampling to reinforce. arXiv preprint arXiv:2504.11343. Zhentao Xu, Mark Jerome Cruz, Matthew Guevara, Tie Wang, Manasi Deshpande, Xiaofeng Wang, and Zheng Li. 2024. Retrieval-Augmented Genera-tion with Knowledge Graphs for Customer Service Question Answering. In Proceedings of the 47th International ACM SIGIR Conference on Research and Development in Information Retrieval , pages 2905–2909. ArXiv:2404.17723 [cs]. Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah D. Goodman. 2022. STaR: Bootstrapping Reasoning With Reasoning. arXiv preprint. ArXiv:2203.14465 [cs.LG]. Sihang Zeng, Yujuan Fu, Sitong Zhou, Zixuan Yu, Lucas Jing Liu, Jun Wen, Matthew Thompson, Ruth Etzioni, and Meliha Yetisgen. 2025. Traj-coa: Patient trajectory modeling via chain-of-agents for lung cancer risk prediction. arXiv preprint arXiv:2510.10454. Sihang Zeng, Young Won Kim, Wilson Lau, Ehsan Alipour, Ruth Etzioni, Meliha Yetisgen, and Anand Oka. 2026. Trajonco: a multi-agent frame-work for temporal reasoning over longitudinal ehr for multi-cancer early detection. arXiv preprint arXiv:2604.10386. Kaiyan Zhang, Kai Tian, Runze Liu, Sihang Zeng, Xuekai Zhu, Guoli Jia, Yuchen Fan, Xingtai Lv, Yuxin Zuo, Che Jiang, and 1 others. 2025a. Marti: A framework for multi-agent llm sys-tems reinforced training and inference. In The Fourteenth International Conference on Learning Representations. Kaiyan Zhang, Yuxin Zuo, Bingxiang He, Youbang Sun, Runze Liu, Che Jiang, Yuchen Fan, Kai Tian, Guoli Jia, Pengfei Li, Yu Fu, Xingtai Lv, Yuchen Zhang, Sihang Zeng, Shang Qu, Haozhan Li, Shijie Wang, Yuru Wang, Xinwei Long, and 20 others. 2025b. A Survey of Reinforcement Learning for Large Rea-soning Models. arXiv preprint. ArXiv:2509.08827 [cs]. Yusen Zhang, Ruoxi Sun, Yanfei Chen, Tomas Pfis-ter, Rui Zhang, and Sercan Ö Arik. 2024. Chain of Agents: Large Language Models Collabo-rating on Long-Context Tasks. arXiv preprint .ArXiv:2406.02818 [cs]. Zeyu Zhang, Quanyu Dai, Xiaohe Bo, Chen Ma, Rui Li, Xu Chen, Jieming Zhu, Zhenhua Dong, and Ji-Rong Wen. 2025c. A survey on the memory mech-anism of large language model-based agents. ACM Transactions on Information Systems, 43(6):1–47. Andrew Zhao, Daniel Huang, Quentin Xu, Matthieu Lin, Yong-Jin Liu, and Gao Huang. 2024. Expel: Llm agents are experiential learners. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 38, pages 19632–19642. Huichi Zhou, Yihang Chen, Siyuan Guo, Xue Yan, Kin Hei Lee, Zihan Wang, Ka Yiu Lee, Guchun Zhang, Kun Shao, Linyi Yang, and 1 others. 2025a. Memento: Fine-tuning llm agents without fine-tuning llms. arXiv preprint arXiv:2508.16153. Rongjia Zhou, Chengzhuo Li, Carl Yang, and Jiaying Lu. 2025b. ClinNoteAgents: An LLM Multi-Agent System for Predicting and Interpreting Heart Failure 30-Day Readmission from Clinical Notes. Sitong Zhou, Meliha Yetisgen, and Mari Ostendorf. 2026. RadTimeline: Timeline Summarization for Longitudinal Radiological Lung Findings. Yuxin Zuo, Kaiyan Zhang, Shang Qu, Li Sheng, Xuekai Zhu, Biqing Qi, Youbang Sun, Ganqu Cui, Ning Ding, and Bowen Zhou. 2025. TTRL: Test-Time Reinforcement Learning. arXiv preprint. ArXiv:2504.16084 [cs]. 
+
+11 A Dataset Description 
+
+This retrospective case-control study utilized an in-house longitudinal dataset to predict first primary lung cancer diagnoses within a one-year prediction period (Zhou et al., 2026). The index date for pre-diction of both cases and controls was defined as the completion time of a qualifying chest-related radiology exam (chest CT, abdomen CT, or chest X-ray). To model patient trajectories, up to five years of EHR history prior to the index date was utilized. This multimodal EHR data encompasses both structured records (diagnosis, medication, lab, vital, and procedure) and unstructured text (clinical notes and radiology reports). Eligible patients were over 40 years old. Cases were defined as individuals with a valid primary lung cancer diagnosis, excluding those with prior cancers. To ensure predictions informed early de-tection and excluded active diagnostic workups, the index exam for cases was required to be completed between two months and one year prior to diagno-sis. Controls were defined as individuals with no cancer registry records of any cancer type; their index exams were selected to guarantee at least three years of cancer-free follow-up. To ensure longitudinal data, included patients should have an active clinical encounter history exceeding 120 days within the prior five years. Controls were matched to cases based on the index exam type and date (overlapping within a three-month window) using a 1:10 case-to-control matching schema. The matched cohort was randomly partitioned into mutually exclusive training (n=13,629) and val-idation (n=300) sets, with the remainder assigned to a held-out test set. To assess model performance and generalizability, we constructed two evaluation cohorts via independent random sampling from this test set: an overall cohort of 1000 patients (90 cases, 910 controls) encompassing all smoking sta-tuses, and a never-smoker cohort of 835 patients (27 cases, 808 controls). Baseline demographic, clinical, and lifestyle characteristics of the two test cohorts are summa-rized in Table 3. For the overall population, patient trajectories spanned a median of 4.5 years for cases and 3.7 years for controls, and contained tens to hundreds of dated entries drawn from diagnoses, procedures, laboratories, medications, vital signs, and free-text notes. The per-patient input was also exceptionally long, with median XML token counts exceeding 60,000 in the overall sample and 80,000 in the never-smoker cases. Time-aware chunking reduced the mean per-chunk token count to approxi-mately 16,000, allowing Traj-Evolve to process the full trajectory effectively while preserving chronol-ogy. 
+
+B Experimental Settings 
+
+B.1 Implementation Details 
+
+We serve all LLMs using vLLM 0.19.1 (Kwon et al., 2023) and implement MARL with QLoRA (Dettmers et al., 2023) via the unsloth library (v2026.2.1) 1 on 4 GPUs. Both the worker and man-ager agents share the same training configuration: LoRA rank and α are both set to 32, with gradient checkpointing enabled to reduce memory overhead. We use a per-device batch size of 1 with gradient accumulation over 8 steps, yielding an effective batch size of 8 per device. Models are trained for a single epoch with a linear learning rate schedule, a peak learning rate of 2 × 10 −4, 5 warmup steps, and weight decay of 0.01. Optimization is per-formed using 8-bit AdamW. For LLM-as-a-judge evaluation, we use GPT-OSS-120B as the judge model. 
+
+B.2 Baselines 
+
+We compare against baselines from five categories: (i) a clinical risk model, LCRAT (Katki et al., 2016); (ii) supervised machine learning models, lo-gistic regression and XGBoost (Chen and Guestrin, 2016); (iii) sequential deep learning models, RE-TAIN (Choi et al., 2016) and PatientTM (Silva and Matos, 2022); (iv) a clinical BERT encoder, Clini-cal ModernBERT (Lee et al., 2025); and (v) LLM-based pipelines built on GPT-OSS-20B (OpenAI et al., 2025) with or without long-context model-ing strategies, including vanilla single-agent LLM, RAG, and Traj-CoA (Zeng et al., 2025). To ensure feasible and fair comparisons, input data modalities were tailored to each model’s spe-cific architectural requirements. Standard ML mod-els utilized structured medical codes, whereas Pa-tientTM incorporated both codes and unstructured clinical texts (i.e., clinical notes and radiology re-ports). For BERT- and LLM-based architectures, we employed the unified XML-formatted EHR rep-resentation that preserved multimodal information, including codes, free text, and numerical laboratory values. For long sequences exceeding model con-
+
+> 1https://unsloth.ai/
+
+12 Table 3: Baseline characteristics of cases and controls in the overall and never-smoker cohorts. 
+
+Overall sample Never-smoker sample Characteristic Cases (n=90) Controls (n=910) Cases (n=27) Controls (n=808) 
+
+Demographics 
+
+Age at index date, years, median (IQR) 68 (60–76) 68 (59–78) 74 (64–78) 68 (58–80) Sex, n (%) Female 49 (54.4) 423 (46.5) 24 (88.9) 463 (57.3) Male 41 (45.6) 487 (53.5) 3 (11.1) 345 (42.7) Race, n (%) White 74 (82.2) 657 (72.2) 21 (77.8) 572 (70.8) Black or African American 8 (8.9) 102 (11.2) 0 (0.0) 80 (9.9) Asian 5 (5.6) 77 (8.5) 6 (22.2) 99 (12.3) Other 1 (1.1) 28 (3.1) 0 (0.0) 22 (2.7) Unknown 2 (2.2) 46 (5.1) 0 (0.0) 35 (4.3) Ethnicity, n (%) Hispanic or Latino 4 (4.4) 48 (5.3) 4 (14.8) 47 (5.8) Not Hispanic or Latino 80 (88.9) 758 (83.3) 23 (85.2) 722 (89.4) Unknown 6 (6.7) 104 (11.4) 0 (0.0) 39 (4.8) 
+
+Clinical index and EHR history 
+
+Index year, median (IQR) 2016 (2014–2018) 2016 (2014–2018) 2018 (2016–2018) 2017 (2015–2018) EHR look-back duration, years, median (IQR) 4.5 (2.0–4.9) 3.7 (1.1–4.9) 4.2 (2.4–4.8) 4.5 (2.8–4.9) Time to event, years, median (IQR) 0.5 (0.4–0.7) — 0.5 (0.3–0.8) —XML token count, median (IQR) 61 678 (26 535–151 282) 51 904 (18 429–125 871) 84 406 (46 292–131 768) 75 070 (35 060–153 634) Distinct dated EHR entries, median (IQR) 44 (19–113) 39 (12–95) 74 (30–102) 58 (28–114) Index exam modality, n (%) Computed radiography (CR) 45 (50.0) 516 (56.7) 15 (55.6) 493 (61.0) Computed tomography (CT) 45 (50.0) 394 (43.3) 12 (44.4) 315 (39.0) Index exam body site, n (%) Chest 59 (65.6) 548 (60.2) 18 (66.7) 550 (68.1) Abdomen/pelvis 8 (8.9) 135 (14.8) 5 (18.5) 140 (17.3) Extremity 5 (5.6) 95 (10.4) 2 (7.4) 49 (6.1) Other 0 (0.0) 4 (0.4) 0 (0.0) 4 (0.5) Missing 18 (20.0) 128 (14.1) 2 (7.4) 65 (8.0) Low-dose CT lung cancer screening, n (%) 1 (1.1) 18 (2.0) 0 (0.0) 0 (0.0) 
+
+Clinical text and structured data volume, median (IQR) 
+
+Epic notes 10 (0–50) 6 (0–28) 32 (7–58) 20 (8–45) ORCA notes 2 (0–12) 4 (0–13) 0 (0–10) 2 (0–12) Radiology reports 10 (5–19) 8 (3–14) 9 (6–18) 8 (3–15) Diagnosis entries 144 (53–340) 118 (34–346) 283 (115–377) 202 (86–451) Medication entries 52 (9–200) 59 (10–164) 77 (37–173) 72 (23–184) Procedure entries 118 (37–220) 98 (34–221) 100 (72–170) 124 (52–272) Laboratory entries 167 (54–538) 177 (49–484) 293 (160–627) 230 (93–577) Vital-sign entries 28 (0–118) 18 (0–83) 81 (22–172) 61 (24–135) 
+
+Lifestyle factors 
+
+Smoking status, n (%) Current 16 (17.8) 82 (9.0) 0 (0.0) 0 (0.0) Former 29 (32.2) 180 (19.8) 0 (0.0) 0 (0.0) Never 11 (12.2) 289 (31.8) 27 (100.0) 808 (100.0) Passive exposure only 0 (0.0) 2 (0.2) 0 (0.0) 0 (0.0) Unknown 34 (37.8) 357 (39.2) 0 (0.0) 0 (0.0) Alcohol use, n (%) Current use 16 (17.8) 219 (24.1) 10 (37.0) 285 (35.3) No current use 30 (33.3) 260 (28.6) 11 (40.7) 426 (52.7) Unknown 44 (48.9) 431 (47.4) 6 (22.2) 97 (12.0) 
+
+13 text limits, left-truncation was applied to prioritize the most recent clinical records. Supervised baselines, Clinical ModernBERT, and the MARL-optimized Traj-Evolve were trained on the same training set. In contrast, the ExPool variant of Traj-Evolve operated in a few-shot man-ner, dynamically retrieving “patients-like-me” from the ExPool constructed using the training set, while zero-shot baselines operated without access to the training set. Optimal hyperparameter configura-tions for all trained baselines were determined us-ing the validation set. During evaluation, the thresh-old that maximizes Youden’s J-index (Ruopp et al., 2008) was used. 
+
+C Case Study 
+
+To qualitatively demonstrate the nuanced clinical reasoning capabilities enabled by the ExPool, we examined the diagnostic trajectory of a 50-year-old Asian female never-smoker with a history of oc-cupational asbestos exposure. The index patient presented with a normal pulmonary function test (PFT) and cough in 2015, formally documented as-bestos exposure in 2016, and the discovery of a 16 mm non-calcified left upper lobe (LUL) nodule in 2018, with normal PFT and absence of pulmonary symptoms. She was subsequently diagnosed with lung cancer. Traj-Evolve used information from two of the re-trieved 10 patients from ExPool. Patient 8 was a 55-year-old woman who shared documented asbestos exposure and progressive pulmonary fibrosis, but lacked a discrete mass and remained cancer-free after 3 years. Patient 10 was a 57-year-old Asian fe-male never-smoker who presented with an 18 mm LUL mass and was confirmed to have lung cancer within 6 months. In its generated reasoning rationale, Traj-Evolve explicitly estimated the index patient’s risk by com-paring her longitudinal trajectory to these retrieved cohorts. The manager agent identified that the index patient “sits biologically between these ex-tremes”, correctly weighing the mitigating factor of normal pulmonary function against the high-risk modifiers of progressive environmental carcinogen exposure and a suspicious nodule. The system as-signed a risk score of 7/10. This case exemplifies how the incorporation of verified clinical experi-ence enables Traj-Evolve to execute robust, com-parative clinical judgment in atypical and highly challenging clinical presentations. 
+
+D Prompts 
+
+We follow the same prompt template in Traj-CoA (Zeng et al., 2025) for Traj-Evolve without ExPool. With ExPool, the manager agent’s system prompt and user prompt are shown in Table 4 and 5. 14 −8 −6 −4 −2 0
+
+UMAP 1 
+
+−3 
+
+−2 
+
+−1 
+
+0
+
+1
+
+2
+
+3
+
+4
+
+5
+
+> UMAP 2
+
+Local neighborhood 
+
+Case-study cohort 
+
+Index patient 
+
+Retrieved patients (n=10) 
+
+Index patient 
+
+1
+
+5
+
+10 
+
+> Risk score
+
+Index Patient 
+
+P10 
+
+P8 
+
+50y Asian woman; Never-smoker; Occupational asbestos exposure 
+
+... (1) occupational asbestos exposure, (2) documented pulmonary fibrosis, 
+
+and (3) a 1.6 cm non-calcified pulmonary nodule ... The lack of smoking is 
+
+a mitigating factor but does not eliminate the risk conferred by environmental 
+
+arcinogen exposure ... patient 8 demonstrated a high risk score of 8 in the 
+
+setting of progressive asbestos-related fibrosis without a discrete nodule, 
+
+while patient 10 reached a high risk score of 9 mainly due to an 18 mm 
+
+suspicious nodule. Our patient ... sits biologically between these extremes .
+
+Current normal PFTs and the absence of symptoms somewhat dampen 
+
+urgency, yet the known risk modifiers warrant a moderate-to-high one-year 
+
+risk estimate ... 
+
+Cough; normal PFT; 
+
+never smoker 
+
+2015-03 
+
+Asbestos 
+
+documented 
+
+2016-04 
+
+16mm non-calcified 
+
+LUL nodule, pulmonary 
+
+fibrosis, normal PFT 
+
+2018-06 
+
+Chest X-ray 
+
+Reasoning 
+
+Prediction: 7/10 Actual: lung cancer 
+
+Retrieved Patient 8 
+
+55y woman; Smoking status not documented; Asbestos exposure 
+
+... the patient has documented long-term occupational asbestos exposure with 
+
+the evolution of asbestosis to pulmonary fibrosis and progressive interstitial 
+
+disease ... While imaging has yet to reveal a discrete mass, the extent of fibrotic 
+
+changes, worsening radiographic honeycombing, and sustained cough indicate 
+
+a progressive underlying pathology ... 
+
+Asbestosis; 
+
+chronic cough 
+
+2005-03 
+
+Pulmonary 
+
+fibrosis 
+
+2005-05 
+
+Progressive interstitial 
+
+disease; no masses noted 
+
+2009-12 
+
+High-resolution CT 
+
+Reasoning 
+
+Shared asbestos 
+
+exposure and 
+
+fibrosis signal 
+
+Shared nodule-driven 
+
+signal 
+
+Prediction: 8/10 Actual: no lung cancer in 3y 
+
+Retrieved Patient 10 
+
+57y Asian woman; Never smoker 
+
+... suspicious 18 mm pulnomary nodule detected on CT ... likely malignant. In the 
+
+context of a non-smoker and an otherwise unremarkable pulmonary history ... Other 
+
+potential modifiers ... do not counterbalance the strong imaging evidence ... the 
+
+probability of developing clinically confirmed lung cancer within one year is placed 
+
+very high ... 
+
+Never-smoker 
+
+confirmed 
+
+2013-10 
+
+18 mm LUL mass 
+
+2013-11 
+
+Confirmed 
+
+lung cancer diagnosis 
+
+2014-04 
+
+Chest CT (non-contrast) 
+
+Reasoning 
+
+Prediction: 9/10 Actual: diagnosis at 6 months Figure 7: Case study demonstrating Traj-Evolve (ExPool+MARL)’s reasoning for a never-smoker patient. A UMAP projection maps the local semantic neighborhood of the index patient (star) alongside retrieved historical cases (diamonds). The right panel demonstrates how Traj-Evolve balances the shared signals from retrieved patients and the index patient’s own characteristics. 
+
+15 Table 4: System prompt for the manager agent with ExPool (Patients-Like-Me retrieval). 
+
+MANAGER AGENT SYSTEM PROMPT WITH EXPOOL 
+
+You are a senior clinical AI expert specializing in longitudinal lung cancer risk analysis. You are answering the question of "How likely is this patient to develop lung cancer within one year?" based on the comprehensive outputs from multiple worker agents that have processed a patient’s EHR data chronologically. 
+
+Task: Synthesize the outputs from the last worker agent and the universal memory of all lung cancer related events to provide a final, comprehensive lung cancer risk assessment and a narrative of the patient’s risk evolution. You should filter out any irrelevant information and focus solely on the clinical aspects that pertain to lung cancer risk assessment. 
+
+Input: 
+
+- final_worker_outputs : A JSON object, which is the output from the last worker agent that has processed a patient’s EHR data chronologically. This object represents the patient’s entire available medical history summarized by the worker agents. - universal_memory_events : A list of all lung cancer related events from the universal memory, providing complete historical context across all processed chunks. - patients_like_me : A list of similar patients retrieved from historical records. Each entry contains a clinical summary, the model’s previous prediction, and the actual diagnosis outcome. Important: These reference cases are provided to help you learn from past experience—both successes and failures—but they may or may not be relevant to the current patient. 
+
+Instructions: 
+
+1. Synthesize Temporal Trends: Review the sequence of outputs and the complete universal memory. Create a concise narrative that describes the patient’s clinical journey and the evolution of their lung cancer related events over time. Highlight key events or changes that significantly impacted their risk profile. 2. Final Lung Cancer Related Events Assessment: Consolidate all identified lung cancer related events from the universal memory and worker outputs into a final, comprehensive list. Ensure no events are duplicated and all are properly chronologically ordered. 3. Learn from Similar Patients (Patients-Like-Me): Critically evaluate each retrieved similar patient case: - Assess Relevance: Determine whether each case is truly comparable to the current patient based on demographics, clinical presentation, risk factors, and disease trajectory. Some cases may appear similar but differ in critical ways. - Learn from Correct Predictions: When the model’s prediction matched the actual outcome, identify what clinical reasoning led to the correct assessment. - Learn from Incorrect Predictions: When the model’s prediction was wrong, analyze what was missed or overweighted. Use these as cautionary examples to avoid similar errors. - Selective Reference: You are NOT required to use all or any of these cases. Only reference those that genuinely inform your reasoning. Explicitly state if none are sufficiently relevant. - Caution: Avoid just averaging the risk assessments of the similar patients. Instead, use the information from the similar patients to inform your reasoning. 4. Assess Final Lung Cancer Risk: Provide a final lung cancer risk assessment, from 1 to 10, where 1 is the lowest risk and 10 is the highest risk. 5. Provide Comprehensive Reasoning: Justify your final risk assessment by explaining how the interplay of all lung cancer related events from the universal memory and their temporal evolution contributes to the patient’s overall risk. If you referenced any similar patient cases, briefly explain how they informed your decision. This should be your most detailed and conclusive reasoning. 
+
+Output Format: 
+
+Your output must be a single, easily parsable JSON object with the following keys: - risk_evolution_summary : A string containing the narrative of the patient’s clinical journey and risk evolution. - final_lung_cancer_related_events : A list of strings containing all unique, consolidated lung cancer related events from the universal memory. - final_risk_assessment : A JSON object for the final risk level for lung cancer diagnosis within 1 year (1 to 10, where 1 is the lowest risk and 10 is the highest risk). - risk_level : An integer from 1 to 10, where 1 is the lowest risk and 10 is the highest risk. - reasoning : A string providing a comprehensive justification for the final risk assessment, including any insights drawn from similar patient cases. ONLY output the JSON object without any additional text or formatting. Ensure that the JSON is valid and can be parsed easily. 
+
+16 Table 5: User prompt for the manager agent with ExPool. 
+
+MANAGER AGENT USER PROMPT WITH EXPOOL 
+
+All Worker Agent Outputs: 
+
+<final_worker_outputs> 
+
+{final_worker_outputs }
+
+</final_worker_outputs> 
+
+Universal Memory Events (All Events): 
+
+<universal_memory_events> 
+
+{universal_memory_events }
+
+</universal_memory_events> 
+
+Similar Patients from Historical Records (Patients-Like-Me): 
+
+<patients_like_me> 
+
+{patients_like_me }
+
+</patients_like_me> 
+
+Please provide the final risk assessment and narrative summary in JSON format. 
+
+17
