@@ -1,0 +1,693 @@
+Title: Symb-xMIL: Symbolic Explanations for Multiple Instance Learning in Digital Pathology
+
+URL Source: https://arxiv.org/pdf/2606.06224v1
+
+Published Time: Fri, 05 Jun 2026 01:16:21 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# Symb-xMIL: Symbolic Explanations for Multiple Instance Learning in Digital Pathology 
+
+Yanqing Luo 1,2 Julius Hense 1,2 Niklas Prenißl 3,4
+
+Andreas Mock 5,6,7 Klaus-Robert Müller 1,2,8,9
+
+Thomas Schnake 10 ,11 ,12 ,† Mina Jamshidi Idaji 1,2,†
+
+> 1
+
+Berlin Institute for the Foundations of Learning and Data, Berlin, Germany 
+
+> 2
+
+Machine Learning Group, Technische Universität Berlin, Berlin, Germany 
+
+> 3
+
+Institute of Pathology, Charité Universitätsmedizin, Berlin, Germany 
+
+> 4
+
+Berlin Institute of Health at Charité – Universitätsmedizin Berlin, BIH Biomedical Innovation Academy, BIH Charité Digital Clinician Scientist Program, Berlin, Germany 
+
+> 5
+
+Institute of Pathology, Ludwig Maximilian University of Munich, Munich, Germany 
+
+> 6
+
+Division of Translational Medical Oncology, DKFZ, Heidelberg, Germany; NCT Heidelberg, Heidelberg, Germany 
+
+> 7
+
+German Cancer Consortium (DKTK), partner site Munich, a partnership between DKFZ and Ludwig-Maximilians-Universität München (LMU), Germany 
+
+> 8
+
+Department of Artificial Intelligence, Korea University, Seoul, Korea 
+
+> 9
+
+Max-Planck Institute for Informatics, Saarbrücken, Germany  
+
+> 10
+
+Department of Chemistry, Chemical Physics Theory Group, University of Toronto, Canada  
+
+> 11
+
+Vector Institute for Artificial Intelligence, Toronto, Canada  
+
+> 12
+
+Acceleration Consortium, University of Toronto, Canada 
+
+> †
+
+Equal supervision contribution.  
+
+> †
+
+mina.jamshidi.idaji@tu-berlin.de, t.schnake@utoronto.ca 
+
+## Abstract 
+
+Explanations of multiple instance learning (MIL) models are widely used for vali-dation and discovery in digital histopathology. Existing methods primarily rely on heatmaps that highlight influential regions but do not explain how evidence from different tissue regions is combined to produce a prediction. This limits inter-pretability, especially when decisions depend on interactions between tissue fea-tures. We introduce Symbolic explainable MIL (Symb-xMIL), a post-hoc expla-nation framework that quantifies how a MIL model’s behavior aligns with human-readable decision rules, expressed as logical relationships (e.g., AND, OR, NOT) between input features. These alignment scores reveal semantic patterns underly-ing the model’s predictions. We evaluate Symb-xMIL on synthetic and real-world histopathology datasets. On synthetic MIL data, Symb-xMIL reliably recovers ground-truth logical rules. In a clinical tumor detection task, the best-aligned rules uncover heterogeneous decision patterns and expose hidden model errors. On an HPV-prediction task on TCGA-HNSCC, a cohort of head and neck cancer, our framework refines patient survival stratification beyond HPV status with potential clinical relevance. Overall, Symb-xMIL extends MIL explainability beyond visual attribution toward structured, rule-based reasoning, enabling more transparent and semantically grounded interpretation of model predictions. 
+
+> Preprint.
+> arXiv:2606.06224v1 [cs.CV] 4 Jun 2026
+
+## 1 Introduction 
+
+Digital pathology enables large-scale analysis of gigapixel whole-slide images (WSIs) for diagnostic and prognostic tasks [9, 36, 32]. Despite the progress of deep learning models, their clinical adoption is still lacking, as transparent reasoning—among other factors—continues to be essential for medical decision-making [10, 16]. Among various approaches, Multiple Instance Learning (MIL) [13, 25, 45, 8] has become a popular paradigm for digital pathology tasks [31, 20, 34], where each WSI is partitioned into patches that collectively form a bag of instances representing the slide. Current explainability methods [42] for MIL in digital pathology [14, 21, 24, 48, 6] predominantly rely on spatial heatmaps that highlight regions of a WSI attended to by the model, but suffer from several limitations. First, interpreting heatmaps requires substantial domain expertise to infer under-lying morphological patterns; even then, the reasoning remains qualitative and difficult to compare across samples. Second, heatmap-based explanations do not readily support systematic analyses at the cohort level, where one aims to study how model behavior varies across cases and relates to predictions. Third, spatial heatmaps provide only first-order explanations, quantifying the contri-bution of individual features, but fail to capture higher-order interactions, i.e., how combinations of features jointly influence predictions [44, 15, 43, 49, 26]. In histopathology, such interactions can reveal how the interplay between tumor and microenvironment shapes the model’s prediction. To address these limitations, we augment heatmap-based explanations with a structured, symbolic representation of model reasoning, enabling both local and global interpretability [2, 19, 44]. Specif-ically, we evaluate how well the model’s response patterns align with a predefined set of logical rules. Based on this idea, we propose Symbolic explainable MIL (Symb-xMIL) , a framework that extends Symbolic XAI [44] to MIL with applications in digital pathology. Mapping model behavior to logical rules provides two key advantages. First, it enables the identifica-tion of the rule that best explains the model’s prediction for a given sample. Second, it transforms the model’s decision strategy into a vector space, where each dimension corresponds to a concrete, inter-pretable decision rule, yielding a high-dimensional symbolic representation space . Unlike heatmaps, this representation is directly comparable across samples (e.g., patients in histopathology) and cap-tures both the dominant rule and the full spectrum of competing explanations. This enables, for the first time, a systematic and quantitative analysis of model reasoning at the cohort level, going beyond what is possible with heatmap-based explanations. In particular, it al-lows samples to be grouped based on similarity in their semantic profiles, reveals distinct decision strategies within a cohort, and enables the systematic characterization of both typical and atypical reasoning patterns. Our contributions are as follows: 1. Symbolic explainable MIL (Symb-xMIL). We introduce a post-hoc explanation frame-work for multiple instance learning that moves beyond first-order heatmaps toward sym-bolic, rule-based explanations. Symb-xMIL captures how combinations of features jointly contribute to bag-level predictions, enabling interpretable reasoning at the slide level. 2. Symbolic representation space. We propose a symbolic representation space that em-beds each sample according to its alignment with a set of logical rules. This representation provides a structured and comparable view of model behavior, linking predictions to inter-pretable reasoning patterns. 3. Empirical validation and insights. We validate Symb-xMIL on synthetic and real-world histopathology datasets, showing that it recovers ground-truth rules and uncovers mean-ingful structure in model behavior. In particular, Symb-xMIL identifies distinct prediction strategies and reveals clinically relevant patient subgroups in TCGA-HNSCC. 
+
+## 2 Related work 
+
+Multiple Instance Learning (MIL). In MIL, a sample is represented as a bag of instances 
+
+X = {x1, . . . , xn}, and a model learns to aggregate instance-level information into a bag-level prediction f (X) ≈ y [13]. Classical approaches rely on simple pooling mechanisms such as max or mean [13, 17, 37], while modern methods employ attention-based pooling or transformers to 2model instance importance and inter-instance dependencies [18, 25, 45, 46, 50]. Despite these ad-vances, the resulting decision processes remain difficult to interpret, particularly as models capture increasingly complex interactions between instances. 
+
+Explaining MIL. Existing explanation methods for MIL predominantly produce spatial heatmaps that assign relevance scores to individual instances, indicating their contribution to the overall pre-diction (e.g., xMIL [21, 24, 25, 48]). While useful for localization, such instance-level attributions provide only a partial view of the decision process. In particular, they fail to capture how evidence is combined across instances, i.e., whether features must co-occur, act as interchangeable signals, or interact in more complex ways. This is a fundamental limitation, as MIL predictions are in-herently driven by interactions among subsets of instances. Prior work has begun to explore such interactions, for example by extracting pairwise relationships from attention mechanisms [27], but remains restricted to low-order interactions and specific model architectures. A general and inter-pretable characterization of multi-instance decision logic remains an open challenge. To address these limitations, we move beyond instance-wise attribution and instead assign relevance to subsets of instances and their logical relationships. This perspective builds on Symbolic XAI (see below) and extends it to the MIL setting. 
+
+Concept-based MIL and symbolic explanation. Recent approaches aim to improve interpretabil-ity by attaching semantic meaning to relevant instances [28]. For example, ProtoMIL [41] explains predictions via similarity to learned prototypes, and ConceptMIL [47] assigns semantic concepts to salient patches. While these methods enhance the interpretability of individual instances, they remain focused on local evidence and do not explicitly model how multiple concepts are combined into a global decision strategy. In parallel, Symbolic XAI [44] provides a principled framework for aligning model behavior with logical rules, enabling interpretable descriptions of feature inter-actions. However, it is limited to standard supervised settings and does not directly apply to MIL, where predictions arise from aggregating sets of instances. Extending symbolic explanations to this setting requires modeling how subsets of instances jointly contribute to bag-level predictions, enabling slide-level symbolic explanations over semantic instance concepts and a symbolic repre-sentation space for cohort-level analysis. 
+
+## 3 Methodology 
+
+The Symbolic XAI framework [44] explains machine learning models by aligning their behavior with logical relationships between input features. Given a logical formula q, the framework quanti-fies how well the model’s prediction aligns with this rule and defines a relevance measure for q with respect to the prediction. In this work, we extend this framework by refining the alignment formu-lation and representing model behavior in a structured symbolic representation space . We further generalize this approach to the MIL setting, resulting in Symbolic explainable MIL (Symb-xMIL) .
+
+3.1 Background: Symbolic XAI 
+
+Formally, assume an ML model f mapping feature vectors x = ( xI )I∈N to a scalar-valued predic-tion target, with N = {1, . . . , n } denoting the index set of all features. For any subset S ⊆ N , we define xS as a feature vector for which (xS )I = xI for I ∈ S , while the remaining features are inpainted [44], i.e., replaced by a placeholder value. The Symbolic XAI framework [44] analyzes the model’s prediction strategy by evaluating its behav-ior on (xS )S⊆N , i.e., by systematically studying f (xS ). Alternative approaches within Symbolic XAI track model behavior on input subsets using, for example, propagation-based methods. The framework further introduces the notion of queries , which are relationships constructed by combining feature identifiers I, J ∈ N with logical connectives such as ∧, ∨, and ¬, representing AND, OR, and NOT, respectively. For example, queries may take the form q1 = I ∧ J or q2 =
+
+I ∨ ¬ J. We denote by Q the set of all well-formed queries. Details of query generation in this work are included in Appendix A. Formally, a query q is represented by a set function λq : 2 N → { 0, 1} that maps each subset S ⊆ N 
+
+to a binary value. Specifically, λq (S) indicates whether the logical condition defined by q is satisfied within S. For instance, for the queries q1 and q2 defined above, we have λq1 (S) = 1{I∈S∧ J∈S} and 
+
+λq2 (S) = 1{I∈S∨ J / ∈S} .3Bag ( ): patches + semantic labels     
+
+> Feature set ( ): semantic concepts
+> Multi-order subsets
+> Query Space ( )
+> Correlation (per query ):
+> ∧∧¬:
+> :
+> :
+> :
+> Dim 2
+> Dim 1
+> representation space
+> (dataset-wise)
+> embedded in symbolic
+> C2
+> C1
+> C0
+> Multiple sample
+> Global analysis
+> Alignment score
+> ∧* =
+> (sample-wise)
+> 0.82
+> Best-aligned query
+> For one sample
+> Local analysis
+> B
+> A
+> of the logical alignment space.
+> Each query defines one dimension
+> ¬
+> ∨
+> ∧
+> [-1,1] ∈
+> 0.12
+> 0.67
+> -0.31
+> -1
+> 0
+> 1
+> 0.82
+> Alignment score
+> ∈Query
+> Connectives
+> Input & pre-processing
+> 0
+> 1
+> ,
+> Model response over subsets
+> Subsets
+> Query-induced reference vector
+
+f      
+
+> MIL model
+> ∧∧
+> ∨
+> ¬
+> ¬
+> ∧
+> :
+> :
+> :
+> :
+> ¬ (NOT)
+> (OR) ∨
+> (AND) ∧
+> 3rd-order =3:
+> 2nd-order =2:
+> Logic
+> 1st-order =1:
+> Semantic Map
+> (logical alignment space)
+> Symbolic representation space
+> logical queries
+> Similarity to
+> vector generation
+> subsets and reference
+> Model evaluation on
+> queries & subsets
+> Semantic features,
+> processing
+> Input & pre-54321
+> [-1,1] ∈of semantic concepts)
+> ∧0.82
+> Binary reference vector Alignment score
+> {0,1} ∈∈
+> Model response
+> (subset of features)
+> Subsets
+> (patch label)
+> Semantic concepts
+> (patch from WSI)
+> Query (logical combination Image patch
+
+Figure 1: Overview of the Symb-xMIL pipeline. Patches from a WSI are assigned semantic labels and grouped into a feature set of concepts (1–2) . Multi-order subsets and a query space of logical rules are constructed over these concepts (2) . The MIL model is evaluated on each subset, and the resulting subset responses are compared against query-induced reference patterns (3–4) .The resulting alignment scores form the symbolic representation ϕ(X), in which each dimension corresponds to one logical rule (5) . This representation supports (A) local explanation through the best-aligned query for a single sample, and (B) global analysis through clustering across samples. Symbolic XAI quantifies the alignment of an ML model f ’s decision strategy with a specific query 
+
+q by comparing λq with the Harsanyi dividend of f (xS )—a well-known transformation from coop-erative game theory that is widely used in XAI. 
+
+3.2 Symbolic explainable MIL (Symb-xMIL) 
+
+We argue that, for our purposes, the Harsanyi dividends of the model’s prediction are not directly comparable to the non-transformed set function λq of a query q. We therefore propose a modification that directly compares the model’s prediction f (xS ) with λq (S), without applying this transforma-tion. In other words, we assume an idealized labeling function that exactly follows the logical rule defined by q, and quantify its alignment with the model. We measure similarity between a logical formula q and the model by evaluating f (xS ) and λq (S)
+
+across subsets S ⊆ N . If both functions exhibit similar behavior over these subsets, the formula q
+
+provides a faithful representation of the model’s behavior. We quantify this alignment using correlation: 
+
+rX(q, f ) := corr S⊆N (λq (S), f (xS )) . (1) We refer to this as the alignment score between q and f for X defined on N . In Table 1, we provide example queries q and their corresponding interpretations when the model assigns a high value to 
+
+rX(q, f ) in Eq. (1). Additionally, we extend this framework to the MIL setting. For a bag X = {x1, . . . , xn}, we define a semantic map M that assigns each instance a semantic value. For example, in digital pathology, each patch of a whole slide image (WSI) can be assigned a tissue type. In this context, we define N as the set of all semantic values. Accordingly, XS = {xi | M (xi) ∈ S} denotes the sub-bag containing all instances whose semantic values lie in S. For instance, if X is a WSI and 
+
+S = {Tumor , Stroma }, then XS consists of all patches assigned to Tumor or Stroma .Symb-xMIL then uses predictions over such sub-bags, f (XS ) for S ⊆ N , to align the model’s decision strategy for a bag X with a logical rule represented by a query q, as defined in Eq. (1). For 4Table 1: Natural language interpretations of common logical rules when their alignment to the model is high (i.e., high alignment score , cf. Eq. (1)). The formulas are defined over features A and 
+
+B, with N denoting the set of all feature indices. 
+
+Logical Formula q Interpretation for high alignment score 
+
+A ∧ B The prediction is driven by the joint presence of A and B.
+
+A ∨ B The prediction is supported by A, B, or both, indicating that each fea-ture provides relevant evidence independently. 
+
+¬A (= ¬A ∧ Rest ) The prediction is driven by features other than A. Feature A provides evidence against the prediction, while the remaining features support it. Here, Rest = N \ { A}.
+
+¬A ∨ B (= A → B) The model predicts positively either in the absence of A, or—if A is present—only when B is also present. Thus, A provides negative evi-dence unless compensated by B.each bag, the best-aligned query is defined as 
+
+q∗(X) := arg max 
+
+> q∈Q
+
+rX(q, f ) (2) This formulation enables interpretable reasoning over how semantically defined groups of instances jointly contribute to bag-level predictions, which is not accessible with instance-level explanations. 
+
+3.3 Symbolic representation space 
+
+For a given sample X, we compute the alignment scores {rX(q, f )}q∈Q. These scores define a vector-valued representation 
+
+ϕ(X) = ( rX(q1, f ), . . . , r X(q|Q|, f )) (3) where |Q| is the number of queries in Q. ϕ(X) can be interpreted as a representation of the model’s behavior in a symbolic space induced by the query set Q. In this space, each dimension corresponds to alignment with a specific logical rule in Q. This representation projects the model’s reasoning onto a predefined set of queries. Details of query generation in this work, i.e., how Q is constructed, are provided in Appendix A. The resulting symbolic representation space maps each sample to a vector encoding the model’s reasoning, enabling direct and systematic comparison of model behavior across samples and forming the basis for both local and global downstream analyses. This formulation provides, for the first time, a structured representation of model reasoning at the cohort level. 
+
+## 4 Experiments and results 
+
+To demonstrate the value of Symb-xMIL, we verify in Section 4.1 in a controlled simulation setting that Symb-xMIL can recover ground-truth logical rules, which cannot be captured by first-order relevance. We then showcase the practical utility of the method in two real-world histopathology experiments. We show that Symb-xMIL reveals previously undetected model errors in a diagnostic setting in Section 4.2. It exposes the prognostic value of heterogeneous model strategies for HPV-prediction in head-and-neck tumors in Section 4.3. 
+
+4.1 Recovering higher-order feature interactions in simulated settings 
+
+We designed simulated scenarios to validate whether Symb-xMIL explanations can accurately iden-tify the symbolic decision rule in a MIL task. We constructed synthetic MNIST-based MIL datasets with binary targets [14, 21, 25]. Specifically, we drew bags of instances by randomly sampling im-ages from MNIST [12], with each instance xi of a bag X = {xi}i being associated through the semantic map M with a digit, i.e. M(xi) ∈ { 0, 1, · · · , 9} = N . We then define the bag label y
+
+using three logical rules based on the operators ∧ (AND), ∨ (OR), and ¬ (NOT) (see Table 2). 5After training three end-to-end MIL models from the simulated data, we assess whether Symb-xMIL can expose the ground-truth logical rules. 
+
+Model training. We used a two-layer convolutional encoder trained jointly with TransMIL [45] from random initialization. All models achieved near-perfect test performance (99.99%), confirming that the simulated interaction patterns were learned by the corresponding model. Details can be found in Appendix C.1, also providing experimental evidence on the robustness of the MIL model to bag-size variability. 
+
+Semantic map. Since “ 4” and “ 7” were the main digits of our simulations, we grouped bag instances into three semantic features, N = {4, 7, R}, where “ R” stands for rest , i.e., all digits except 4 and 7. 
+
+Symb-xMIL results. Following Eq. 3, we constructed a representative query space over the seman-tic concepts of interest, i.e., N = {4, 7, R}. For this synthetic experiment, with |N | = 3 , this yields 39 non-redundant symbolic queries, such as 4, ¬7, and ¬4 ∧ 7 ∧ R. Details of query generation are available in Appendix A. Using the trained models, we then used Symb-xMIL for identifying the top query for each dataset (following Eq.2). In all three datasets, the recovered top-ranked query matched the ground-truth simulated logic (Table 3), while achieving substantially higher average alignment score than other queries. This shows that Symb-xMIL not only recovers the correct symbolic structures in these simulations, but also clearly distinguishes them from alternative explanations. For comparison, we also evaluated Symbolic XAI method [44] in the same setting. It recovers the ground-truth rule on the 4 → 7 dataset, but is more limited on the 4 ∧ 7 and 4 ∨ 7 datasets, where the top-ranked query differs from the underlying logic (detailed in Appendix B). 
+
+4.2 Identifying hidden model errors in tumor classification 
+
+To demonstrate the practical value of symbolic explanations for identifying model errors and Clever Hans strategies—where predictions are correct for the wrong reasons [33, 29, 35]—we apply Symb-xMIL to a real-world histopathology task. In particular, we focus on tumor detection from whole slide images (WSIs). We used Camelyon16 [3], which is a dataset of WSIs of breast lymph nodes and binary labels indicating whether they contain metastatic tumor cells ( y = 1 ) or not ( y = 0 )– dataset details in Appendix C.2.2. We posit that a correctly functioning model should base positive predictions on instances that actually contain tumor cells. 
+
+Model training. We trained a TransMIL model [45] on top of features extracted from a Virchow2 backbone [51] from slide patches extracted at 20x magnification, using a stratified 5-fold cross-validation (CV) approach (training details in Appendix C.2.2). The 5 CV-selected models achieved an almost perfect mean AUROC of 0.995 ± 0.010 on the held-out test data, suggesting that they learned the underlying biology. 
+
+Semantic map. In addition to slide-level tumor labels, Camelyon16 provides pixel-level anno-tations distinguishing Background , Tumor , and Normal . We preprocessed each WSI (detailed in Appendix C.2.1) and derived a semantic feature set by assigning each patch xi according to its tumor-pixel fraction ρi to Normal , Tumor , and Mix for ρi = 0 , ρi = 1 , and 0 < ρ i < 1, respec-tively. This yields N = {Tumor , Mix , Normal }, where Mix consists of patches from the border of a larger tumor area as well as patches from a small tumor region (such as micrometastases). More details in Appendix D.1 . Table 2: Logical rules used to define bag labels in the synthetic MIL experiments. Here, k ∈M(X) denotes that at least one instance in the bag has digit label k, where M(X) = {M (x) | x ∈
+
+X}.
+
+Rule Label definition Interpretation 
+
+4 ∧ 7 y = 1{4∈M (X) ∧ 7∈M (X)} Positive if both digit 4 and digit 7 occur in the bag. 
+
+4 ∨ 7 y = 1{4∈M (X) ∨ 7∈M (X)} Positive if digit 4, digit 7, or both occur in the bag. 
+
+4 → 7 y = 1{4 /∈M (X) ∨ 7∈M (X)} Positive if digit 4 is absent or digit 7 is present. 6Table 3: Results of simulated experiments. The top row shows the Top-3 symbolic queries aligned with the Transformer-based MIL model trained to learn the logic of each dataset. The bottom row shows the ground-truth queries corresponding to the other two synthetic datasets. The alignment score (see Eq. 1) is averaged over all test bags with a positive label ( y = 1 ). Symb-xMIL identifies the ground-truth rules with the highest correlation in all cases. Dataset: 4 ∧ 7 Dataset: 4 ∨ 7 Dataset: 4 → 7
+
+Query Mean alignment Query Mean alignment Query Mean alignment 
+
+4 ∧ 7 0.951 4 ∨ 7 0.992 4 → 7 0.967 
+
+4 ∧ (7 ∨ R) 0.761 4 ∨ ¬ R 0.675 7 0.779 
+
+4 0.658 7 ∨ ¬ R 0.669 7 ∨ R 0.659 
+
+4 ∨ 7 0.392 4 ∧ 7 0.283 4 ∧ 7 0.297 
+
+4 → 7 0.230 4 → 7 -0.246 4 ∨ 7 -0.145 
+
+Symbolic representation space analysis. Following the query generation in Appendix A, the query space contains 39 logical queries for |N | = 3 (e.g., ¬Normal , Mix ∨ Tumor , Normal ∧ (Mix ∨
+
+Tumor )). As a result, each of the 160 tumor-positive test slides was mapped to a point in the 39-dimensional symbolic space (ablation on changing query space generation in Appendix A.1). In order to study the model’s strategy at the cohort level, we applied K-means clustering ( K = 4 ;silhouette = 0.44) to the representations of the tumor samples in the symbolic representation space. Despite the high predictive model performance and the conceptual simplicity of the tumor detec-tion task, the clusters reveal that there is considerable heterogeneity in model’s strategy (Fig. 2). Specifically, we identified four distinct symbolic decision regimes (detailed best-query statistics and example slides in Appendix E): 
+
+C0 (68 slides), the largest cluster, is dominated by the rule Mix ∨ Tumor , meaning that the model identified sufficient evidence for the tumor-positive predictions in both the tumor areas and the mixed areas of these slides. This mirrors the expected behavior, as any patch from these two areas contains tumor cells. 
+
+C1 is dominated by the query Normal → Mix , indicating that mixed patches provide positive ev-idence, while normal tissue alone is insufficient and must be accompanied by mixed patches to support a positive prediction. Our investigations showed that the samples with this query are mostly samples with micrometastases without large, consistent tumor areas. 
+
+C2 is dominated by macrometastasis slides (25/26 slides). The majority best query is ¬Normal ,which is equivalent to ¬Normal ∧ (Mix ∨ Tumor) . This indicates that the model’s tumor-positive predictions are driven by tumor or mixed areas, while the presence of normal tissue is incompatible with the decision rule and thus provides negative evidence against a positive predic-−3 −2 −1 0 1 2              
+
+> PC1 (59.6%)
+> −1.5
+> −1.0
+> −0.5
+> 0.0
+> 0.5
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> PC2 (22.7%)
+> Cluster / slide type
+> C0
+> C1
+> C2
+> C3
+> Macro outline
+> Centroid
+> Best query
+> Mix
+> (¬Normal)
+> (Mix ∨Tumor)
+> (Normal ∨Mix)
+> (¬Normal ∧Mix)
+> (Normal →Mix)
+> (Normal →Tumor)
+> (Mix ∨(Normal ∧Tumor))
+> Others
+> C0
+> C1
+> C2
+> C3
+
+Figure 2: PCA visualization of the Camelyon16 symbolic representation space. Each point represents one tumor slide and is colored by its best-query group; groups with fewer than three are labeled "Others". Markers indicate cluster centers, and black outlines denote macro-metastasis slides. See also Table S3 for more information about the clusters. 7tion. C0 reflects a similar reliance on tumor and mixed regions, but does not enforce this exclusion of normal tissue. 
+
+C3 is characterized by the query Normal ∨ Mix , indicating that the model assigns tumor-supporting evidence not only to mixed patches containing tumor, but also to normal regions despite the absence of tumor cells. We hypothesize that these normal patches contain Clever Hans signals that spuriously drive tumor-positive predictions. To test this, we performed a counterfactual patch-transfer experiment, inserting Normal patches from C3 slides into matched ground-truth normal slides while controlling for acquisition-related confounders. If these patches carry no such signal, the recipient slides should remain classified as normal. However, the counterfactual intervention flipped 21/25 cases at a 0.5 decision threshold (84%). 
+
+4.3 Discovering sample subgroups in head-and-neck cancer 
+
+We explored Symb-xMIL’s potential for discovering previously unknown patient subgroups. Specif-ically, we consider human papillomavirus (HPV) prediction directly from head-and-neck squamous cell carcinoma (HNSCC) H&E slides. TCGA-HNSCC [40] dataset contains both HPV-positive and HPV-negative tumors, forming a binary classification task (dataset details in Appendix C.2.3). HPV status is a clinically important biomarker that affects prognosis and treatment decisions [5], with HPV-positive tumors generally associated with more favorable outcomes than HPV-negative cases [1]. We trained a TransMIL model [45] on top of features extracted from a Virchow2 back-bone [51] from slide patches extracted at 20x magnification. The model achieved an overall test AUROC of 0.899 ±0.039 , with dataset details provided in Appendix C.2. 
+
+Semantic map. TCGA-HNSCC dataset lacks manual semantic annotations. To obtain semantically meaningful patch labels, we constructed a two-stage labeling pipeline integrating CellViT++ [23], and tumor boundary estimation [22] (details in Appendix D.2). From the resulting spatially refined labels, we focus on the feature set 
+
+N = {Tumor-Neoplastic , Tumor-Inflammatory , Tumor-Connective ,
+
+Non-Tumor-Inflammatory , Non-Tumor-Connective },
+
+used for Symb-xMIL analysis. For example, semantic group Tumor-Neoplastic contains patches from the tumor region with predominantly neoplastic cells, while Tumor-Inflammatory comprises patches from the tumor region with predominantly inflammatory cells. This refinement incorpo-rated biologically meaningful morphology and excludes implausible combinations such as neoplas-tic patches outside the tumor region. 
+
+Survival stratification of samples in Symb-xMIL space of HPV-prediction model. HPV-positive tumors are mentioned as a prognostic indicator in HNSCC [1, 39]. This trend is also observed in TCGA-HNSCC dataset (Fig. 3-(a)), with Cox proportional hazards model (CoxPH) z = 1 .85 , one-sided p = 0 .032 and logrank p = 0 .06 . This indicates that HPV-positive patients tend to have more favorable survival outcomes, although the separation is moderate and only partially significant in this cohort. This motivates the question of whether Symb-xMIL representations capture additional prognostic information beyond the clinical HPV status. We asked whether Symb-xMIL representations of the HPV-prediction model capture survival-relevant patterns beyond the binary clinical HPV sta-tus. To investigate this, we clustered the Symb-xMIL representations of TCGA-HNSCC samples and labeled clusters enriched for HPV+ cases as HPV-like (see Fig. 3-(b)). Here, HPV-like refers to samples that share similar model-derived morphological patterns with HPV-positive cases, in-dependent of their clinical HPV label. This grouping allows for discordant assignments, such that some HPV+ cases are classified as HPV-unlike and some HPV- cases as HPV-like. This yields a model-driven partition of patients based on shared histomorphological patterns rather than prede-fined clinical labels. Methodological details are provided in Appendix F.1, with exemplar slides shown in Appendix F.2. Based on the general positive prognostic value of HPV infection, we hypothesize that adding HPV-like samples would further refine survival association. Indeed, the symbolic HPV-like/unlike par-tition showed slightly stronger separation than known HPV-status with z = 2 .04 and one-sided 
+
+p = 0 .021 , logrank p = 0 .04 (Fig. 3-(c)). 80.0 0.2 0.4 0.6 0.8 1.0 Survival Probability Time (Month) 0 50 100 150 200 0.0 0.2 0.4 0.6 0.8 1.0 Survival Probability Time (Month) 0 50 100 150 200 20 15 10 50-5 -10 -40 -30 -20 -10 0 10 20 30 tSNE 2 tSNE 1   
+
+> (a) (b) (c)
+
+Figure 3: Symb-xMIL clustering identifies HPV-like sample groups with prognostic relevance on TCGA-HNSCC. (a) Clinical HPV status stratifies patient survival in Kaplan-Meier analysis logrank p = 0 .06 . (b) t-SNE projection of the symbolic representation shows clusters used to assign samples to HPV-like and HPV-unlike groups based on HPV+ enrichment. (c) The symbolic-space-derived HPV-like/unlike partition also stratifies survival (logrank p = 0 .04 ), despite being only partially concordant with clinical HPV status. A composition-matched permutation test (5,000 repetitions), preserving the same HPV+/HPV-makeup for the partitioning as the symbolic partition, showed that random assignments achieved comparable z-scores only modestly often ( ∼9% of the times), suggesting the observed grouping differs from random (Fig. S9-(b)). This indicates that the observed survival separation is unlikely to arise from random group assignments with the same class composition. Moreover, in an interesting observation, the HPV+ patients in the two clusters of HPV-like and HPV-unlike differed significantly in their age distributions, with the HPV-unlike ones having a significantly higher age (Fig. S9-(c)). This is consistent with the known negative prognostic effect of higher age, further supporting the clinical relevance of the identified subgroups, and demonstrating that the symbolic space captures implicit signals that are not directly related to the prediction target. These results indicate that the symbolic representation space of an HPV-prediction model captures biologically meaningful patterns associated with survival, extending beyond the information con-tained in the binary HPV status. Because the analysis is exploratory, the findings should be per-ceived as hypothesis-generating. The analysis, however, showcases that symbolic-space proximity encodes HPV-like biological or morphological information that may partly recapitulate and refine the prognostic relevance of HPV-status in HNSCC cancer. 
+
+## 5 Conclusion 
+
+In this work, we introduced Symb-xMIL , a framework that brings symbolic, rule-based explana-tions to multiple instance learning. By mapping model behavior to human-readable logical rules over semantic features, Symb-xMIL moves beyond visual attribution and enables explicit reason-ing about how combinations of features drive predictions. The resulting symbolic representation space provides a structured and comparable view of model behavior, enabling systematic analysis of decision strategies at the cohort level. On synthetic datasets, Symb-xMIL recovers ground-truth logical rules that cannot be captured by first-order attribution methods. In digital pathology, it uncovers clinically and scientifically relevant insights: it exposes a Clever Hans strategy [33] on Camelyon16, validated through counterfactual experiments; identifies an HPV-like prognostic subgroup in TCGA-HNSCC that refines survival stratification beyond clinical HPV status. These results demonstrate that Symb-xMIL enables anal-yses of model behavior that are not accessible with existing MIL explanation methods. While broadly applicable across MIL tasks, Symb-xMIL depends on the quality of semantic features and on model robustness under perturbations. Improving the reliability of semantic mappings and robustness across datasets is an important direction for future work. 
+
+## Acknowledgements 
+
+The results shown here are in part based upon data generated by the TCGA Research Network: 
+
+https://www.cancer.gov/tcga . We used the codes from the following repository for MIL 9implementations: https://github.com/bifold-pathomics/xMIL . The query generation is inspired by the following repository: https://github.com/FarnoushRJ/SymbolicXAI . We used the pretrained CellViT++ model and the cell labeling pipeline provided in the official reposi-tory: https://github.com/tio-ikim/cellvit-plus-plus . For TCGA-HNSCC, tumor, non-tumor, and border segmentation was performed using the pipeline provided in the xMIL-Pathways repository: https://github.com/bifold-pathomics/xMIL-Pathways . This work was in part supported by the Federal Ministry of Research, Technology and Space of Germany (BMFTR) un-der Grants 01IS14013A-E, 01GQ1115, 01GQ0850, 01IS18025A, 031L0207D, 01IS18037A, and BIFOLD24B and by the Institute of Information & Communications Technology Planning & Eval-uation (IITP) grants funded by the Korea government (MSIT) (No. 2019-0-00079, Artificial In-telligence Graduate School Program, Korea University and No. 2022-0-00984, Development of Artificial Intelligence Technology for Personalized Plug-and-Play Explanation and Verification of Explanation). Thomas Schnake is a postdoctoral fellow at the University of Toronto in the Eric and Wendy Schmidt AI in Science Postdoctoral Fellowship Program, a program of Schmidt Sciences. 
+
+## Authorship contribution statement 
+
+Yanqing Luo: Conceptualization, Methodology, Software, Validation, Formal analysis, Investiga-tion, Data Curation, Visualization, Project administration, Writing - Original Draft. Julius Hense: 
+
+Conceptualization, Methodology, Visualization, Writing - Original Draft, Project administration, Supervision. Niklas Prenißl: Data Curation, Investigation. Andreas Mock: Investigation. Klaus-Robert Müller: Funding acquisition. Thomas Schnake: Conceptualization, Methodology, Visu-alization, Validation, Writing - Original Draft, Project administration, Supervision Mina Jamshidi Idaji: Conceptualization, Methodology, Software, Validation, Investigation, Formal analysis, Vi-sualization, Writing - Original Draft, Project administration, Supervision. All authors: Writing – Review & Editing. 
+
+## References 
+
+[1] K Kian Ang, Jonathan Harris, Richard Wheeler, Randal Weber, David I Rosenthal, Phuc Felix Nguyen-Tân, William H Westra, Christine H Chung, Richard C Jordan, Charles Lu, et al. Human papillomavirus and survival of patients with oropharyngeal cancer. New England Journal of Medicine , 363(1):24–35, 2010. [2] Burouj Armgaan, Manthan Dalmia, Sourav Medya, and Sayan Ranu. Graphtrail: Translating gnn pre-dictions into human-interpretable logical rules. Advances in Neural Information Processing Systems , 37: 123443–123470, 2024. [3] Babak Ehteshami Bejnordi, Mitko Veta, Paul Johannes Van Diest, Bram Van Ginneken, Nico Karssemei-jer, Geert Litjens, Jeroen AWM Van Der Laak, Meyke Hermsen, Quirine F Manson, Maschenka Balken-hol, et al. Diagnostic assessment of deep learning algorithms for detection of lymph node metastases in women with breast cancer. Jama , 318(22):2199–2210, 2017. [4] Manfred Besner. Value dividends, the harsanyi set and extensions, and the proportional harsanyi solution. 
+
+International Journal of Game Theory , 49(3):851–873, 2020. [5] Mohsin Bilal, Robert Jewsbury, Ruoyu Wang, Hammam M AlGhamdi, Amina Asif, Mark Eastwood, and Nasir Rajpoot. An aggregation of aggregation methods in computational pathology. Medical Image Analysis , 2023. [6] Alexander Binder, Michael Bockmayr, Miriam Hägele, Stephan Wienert, Daniel Heim, Katharina Hell-weg, Masaru Ishii, Albrecht Stenzinger, Andreas Hocke, Carsten Denkert, et al. Morphological and molecular breast cancer profiling through explainable machine learning. Nature Machine Intelligence , 3 (4):355–366, 2021. [7] Gabriella Cadoni, Luca Giraldi, Livia Petrelli, Manlio Pandolfini, Monica Giuliani, Gaetano Paludetti, Roberta Pastorino, Emanuele Leoncini, Dario Arzani, Giovanni Almadori, et al. Prognostic factors in head and neck cancer: a 10-year retrospective analysis in a single-institution in italy. Acta Otorhinolaryn-gologica Italica , 37(6):458, 2017. [8] Linghan Cai, Shenjin Huang, Ye Zhang, Jinpeng Lu, and Yongbing Zhang. Attrimil: Revisiting attention-based multiple instance learning for whole-slide pathological image classification from a perspective of instance attributes. Medical Image Analysis , 103:103631, 2025. 
+
+10 [9] Gabriele Campanella, Matthew G Hanna, Luke Geneslaw, Allen Miraflor, Vitor Werneck Krauss Silva, Klaus J Busam, Edi Brogi, Victor E Reuter, David S Klimstra, and Thomas J Fuchs. Clinical-grade computational pathology using weakly supervised deep learning on whole slide images. Nature medicine ,25(8):1301–1309, 2019. [10] Miao Cui and David Y Zhang. Artificial intelligence and computational pathology. Laboratory Investi-gation , 101(4):412–422, 2021. [11] Cameron Davidson-Pilon. lifelines: survival analysis in python. Journal of Open Source Software , 4(40): 1317, 2019. [12] Li Deng. The mnist database of handwritten digit images for machine learning research [best of the web]. 
+
+IEEE signal processing magazine , 29(6):141–142, 2012. [13] Thomas G Dietterich, Richard H Lathrop, and Tomás Lozano-Pérez. Solving the multiple instance prob-lem with axis-parallel rectangles. Artificial intelligence , 89(1-2):31–71, 1997. [14] Joseph Early, Christine Evers, and SArvapali Ramchurn. Model agnostic interpretability for multiple instance learning. In International Conference on Learning Representations , 2022. URL https:// openreview.net/forum?id=KSSfF5lMIAg .[15] Oliver Eberle, Jochen Büttner, Florian Kräutli, Klaus-Robert Müller, Matteo Valleriani, and Grégoire Montavon. Building and interpreting deep similarity models. IEEE Transactions on Pattern Analysis and Machine Intelligence , 44(3):1149–1161, 2022. [16] Theodore Evans, Carl Orge Retzlaff, Christian Geißler, Michaela Kargl, Markus Plass, Heimo Müller, Tim-Rasmus Kiehl, Norman Zerbe, and Andreas Holzinger. The explainability paradox: Challenges for xai in digital pathology. Future Generation Computer Systems , 133:281–296, 2022. [17] Gang Fu, Xiaofei Nan, Haining Liu, Ronak Y Patel, Pankaj R Daga, Yixin Chen, Dawn E Wilkins, and Robert J Doerksen. Implementation of multiple-instance learning in drug activity prediction. BMC bioinformatics , 13(Suppl 15):S3, 2012. [18] Chengyang Gao, Qiule Sun, Wen Zhu, Lizhi Zhang, Jianxin Zhang, Bin Liu, and Junxing Zhang. Trans-former based multiple instance learning for wsi breast cancer classification. Biomedical Signal Processing and Control , 89:105755, 2024. [19] Riccardo Guidotti, Anna Monreale, Fosca Giannotti, Dino Pedreschi, Salvatore Ruggieri, and Franco Turini. Factual and counterfactual explanations for black box decision making. IEEE Intelligent Systems ,34(6):14–23, 2019. [20] Miriam Hägele, Philipp Seegerer, Sebastian Lapuschkin, Michael Bockmayr, Wojciech Samek, Frederick Klauschen, Klaus-Robert Müller, and Alexander Binder. Resolving challenges in deep learning-based analyses of histopathological images using explanation methods. Scientific reports , 10(1):6423, 2020. [21] Julius Hense, Mina Jamshidi Idaji, Oliver Eberle, Thomas Schnake, Jonas Dippel, Laure Ciernik, Oliver Buchstab, Andreas Mock, Frederick Klauschen, and Klaus-Robert Müller. Xmil: Insightful explanations for multiple instance learning in histopathology. Advances in Neural Information Processing Systems , 37: 8300–8328, 2024. [22] Julius Hense, Mina Jamshidi Idaji, Laure Ciernik, Jonas Dippel, Fatma Ersan, Maximilian Knebel, Ada Pusztai, Andrea Sendelhofert, Oliver Buchstab, Stefan Fröhling, et al. Digital spatial pathway mapping reveals prognostic tumor states in head and neck cancer. bioRxiv , pages 2025–11, 2025. [23] Fabian Hörst, Moritz Rempe, Helmut Becker, Lukas Heine, Julius Keyl, and Jens Kleesiek. Cellvit++: Energy-efficient and adaptive cell segmentation and classification using foundation models. Computer Methods and Programs in Biomedicine , page 109206, 2026. [24] Mina Jamshidi Idaji, Julius Hense, Tom Neuhäuser, Augustin Krause, Yanqing Luo, Oliver Eberle, Thomas Schnake, Laure Ciernik, Farnoush Rezaei Jafari, Reza Vahidimajd, et al. Beyond attention heatmaps: How to get better explanations for multiple instance learning models in histopathology. arXiv preprint arXiv:2603.08328 , 2026. [25] Maximilian Ilse, Jakub Tomczak, and Max Welling. Attention-based deep multiple instance learning. In 
+
+International conference on machine learning , pages 2127–2136. PMLR, 2018. [26] Joseph D Janizek, Pascal Sturmfels, and Su-In Lee. Explaining explanations: Axiomatic feature interac-tions for deep networks. Journal of Machine Learning Research , 22(104):1–54, 2021. 
+
+11 [27] Guillaume Jaume, Anurag Vaidya, Richard J. Chen, Drew F.K. Williamson, Paul Pu Liang, and Faisal Mahmood. Modeling dense multimodal interactions between biological pathways and histology for sur-vival prediction. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-tion (CVPR) , pages 11579–11590, June 2024. [28] Saarthak Kapse, Pushpak Pati, Srijan Das, Jingwei Zhang, Chao Chen, Maria Vakalopoulou, Joel Saltz, Dimitris Samaras, Rajarsi R. Gupta, and Prateek Prasanna. Si-mil: Taming deep mil for self-interpretability in gigapixel histopathology. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 11226–11237, June 2024. [29] Jacob Kauffmann, Jonas Dippel, Lukas Ruff, Wojciech Samek, Klaus-Robert Müller, and Grégoire Mon-tavon. Explainable ai reveals clever hans effects in unsupervised learning models. Nature Machine Intelligence , 7(3):412–422, 2025. [30] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao, Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer Whitehead, Alexander C Berg, Wan-Yen Lo, et al. Segment anything. In Proceedings of the IEEE/CVF international conference on computer vision , pages 4015–4026, 2023. [31] Frederick Klauschen, Jonas Dippel, Philipp Keyl, Philipp Jurmeister, Michael Bockmayr, Andreas Mock, Oliver Buchstab, Maximilian Alber, Lukas Ruff, Grégoire Montavon, et al. Toward explainable artificial intelligence for precision pathology. Annual Review of Pathology: Mechanisms of Disease , 19(1):541– 570, 2024. [32] Jonah Kömen, Edwin D de Jong, Julius Hense, Hannah Marienwald, Jonas Dippel, Philip Naumann, Eric Marcus, Lukas Ruff, Maximilian Alber, Jonas Teuwen, et al. Towards robust foundation models for digital pathology. arXiv preprint arXiv:2507.17845 , 2025. [33] Sebastian Lapuschkin, Stephan Wäldchen, Alexander Binder, Grégoire Montavon, Wojciech Samek, and Klaus-Robert Müller. Unmasking clever hans predictors and assessing what machines really learn. Nature communications , 10(1):1096, 2019. [34] Yongju Lee, Jeong Hwan Park, Sohee Oh, Kyoungseob Shin, Jiyu Sun, Minsun Jung, Cheol Lee, Hyojin Kim, Jin-Haeng Chung, Kyung Chul Moon, et al. Derivation of prognostic contextual histopathological features from whole-slide images of tumours via graph deep learning. Nature Biomedical Engineering , 6 (12):1452–1466, 2022. [35] Lorenz Linhardt, Klaus-Robert Müller, and Grégoire Montavon. Preemptively pruning clever-hans strate-gies in deep neural networks. Information Fusion , 103:102094, 2024. [36] David N Louis, Michael Feldman, Alexis B Carter, Anand S Dighe, John D Pfeifer, Lynn Bry, Jonas S Almeida, Joel Saltz, Jonathan Braun, John E Tomaszewski, et al. Computational pathology: a path ahead. 
+
+Archives of pathology & laboratory medicine , 140(1):41–50, 2016. [37] Oded Maron and Tomás Lozano-Pérez. A framework for multiple-instance learning. Advances in neural information processing systems , 10, 1997. [38] H Mehanna, CML West, C Nutting, and V Paleri. Head and neck cancer—part 2: Treatment and prog-nostic factors. Bmj , 341, 2010. [39] Ana Letícia Mores, Carolina Guimarães Bonfim-Alves, Rossana Verónica Mendoza López, Leticia Rodrigues-Oliveira, Natália Rangel Palmier, Bruno Augusto Linhares Almeida Mariz, Cesar Augusto Migliorati, Luiz Paulo Kowalski, Alan Roger Santos-Silva, Thaís Bianca Brandão, et al. Prognostic fac-tors in head and neck cancer: a retrospective cohort study of 3052 patients in brazil. Oral Diseases , 31 (4):1133–1139, 2025. [40] Cancer Genome Atlas Network et al. Comprehensive genomic characterization of head and neck squa-mous cell carcinomas. Nature , 517(7536):576, 2015. [41] Dawid Rymarczyk, Adam Pardyl, Jarosław Kraus, Aneta Kaczy´ nska, Marek Skomorowski, and Bartosz Zieli´ nski. Protomil: Multiple instance learning with prototypical parts for whole-slide image classifica-tion. In Joint European conference on machine learning and knowledge discovery in databases , pages 421–436. Springer, 2023. [42] Wojciech Samek, Grégoire Montavon, Sebastian Lapuschkin, Christopher J. Anders, and Klaus-Robert Müller. Explaining deep neural networks and beyond: A review of methods and applications. Proceedings of the IEEE , 109(3):247–278, 2021. doi: 10.1109/JPROC.2021.3060483. 
+
+12 [43] Thomas Schnake, Oliver Eberle, Jonas Lederer, Shinichi Nakajima, Kristof T. Schütt, Klaus-Robert Müller, and Grégoire Montavon. Higher-order explanations of graph neural networks via relevant walks. 
+
+IEEE Transactions on Pattern Analysis and Machine Intelligence , 44(11):7581–7596, 2022. [44] Thomas Schnake, Farnoush Rezaei Jafari, Jonas Lederer, Ping Xiong, Shinichi Nakajima, Stefan Gu-gler, Grégoire Montavon, and Klaus-Robert Müller. Towards symbolic xai—explanation through human understandable logical relationships between features. Information Fusion , 118:102923, 2025. [45] Zhuchen Shao, Hao Bian, Yang Chen, Yifeng Wang, Jian Zhang, Xiangyang Ji, et al. Transmil: Trans-former based correlated multiple instance learning for whole slide image classification. Advances in neural information processing systems , 34:2136–2147, 2021. [46] Jun Shi, Dongdong Sun, Kun Wu, Zhiguo Jiang, Xue Kong, Wei Wang, Haibo Wu, and Yushan Zheng. Positional encoding-guided transformer-based multiple instance learning for histopathology whole slide images classification. Computer Methods and Programs in Biomedicine , 258:108491, 2025. [47] Susu Sun, Leslie Tessier, Frédérique Meeuwsen, Clément Grisi, Dominique van Midden, Geert Lit-jens, and Christian F Baumgartner. Label-free concept based multiple instance learning for gigapixel histopathology. arXiv preprint arXiv:2501.02922 , 2025. [48] Mukund Sundararajan, Ankur Taly, and Qiqi Yan. Axiomatic attribution for deep networks. In Interna-tional conference on machine learning , pages 3319–3328. PMLR, 2017. [49] Ping Xiong, Thomas Schnake, Grégoire Montavon, Klaus-Robert Müller, and Shinichi Nakajima. Effi-cient computation of higher-order subgraph attribution via message passing. In Proceedings of the 39th International Conference on Machine Learning , pages 24478–24495, 2022. [50] Ruijie Zhang, Qiaozhe Zhang, Yingzhuang Liu, Hao Xin, Yan Liu, and Xinggang Wang. Multi-level multiple instance learning with transformer for whole slide image classification. arXiv preprint arXiv:2306.05029 , 2023. [51] Eric Zimmermann, Eugene Vorontsov, Julian Viret, Adam Casson, Michal Zelechowski, George Shaikovski, Neil Tenenholtz, James Hall, David Klimstra, Razik Yousfi, et al. Virchow2: Scaling self-supervised mixed magnification models in pathology. arXiv preprint arXiv:2408.00738 , 2024. 
+
+13 Appendix A Query Space 
+
+We construct the representative query space Q by enumerating sufficiently expressive logical queries over up to k = 3 feature groups from S, using the connectives ∧, ∨, and ¬. Queries that are logically redundant under the exhaustive partition structure are pruned (e.g., ¬a ∧ ¬ b ≡ c for N = {a, b, c }). For |N | = 3 , this yields |Q| = 39 non-redundant queries. For general |N | , the unpruned query space contains 
+
+|Q| = 2 |N | + 7 
+
+|N | 
+
+2
+
+
+
++ 12 
+
+|N | 
+
+3
+
+
+
+.
+
+Table S1 summarizes representative query classes and their semantic interpretations. Table S1: Representative categories of symbolic queries in the query space for three semantic con-cepts. The table illustrates atomic, negated, conjunctive, disjunctive, and higher-order mixed logical forms used to construct the non-redundant symbolic query set. 
+
+Category Example Interpretation 
+
+Atomic a contains feature a
+
+Negation ¬a absence of feature a
+
+AND a ∧ b contains both features a and b
+
+OR a ∨ b contains at least one of a, b 
+
+AND + neg. a ∧ ¬ b, ¬a ∧ b
+
+conjunction with exclusion: pre-sence of one feature and absence of another OR + neg. ¬a ∨ b, a ∨ ¬ b, ¬a ∨ ¬ b
+
+disjunctive rules involving ab-sence, including implication-type relations Ternary AND/OR a ∧ b ∧ c, a ∨ b ∨ c all-feature conjunction or at-least-one disjunction Ternary AND/OR + neg. a ∧ b ∧ ¬ c, a ∧ ¬ b ∧ c, ¬a ∧ b ∧ c conjunctions over two features with exclusion of a third Ternary mixed a ∧ (b ∨ c), b ∨ (a ∧ c),
+
+b ∧ (a ∨ c), c ∨ (a ∧ b), c ∧ (a ∨ b)
+
+mixed higher-order queries comb-ining conjunction and disjunction Majority (a∧b) ∨ (a∧c) ∨ (b∧c) at least two of three features present 
+
+A.1 Ablation: Influence of query space on symbolic representation 
+
+We evaluate the sensitivity of the symbolic representation space to the choice of query space. For this ablation, we repeat the Camelyon16 analysis using a reduced query space excluding negation operators, yielding an 18-dimensional symbolic representation space. Clustering in the reduced query space remains highly consistent with the original clustering from Section 4.2, achieving 98.5% cluster alignment. In particular, the C0 and C3 clusters are nearly unchanged, with over 95% agreement in slide-level best-query assignments. For the remaining clusters, some best-query labels change due to the removal of negated expressions, but these are largely replaced by semantically related alternative queries rather than fundamentally different explanation regimes. For example, for the best query group ¬Normal in Fig. 2, it becomes to Mix ∨ Tumor 
+
+14 Overall, these results suggest that meaningful global structure is driven by the model’s subset-level behavior and that the query space is expressive enough. Although an individual best query may vary under different query space constructions, such variation primarily reflects alternative symbolic descriptions of the same explanation pattern, supporting the interpretation of the best query as a reference description rather than a uniquely fixed symbolic rule in the real-world datasets. 
+
+## B Comparison with the Symbolic XAI 
+
+In this section, we report additional experiments using the original Symbolic XAI method [44] on our synthetic MIL datasets. This experiment serves as a motivation for the modification introduced in Section 3.2, where we compute the alignment directly from model predictions on semantic subsets instead of using Harsanyi-dividends-based [4] higher-order relevance scores. Following Symbolic XAI, for a query q and a bag X, we compute the alignment score as 
+
+rX(q, f ) := corr S⊆N (λq (S), μ (XS )) ,
+
+where λq (S) denotes the binary reference vector induced by query q, and μ(XS ) denotes the higher-order relevance assigned to subset S:
+
+μ(XS ) = X
+
+> L⊆S
+
+(−1) |S|−|L| f (XL).
+
+As shown in Table S2, the original Symbolic XAI method does not always recover the ground-truth rule in the MIL setting. For the 4 ∧ 7 dataset, the top-ranked query is the more restrictive rule ¬R ∧ 4 ∧ 7 rather than the ground-truth rule 4 ∧ 7. For the 4 ∨ 7 dataset, the top-ranked query is ¬4 ∨ ¬ 7, while the ground-truth rule 4 ∨ 7 appears only at rank four. In contrast, for the 
+
+4 → 7 dataset, the ground-truth rule is recovered as the top-ranked query, with a moderate alignment correlation of 0.67 compared to the proposed alignment score in this work which recovers this rule with an alignment score of 0.97 (see Table 3). These results indicate that Symbolic XAI can capture meaningful symbolic structure, but its relevance-decomposition-based formulation is not always directly aligned with the bag-level decision logic learned by MIL models. This motivates our use of subset-level model predictions for computing symbolic alignment in Symb-xMIL. Table S2: Results of simulated experiments using Symbolic XAI method. Each block reports the top-5 symbolic queries ranked by their mean alignment with the Transformer-based MIL model trained on the corresponding synthetic dataset. The last row reports the alignment score of the ground-truth query when it is not included among the top-5 queries.                                                                                           
+
+> Dataset: 4∧7Dataset: 4∨7Dataset: 4→7
+> Query Mean alignment Query Mean alignment Query Mean alignment
+> ¬R∧4∧70.730 ¬4∨ ¬ 70.713 4→70.666
+> (R∧4)∨(R∧7)
+> ∨(4∧7)0.674 4∧ ¬ 70.529 ¬R∧70.618
+> 4∨(R∧7)0.545 ¬4∧70.525 R∨70.491
+> 7∨(R∧4)0.518 4∨70.440 70.378
+> 4∧(R∨7)0.507 R∧4∧ ¬ 70.257 4∧70.340
+> 4∧70.301 ––––
+
+## C Dataset and training details 
+
+C.1 Simulations and bag-size sensitivity 
+
+We create a dataset for each rule by sampling 2000 bags for training, 500 bags for validation, and 200 bags as held-out test samples. To promote cross-bag generalization, we train using variable bag sizes between 1 and 30 instances. Models were optimized for up to 200 epochs with early stopping and typically converged after 30–40 epochs, depending on the random seed. 15 Initially, symbolic explanations were unstable because models trained only on a fixed bag size (30) generalized poorly to perturbed bags of different sizes. As shown in Fig. S1-(a), performance de-grades substantially for small bags (1–12 instances), with accuracy dropping to 15% in the worst case. This sensitivity is problematic for Symb-xMIL, whose perturbation-based query evaluation requires robust predictions across varying bag configurations. To address this, we introduced variable bag-size training, where bag size is randomly sampled from 1 to 30 during training. As shown in Fig. S1-(b), this yields consistently strong performance across bag sizes, with minimum accuracy above 92%. Additionally, for the query 4 → 7, an empty bag constitutes a special case: by the logical rule it evaluates to 1, whereas our default empty-bag model output is 0. We therefore treat this as an exception during evaluation to preserve consistency with the dataset logic. For the simulation setting, variable bag size arises naturally from the dataset construction. We also tested the same variable bag-size strategy for the Camelyon16 dataset, randomly sampling 500 to 5000 instances per bag during training. A comparison with a fixed bag size (2048) turned into similar model performance and symbolic explanation patterns. This proof-of-concept provides evidence that in the real-world setting, the variable bag training is not necessary and is more computationally efficient. (a) (b) 
+
+Figure S1: Influence of variable bag size training on model performance in the simulation setting. (a) Training with a fixed bag size (30) leads to poor generalization on smaller bags. (b) Perturbed training with variable bag sizes (1–30) improves robustness across different bag sizes. 
+
+C.2 Training and testing of MIL models on WSIs 
+
+We used the checkpoints from [24]. We applied 5 folds cross-validation with five predefined splits. In each fold, the TransMIL model(without PPEG and residual part in attention) was trained on the three training splits, one split was used for validation, and the remaining split was held out for testing. For model selection, we conducted a grid search over attention dropout ∈ { 0, 0.5}, classifier dropout ∈ { 0, 0.5}, feature dropout ∈ { 0, 0.2}, learning rate ∈ { 2 × 10 −5, 2 × 10 −4, 2 × 10 −3},weight decay ∈ { 0, 0.01 }, and gradient clipping. The bag size and batch size were fixed to 2048 and 5, respectively, and we randomly sampled 2048 patches from each training bag. All models were trained for 200 epochs and were optimized with SGD using a task-specific loss function. For each cross-validation fold, we selected the final hyperparameter configuration based on validation-set performance. Throughout the manuscript, for each slide, the reported/used prediction was taken from the fold in which that slide belonged in the held-out test set. 
+
+Compute resources. All experiments were conducted on an internal computing cluster using NVIDIA GPU workers. MIL model training was performed on GPU workers; in our experiments, a 5-hour wall-time limit per training job was sufficient. The symbolic explanation steps, includ-ing symbolic query generation and alignment computation, were lightweight and were run on CPU workers. 16 C.2.1 Preprocessing of WSIs 
+
+We applied Otsu-based tissue segmentation to exclude non-informative background regions and extract 256 × 256 pixel patches from tissue areas. Then we pass these extracted patches to a Vir-chow2 [51] model to get the 1280-dimensional feature vectors. Our preprocessing pipeline is similar to that of [21, 22, 24]. 
+
+C.2.2 Tumor classification on Camelyon16 dataset 
+
+The dataset comprises 399 WSIs, including 239 normal and 160 tumor slides. We trained a Trans-MIL classifier using cross-entropy loss for tumor detection using 5-fold cross-validation, preserving the tumor-to-normal ratio across folds. This results in test folds containing approximately 49 .8 ± 1.9
+
+normal and 32 .0 ± 1.9 tumor slides, indicating stable class composition across splits. 
+
+C.2.3 HPV status classification on TCGA-HNSCC dataset 
+
+We trained a TransMIL model for slide-level HPV status classification (HPV Positive y = 1 and HPV Negative y = 0 ). The dataset comprises 412 slides, including 370 HPV-negative and 42 HPV-positive samples, resulting in a pronounced class imbalance. We employ stratified 5-fold cross-validation with cross-entropy loss to preserve this distribution across splits, yielding test folds with approximately 78 .0 ± 3.7 HPV-negative and 8.6 ± 2.8 HPV-positive slides. 
+
+## D Semantic mapping of real-world datasets 
+
+D.1 Camelyon16 dataset 
+
+Using the segmentation map described in Section 4.2, we first characterize the dataset-level distri-bution of semantic patch labels ( Tumor , Mix , and Normal ). Figure S2 provides an overview of the proportion of each patch type across slides. Overall, Normal patches dominate the composition of most slides, reflecting the strong class imbalance at the patch level even in tumor-positive WSIs. We further compare tissue composition between macro- and micro-metastatic slides. While both groups contain a substantial proportion of Normal patches, macro-metastatic slides exhibit system-atically higher proportions of Tumor and Mix patches, indicating a larger tumor burden. In contrast, micro-metastatic slides tend to contain less Tumor and Mix regions. (a) (b) (c)       
+
+> Normal Mix Tumor
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0 Patch proportion
+> All Camelyon16 Tumor slides Normal Mix Tumor
+> Macro-metastasis Tumor slides Normal Mix Tumor
+> Micro-metastasis Tumor slides
+
+Figure S2: Distribution of semantic patch proportions in Camelyon16. (a) proportions across all tumor slides ( N = 160 ). (b) proportions restricted to macro-metastatic slides ( N = 80 ), showing increased Tumor and Mix relative to the full tumor cohort. (c) proportion of micro-metastatic slides (N = 80 ), showing large Normal proportion with rare Tumor patches. 
+
+D.2 TCGA-HNSCC dataset 
+
+We first applied a pretrained CellViT++ model [23], based on the SAM [30] model, which operates at 
+
+40 × magnification, for cell-level segmentation and classification. Each detected cell was assigned to one of six categories: Neoplastic , Connective , Inflammatory , Dead , Epithelial , or Empty .17 An analysis of patch-label distributions across the TCGA-HNSCC cohort showed that Neoplas-tic and Connective patches dominate the tissue composition of many WSIs, while Inflammatory 
+
+patches exhibit moderate but consistent presence, as shown in Fig. S3. In contrast, Dead and Ep-ithelial patches were rare and often absent, whereas Empty patches corresponded to background regions without detected cells and were excluded from further analysis. Consequently, the symbolic explanation experiments are restricted to the reduced semantic feature set consisting of Neoplastic ,
+
+Connective , and Inflammatory tissue types. Neoplastic Inflammatory Connective Dead Empty Epithelial 
+
+> 02500 5000 7500 10000 12500 15000 17500
+> Number of WSIs
+> Counts per slide
+> Neoplastic Inflammatory Connective Dead Empty Epithelial
+> 0.00.20.40.60.81.0
+> Proportion
+> Proportions per slide
+
+Figure S3: Overview of patch-type counts and proportions in the TCGA-HNSCC dataset fol-lowing CellViT++ segmentation and majority aggregation. Left: boxplots showing the distribu-tion of patch-type counts across TCGA-HNSCC slides. Right: proportions of the resulting patch types in the dataset. Second, we refined these cell-type labels by incorporating spatial context through tumor boundary estimation following Hense et al. [22]. This allows each patch to be additionally classified as resid-ing inside or outside the tumor region, yielding context-aware semantic features used for symbolic explanations. Figure S4 summarizes the resulting patch-type distributions. Across the cohort, 
+
+Tumor-Neoplastic is the dominant feature type. Comparing HPV subgroups suggests compositional differences in the available semantic evidence: HPV-positive slides show a tendency toward higher proportions of Tumor-Inflammatory and Non-Tumor-Inflammatory patches, whereas HPV-negative slides exhibit relatively more Tumor-Connective patches. 
+
+Figure S4: Distribution of semantic patch types in TCGA-HNSCC. Left: proportions across the full cohort. Right: proportions for HPV-positive slides. Abbreviations: T = Tumor, NT = Non-Tumor, Neo = Neoplastic, Con = Connective, Inf = Inflammatory. 18 E Additional Analysis for the Camelyon16 Dataset 
+
+In this section, we provide additional analysis for Camelyon16. First, we present a detailed cluster characterization and best-query annotations for global symbolic representation space analysis shown in Section 4.2. Second, we provide a detailed slide-level analysis of representative slides from each cluster, including thumbnails, semantic maps, and relevance heatmaps generated using Hense et al. [21]. 
+
+E.1 Additional Global Analysis for Camelyon16 
+
+To further analyze structure in the symbolic representation space, we visualize the resulting clusters in a PCA projection, with each slide annotated by its best-query. The clustering does not only reflect separation between macro- and micro-metastatic cases, but also groups slides with similar symbolic rules. This suggests that the symbolic representation space captures structure related to shared decision patterns beyond metastasis subtype. Cluster-level characteristics are summarized in Table S3. While some clusters are dominated by a single symbolic rule, others exhibit a mixture of related rules sharing common semantic themes. Table S3: Characterization of symbolic explanation clusters in Camelyon16 as depicted in Fig. 2. For each cluster, we report the number of slides ( N ), counts of macro and micro metastasis cases, and the most frequent best-matching symbolic queries within the cluster.                                                             
+
+> Cluster NMacro Micro Top Rules (count)
+> C0: Tumor + Context 68 45 23 Mix ∨Tumor (63), Mix ∨(Normal ∧Tumor) (1),
+> Normal ∨Tumor (1) C1: Context-driven 41 437 ¬Norm ∨Mix (19), Mix (15), Normal ∧Mix (1) C2: Tumor-dominant 26 25 1¬Normal (13), Mix ∨Tumor (4), ¬Normal ∨Tumor (4) C3: Normal-driven 25 619 Normal ∨Mix (16), Normal ∧(Mix ∨Tumor) (2),
+> Normal (2)
+
+E.2 Additional Slide-Level Analysis for Camelyon16 
+
+In this section, we present representative slides from different clusters in Fig. 2 and visualize their best-aligned logical rules together with the corresponding H&E thumbnail, semantic map, and LRP-based relevance heatmap. Across these examples, the LRP heatmaps show relevance patterns that tend to follow the tissue patterns described by the best-aligned symbolic rules. At the same time, the example of slide 
+
+tumor_018 highlights an important direction for future work: improving robustness to incomplete semantic maps. In this slide, two visually similar biopsy regions are present, but only one has a 
+
+Tumor /Mix annotation, whereas both regions exhibit similar relevance patterns in the LRP heatmap. 
+
+test_071 , best query: Mix ∨ Tumor , cluster:C0 (a) WSI overview (b) Segmentation overview (c) LRP heatmap 
+
+1
+
+Figure S5: Slide test_071 slide-level visualization. 
+
+test_065 , best query: Normal ∨ Mix , cluster:C3 
+
+19 (a) WSI overview (b) Segmentation overview (c) LRP heatmap 
+
+1Figure S6: Slide test_065 slide-level visualization. 
+
+tumor_012 , best query: ¬ Normal ∨ Mix , cluster:C1 (a) WSI overview (b) Segmentation overview (c) LRP heatmap 
+
+1
+
+Figure S7: Slide tumor_012 slide-level visualization. 
+
+tumor_018 , best query: ¬ Normal , cluster:C2 (a) WSI overview (b) Segmentation overview (c) LRP heatmap 
+
+1
+
+Figure S8: Slide tumor_018 slide-level visualization. 20 (a)    
+
+> frequency Linkage distance age z-value Slides / merged clusters HPV-positive-like HPV-positive-unlike
+> (b) (c)
+
+Figure S9: Clustering of Symb-xMIL representations of TCGA-HNSCC samples computed from an HPV-prediction model. (a) Clustering dendrogram. (b) Null distribution of CoxPH z-values of randomly partitioned samples. (c) Patient age boxplot to HPV-positive-like and HPV-positive-unlike. 
+
+## F Additional analysis for the TCGA-HNSCC Dataset 
+
+F.1 Additional Details of Survival Analysis for TCGA-HNSCC 
+
+For clustering the symbolic representations, we applied agglomerative clustering to the standardized feature vectors of all samples in the dataset. The number of clusters was selected based on inspection of the clustering dendrogram (Fig. S9), and we used eight clusters to capture local structure in the symbolic representation space. As a robustness check, we also evaluated six- and seven-cluster solutions, which did not change the resulting HPV-like versus HPV-unlike cluster labeling. Clusters were then annotated according to their HPV+ enrichment: clusters containing a sufficiently high fraction of HPV+ samples (>20%) were labeled as HPV-like, whereas the remaining clusters were labeled as HPV-unlike. This procedure allowed samples to be assigned based on their symbolic-space neighborhood rather than strictly by clinical HPV status, resulting in a partition that could include HPV- samples in HPV-like clusters and HPV+ samples in HPV-unlike clusters. As a result of the clustering, 13 (out of 43) HPV+ samples were grouped with HPV-unlike samples, whereas 35 (out of 389) HPV- samples were grouped with HPV-like samples. We used a composition-matched permutation test to determine whether the symbolic HPV-like/unlike survival grouping of the samples resulted from clustering of Symb-xMIL representations was significantly different from random partitioning of the samples. For each permutation, we ran-domly selected without replacement the same number of HPV+ and HPV- samples as present in the observed HPV-like group, assigned these samples to a randomized HPV-like group, and assigned all remaining samples to HPV-unlike. We then fitted a CoxPH model to each randomized partition and recorded the resulting z-score. Fig. S9 shows the resulting null distribution of z-scores. The em-pirical permutation p-value was calculated as the proportion of randomized partitions with z-scores greater than or equal to the observed symbolic-partition z-score, providing a null distribution that preserves HPV composition while randomizing group memberships. Additionally, note that studies show that there are multiple other prognostic indicators that may act as a confounder for the prognostic values of HPV-positivity in oropharyngeal cancer [7, 38, 39]. Therefore, we emphasize that the presented results in this part should be taken only as a proof-of-concept to show the potential of Symb-xMIL representations, rather than clinically actionable claims. Note that we use lifelines [11] for survival analyses. 
+
+F.2 Additional Slide-Level Analysis for TCGA-HNSCC 
+
+In this section, we provide representative slide-level visualizations for TCGA-HNSCC cases se-lected according to their clinical HPV status and the HPV-like/HPV-unlike grouping defined in Section 4.3. These examples are intended as qualitative visual checks of the learned explanation patterns. For each slide, we show the WSI overview, the semantic segmentation map, and the LRP heatmap using Hense et al. [21], Idaji et al. [24]. 
+
+TCGA-BB-4228-01Z-00-DX1 : labeled as HPV+ and belongs to HPV-like class 
+
+21 (a) WSI overview (b) Segmentation overview (c) LRP heatmap 
+
+> −0.0010
+> −0.0005
+> 0.0000
+> 0.0005
+> 0.0010
+> LRP score
+
+Tumor-Neoplastic Tumor-Inflammatory Tumor-Connective Non-Tumor-Inflammatory Non-Tumor-Connective 
+
+1Figure S10: Slide TCGA-BB-4228-01Z-00-DX1 slide-level visualization. 
+
+TCGA-HD-7832-01Z-00-DX1 : labeled as HPV+ and belongs to HPV-like class (a) WSI overview (b) Segmentation overview (c) LRP heatmap 
+
+> −0.0010
+> −0.0005
+> 0.0000
+> 0.0005
+> 0.0010
+> LRP score
+
+Tumor-Neoplastic Tumor-Inflammatory Tumor-Connective Non-Tumor-Inflammatory Non-Tumor-Connective 
+
+1
+
+Figure S11: Slide TCGA-HD-7832-01Z-00-DX1 slide-level visualization. 
+
+TCGA-CN-4741-01Z-00-DX1 : labeled as HPV+ and belongs to HPV-like class (a) WSI overview (b) Segmentation overview (c) LRP heatmap −0.0003 
+
+> −0.0002
+> −0.0001
+> 0.0000
+> 0.0001
+> 0.0002
+> 0.0003
+> LRP score
+
+Tumor-Neoplastic Tumor-Inflammatory Tumor-Connective Non-Tumor-Inflammatory Non-Tumor-Connective 
+
+1
+
+Figure S12: Slide TCGA-CN-4741-01Z-00-DX1 slide-level visualization. 
+
+TCGA-CN-5360-01Z-00-DX1 : labeled as HPV- and belongs to HPV-like class (a) WSI overview (b) Segmentation overview (c) LRP heatmap 
+
+> −0.0006
+> −0.0004
+> −0.0002
+> 0.0000
+> 0.0002
+> 0.0004
+> 0.0006
+> LRP score
+
+Tumor-Neoplastic Tumor-Inflammatory Tumor-Connective Non-Tumor-Inflammatory Non-Tumor-Connective 
+
+1
+
+Figure S13: Slide TCGA-CN-5360-01Z-00-DX1 slide-level visualization. 
+
+TCGA-BB-4225-01Z-00-DX1 :labeled as HPV+ and belongs to HPV-unlike class 
+
+22 (a) WSI overview (b) Segmentation overview (c) LRP heatmap 
+
+> −0.0004
+> −0.0002
+> 0.0000
+> 0.0002
+> 0.0004
+> LRP score
+
+Tumor-Neoplastic Tumor-Inflammatory Tumor-Connective Non-Tumor-Inflammatory Non-Tumor-Connective 
+
+1Figure S14: Slide TCGA-BB-4225-01Z-00-DX1 slide-level visualization. 
+
+TCGA-T2-A6WZ-01Z-00-DX1 : labeled as HPV- and belongs to HPV-unlike class (a) WSI overview (b) Segmentation overview (c) LRP heatmap −0.00020 
+
+> −0.00015
+> −0.00010
+> −0.00005
+> 0.00000
+> 0.00005
+> 0.00010
+> 0.00015
+> 0.00020
+> LRP score
+
+Tumor-Neoplastic Tumor-Inflammatory Tumor-Connective Non-Tumor-Inflammatory Non-Tumor-Connective 
+
+1
+
+Figure S15: Slide TCGA-T2-A6WZ-01Z-00-DX1 slide-level visualization. 23
