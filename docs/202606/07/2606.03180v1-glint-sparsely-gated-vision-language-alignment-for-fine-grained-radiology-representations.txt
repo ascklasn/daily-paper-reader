@@ -1,0 +1,534 @@
+Title: GLINT: Sparsely Gated Vision-Language Alignment for Fine-Grained Radiology Representations
+
+URL Source: https://arxiv.org/pdf/2606.03180v1
+
+Published Time: Wed, 03 Jun 2026 00:46:21 GMT
+
+Number of Pages: 22
+
+Markdown Content:
+# GLINT: Sparsely Gated Vision-Language Alignment for Fine-Grained Radiology Representations 
+
+Jonggwon Park 1∗† Seongeun Lee 1∗ Junhyun Park 1‡ Hannah Yun 1‡
+
+Hyunwoong Kim 1 Sohyun Jeong 1 Hyewon Kang 1 Byungmu Yoon 1 Kyoyun Choi 21DEEPNOID Inc., Seoul, South Korea 
+
+> 2
+
+Department of Artificial Intelligence and Data Science, Sejong University, Seoul, South Korea 
+
+## Abstract 
+
+Vision-language models (VLMs) for radiology have emerged as a scalable paradigm by leveraging image-report pairs naturally produced in clinical workflows. How-ever, this pairing reveals a mismatch in scale: each finding occupies only a small region of the image, yet supervision is provided only at the global image-report level. This poses a central challenge: prior approaches spread weight densely across all patches rather than concentrating on the sparse subset relevant to a given query. To address this, we present GLINT (Gated Language-Image alignme NT ), a framework that explicitly models this sparse correspondence. On the alignment side, we introduce Sparsely Gated Alignment , a novel architecture in which a sig-moid gate over a separate gate embedding space activates only the patches relevant to each textual query, enforcing explicit sparsity. On the representation side, we add 
+
+Dense Feature Regularization , which anchors the trainable encoder’s intermediate features to a frozen self-supervised learning (SSL) teacher, preserving the fine-grained patch features that the gate relies on. The same recipe applies to both 2D chest X-ray (CXR) and 3D chest computed tomography (CT), built with DINOv3 and V-JEPA 2.1, respectively. GLINT enables zero-shot classification, ground-ing, and segmentation from free-text queries, and to our knowledge is the first to demonstrate zero-shot segmentation on 3D CT volumes without mask supervision. Notably, the most pronounced gains arise on zero-shot grounding and segmentation, where sparse, query-specific localization is required, consistent with our design intent. In downstream evaluation, GLINT outperforms both SSL encoders and medical VLMs on classification, report generation, and segmentation. 
+
+## 1 Introduction 
+
+Vision-language models (VLMs) have emerged as a scalable paradigm for medical image analysis [ 57 ,65 ], particularly in radiology, where each image is routinely paired with a free-text report [ 25 , 20 ]. Report-based supervision removes the need for manual annotation [ 33 ] and allows models to learn from a long tail findings beyond fixed label set [ 32 ]. It also mitigates the inter-annotator disagreement that limits pixel-level supervision [ 60 ]. These VLMs enable language-centric clinical applications such as report drafting [49]. Realizing this potential in radiology, however, faces a core challenge: a mismatch in scale. Each finding occupies only a small region of the image, such as a sub-centimeter pulmonary nodule or a focal consolidation, paired with a specific span of text in the report [ 8] (Figure 1 (a)). Yet supervision  
+
+> *Equal contribution.
+> †Corresponding author: jgpark@deepnoid.com
+> ‡Equal second-author contribution. Preprint.
+> arXiv:2606.03180v1 [cs.CV] 2 Jun 2026
+
+Figure 1: Overview of GLINT. (a) Each report sentence grounds to a small region. (b) GLINT com-bines Sparsely Gated Alignment (sigmoid-gated patch selection) with Dense Feature Regularization 
+
+(anchoring patches to a frozen SSL teacher). (c) The same recipe applies to 2D CXR and 3D CT. is provided only at the global image-report level, leaving the alignment between text and image regions implicit. Across both 2D images and 3D volumes, recovering this fine-grained alignment from image-level supervision alone remains the central challenge for radiology VLMs [22, 57]. Prior approaches address this challenge along two axes, and each falls short. On the alignment side, methods rely on global image-report matching [ 20 , 7 ], cross-modal attention [ 22 , 57 , 28 ], or softmax-normalized patch aggregation [ 42 ]; none enforces explicit sparsity, spreading alignment weight across all patches rather than concentrating it on the sparse subset relevant to a given report. On the representation side, self-supervised learning (SSL) foundations [ 53 , 5] now provide strong patch-level features for medical imaging [ 43 , 68 ], but preserving them during language adaptation is non-trivial: fine-tuning distorts pretrained features [ 27 ], while freezing the image encoder keeps them intact [ 70 ] but limits cross-modal alignment. These limitations also manifest unevenly across modalities: while zero-shot localization from free-text queries is well-established on chest X-ray (CXR) [8, 42], on 3D chest computed tomography (CT) it remains largely unexplored [20, 7, 41]. To address these limitations, we present GLINT (Gated Language-Image alignme NT ), a framework that explicitly models this sparse, fine-grained alignment (Figure 1). For alignment, we introduce Sparsely Gated Alignment (SGA), a novel architecture in which patch and text features are projected into a separate gate embedding space, where a sigmoid gate activates only the patches relevant to each text query. For representation, we add Dense Feature Regularization (DFR), which anchors the encoder’s intermediate features to a frozen SSL teacher, preserving fine-grained patch representations during VL training. The same recipe applies to both 2D CXR and 3D CT, built on DINOv3 [ 53 ] and V-JEPA 2.1 [ 5], respectively. These design choices give GLINT two distinguishing strengths. Zero-shot free-text inference : GLINT supports zero-shot classification, grounding, and segmentation from free-text queries. To our knowledge, it is the first to demonstrate zero-shot segmentation on 3D CT volumes without mask supervision. Fine-grained radiology representations : GLINT consistently outperforms SSL encoders and medical VLMs on classification, report generation, and supervised segmentation across CXR and CT. 
+
+## 2 Related Works 
+
+2.1 Vision-Language Alignment in Radiology 
+
+For chest X-ray, ConVIRT [ 73 ] and MedCLIP [ 59 ] perform global image-report alignment, while GLoRIA [ 22 ] aligns patches with words, MGCA [ 57 ] extends this to multiple granularities, and MAVL [ 44 ] decomposes alignment by disease. MedKLIP [ 62 ] extracts structured entities, and KAD [ 72 ] injects medical knowledge graphs into training. RadZero [ 42 ] introduces VL-CABS, a softmax-normalized patch aggregation architecture that enables zero-shot multi-task inference on CXR. For 3D CT, CT-CLIP [ 20 ] adapts CLIP [ 46 ] via volume-report alignment, and Merlin [ 7]combines EHR phenotype supervision with report-level contrastive learning. fVLM [52] and ViSD-Boost [ 10 ] enable fine-grained alignment by decomposing volumes into anatomy-specific components, both relying on TotalSegmentator [ 61 ] for anatomical priors. RadZero3D [ 41 ] adapts a video SSL 2Figure 2: The overall framework of GLINT. (a) model architecture, jointly showing SGA and DFR modules. (b) inference procedure for the gated similarity map. model to chest CT, and COLIPRI [ 56 ] unifies masked image modeling, report generation, and contrastive learning under a multi-task framework. Only a small subset of these methods further extend to zero-shot localization (grounding or segmenta-tion from text without localization supervision). For chest X-ray, MedKLIP [ 62 ] and CARZero [ 28 ]derive localization from cross-attention maps, while RadZero [ 42 ] derives localization from patch-text similarities. For 3D CT, however, zero-shot localization remains unexplored: RadZero3D extends this approach to chest CT, but as noted in their analysis, voxel-level localization remains limited, and prior 3D VLMs [ 20 , 52 , 10 ] primarily target zero-shot classification. Alternatively, VoxTell [ 48 ]supports free-text prompts but requires large-scale pixel-level mask supervision. In contrast, GLINT adopts a sparsely gated alignment that concentrates alignment onto a small subset of relevant patches, enabling, to our knowledge, the first zero-shot free-text segmentation on 3D CT without any mask supervision. 
+
+2.2 SSL Representations in Vision-Language Models 
+
+Self-supervised foundation models [ 39 , 53 , 5, 37 ] produce strong fine-grained patch-level representa-tions that have been widely adopted in medical imaging [ 43 , 68 , 64 ]. However, fine-tuning distorts pretrained features [ 27 ], and frozen encoders often outperform fine-tuning under global contrastive objectives [ 70 ], motivating work on retaining SSL features during VL adaptation. TIPS [ 35 ] and SigLIP 2 [ 55 ] integrate SSL objectives with contrastive alignment during pretraining, and VIRAL [ 66 ]regularizes multimodal LLMs by aligning their internal visual representations with those of vision foundation models. For radiology, RadZero [ 42 ] keeps its SSL encoder frozen, RAD-DINO [ 43 ]continues SSL pretraining on large-scale CXR data without language supervision, and MRM [ 75 ] and COLIPRI [ 56 ] retain dense features by adding masked image modeling alongside language objectives. Rather than freezing the encoder or relying on continual SSL pretraining alone, GLINT adapts the encoder while anchoring its intermediate features to a frozen SSL teacher, retaining fine-grained representation during training. 
+
+## 3 Methods 
+
+GLINT consists of two components: Sparsely Gated Alignment (Section 3.2) and Dense Feature Regularization (Section 3.3). Figure 2 summarizes the overall design. 
+
+3.1 Text Supervision 
+
+Following prior work [ 28 , 42 ], we treat each radiology report as a set of independent observations rather than a single global caption. Specifically, an LLM [ 2] decomposes the report into sentences, 3each describing a single observation; we detail the prompt design in Appendix C. Given a report, we obtain a set of sentence embeddings {tn}Nn=1 via the text encoder ft, and use these as alignment targets paired with the corresponding image during training. 
+
+3.2 Sparsely Gated Alignment 
+
+Given an input image x (a 2D chest X-ray or a 3D CT volume), a modality-specific vision encoder fv
+
+produces P patch-level features on a 2D or 3D patch grid, which we project to a shared embedding dimension d via a linear layer, yielding {vp}Pp=1 ⊂ Rd. A sentence s is mapped to a text embedding 
+
+t = ft(s) ∈ Rd at the same dimension. Most prior alignment architectures aggregate the patch embeddings into a sentence-conditioned vision representation either via cross-modal attention [ 22 ,57, 28] or via softmax-normalized patch aggregation [42], spreading alignment weight across many patches rather than concentrating it on the relevant region. We instead introduce Sparsely Gated Alignment (SGA), inspired by recent work on gated attention [ 45 ]: an architecture that explicitly activates only the relevant subset of patches via a learnable gate. 
+
+Gate scores. On top of the patch and text embeddings, we apply a gate head with separate two-layer MLP branches for the two modalities, (ϕt, ϕ v ), that produce the gate embeddings. Patch-wise gate scores are then obtained by applying a sigmoid to the temperature-scaled cosine similarity between text and vision gate embeddings gp = σ  cos  ϕt(t), ϕ v (vp)/τ g
+
+ ∈ (0 , 1) , where τg is a learnable temperature for the gate. Unlike softmax, the sigmoid does not normalize across patches: the gate vector g = {gp}Pp=1 can be sparsely active (a few patches relevant, the rest irrelevant) or uniformly small (no spatial referent). This relaxes the implicit one-hot prior of softmax aggregation and lets the gate adapt to the actual support of each sentence. 
+
+Gated aggregation. The aggregated vision representation for sentence s is the gated sum of L2-normalized patch embeddings, so that each patch’s contribution depends only on its gate score: 
+
+˜v =
+
+> P
+
+X
+
+> p=1
+
+gp · vp
+
+∥vp∥ . (1) The cosine similarity between the text embedding and the aggregated vision representation is 
+
+ρ = cos  t, ˜v. (2) 
+
+Gate confidence shift. Cosine similarity discards the magnitude of ˜v, so a sentence with no spatial referent (gate ≈ 0) cannot be distinguished from one whose aggregated vision happens to align in direction. To restore this signal, we add a logit shift driven by the gate’s overall confidence. We pool g = ( g1, . . . , g P ) with sparsemax weights w = sparsemax( g) [ 36 ] to obtain a scalar gate confidence e = w⊤g.Sparsemax produces a sparse distribution that concentrates on the few highest gate values, so e
+
+behaves as a smoothed top-k pool of gate confidence. This differs from mean pooling, which dilutes the signal across irrelevant patches, or max pooling, which is sensitive to single-patch noise. The final image-sentence logit is ℓ(x, s ) = ρ + ω · e, where ω is a learnable weight. The shift makes ℓ
+
+sensitive to absolute gate activation, allowing the model to express absent versus present findings without violating the sparsity-inducing role of the gate. 
+
+3.3 Dense Feature Regularization 
+
+Training the encoder for VL alignment with an image-level contrastive loss provides no direct supervision over patch features. Such objectives are known to cause representation drift in pretrained features [ 27 ], while freezing the encoder avoids drift at the cost of adaptation [ 70 ]. SGA needs both: language adaptation and intact patch feature for discriminative gating. We therefore add Dense Feature Regularization (DFR), which anchors the trainable student’s patch representations to those of a frozen SSL teacher, in a similar spirit to RLHF’s KL penalty toward a reference policy [40]. DFR follows intermediate-layer alignment [ 66 , 67 ], using a teacher from the same SSL family as the student. Both encoders share the same patch grid. For a mini-batch of B images, we extract patch token embeddings Hs ∈ RB×P ×ds from layer ls of the student fv and Ht ∈ RB×P ×dt from layer lt
+
+of the frozen teacher. A multi-layer perceptron (MLP) projector h : Rds → Rdt matches dimensions. 4The loss Lreg uses the mean per-patch cosine distance between projected student features and teacher features: 
+
+Lreg = 1
+
+BP 
+
+> B
+
+X
+
+> b=1
+> P
+
+X
+
+> p=1
+
+ 1 − cos( h(Hs[b, p ]) , Ht[b, p ]) . (3) The regularizer anchors the student to the teacher at the patch level, preserving fine-grained pretrained features while the encoder adapts to VL alignment. 
+
+3.4 Training Objective 
+
+We train with symmetric contrastive losses on the image-sentence logits ℓ(x, s ), following CLIP image-text alignment [46]. Consider a mini-batch of Ns sentences {sn}Ns 
+
+> n=1
+
+drawn from Ni images 
+
+{xm}Ni
+
+> m=1
+
+, where sentence sn originates from image xg(n). For each sentence-image pair in the batch, let ℓm,n = ℓ(xm, s n)/τ l be the temperature-scaled logit, with τl a learnable loss temperature. The text-to-image branch is standard InfoNCE; the image-to-text branch is the multi-positive contrastive (MP-NCE) loss [29, 42], since multiple sentences from the same report share the same image: 
+
+Lt2i = − 1
+
+NsNsX
+
+> n=1
+
+log eℓg(n),n 
+
+PNi 
+
+> m=1
+
+eℓm,n 
+
+, Li2t = − 1
+
+NsNsX
+
+> n=1
+
+log eℓg(n),n 
+
+eℓg(n),n + P  
+
+> k:g(k)̸=g(n)
+
+eℓg(n),k 
+
+. (4) The alignment loss is Lalign = ( Lt2i + Li2t )/2, and the full training loss combines it with the DFR loss L = Lalign + λ Lreg , where λ is a fixed weight balancing the regularization. 
+
+3.5 Inference Zero-shot classification. Given an image and a textual prompt, we score the pair with ℓ(x, s )/τ l and convert it to a probability via the sigmoid, using the same temperature τl learned during training. 
+
+Zero-shot localization. For grounding and segmentation, we compute a patch-wise score mp =
+
+gp · σ cos( t, vp)/τ l
+
+ for each patch p, combining the gate with patch-text similarity. The gate gp
+
+captures the spatial selectivity learned during alignment, while the sigmoid-scaled cosine measures direct patch-text similarity in the embedding space; their product is high only at patches where both signals agree. We arrange {mp} on the patch grid and upsample to the input image resolution, bilinearly for 2D CXR and trilinearly for 3D CT. The resulting Gated Similarity Map (GSM) is used for both grounding and segmentation. 
+
+## 4 Experiments 
+
+4.1 Training Datasets Chest X-ray. MIMIC-CXR v2.0.0 [ 25 ] contains 227,827 radiology reports describing 377,110 CXR images from 65,379 patients. Following the official split, we retain only studies from which decomposed sentences (described in Section 3.1) can be extracted, resulting in 353,413 training images and 2,853 validation images. 
+
+Chest CT. CT-RATE v2 [ 20 ] comprises 50,188 chest CT volumes with paired radiology reports and multi-abnormality labels. We use the official validation split (3,002 volumes) as the test set, and construct a validation set by randomly sampling from the training split. Following the same report processing, the final training set consists of 43,337 training volumes and 2,990 validation volumes. 
+
+4.2 Evaluation Datasets Chest X-ray zero-shot evaluation. Classification is evaluated on PadChest [ 9] (192 classes) and its PadChest20 [ 28 ] subset (20 rare classes), ChestXray14 [ 58 ] (14 classes) and its ChestX-Det10 [ 34 ]subset (10 classes), CheXpert [ 23 ] (5 classes), and Open-I [ 15 ] (18 classes). Visual grounding is evaluated on ChestX-Det10 with bounding boxes for 10 disease classes, and MS-CXR [ 8] with bounding boxes paired with free-text phrases from radiology reports. Segmentation is evaluated on positive cases from ChestX-Det [ 30 ] (13 classes) and SIIM [ 69 ] (pneumothorax), both with pixel-level annotations. 5Table 1: Zero-shot performance on chest X-ray. Best results are highlighted in bold.                                                                                      
+
+> Classification Grounding Segmentation
+> PadChest PadChest20 ChestXray14 ChestX-Det10 CheXpert Open-I ChestX-Det10 MS-CXR ChestX-Det SIIM
+> Macro AUROC Macro Acc. Acc. Macro Dice Dice
+> GLoRIA [22] 0.565 0.558 0.610 0.645 0.750 0.589 0.367 ---
+> KAD [72] 0.750 0.735 0.789 0.735 0.905 0.807 0.391 ---
+> MedKLIP [62] 0.629 0.688 0.726 0.713 0.879 0.759 0.481 0.407 0.249 0.044
+> CARZero [28] 0.810 0.837 0.811 0.796 0.923 0.838 0.543 0.749 0.304 0.081
+> MedSigLIP [50] 0.736 0.747 0.742 0.702 0.859 0.763 ----
+> RadZero [42] 0.841 0.871 0.804 0.787 0.900 0.847 0.622 0.844 0.332 0.171
+> GLINT-CXR 0.863 0.917 0.825 0.853 0.921 0.881 0.729 0.892 0.434 0.317
+> Method
+
+Table 2: Downstream task performance on chest X-ray.                                                                                                          
+
+> Classification Report Generation Segmentation
+> ChestXray14 VinDr-CXR RSNA-PN SIIM MIMIC-CXR ChestX-Det SIIM
+> Macro AUROC AUROC METEOR ROUGE-L CheXbert F1 F1-RadGraph Macro Dice Dice
+> DINOv3 [53] 0.805 0.893 0.881 0.937 0.132 0.237 0.241 0.204 0.692 0.399
+> MGCA [57] 0.809 0.924 0.893 0.928 0.132 0.237 0.256 0.206 0.796 0.620
+> KAD [72] 0.814 0.933 0.894 0.934 0.136 0.244 0.278 0.218 0.786 0.516
+> MedKLIP [62] 0.801 0.916 0.894 0.937 0.136 0.236 0.262 0.202 0.791 0.499
+> MRM [75] 0.818 0.909 0.893 0.937 0.133 0.239 0.273 0.211 0.809 0.602
+> MAVL [44] 0.803 0.914 0.891 0.944 0.132 0.240 0.273 0.214 0.765 0.523
+> CheXWorld [68] 0.816 0.917 0.885 0.937 0.133 0.237 0.256 0.207 0.792 0.582
+> RAD-DINO [43] 0.831 0.934 0.890 0.951 0.138 0.241 0.292 0.213 0.810 0.646
+> GLINT-CXR 0.848 0.945 0.903 0.976 0.144 0.247 0.313 0.223 0.822 0.759
+> Method
+
+Chest X-ray downstream evaluation. For downstream evaluation, classification is evaluated on four CXR datasets: ChestXray14, VinDr-CXR [ 38 ] (27 classes), RSNA Pneumonia (RSNA-PN) [ 51 ], and SIIM. Segmentation is evaluated on ChestX-Det [ 30 ] (13 classes) and SIIM. Report generation is evaluated on MIMIC-CXR, using only the Findings section of the reports, with 10% of the dataset randomly sampled for evaluation. 
+
+Chest CT zero-shot evaluation. We perform zero-shot classification on CT-RATE [ 20 ] (18 classes) for internal evaluation, and on RAD-ChestCT [ 17 ] (16 classes) for external evaluation, following Hamamci et al. [20] . Free-text segmentation is evaluated on ReXGroundingCT [ 6], with pixel-level masks paired with free-text findings from radiology reports. 
+
+Chest CT downstream evaluation. We evaluate on three downstream tasks. Classification is evaluated on CT-RATE, RSNA Pulmonary Embolism (RSNA-PE) [ 13 ], and LIDC-IDRI [ 4]; report generation on CT-RATE; and segmentation on Task 6 (primary lung cancers) of the Medical Segmen-tation Decathlon (MSD-Lung) [ 3] and the NSCLC-Radiomics dataset [ 1]. For NSCLC-Radiomics, we evaluate on the primary gross tumor volume (GTV). Dataset details, splits, and evaluation protocols are provided in Appendix D. 
+
+4.3 Evaluation Metrics 
+
+For multi-class tasks, we report macro-averaged metrics throughout. For classification , area under the ROC curve (AUROC) is used. Grounding performance is evaluated using the pointing-game protocol [ 71 ], which measures whether the pixel with the maximum predicted value lies within the ground-truth bounding box. For segmentation , we use the Dice score, following prior zero-shot [ 42 ]and downstream [ 68 , 57 ] evaluation protocols. Report generation is evaluated using both natural language generation (NLG) metrics and clinical efficacy metrics. NLG metrics include ROUGE-L [ 31 ] and METEOR [ 16 ]. For CXR, clinical efficacy is evaluated using the macro-averaged F1 score from CheXbert [ 54 ] (14 classes) and F1-RadGraph [ 14 ] (using RG ER ); for CT, we use the macro-averaged F1 from a RadBERT-based labeler [20] (18 classes) and CRG [19]. 
+
+4.4 Implementation Details 
+
+For CXR, we use DINOv3 [ 53 ] with ViT-L (student) and ViT-7B (teacher) at 1024 2 resolution. For chest CT, we adopt V-JEPA 2.1 [ 37 ] with ViT-L (student) and ViT-G (teacher) at 384 2. CT volumes are preprocessed following Hamamci et al. [20] with MONAI [11], yielding (D, H, W ) = (240 , 384 , 384) inputs normalized to match V-JEPA 2.1’s input distribution. The text encoder is initialized with MPNet (“all-mpnet-base-v2”) [ 47 ], and “gpt-oss-120b” [ 2] performs sentence-level report decomposition. The loss and gate temperatures are initialized at τl = 0 .07 and τg = 0 .1
+
+6Table 3: Zero-shot performance on chest CT.                   
+
+> Classification
+> CT-RATE RAD-ChestCT
+> Macro AUROC
+> CT-CLIP [20] 0.731 0.629
+> Merlin †[7] 0.728 0.644
+> fVLM †[52] 0.778 0.680
+> ViSD-Boost †[10] 0.790 0.694
+> RadZero3D [41] 0.762 0.690
+> COLIPRI [56] 0.785 0.730
+> GLINT-CT 0.850 0.789
+> Method
+
+Table 4: Zero-shot free-text segmentation on ReXGroundingCT. For reference, supervised methods are reported. ‡ are from [48].          
+
+> Free-text Segmentation
+> ReXGroundingCT
+> Dice
+> SAT ‡[74] Supervised 0.131
+> VoxTell ‡[48] Supervised 0.282
+> GLINT-CT Zero-shot 0.128
+> Method Setting
+
+Table 5: Downstream task performance on chest CT.                                                                    
+
+> Classification Report Generation Segmentation
+> CT-RATE RSNA-PE LIDC-IDRI CT-RATE MSD-Lung NSCLC-Rad
+> Macro AUROC AUROC METEOR ROUGE-L RadBERT F1 CRG Dice
+> V-JEPA 2.1 [37] 0.859 0.631 0.798 0.227 0.291 0.342 0.401 0.508 0.563
+> CT-CLIP [20] 0.767 0.598 0.755 0.193 0.276 0.128 0.351 0.003 0.343
+> fVLM [52] 0.807 0.644 0.726 0.223 0.290 0.325 0.393 --
+> ViSD-Boost [10] 0.745 0.604 0.518 0.215 0.275 0.234 0.361 --
+> COLIPRI [56] 0.876 0.675 0.906 0.217 0.284 0.370 0.416 0.512 0.569
+> GLINT-CT 0.877 0.702 0.916 0.227 0.243 0.399 0.434 0.648 0.597
+> Method
+
+(both parameterized in log-space). The gate-confidence-shift scalar ω is initialized to 0, so the image-sentence logit starts without shift and the shift gradually engages during training. For the DFR, intermediate representations are extracted from the student layer ls = 22 and the teacher layer 
+
+lt = 36 for CXR (out of 24 and 40 layers, respectively), and from ls = 22 and lt = 44 for chest CT (out of 24 and 48 layers, respectively), with fixed λ = 8 . For all downstream tasks, the vision encoder remains frozen and only task-specific heads are trained. Please refer to Appendix B for downstream task details. 
+
+## 5 Results 
+
+5.1 Zero-shot and Downstream Evaluation Chest X-ray zero-shot evaluation. We compare GLINT-CXR against prior medical VLMs [ 22 ,72 , 62 , 28 , 50 , 42 ] (Table 1). GLINT-CXR achieves the best or comparable performance across all benchmarks, with the most pronounced gains on dense localization over prior state-of-the-art: Macro Dice on multi-class ChestX-Det rises from 0.332 to 0.434, and SIIM pneumothorax Dice from 0.171 to 0.317. These gains follow from SGA’s sparse, query-specific alignment, which concentrates on focal regions critical for grounding and segmentation. 
+
+Chest X-ray downstream evaluation. Baselines span CXR VLMs [ 57 , 72 , 62 , 75 , 44 ] and SSL methods [ 68 , 43 ] (Table 2). GLINT-CXR achieves the best performance on every downstream task, across classification, report generation, and segmentation. The largest gain appears on SIIM segmentation: our DINOv3 [ 53 ] initialization alone reaches only 0.399; vision-language alignment raises this to 0.759 Dice, surpassing RAD-DINO (0.646), an SSL foundation continually trained on large-scale CXR data. This shows that DFR anchors GLINT-CXR to its DINOv3 initialization, letting vision-language alignment build on rather than erase the pretrained features. 
+
+Chest CT zero-shot evaluation. We compare GLINT-CT against prior CT VLMs [ 20 , 7, 52 , 10 , 41 ,56 ] on classification (Table 3). GLINT-CT achieves the best performance on both internal CT-RATE (0.850) and external RAD-ChestCT (0.789). The baselines marked † in Table 3 are taken from [10], which reports under a protocol that excludes “lymphadenopathy” and “medical material” labels. Under the same protocol, GLINT-CT achieves 0.855 Macro AUROC on CT-RATE and 0.794 on RAD-ChestCT. Beyond classification, GLINT-CT enables zero-shot free-text segmentation on 3D CT volumes (Table 4). On ReXGroundingCT, GLINT-CT attains 0.128 Dice, on par with SAT [ 74 ](0.131), even though SAT and VoxTell [ 48 ] are finetuned on ReXGroundingCT while GLINT-CT uses no mask supervision. To our knowledge, this is the first zero-shot free-text segmentation on 3D CT to match supervised methods. 7Table 6: Ablation results with task-wise averages on chest X-ray and chest CT. Results use the same evaluation metrics as in the main performance tables.                                                            
+
+> CXR Zero-shot Chest CT Zero-shot
+> Classification Grounding Segmentation Classification Segmentation
+> (1) –VL-CABS [42] ––0.814 0.680 0.224 0.785 0.086
+> (2) ✓VL-CABS [42] ––0.866 0.792 0.326 0.818 0.084
+> (3) ✓SGA ––0.866 0.781 0.369 0.819 0.117
+> (4) ✓SGA ✓–0.870 0.772 0.369 0.812 0.119
+> (5) ✓SGA –✓0.871 0.787 0.364 0.810 0.112
+> (6) GLINT ✓SGA ✓✓0.877 0.810 0.375 0.819 0.128
+> Trainable Encoder
+> VL Architecture
+> Gate Confidence Shift
+> DFR
+
+Figure 3: Sparse and precise activation for ablation variants (1)–(6). (a) Patch-wise sparsity P (s < t )
+
+and (b) precision T P/ (T P + F P ) at t = 10 −3; (c) voxel-wise Dice across thresholds. 
+
+Chest CT downstream evaluation. We compare GLINT-CT with prior chest CT VLMs [ 20 , 52 ,10 , 56 ] and V-JEPA 2.1 [ 37 ] (Table 5); fVLM and ViSD-Boost are excluded from segmentation evaluation due to their dependence on organ-level segmentation. GLINT-CT outperforms all baselines on both classification and segmentation, particularly on fine-grained, lesion-level benchmarks (LIDC-IDRI pulmonary nodules, MSD-Lung primary lung cancers, and RSNA-PE pulmonary embolism). The vision-language alignment training also raises performance substantially over its V-JEPA 2.1 initialization (e.g., 0.798 to 0.916 on LIDC-IDRI, 0.508 to 0.648 on MSD-Lung), showing that GLINT produces strong, transferable representations particularly suited to fine-grained CT tasks. For report generation on CT-RATE, GLINT-CT achieves the best clinical efficacy (Macro F1 and CRG) and matches the best on METEOR, while ROUGE-L slightly trails; this suggests that our representations capture clinical content well, with room for improvement on surface-level fluency. 
+
+5.2 Ablation Study 
+
+We ablate the components of GLINT in Table 6, reporting task-wise averages across each evaluation suite. Comparing rows (1) and (2), unfreezing the SSL encoder yields large zero-shot gains, especially on dense localization, where CXR segmentation rises from 0.224 to 0.326, confirming the importance of VL adaptation. Replacing the VL-CABS [ 42 ] architecture with our SGA in row (3) preserves global classification while substantially improving segmentation (CXR from 0.326 to 0.369; CT from 0.084 to 0.117), consistent with SGA’s explicit sparsity over a separate gate embedding space. Adding the gate confidence shift or DFR alone yields mixed effects, but combining both in row (6) is consistently the strongest, with the largest gains on localization-heavy tasks (CXR grounding 0.810; CT segmentation 0.128); the two are complementary, with DFR preserving the fine-grained features needed for localization and the gate confidence shift refining the alignment signal. Sec. 5.2.1 analyzes this complementarity at the patch level via sparsity and precision. 
+
+5.2.1 Analysis for Sparse and Precise Activation 
+
+To understand how GLINT translates patch-level sparsity into voxel-level localization, we report three metrics on ReXGroundingCT (Fig. 3): patch-wise sparsity P (s < t ) and precision T P/ (T P + F P )
+
+at t = 10 −3, and voxel-wise Dice across thresholds after trilinear upsampling. The VL-CABS [ 42 ] baselines (1, 2) activate every patch (sparsity 0.000 ) with precision equal to the foreground ratio ( 0.004 ). Replacing VL-CABS with SGA (3) suppresses 87 .2% of patches, and adding DFR (5) further raises this to 97 .9% , approaching the background ratio of 99 .6% . This 8Figure 4: Visualization of the Gated Similarity Map (GSM) on chest X-ray (left) and chest CT (right). For each sentence, we compare GLINT with VL-CABS [ 42 ]. GLINT produces sparse activations concentrated on the finding, whereas VL-CABS spreads alignment across irrelevant regions. sparsity contributes to precision: variant (6) reaches 18 .4× the VL-CABS precision ( 0.066 vs. 0.004 ). The voxel-wise Dice profiles also differ. VL-CABS baselines peak only near t = 1 , where high thresholds finally separate foreground from background. The SGA variants, already sparse at low thresholds ( t = 10 −3), peak around t = 0 .2 ∼ 0.4.Each component alone, in (4) and (5), trades sparsity against Dice. DFR (5) attains the highest sparsity but the lowest Dice ( 0.112 ) among SGA variants, as the regularization toward SSL features may also suppress patches that still carry finding-relevant signal. The gate confidence shift, in contrast, incorporates the pooled gate confidence as an additional logit signal; it slightly relaxes sparsity but improves Dice ( 0.119 in (4)). Combining both in the full configuration (6) resolves this trade-off—DFR enforces near-maximal sparsity ( 0.975 ) while the gate confidence shift recovers the discriminative signal, yielding the highest precision ( 0.066 ) and the best voxel-wise Dice ( 0.128 vs. 
+
+0.086 for the frozen baseline (1)). 
+
+5.3 Visualization 
+
+We qualitatively visualize the Gated Similarity Map (GSM) of GLINT in Fig. 4 and compare against VL-CABS [42] (ablation (2) in Table 6) on the ChestX-Det [30] and ReXGroundingCT [6]. Across both modalities, our GLINT accurately captures the location and size of each finding and closely aligns with the corresponding text phrase, even for fine-grained lesions or free-text descriptions. These patterns demonstrate that the design of GLINT for sparse alignment effectively concentrates vision-language patch-level similarity on finding-relevant regions, consistent with the analysis in Sec. 5.2.1. Additional visualization results for findings and PCA analyses are provided in Appendix A. 
+
+## 6 Conclusion 
+
+We present GLINT, a vision-language framework that addresses the sparse image-report correspon-dence in radiology along two complementary axes. SGA introduces explicit sparsity by activating, for each textual query, only the patches that are actually relevant, via a sigmoid gate over a sepa-rate gate embedding space. DFR preserves the fine-grained features of self-supervised foundations during VL training by anchoring intermediate features to a frozen SSL teacher. The same recipe generalizes across both 2D CXR and 3D CT, yielding GLINT-CXR and GLINT-CT. On chest X-ray and chest CT, GLINT achieves strong zero-shot classification, grounding, and segmentation from free-text queries, including, to our knowledge, the first zero-shot free-text segmentation on 3D CT, and its representations consistently outperform both the underlying SSL encoders and prior medical vision-language models on downstream classification, report generation, and segmentation. 9Limitations and future work. Our evaluation focuses on chest X-ray and chest CT; extending the same recipe to other modalities and anatomical regions (e.g., abdominal CT, brain MRI) is left for future work. Beyond benchmark evaluation, direct clinician assessment of GLINT’s clinical utility in practice remains an important next step. 
+
+## References 
+
+[1] Hugo J. W. L. Aerts, Emmanuel Rios Velazquez, Ralph T. H. Leijenaar, Chintan Parmar, Patrick Grossmann, Sara Carvalho, Johan Bussink, René Monshouwer, Benjamin Haibe-Kains, Derek Rietveld, Frank Hoebers, Michelle M. Rietbergen, C. René Leemans, Andre Dekker, John Quackenbush, Robert J. Gillies, and Philippe Lambin. Decoding tumour phenotype by noninvasive imaging using a quantitative radiomics approach. Nature Communications , 5(1):4006, 2014. [2] Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Altman, Andy Applebaum, Edwin Arbus, Rahul K Arora, Yu Bai, Bowen Baker, Haiming Bao, et al. gpt-oss-120b & gpt-oss-20b model card. arXiv preprint arXiv:2508.10925 , 2025. [3] Michela Antonelli, Annika Reinke, Spyridon Bakas, Keyvan Farahani, Annette Kopp-Schneider, Bennett A. Landman, Geert Litjens, Bjoern Menze, Olaf Ronneberger, Ronald M. Summers, Bram van Ginneken, Michel Bilello, Patrick Bilic, Patrick F. Christ, Richard K. G. Do, Marc J. Gollub, Stephan H. Heckers, Henkjan Huisman, William R. Jarnagin, Maureen K. McHugo, Sandy Napel, Jennifer S. Golia Pernicka, Kawal Rhode, Catalina Tobon-Gomez, Eugene Vorontsov, James A. Meakin, Sebastien Ourselin, Manuel Wiesenfarth, Pablo Arbeláez, Byeonguk Bae, Sihong Chen, Laura Daza, Jianjiang Feng, Baochun He, Fabian Isensee, Yuanfeng Ji, Fucang Jia, Ildoo Kim, Klaus Maier-Hein, Dorit Merhof, Akshay Pai, Beomhee Park, Mathias Perslev, Ramin Rezaiifar, Oliver Rippel, Ignacio Sarasua, Wei Shen, Jaemin Son, Christian Wachinger, Liansheng Wang, Yan Wang, Yingda Xia, Daguang Xu, Zhanwei Xu, Yefeng Zheng, Amber L. Simpson, Lena Maier-Hein, and M. Jorge Cardoso. The Medical Segmentation Decathlon. 
+
+Nature Communications , 13(1):4128, 2022. [4] Samuel G Armato III, Geoffrey McLennan, Luc Bidaut, Michael F McNitt-Gray, Charles R Meyer, Anthony P Reeves, Binsheng Zhao, Denise R Aberle, Claudia I Henschke, Eric A Hoffman, et al. The lung image database consortium (lidc) and image database resource initiative (idri): a completed reference database of lung nodules on ct scans. Medical physics , 38(2):915–931, 2011. [5] Mahmoud Assran, Adrien Bardes, David Fan, Quentin Garrido, Russell Howes, Mojtaba Komeili, Matthew Muckley, Ammar Rizvi, Claire Roberts, Koustuv Sinha, Artem Zholus, Sergio Arnaud, Abha Gejji, Ada Martin, Francois Robert Hogan, Daniel Dugas, Piotr Bojanowski, Vasil Khalidov, Patrick Labatut, Francisco Massa, Marc Szafraniec, Kapil Krishnakumar, Yong Li, Xiaodong Ma, Sarath Chandar, Franziska Meier, Yann LeCun, Michael Rabbat, and Nicolas Ballas. V-jepa 2: Self-supervised video models enable understanding, prediction and planning. arXiv preprint arXiv:2506.09985 , 2025. [6] Mohammed Baharoon, Luyang Luo, Michael Moritz, Abhinav Kumar, Sung Eun Kim, Xiaoman Zhang, Miao Zhu, Mahmoud Hussain Alabbad, Maha Sbayel Alhazmi, Neel P Mistry, et al. Rexgroundingct: A 3d chest ct dataset for segmentation of findings from free-text reports. arXiv preprint arXiv:2507.22030 ,2025. [7] Louis Blankemeier, Ashwin Kumar, Joseph Paul Cohen, Jiaming Liu, Longchao Liu, Dave Van Veen, Syed Jamal Safdar Gardezi, Hongkun Yu, Magdalini Paschali, Zhihong Chen, et al. Merlin: a computed tomography vision–language foundation model and dataset. Nature , pages 1–11, 2026. [8] Benedikt Boecking, Naoto Usuyama, Shruthi Bannur, Daniel C Castro, Anton Schwaighofer, Stephanie Hyland, Maria Wetscherek, Tristan Naumann, Aditya Nori, Javier Alvarez-Valle, et al. Making the most of text semantics to improve biomedical vision–language processing. In European conference on computer vision , pages 1–21. Springer, 2022. [9] Aurelia Bustos, Antonio Pertusa, Jose-Maria Salinas, and Maria de la Iglesia-Vayá. Padchest: A large chest x-ray image dataset with multi-label annotated reports. Medical Image Analysis , 66:101797, December 2020. ISSN 1361-8415. doi: 10.1016/j.media.2020.101797. [10] Weiwei Cao, Jianpeng Zhang, Zhongyi Shui, Sinuo Wang, Zeli Chen, Xi Li, Le Lu, Xianghua Ye, Qi Zhang, Tingbo Liang, et al. Boosting vision semantic density with anatomy normality modeling for medical vision-language pre-training. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 23041–23050, 2025. [11] M Jorge Cardoso, Wenqi Li, Richard Brown, Nic Ma, Eric Kerfoot, Yiheng Wang, Benjamin Murrey, Andriy Myronenko, Can Zhao, Dong Yang, et al. Monai: An open-source framework for deep learning in healthcare. arXiv preprint arXiv:2211.02701 , 2022. 
+
+10 [12] Zhihong Chen, Yan Song, Tsung-Hui Chang, and Xiang Wan. Generating radiology reports via memory-driven transformer. In Proceedings of the 2020 conference on empirical methods in natural language processing (EMNLP) , pages 1439–1449, 2020. [13] Errol Colak, Felipe C. Kitamura, Stephen B. Hobbs, Carol C. Wu, Matthew P. Lungren, Luciano M. Prevedello, Jayashree Kalpathy-Cramer, Robyn L. Ball, George Shih, Anouk Stein, Safwan S. Halabi, Emre Altinmakas, Meng Law, Parveen Kumar, Karam A. Manzalawi, Dennis Charles Nelson Rubio, Jacob W. Sechrist, Pauline Germaine, Eva Castro Lopez, Tomas Amerio, Pushpender Gupta, Manoj Jain, Fernando U. Kay, Cheng Ting Lin, Saugata Sen, Jonathan Wesley Revels, Carola C. Brussaard, and John and Mongan. The rsna pulmonary embolism ct dataset. Radiology: Artificial Intelligence , 3(2): e200254, 2021. doi: 10.1148/ryai.2021200254. PMID: 33937862. [14] Jean-Benoit Delbrouck, Pierre Chambon, Christian Bluethgen, Emily Tsai, Omar Almusa, and Curtis Langlotz. Improving the factual correctness of radiology report generation with semantic rewards. In Yoav Goldberg, Zornitsa Kozareva, and Yue Zhang, editors, Findings of the Association for Computa-tional Linguistics: EMNLP 2022 , pages 4348–4360, Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.findings-emnlp.319. [15] Dina Demner-Fushman, Marc D Kohli, Marc B Rosenman, Steven E Shooshan, Louis Rodriguez, Sameer Antani, George R Thoma, and Clement J McDonald. Preparing a collection of radiology examinations for distribution and retrieval. Journal of the American Medical Informatics Association , 23(2):304–310, Mar 2016. doi: 10.1093/jamia/ocv080. [16] Michael Denkowski and Alon Lavie. Meteor 1.3: automatic metric for reliable optimization and evaluation of machine translation systems. In Proceedings of the Sixth Workshop on Statistical Machine Translation ,WMT ’11, page 85–91, USA, 2011. Association for Computational Linguistics. ISBN 9781937284121. [17] Rachel Lea Draelos, David Dov, Maciej A Mazurowski, Joseph Y Lo, Ricardo Henao, Geoffrey D Rubin, and Lawrence Carin. Machine-learning-based multiple abnormality prediction with large-scale chest computed tomography volumes. Medical image analysis , 67:101857, 2021. [18] Stefan Elfwing, Eiji Uchibe, and Kenji Doya. Sigmoid-weighted linear units for neural network function approximation in reinforcement learning. Neural networks , 107:3–11, 2018. [19] Ibrahim Ethem Hamamci, Sezgin Er, Suprosanna Shit, Hadrien Reynaud, Bernhard Kainz, and Bjoern Menze. CRG score: A distribution-aware clinical metric for radiology report generation. In Medical Imaging with Deep Learning - Short Papers , 2025. [20] Ibrahim Ethem Hamamci, Sezgin Er, Chenyu Wang, Furkan Almas, Ayse Gulnihan Simsek, Sevval Nil Esirgun, Irem Dogan, Omer Faruk Durugol, Benjamin Hou, Suprosanna Shit, et al. Generalist foundation models from a multimodal dataset for 3d computed tomography. Nature Biomedical Engineering , pages 1–19, 2026. [21] Ali Hatamizadeh, Yucheng Tang, Vishwesh Nath, Dong Yang, Andriy Myronenko, Bennett Landman, Holger R. Roth, and Daguang Xu. UNETR: Transformers for 3D medical image segmentation. In 
+
+Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV) , pages 574–584, 2022. [22] Shih-Cheng Huang, Liyue Shen, Matthew P Lungren, and Serena Yeung. Gloria: A multimodal global-local representation learning framework for label-efficient medical image recognition. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 3942–3951, 2021. [23] Jeremy Irvin, Pranav Rajpurkar, Michael Ko, Yifan Yu, Silviana Ciurea-Ilcus, Chris Chute, Henrik Marklund, Behzad Haghgoo, Robyn Ball, Katie Shpanskaya, Jayne Seekins, David A. Mong, Safwan S. Halabi, Jesse K. Sandberg, Ricky Jones, David B. Larson, Curtis P. Langlotz, Bhavik N. Patel, Matthew P. Lungren, and Andrew Y. Ng. Chexpert: A large chest radiograph dataset with uncertainty labels and expert comparison. Proceedings of the AAAI Conference on Artificial Intelligence , 33(01):590–597, Jul. 2019. doi: 10.1609/aaai.v33i01.3301590. [24] Fabian Isensee, Paul F. Jaeger, Simon A. A. Kohl, Jens Petersen, and Klaus H. Maier-Hein. nnu-net: a self-configuring method for deep learning-based biomedical image segmentation. Nature Methods , 18(2): 203–211, 2021. doi: 10.1038/s41592-020-01008-z. [25] Alistair EW Johnson, Tom J Pollard, Seth J Berkowitz, Nathaniel R Greenbaum, Matthew P Lungren, Chih-ying Deng, Roger G Mark, and Steven Horng. Mimic-cxr, a de-identified publicly available database of chest radiographs with free-text reports. Scientific data , 6(1):317, 2019. 
+
+11 [26] Alexander Ke, Shih-Cheng Huang, Chloe P O’Connell, Michal Klimont, Serena Yeung, and Pranav Rajpurkar. Video pretraining advances 3d deep learning on chest ct tasks. In Medical Imaging with Deep Learning , pages 758–774. PMLR, 2024. [27] Ananya Kumar, Aditi Raghunathan, Robbie Matthew Jones, Tengyu Ma, and Percy Liang. Fine-tuning can distort pretrained features and underperform out-of-distribution. In International Conference on Learning Representations , 2022. [28] Haoran Lai, Qingsong Yao, Zihang Jiang, Rongsheng Wang, Zhiyang He, Xiaodong Tao, and S Kevin Zhou. Carzero: Cross-attention alignment for radiology zero-shot classification. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 11137–11146, 2024. [29] Janghyeon Lee, Jongsuk Kim, Hyounguk Shon, Bumsoo Kim, Seung Hwan Kim, Honglak Lee, and Junmo Kim. UniCLIP: Unified framework for contrastive language-image pre-training. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun Cho, editors, Advances in Neural Information Processing Systems , 2022. [30] Jie Lian, Jingyu Liu, Shu Zhang, Kai Gao, Xiaoqing Liu, Dingwen Zhang, and Yizhou Yu. A structure-aware relation network for thoracic diseases detection and segmentation. IEEE Transactions on Medical Imaging , 40(8):2042–2052, 2021. [31] Chin-Yew Lin. ROUGE: A package for automatic evaluation of summaries. In Text Summarization Branches Out , pages 74–81, Barcelona, Spain, July 2004. Association for Computational Linguistics. [32] Mingquan Lin, Gregory Holste, Song Wang, Yiliang Zhou, Yishu Wei, Imon Banerjee, Pengyi Chen, Tianjie Dai, Yuexi Du, Nicha C. Dvornek, Yuyan Ge, Zuwei Guo, Shouhei Hanaoka, Dongkyun Kim, Pablo Messina, Yang Lu, Denis Parra, Donghyun Son, Álvaro Soto, Aisha Urooj, René Vidal, Yosuke Yamagishi, Pingkun Yan, Zefan Yang, Ruichi Zhang, Yang Zhou, Leo Anthony Celi, Ronald M. Summers, Zhiyong Lu, Hao Chen, Adam Flanders, George Shih, Zhangyang Wang, and Yifan Peng. Cxr-lt 2024: A miccai challenge on long-tailed, multi-label, and zero-shot disease classification from chest x-ray. Medical Image Analysis , 106:103739, 2025. ISSN 1361-8415. doi: https://doi.org/10.1016/j.media.2025.103739. [33] Geert Litjens, Thijs Kooi, Babak Ehteshami Bejnordi, Arnaud Arindra Adiyoso Setio, Francesco Ciompi, Mohsen Ghafoorian, Jeroen A.W.M. van der Laak, Bram van Ginneken, and Clara I. Sánchez. A survey on deep learning in medical image analysis. Medical Image Analysis , 42:60–88, 2017. ISSN 1361-8415. doi: https://doi.org/10.1016/j.media.2017.07.005. [34] Jingyu Liu, Jie Lian, and Yizhou Yu. Chestx-det10: Chest x-ray dataset on detection of thoracic abnormali-ties. arXiv preprint arXiv:2006.10550 , 2020. [35] Kevis-Kokitsi Maninis, Kaifeng Chen, Soham Ghosh, Arjun Karpur, Koert Chen, Ye Xia, Bingyi Cao, Daniel Salz, Guangxing Han, Jan Dlabal, Dan Gnanapragasam, Mojtaba Seyedhosseini, Howard Zhou, and André Araujo. TIPS: Text-Image Pretraining with Spatial Awareness. In ICLR , 2025. [36] Andre Martins and Ramon Astudillo. From softmax to sparsemax: A sparse model of attention and multi-label classification. In International conference on machine learning , pages 1614–1623. PMLR, 2016. [37] Lorenzo Mur-Labadia, Matthew Muckley, Amir Bar, Mido Assran, Koustuv Sinha, Mike Rabbat, Yann LeCun, Nicolas Ballas, and Adrien Bardes. V-jepa 2.1: Unlocking dense features in video self-supervised learning. arXiv preprint arXiv:2603.14482 , 2026. [38] Ha Q Nguyen, Khanh Lam, Linh T Le, Hieu H Pham, Dat Q Tran, Dung B Nguyen, Dung D Le, Chi M Pham, Hang TT Tong, Diep H Dinh, et al. Vindr-cxr: An open dataset of chest x-rays with radiologist’s annotations. Scientific Data , 9(1):429, 2022. [39] Maxime Oquab, Timothée Darcet, Théo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, et al. Dinov2: Learning robust visual features without supervision. arXiv preprint arXiv:2304.07193 , 2023. [40] Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, John Schulman, Jacob Hilton, Fraser Kelton, Luke Miller, Maddie Simens, Amanda Askell, Peter Welinder, Paul F Christiano, Jan Leike, and Ryan Lowe. Training language models to follow instructions with human feedback. Advances in Neural Information Processing Systems , 35:27730–27744, 2022. 
+
+12 [41] Jonggwon Park, Kyoyun Choi, Byungmu Yoon, Hong Geun Cho, and Bumcheol Hwang. Radzero3d: Bridging self-supervised video models and medical vision-language alignment for zero-shot chest ct interpretation. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 6742–6749, 2025. [42] Jonggwon Park, Byungmu Yoon, Soobum Kim, and Kyoyun Choi. Radzero: Similarity-based cross-attention for explainable vision-language alignment in chest x-ray with zero-shot multi-task capability. In 
+
+The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2025. [43] Fernando Perez-Garcia, Harshita Sharma, Sam Bond-Taylor, Kenza Bouzid, Valentina Salvatelli, Maxim-ilian Ilse, Shruthi Bannur, Daniel C Castro, Anton Schwaighofer, Matthew P Lungren, et al. Exploring scalable medical image encoders beyond text supervision. Nature Machine Intelligence , 7(1):119–130, 2025. [44] Vu Minh Hieu Phan, Yutong Xie, Yuankai Qi, Lingqiao Liu, Liyang Liu, Bowen Zhang, Zhibin Liao, Qi Wu, Minh-Son To, and Johan W Verjans. Decomposing disease descriptions for enhanced pathology detection: A multi-aspect vision-language pre-training framework. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11492–11501, 2024. [45] Zihan Qiu, Zekun Wang, Bo Zheng, Zeyu Huang, Kaiyue Wen, Songlin Yang, Rui Men, Le Yu, Fei Huang, Suozhi Huang, Dayiheng Liu, Jingren Zhou, and Junyang Lin. Gated attention for large language models: Non-linearity, sparsity, and attention-sink-free. In The Thirty-ninth Annual Conference on Neural Information Processing Systems , 2026. [46] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning transferable visual models from natural language supervision. In Marina Meila and Tong Zhang, editors, 
+
+Proceedings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Machine Learning Research , pages 8748–8763. PMLR, 18–24 Jul 2021. [47] Nils Reimers and Iryna Gurevych. Sentence-BERT: Sentence embeddings using Siamese BERT-networks. In Kentaro Inui, Jing Jiang, Vincent Ng, and Xiaojun Wan, editors, Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP) , pages 3982–3992, Hong Kong, China, November 2019. Association for Computational Linguistics. doi: 10.18653/v1/D19-1410. [48] Maximilian Rokuss, Moritz Langenberg, Yannick Kirchhoff, Fabian Isensee, Benjamin Hamm, Constantin Ulrich, Sebastian Regnery, Lukas Bauer, Efthimios Katsigiannopulos, Tobias Norajitra, and Klaus Maier-Hein. Voxtell: Free-text promptable universal 3d medical image segmentation, 2025. [49] Jarrel CY Seah, Jennifer SN Tang, and Aengus Tran. Drafting the future: the dawn of ai report generation in radiology. Radiology , 316(1):e243378, 2025. [50] Andrew Sellergren, Sahar Kazemzadeh, Tiam Jaroensri, Atilla Kiraly, Madeleine Traverse, Timo Kohlberger, Shawn Xu, Fayaz Jamil, Cían Hughes, Charles Lau, et al. Medgemma technical report. 
+
+arXiv preprint arXiv:2507.05201 , 2025. [51] George Shih, Carol C Wu, Safwan S Halabi, Marc D Kohli, Luciano M Prevedello, Tessa S Cook, Arjun Sharma, Judith K Amorosa, Veronica Arteaga, Maya Galperin-Aizenberg, et al. Augmenting the national institutes of health chest radiograph dataset with expert annotations of possible pneumonia. Radiology. Artificial intelligence , 1(1), 2019. [52] Zhongyi Shui, Jianpeng Zhang, Weiwei Cao, Sinuo Wang, Ruizhe Guo, Le Lu, Lin Yang, Xianghua Ye, Tingbo Liang, Qi Zhang, and Ling Zhang. Large-scale and fine-grained vision-language pre-training for en-hanced CT image understanding. In The Thirteenth International Conference on Learning Representations ,2025. [53] Oriane Siméoni, Huy V Vo, Maximilian Seitzer, Federico Baldassarre, Maxime Oquab, Cijo Jose, Vasil Khalidov, Marc Szafraniec, Seungeun Yi, Michaël Ramamonjisoa, et al. Dinov3. arXiv preprint arXiv:2508.10104 , 2025. [54] Akshay Smit, Saahil Jain, Pranav Rajpurkar, Anuj Pareek, Andrew Y Ng, and Matthew P Lungren. Chexbert: Combining automatic labelers and expert annotations for accurate radiology report labeling using bert. In EMNLP 2020-2020 Conference on Empirical Methods in Natural Language Processing, Proceedings of the Conference , pages 1500–1519, 2020. 
+
+13 [55] Michael Tschannen, Alexey Gritsenko, Xiao Wang, Muhammad Ferjad Naeem, Ibrahim Alabdulmohsin, Nikhil Parthasarathy, Talfan Evans, Lucas Beyer, Ye Xia, Basil Mustafa, et al. Siglip 2: Multilingual vision-language encoders with improved semantic understanding, localization, and dense features. arXiv preprint arXiv:2502.14786 , 2025. [56] Tassilo Wald, Ibrahim Ethem Hamamci, Yuan Gao, Sam Bond-Taylor, Harshita Sharma, Maximilian Ilse, Cynthia Lo, Olesya Melnichenko, Noel CF Codella, Maria Teodora Wetscherek, et al. Comprehensive language-image pre-training for 3d medical image understanding. arXiv preprint arXiv:2510.15042 , 2025. [57] Fuying Wang, Yuyin Zhou, Shujun Wang, Varut Vardhanabhuti, and Lequan Yu. Multi-granularity cross-modal alignment for generalized medical visual representation learning. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun Cho, editors, Advances in Neural Information Processing Systems ,2022. [58] Xiaosong Wang, Yifan Peng, Le Lu, Zhiyong Lu, Mohammadhadi Bagheri, and Ronald M. Summers. Chestx-ray8: Hospital-scale chest x-ray database and benchmarks on weakly-supervised classification and localization of common thorax diseases. In 2017 IEEE Conference on Computer Vision and Pattern Recognition (CVPR) , pages 3462–3471, 2017. doi: 10.1109/CVPR.2017.369. [59] Zifeng Wang, Zhenbang Wu, Dinesh Agarwal, and Jimeng Sun. Medclip: Contrastive learning from unpaired medical images and text. In Proceedings of the Conference on Empirical Methods in Natural Language Processing. Conference on Empirical Methods in Natural Language Processing , volume 2022, page 3876, 2022. [60] S.K. Warfield, K.H. Zou, and W.M. Wells. Simultaneous truth and performance level estimation (staple): an algorithm for the validation of image segmentation. IEEE Transactions on Medical Imaging , 23(7): 903–921, 2004. doi: 10.1109/TMI.2004.828354. [61] Jakob Wasserthal, Hanns-Christian Breit, Manfred T Meyer, Maurice Pradella, Daniel Hinck, Alexander W Sauter, Tobias Heye, Daniel T Boll, Joshy Cyriac, Shan Yang, et al. Totalsegmentator: robust segmentation of 104 anatomic structures in ct images. Radiology: Artificial Intelligence , 5(5):e230024, 2023. [62] Chaoyi Wu, Xiaoman Zhang, Ya Zhang, Yanfeng Wang, and Weidi Xie. Medklip: Medical knowledge enhanced language-image pre-training for x-ray diagnosis. In Proceedings of the IEEE/CVF international conference on computer vision , pages 21372–21383, 2023. [63] Tete Xiao, Yingcheng Liu, Bolei Zhou, Yuning Jiang, and Jian Sun. Unified perceptual parsing for scene understanding. In Proceedings of the European conference on computer vision (ECCV) , pages 418–434, 2018. [64] Tony Xu, Sepehr Hosseini, Chris Anderson, Anthony Rinaldi, Rahul G Krishnan, Anne L Martel, and Maged Goubran. A generalizable 3d framework and model for self-supervised learning in medical imaging. 
+
+npj Digital Medicine , 8(1):639, 2025. [65] Lin Yang, Shawn Xu, Andrew Sellergren, Timo Kohlberger, Yuchen Zhou, Ira Ktena, Atilla Kiraly, Faruk Ahmed, Farhad Hormozdiari, Tiam Jaroensri, et al. Advancing multimodal medical capabilities of gemini. 
+
+arXiv preprint arXiv:2405.03162 , 2024. [66] Heeji Yoon, Jaewoo Jung, Junwan Kim, Hyungyu Choi, Heeseong Shin, Sangbeom Lim, Honggyu An, Chaehyun Kim, Jisang Han, Donghyun Kim, et al. Visual representation alignment for multimodal large language models. arXiv preprint arXiv:2509.07979 , 2025. [67] Nikolaos-Antonios Ypsilantis, Kaifeng Chen, André Araujo, and Ondrej Chum. Infusing fine-grained visual knowledge to vision-language models. In Proceedings of the IEEE/CVF International Conference on Computer Vision , pages 4226–4235, 2025. [68] Yang Yue, Yulin Wang, Chenxin Tao, Pan Liu, Shiji Song, and Gao Huang. Chexworld: Exploring image world modeling for radiograph representation learning. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 20778–20788, 2025. [69] Anna Zawacki, Carol Wu, George Shih, Julia Elliott, Mikhail Fomitchev, Mohannad Hussain, ParasLakhani, Phil Culliton, and Shunxing Bao. Siim-acr pneumothorax segmentation, 2019. Kaggle. [70] Xiaohua Zhai, Xiao Wang, Basil Mustafa, Andreas Steiner, Daniel Keysers, Alexander Kolesnikov, and Lucas Beyer. Lit: Zero-shot transfer with locked-image text tuning. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 18123–18133, 2022. 
+
+14 [71] Jianming Zhang, Sarah Adel Bargal, Zhe Lin, Jonathan Brandt, Xiaohui Shen, and Stan Sclaroff. Top-down neural attention by excitation backprop. International Journal of Computer Vision , 126(10):1084–1102, 2018. [72] Xiaoman Zhang, Chaoyi Wu, Ya Zhang, Weidi Xie, and Yanfeng Wang. Knowledge-enhanced visual-language pre-training on chest radiology images. Nature Communications , 14(1):4542, 2023. [73] Yuhao Zhang, Hang Jiang, Yasuhide Miura, Christopher D Manning, and Curtis P Langlotz. Contrastive learning of medical visual representations from paired images and text. In Machine learning for healthcare conference , pages 2–25. PMLR, 2022. [74] Ziheng Zhao, Yao Zhang, Chaoyi Wu, Xiaoman Zhang, Xiao Zhou, Ya Zhang, Yanfeng Wang, and Weidi Xie. Large-vocabulary segmentation for medical images with text prompts. NPJ Digital Medicine , 8(1): 566, 2025. [75] Hong-Yu Zhou, Chenyu Lian, Liansheng Wang, and Yizhou Yu. Advancing radiograph representation learn-ing with masked record modeling. In The Eleventh International Conference on Learning Representations ,2023. [76] Yang Zhou, Tan Li Hui Faith, Yanyu Xu, Sicong Leng, Xinxing Xu, Yong Liu, and Rick Siow Mong Goh. Benchx: A unified benchmark framework for medical vision-language pretraining on chest x-rays. In 
+
+Advances in Neural Information Processing Systems , volume 37, pages 6625–6647, 2024. 
+
+15 A Additional Visualization Results 
+
+Gated Similarity Maps (GSM). We provide GSM visualizations on both modalities. Figure 5 covers all 13 findings in ChestX-Det [ 30 ] on chest X-ray, and Figure 6 covers several findings from ReXGroundingCT [ 6] on chest CT. For each case, we present the input image (axial slice for CT), the ground-truth mask, and the GSM produced by GLINT for the corresponding text phrase. 
+
+Principal component analysis (PCA). To examine the patch-level feature space, Figure 7 visualizes PCA maps of dense patch features on chest X-ray (top) and chest CT (bottom). The CXR example is a lung mass case from ChestX-Det [ 30 ], and the CT example is a lung cancer case from MSD-Lung [ 3]. For each modality, we compare GLINT with its underlying SSL backbone (DINOv3 [ 53 ] for CXR, V-JEPA 2.1 [ 37 ] for CT) and representative baselines. Each model is processed at its native input and patch size, and the resulting feature maps are visualized via bicubic interpolation. GLINT produces 
+
+Figure 5: Visualization of Gated Similarity Maps (GSM) on chest X-ray for all 13 findings in ChestX-Det [30]. 16 Figure 6: Visualization of Gated Similarity Maps (GSM) on chest CT for several findings from ReXGroundingCT [6]. 
+
+Figure 7: PCA maps of dense patch-level features on chest X-ray (top) and chest CT (bottom). sharper and more coherent features and more clearly delineates the lesion region, indicating that it captures fine-grained, lesion-aware representations. 
+
+## B Implementation details 
+
+Chest CT preprocessing. Chest CT volumes are preprocessed following CT-CLIP [ 20 ], imple-mented with MONAI [ 11 ] so that the pipeline can be applied uniformly across CT-RATE, RAD-ChestCT, RSNA-PE, and LIDC-IDRI. Volumes are loaded and reoriented to the IPL axcode, then resampled to a target voxel spacing of (1 .5, 0.75 , 0.75) mm in (D, H, W ) via trilinear interpola-tion. Hounsfield units are clipped to [−1000 , 1000] and linearly mapped to [−1, 1] . Volumes are center-cropped or zero-padded to a region-of-interest size of (240 , 480 , 480) , and then trilinearly resized to a final size of (240 , 384 , 384) to match the input resolution of V-JEPA 2.1 [ 37 ]. To construct pseudo-RGB inputs, consecutive slices are stacked to convert (D, H, W ) volumes into 
+
+(D/ 3, 3, H, W ). Values are then rescaled from [−1, 1] to [0 , 1] , followed by the standard V-JEPA 2.1 input z-normalization. 
+
+Dense feature regularization. The projector g is a 3-layer MLP with SiLU activations [ 18 ]. The hidden dimension is set to 4,096 for CXR and 2,048 for chest CT. Since the teacher encoder is frozen, we precompute its patch-level features once and cache them on disk, loading the cached features during training to reduce GPU memory. 17 Table 7: Hyperparameters used for pretraining and downstream tasks. Task Dataset Batch size Learning rate Epoch Early stopping Loss VL Alignment MIMIC-CXR 128 5e-5 10 3 GLINT 64 1e-4 20 3 BCE MIMIC-CXR 64 1e-4 20 3 CE 32 1e-4 40 3 BCE, Dice VL Alignment CT-RATE 32 5e-5 5 3 GLINT CT-RATE 128 5e-4 5 3 BCE 32 5e-4 20 10 BCE CT-RATE 64 1e-4 5 3 CE 8 5e-4 100 20 CE, Dice Chest X-ray training Chest X-ray downstream Classification ChestXray14 VinDr-CXR RSNA-PN SIIM Report Generation Segmentation ChestX-Det SIIM Chest CT training Chest CT downstream Classification RSNA-PE LIDC-IDRI Report Generation Segmentation MSD-Lung NSCLC-Radiomics Table 8: Computational cost of training. 
+
+Model GPUs Memory / GPU Total Time GPU-hours GLINT-CXR 8 × H200 128.6 GB 5.5 h 44.0 GLINT-CT 8 × H200 148.0 GB 4.3 h 34.4 
+
+Training details. We use the cosine warm-up scheduler with 50 warm-up steps, a weight decay of 0.05, and apply an early stopping strategy for all training. All other task-specific settings are reported in Table 7. Pretraining is conducted using automatic mixed precision with bfloat16, while all downstream tasks are trained in full single-precision. 
+
+Downstream task details. For classification , we adopt attentive probing, where an attentive pooling layer followed by a linear classifier is trained on top of the frozen features. For report generation , an R2Gen [ 12 ] decoder is attached to the frozen encoder. For CXR segmentation , a simple UPerNet [ 63 ]-style decoder is adopted. To use the same decoder architecture across different vision encoders, patch-level features are adaptively pooled to a spatial resolution of 16 2 before decoding. For CT segmentation , input volumes are preprocessed to match each encoder’s input format, and a UNETR [ 21 ]-style 3D decoder without skip connections is used to produce predictions at the input volume size. Decoding is performed using MONAI’s sliding-window inference [ 11 ] with Gaussian importance weighting and 0.5 overlap, following nnU-Net conventions [24]. 
+
+Computational cost. Table 8 summarizes the computational cost of training GLINT-CXR and GLINT-CT. 
+
+## C Report Decomposition Prompt Design 
+
+For each report, we extract the Findings and Impression sections and use them as input to the decomposition prompt, which is applied uniformly to both CXR and chest CT reports. The prompt converts the free-text input into clinical sentences. Temporal comparisons are removed, and all statements are rewritten as present-tense declarative sentences following consistent templates (e.g., “There is ...”, “There is no ...”, “There may be ...”). Sentences containing multiple findings connected by conjunctions (commas, “and”, “or”, “with”) are split into one sentence per finding. Both positive and negative statements are explicitly included; normal observations (e.g., “the heart size is normal”) are kept as declarative sentences rather than discarded. Uncertainty expressions are preserved, and for statements containing diagnostic phrasing (e.g., “to suggest pneumonia”), both complete and observation-only variants are extracted. 18 Table 9: Evaluation dataset details, including the number of instances per split and key annotation properties, such as class count and annotation type.                                                                                                              
+
+> Task Dataset Train Validation Test Annotation
+> PadChest --39,053 192 classes
+> PadChest20 --39,053 20 classes
+> ChestXray14 --22,433 14 classes
+> ChestX-Det10 --542 10 classes, bounding box
+> CheXpert --668 5 classes
+> Open-I --3,851 18 classes
+> ChestX-Det10 --542 10 classes, bounding box
+> MS-CXR --167 phrase-level bounding box
+> ChestX-Det --3,578 13 classes, mask
+> SIIM --1,704 1 class, mask
+> ChestXray14 77,871 8,653 25,596 14 classes
+> VinDr-CXR 13,494 1,506 3,000 28 classes, bounding box
+> RSNA-PN 21,346 2,669 2,669 1 class
+> SIIM 9,303 1,372 1,372 1 class, mask
+> MIMIC-CXR 27,079 2,130 3,858 report
+> ChestX-Det 2,722 303 553 13 classes, mask
+> SIIM 9,303 1,372 1,372 1 class, mask
+> CT-RATE --3,002 18 classes, report
+> RAD-ChestCT --3,630 16 classes
+> ReXGroundingCT --50 free-text, mask
+> CT-RATE 43,337 2,990 3,002 18 classes, report
+> RSNA-PE 4,983 1,062 1,060 1 class
+> LIDC-IDRI 709 151 150 1 class
+> CT-RATE 43,393 2,994 3,002 18 classes, report
+> MSD-Lung 44 613 1 class, mask
+> NSCLC-Radiomics 294 42 84 1 class, mask
+> Chest X-ray zero-shot
+> Classification
+> Grounding
+> Segmentation
+> Chest X-ray downstream
+> Classification
+> Report Generation
+> Segmentation
+> Chest CT zero-shot
+> Classification
+> Free-text Segmentation
+> Chest CT downstream
+> Classification
+> Report Generation
+> Segmentation
+
+## D Evaluation Dataset Details 
+
+D.1 Chest X-ray Zero-shot 
+
+To enable fair comparison across models, we follow the evaluation protocol of RadZero [ 42 ]1, using the same images and data splits. For zero-shot segmentation, we additionally evaluate on positive cases from ChestX-Det [ 30 ] (13 classes). Since MS-CXR [ 8] is built on MIMIC-CXR, we exclude its test images from our MIMIC-CXR training data to prevent leakage. 
+
+D.2 Chest X-ray Downstream ChestXray14 [ 58 ] provides official training and test sets. We split the former at a 9:1 ratio to obtain training and validation sets, and use the latter for evaluation. VinDr-CXR [ 38 ] provides official training and test sets. The former is randomly split into training and validation sets with a ratio of 9:1, while the latter is used for evaluation. VinDr-CXR provides 28 classes in total. After excluding “Edema”, which is not present in the test set, we perform multi-label classification over the remaining 27 classes. RSNA Pneumonia (RSNA-PN) [ 51 ] provides training labels only for the officially released dataset. We use the labeled training set and partition it into training, validation, and test sets with a ratio of 8:1:1. MIMIC-CXR [25 ] generally follows the official training, validation, and test sets, and we include only reports in which the Findings section is present. For computational reasons, we adopt a random 10% subset of the training set, while the validation and test sets remain unchanged. SIIM-ACR Pneumothorax [69 ] employs a dataset version that provides PNG-format images with image-level segmentation masks, enabling clear separation between splits 2. Following 
+
+> 1https://huggingface.co/Deepnoid/RadZero/blob/main/data/README.md
+> 2https://www.kaggle.com/datasets/jesperdramsch/siim-acr-pneumothorax-segmentation-data
+
+19 Table 10: Ablation on input resolution and vision encoder size for chest X-ray. GLINT-CXR is highlighted in gray.                                                             
+
+> Classification Grounding Segmentation
+> PadChest PadChest20 ChestXray14 ChestX-Det10 CheXpert Open-I ChestX-Det10 MS-CXR ChestX-Det SIIM
+> Macro AUROC Macro Acc. Acc. Macro Dice Dice
+> 512 2ViT-B 0.853 0.894 0.817 0.812 0.918 0.871 0.625 0.886 0.385 0.259
+> 1024 2ViT-B 0.853 0.891 0.826 0.838 0.913 0.880 0.681 0.916 0.419 0.317
+> 512 2ViT-L 0.853 0.885 0.823 0.831 0.911 0.870 0.628 0.880 0.408 0.224
+> 1024 2ViT-L 0.863 0.917 0.825 0.853 0.921 0.881 0.729 0.892 0.434 0.317
+> Resolution Encoder
+
+Table 11: Ablation on DFR. ViT-7B/G: ViT-7B (CXR), ViT-G (CT). GLINT is highlighted in gray.                                                  
+
+> CXR Zero-shot Chest CT Zero-shot
+> Classification Grounding Segmentation Classification Segmentation
+> (a) Alternative regularization
+> Freeze all but last-2 student layers (no DFR) ––0.855 0.750 0.281 0.798 0.097
+> (b) Teacher capacity (DFR, depth fixed)
+> Same-size teacher ViT-L 90% 0.863 0.773 0.335 0.811 0.127
+> (c) Regularization depth (DFR, ViT-7B/G teacher)
+> Depth 50% ViT-7B/G 50% 0.875 0.787 0.352 0.800 0.114
+> Depth 75% ViT-7B/G 75% 0.870 0.785 0.356 0.791 0.094
+> Depth 100% ViT-7B/G 100% 0.871 0.826 0.303 0.811 0.100
+> GLINT ViT-7B/G 90% 0.877 0.810 0.375 0.819 0.128
+> Variant Teacher Depth
+
+the data split defined in BenchX [ 76 ], we adopt training, validation, and test sets with a ratio of 7:1.5:1.5. ChestX-Det [ 30 ] is released with official training and test sets. The former is split into training and validation sets with a ratio of 9:1, while the latter is used for evaluation. 
+
+D.3 Chest CT Zero-shot 
+
+The official validation split of CT-RATE [20 ] serves as the internal evaluation and RAD-ChestCT [ 17 ] is used for external evaluation. While RAD-ChestCT originally provides 84 ab-normality labels, we use 16 mapped abnormalities following CT-CLIP [ 20 ]. As the label mapping procedure is not specified in CT-CLIP [ 20 ], we employ the mapping strategy from RadZero3D [ 41 ]. For free-text segmentation, we use the 50-case validation split of ReXGroundingCT [ 6]. Since ReXGroundingCT is built on CT-RATE, we exclude its test volumes from our CT-RATE training data to prevent leakage. 
+
+D.4 Chest CT Downstream 
+
+Since fVLM and ViSD-Boost require masks to crop regions of interest from CT volumes, we apply the same preprocessing pipeline to RSNA-PE [13 ] and LIDC-IDRI [ 4]. Following their pipeline, masks are generated using TotalSegmentator [ 61 ], and samples with failed segmentation are excluded. For fair comparison, although GLINT-CT and CT-CLIP do not rely on mask-based preprocessing, evaluation is restricted to the intersection of samples available across all methods. Dataset split strategies vary across datasets. For CT-RATE , the official validation split serves as our test set. To establish a validation set during training, we extract a subset from the official training split of CT-RATE, matching the sample size of its official validation split. In the case of RSNA-PE, official splits are provided, but the test set lacks labels. The official train split is therefore divided into train, validation, and test sets with a ratio of 7:1.5:1.5, following [ 26 ]. As LIDC-IDRI does not provide official splits, we partition the entire dataset into train, validation, and test sets in an 8:1:1 ratio. For segmentation, MSD-Lung [3] and NSCLC-Radiomics [1 ] serve as evaluation benchmarks. Since neither dataset provides official splits, we partition both into train, validation, and test sets with a 7:1:2 ratio. Given the small size of MSD-Lung, we report the Dice score averaged over three independent runs with different random seeds. For NSCLC-Radiomics, the model is trained on two foreground classes (primary and secondary GTV). However, as secondary GTV annotations are available for only a subset of patients, we evaluate Dice on the primary GTV alone. 20 Table 12: Statistical significance of chest X-ray zero-shot performance.                                      
+
+> Classification Grounding Segmentation
+> PadChest PadChest20 ChestXray14 ChestX-Det10 CheXpert Open-I ChestX-Det10 MS-CXR ChestX-Det SIIM
+> Macro AUROC Macro Acc. Acc. Macro Dice Dice
+> GLINT-CXR 0.863 0.917 0.825 0.853 0.921 0.881 0.729 0.892 0.434 0.317
+> Mean ( ±std) 0.860 (±0.0026)
+> 0.908 (±0.0090)
+> 0.827 (±0.0028)
+> 0.845 (±0.0073)
+> 0.915 (±0.0056)
+> 0.879 (±0.0024)
+> 0.711 (±0.0222)
+> 0.904 (±0.0317)
+> 0.429 (±0.0044)
+> 0.305 (±0.0246)
+> Method
+
+Table 13: Statistical significance of chest X-ray downstream task performance.                                      
+
+> Classification Report Generation Segmentation
+> ChestXray14 VinDr-CXR RSNA-PN SIIM MIMIC-CXR ChestX-Det SIIM
+> Macro AUROC AUROC METEOR ROUGE-L CheXbert F1 F1-RadGraph Macro Dice Dice
+> GLINT-CXR 0.848 0.945 0.903 0.976 0.144 0.247 0.313 0.223 0.822 0.759
+> Mean ( ±std) 0.847 (±0.0012)
+> 0.944 (±0.0014)
+> 0.902 (±0.0006)
+> 0.975 (±0.0008)
+> 0.143 (±0.0013)
+> 0.249 (±0.0017)
+> 0.314 (±0.0024)
+> 0.225 (±0.0024)
+> 0.818 (±0.0074)
+> 0.730 (±0.0491)
+> Method
+
+Table 14: Statistical significance of chest CT zero-shot performance.             
+
+> Classification Free-text Segmentation
+> CT-RATE Rad-ChestCT ReXGroundingCT
+> Macro AUROC Dice
+> GLINT-CT 0.850 0.789 0.128
+> Mean ( ±std) 0.849 (±0.0010)
+> 0.780 (±0.0098)
+> 0.122 (±0.0098)
+> Method
+
+Table 15: Statistical significance of chest CT downstream task performance.                                  
+
+> Classification Report Generation Segmentation
+> CT-RATE RSNA-PE LIDC-IDRI CT-RATE MSD-Lung NSCLC-Rad
+> Macro AUROC AUROC METEOR ROUGE-L RadBERT F1 CRG Dice
+> GLINT-CT 0.877 0.702 0.916 0.227 0.243 0.399 0.434 0.648 0.597
+> Mean ( ±std) 0.876 (±0.0020)
+> 0.677 (±0.0215)
+> 0.906 (±0.0083)
+> 0.221 (±0.0055)
+> 0.226 (±0.0166)
+> 0.399 (±0.0008)
+> 0.432 (±0.0030)
+> 0.613 (±0.0311)
+> 0.587 (±0.0102)
+> Method
+
+## E Additional Ablation Studies 
+
+We provide two additional ablations beyond the main results: (i) the design choices of DFR and (ii) the input resolution and vision encoder size for chest X-ray. 
+
+E.1 Dense Feature Regularization 
+
+We analyze DFR along three axes: (i) whether explicit distillation is needed, by replacing DFR with a partially-frozen encoder baseline (all but the last two student layers frozen, no DFR); (ii) teacher capacity, by replacing the large SSL teacher (ViT-7B for CXR, ViT-G for CT) with a student-sized ViT-L; and (iii) feature extraction depth, sweeping 50% , 75% , 100% against our ∼90% setting ((ls, l t) = (22 , 36) for CXR, (22 , 44) for CT). Results are in Table 11. The partially-frozen baseline drops on every metric, showing that freezing alone is insufficient. DFR fills this gap: a student-sized ViT-L teacher already recovers much of the drop, and the ViT-7B/G teacher yields further gains—suggesting that the SSL anchor drives most of the improvement, with a larger teacher contributing additional gains. Across depth, GLINT ranks first on 4 of 5 metrics. 100% 
+
+yields the lowest CXR segmentation and trails GLINT-CT on both CT metrics, suggesting too little capacity for VL adaptation; 50 –75% underperforms broadly, consistent with weak regularization in the upper layers. ∼90% balances these regimes across CXR and CT. 
+
+E.2 Input Resolution and Vision Encoder Size (CXR) 
+
+Existing CXR baselines (e.g., RadZero [ 42 ]) typically use ∼518 2 inputs with a ViT-B backbone, whereas GLINT-CXR uses 1024 2 with ViT-L. To verify that our gains are not driven by larger inputs 21 or backbone alone, we conduct a controlled ablation over {512 2, 1024 2} × { ViT-B , ViT-L }. Results are in Table 10. Even at the matched 512 2+ViT-B configuration, our framework exceeds prior baselines (Table 1) on 9 of 10 metrics, indicating that the gains stem from the framework, not solely from resolution or backbone. GLINT-CXR ( 1024 2+ViT-L) further improves to first on 8 of 10 metrics. 
+
+## F Statistical Significance 
+
+To examine run-to-run variability, we report the mean and standard deviation over three independent trials with different random seeds for all CXR and chest CT experiments in Tables 12–15. 22

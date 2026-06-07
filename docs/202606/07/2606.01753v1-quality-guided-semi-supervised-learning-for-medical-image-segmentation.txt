@@ -1,0 +1,423 @@
+Title: Quality-Guided Semi-Supervised Learning for Medical Image Segmentation
+
+URL Source: https://arxiv.org/pdf/2606.01753v1
+
+Published Time: Tue, 02 Jun 2026 02:08:31 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+## Quality-Guided Semi-Supervised Learning for Medical Image Segmentation 
+
+Kumar Abhishek [0000 −0002 −7341 −9617] and Ghassan Hamarneh [0000 −0001 −5040 −7448] 
+
+School of Computing Science, Simon Fraser University, Canada 
+
+{kabhishe,hamarneh}@sfu.ca 
+
+Abstract. Training accurate medical image segmentation models re-quires large amounts of densely annotated data, which is costly and time-consuming to obtain. Semi-supervised learning (SSL) alleviates this by learning from both abundant unlabeled data and limited labeled data. However, most modern SSL methods rely on pseudolabels for unlabeled data, and typically assess their reliability through model confidence or uncertainty, measures that are self-referential and lack explicit ground-ing in segmentation quality. Instead, we propose a quality -guided SSL framework that trains a dedicated network to estimate segmentation quality from image-mask pairs. The predictor is trained on variable-quality masks generated through synthetic corruptions augmented with imperfect outputs from partially trained segmentation models, captur-ing realistic error patterns encountered during training. We integrate the quality predictor into SSL through two complementary mechanisms: a quality-aware regularization loss and a quality-based pseudolabel sam-ple reweighting scheme. We show that our method serves as a drop-in enhancement to existing SSL frameworks. Extensive experiments across five datasets and multiple architectures demonstrate consistent improve-ments over competing SSL methods, advancing the state-of-the-art in semi-supervised medical image segmentation. 
+
+Keywords: Image segmentation · Segmentation quality · Semi-supervised learning. 
+
+1 Introduction 
+
+Accurate segmentation of medical images is fundamental to clinical workflows, yet dense pixelwise annotations, necessary for training deep learning-based seg-mentation models, remain costly and scarce [22,38,1]. Semi-supervised learning (SSL) addresses this annotation scarcity by leveraging abundant unlabeled data alongside limited labels, and has become a dominant paradigm for label-efficient medical image segmentation. Most existing SSL approaches differ in how they leverage unlabeled data, falling into three broad categories: (i) consistency regularization, enforcing pre-diction invariance under perturbations, notably mean teacher (MT) [39], its  
+
+> arXiv:2606.01753v1 [cs.CV] 1 Jun 2026 2K. Abhishek et al.
+
+uncertainty-aware extension (UA-MT) [42], and interpolation consistency train-ing (ICT) [41]; (ii) pseudolabel methods, using confident predictions as surro-gate supervision [19,35], extended by cross-pseudo supervision (CPS) [9]; and (iii) contrastive learning, leveraging representation-level objectives on unlabeled data [7]. Across these methods, unlabeled samples are either treated uniformly regardless of prediction quality (MT, ICT), or filtered using model-derived con-fidence as a proxy for reliability (UA-MT, FixMatch [35]). Although calibra-tion techniques can reduce overconfidence [15], medical segmentation networks remain poorly calibrated in practice [24]. More fundamentally, even perfectly calibrated confidence is self-referential, since it reflects the model’s belief about its own prediction, and cannot catch systematic errors arising from the same representations that produced them. We argue that an independent assessment of segmentation quality is a better alternative to model certainty for guiding SSL training. Predicting segmentation quality without ground truth has been studied for clinical quality control. Early work predicted Dice scores from hand-crafted fea-tures [18] and reverse classifiers to estimate quality [40]. More recent approaches directly regress quality metrics from image-segmentation pairs [30,10,28], and large-scale models now offer general-purpose quality prediction across diverse anatomies [33]. However, this entire line of work treats quality prediction as an end goal, filtering unreliable segmentations post-hoc. No prior work has lever-aged learned quality prediction to guide semi-supervised training itself. We bridge these two directions by training a quality predictor that estimates segmentation quality from image-mask pairs, then using it to provide learning signal for unlabeled data in SSL. Unlike confidence from a single forward pass, predicted quality provides a complementary signal by comparing mask structure against image evidence, independently of the segmentation network’s own rep-resentations. While related to sample reweighting for noisy labels [29,34], our predictor directly estimates segmentation accuracy rather than inferring impor-tance from per-sample loss values. However, a quality predictor trained on vari-able quality masks from labeled data must generalize to real network predictions of unlabeled data. To provide a quality-based guidance for medical image segmentation in a semi-supervised setting, we contribute: (1) the first framework-agnostic method to leverage learned segmentation quality prediction for guiding SSL; (2) two complementary mechanisms for integrating quality predictions into SSL train-ing: a differentiable quality regularizer and a pseudolabel reweighting scheme, applicable as drop-in enhancements to existing SSL methods; (3) a mask cor-ruption strategy incorporating partially-trained model predictions that exhibit characteristic neural network errors [5,17] to bridge the distribution gap between synthetic and real network errors; and (4) we perform comprehensive exper-iments across five cross-dataset pairs spanning dermatology and colonoscopy, five SSL paradigms, and multiple model architectures, yielding consistent im-provements over state-of-the-art baselines. Our code is publicly available at 
+
+https://github.com/sfu-mial/QG-SSL .Quality-Guided Semi-Supervised Learning for Medical Image Segmentation 3Labeled Data      
+
+> Unlabeled Data
+> Segmentation Model
+> Frozen Quality
+> Predictor
+> Quality-Weighted Pseudolabels
+> (Eqns. 7, 8)
+> Supervised Loss
+> (Eqn. 4)
+> Quality-Aware Regularization
+> (Eqns. 5, 6)
+> Phase 2: Quality-Guided Semi-Supervised Segmentation Training Experimental Scope
+> Labeled Data
+> Variable Quality Mask Generation (Sec. 2.2)
+> Morphological Corruptions
+> Weak Model Corruptions
+> Quality
+> Calculation
+> = DSC
+> 01
+> Quality Training Set Quality Predictor Training
+> (Sec. 2.3)
+> Phase 1: Training the Quality Predictor
+> (Sec. 2.4)
+
+Fig. 1. An overview of the proposed quality-guided semi-supervised segmentation methods, along with the scope of experiments present in this paper. 
+
+2 Method 
+
+Our proposed approach has two phases: (Phase 1) training a quality predictor 
+
+gϕ to estimate segmentation quality from image-mask pairs, and (Phase 2) using the frozen gϕ to guide semi-supervised segmentation training. Fig. 1 provides an overview and the scope of experiments presented in this paper. 
+
+2.1 Problem Definition 
+
+Let DL = {(xi, y i)}Ni=1 denote a small labeled set, where xi ∈ RH×W ×C is an image and yi ∈ { 0, 1}H×W is its ground truth binary segmentation mask, and let DU = {xuj }Mj=1 (M ≫ N ) be a larger unlabeled set. Our goal is to train a segmentation network fθ that leverages both DL and DU . In our experiments, DL
+
+and DU come from related but distinct sources (e.g., PH2 [25] and ISIC2020 [32]), a challenging setting that better reflects clinical practice. We do not assume matched distributions between labeled and unlabeled data. 
+
+2.2 Variable Quality Mask Generation 
+
+To train gϕ, we require images paired with arbitrary masks, where each mask has a corresponding quality score. We construct a synthetic dataset DQ from 
+
+DL by generating, for each (xi, y i) ∈ D L, a set of K degraded masks using a stochastic corruption function h:
+
+˜yi,k = h(yi; ξk), qi,k = DSC( yi, ˜yi,k ), k ∈ { 1, · · · K}, (1) where ξk represents random perturbation parameters, and qi,k ∈ [0 , 1] is the Dice score (DSC) of each corrupted mask. We sample two types of degrada-tions randomly. First (Type 1), we use random morphological operations (ero-sion/dilation with different kernel sizes), translations, elastic deformations, ad-ditive noise, and boundary perturbations. However, morphological corruptions 4 K. Abhishek et al. 
+
+alone may not capture error patterns produced by real neural networks during semi-supervised training. To bridge this distribution gap, (Type 2) we augment our corruption strategy with predictions from partially trained (weak) segmen-tation models fθweak . We train a U-Net [31] on DL from random initialization and collect checkpoints at early epochs (epochs 1, 3, 5, 10, 15, 20). These weak models produce segmentation predictions exhibiting characteristic early train-ing failure patterns [17,5]. Previous work on learned quality prediction has also noted that limited corruption diversity restricts the predictor’s sensitivity to fine-grained quality differences [30], further motivating the inclusion of real net-work outputs of imperfect segmentation models. Therefore, when training gϕ, we sample with probability pweak from these weak-model predictions (Type 2) and 
+
+1 − pweak from Type 1 corruptions. The resulting dataset DQ = {(xi, ˜yi,k , q i,k )}
+
+contains image-mask-quality triplets spanning the full range of Dice scores. We explore various settings of pweak and K.
+
+2.3 Segmentation Quality Predictor 
+
+The quality predictor gϕ takes an image-mask pair, outputs a scalar quality estimate (Eqn. 2) and is trained to minimize a regression loss ℓreg (Eqn. 3): 
+
+ˆq = gϕ(x, ˜y), (2) 
+
+Lquality (ϕ) = X  
+
+> (x, ˜y, q )∈ D Q
+
+ℓreg (gϕ(x, ˜y), q ) . (3) A key property distinguishing quality prediction from proxy signals such as model confidence is that it is designed to be contextually grounded: to assess whether ˜y is a good segmentation of x, gϕ must compare mask structure against visual evidence in the image, rather than relying on the mask or the model’s in-ternal state alone. Once trained, gϕ is frozen and acts as a differentiable quality assessment function for any image-mask pair without requiring ground truth. 
+
+2.4 Quality-Guided Semi-Supervised Training 
+
+We now train fθ using both DL and DU . For all labeled samples, we minimize: 
+
+Lsup (θ) = 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+ℓseg (fθ (xi), y i) . (4) For unlabeled data, we propose two alternative mechanisms for leveraging the frozen gϕ, differing in whether the segmentation loss ℓseg gradients propagate through gϕ (QAR) or gϕ serves only to compute per-sample weights (PL-QW). 
+
+A: Quality-Aware Regularization (QAR): For each unlabeled sample xuj ,the soft prediction fθ (xuj ) is passed into gϕ. No explicit pseudolabels are gener-ated; instead, gradients of the loss Lqar propagate from the scalar quality output Quality-Guided Semi-Supervised Learning for Medical Image Segmentation 5
+
+back through the predicted mask into segmentation model parameters θ, encour-aging fθ to produce segmentations that gϕ judges as high quality: 
+
+Lqar (θ) = 1
+
+M
+
+> M
+
+X
+
+> j=1
+
+ 1 − gϕ
+
+ xuj , f θ (xuj ) . (5) The complete objective is a weighted sum of the two losses: 
+
+LQAR total = Lsup + λqar Lqar . (6) 
+
+B: Quality-Weighted Pseudolabels (PL-QW): Given pseudolabels ˆyuj for unlabeled samples xuj ∈ D U , we weight the per-sample loss by predicted pseu-dolabel quality: 
+
+Lqw (θ) = 1
+
+M
+
+> M
+
+X
+
+> j=1
+
+wj · ℓseg 
+
+ fθ (xuj ), ˆyuj
+
+ , (7) where wj = gϕ(xuj , ˆyuj ) is computed with gϕ frozen and detached from the com-putational graph. Unlike QAR, no gradients flow through gϕ; it serves purely as a sample weighting function that upweights high-quality pseudolabels and downweights unreliable ones. The complete objective is: 
+
+LQW total = Lsup + λqw Lqw . (8) A key property of this formulation is its orthogonality to the choice of semi-supervised method: any approach generating pseudolabels ˆyuj can be augmented by weighting per-sample losses with wj , without requiring architectural changes. 
+
+3 Results and Discussion 
+
+Datasets: We study 5 medical image segmentation datasets from two modal-ities as labeled data DL: PH2 ( N =200) [25], Skin Cancer Detection (SCD; 
+
+N =206) [14], and DermoFit (DMF; N =1,300) [2] for skin lesion segmentation, and CVC-ColonDB (COL; N =380) [4] and CVC-ClinicDB (CLI; N =612) [3] for polyp segmentation in colonoscopy. All datasets are split 70:10:20 for train, vali-dation, and test. As unlabeled data DU , we use ISIC2020-Train ( M =33,126) [32] and Polyp-Box-Seg ( M =4,070) [8] for dermatology and colonoscopy respectively: both drawn from different sources than DL. We use 5,000 ISIC2020 images for main experiments (Table 1) and the remainder for hyperparameter sensitivity analyses (Table 2). All models were trained on Ubuntu 22.04 with Intel Core i9-14900K, 64GB RAM, NVIDIA RTX4090, Python 3.10.19, and PyTorch 2.9.0. 
+
+Quality predictor training and evaluation: We implement gϕ as a ResNet-18 encoder, that takes the channel-wise concatenation of image-mask pairs as input, with a regression head (dropout of 0.15), trained for 150 epochs with AdamW [23] (learning rate=3e-4, weight decay=5e-4, batch size 32) with cosine 6 K. Abhishek et al. 
+
+Table 1. Quantitative results (DSC and IoU; mean std.err. ) for all SSL baselines, their quality-weighted versions, and QAR. Using a quality predictor consistently improves segmentation performance across 5 datasets and 3 segmentation model architectures. 
+
+Pseudolabels Student-Teacher Models Interp. Consistency Contrastive Cross Pseudo Sup. 
+
+DL
+
+fθ
+
+Arch. SUP PL-T [19] PL-C [35] PL-QW (Ours) MT [39] UA-MT [42] MT-QW (Ours) ICT [41] ICT-QW (Ours) CL [7] CL-QW (Ours) CPS [9] CPS-QW (Ours) QAR (Ours) 
+
+DSC 92.93 0.52 93.21 0.88 93.92 1.10 95.46 0.45 93.53 1.62 94.33 0.62 95.32 0.43 93.85 0.82 95.18 0.46 92.37 1.82 94.48 0.56 94.20 0.71 95.19 0.52 95.48 0.48 
+
+UN-P IoU 86.96 0.89 87.75 1.41 89.19 1.58 91.45 0.79 89.04 2.00 89.51 1.04 91.18 0.76 88.81 1.30 90.95 0.81 87.23 2.12 89.75 0.97 89.46 1.16 91.01 0.91 91.50 0.84 
+
+DSC 91.73 0.69 92.90 0.67 93.34 0.81 95.40 0.45 93.18 1.60 93.70 0.64 95.38 0.44 94.16 0.58 95.17 0.49 92.91 1.88 95.09 0.48 93.91 0.70 94.99 0.52 95.29 0.47 
+
+A-UN IoU 85.01 1.12 87.17 1.12 87.92 1.32 91.33 0.80 88.40 1.98 88.41 1.08 91.31 0.78 89.18 0.99 90.95 0.86 88.28 2.20 90.80 0.84 88.83 1.16 90.64 0.89 91.15 0.82 
+
+DSC 93.02 0.55 94.50 0.75 94.86 0.50 95.57 0.41 94.90 0.47 94.87 0.46 95.36 0.44 94.69 0.50 95.26 0.40 93.63 1.65 95.70 0.39 94.32 0.49 95.45 0.44 95.58 0.42 
+
+PH2 S-UN IoU 87.14 0.94 90.05 1.22 90.39 0.87 91.63 0.74 90.63 0.84 90.30 0.81 91.27 0.78 90.08 0.89 91.05 0.72 89.21 1.95 91.86 0.70 89.42 0.85 91.42 0.78 91.66 0.75 
+
+DSC 89.88 0.95 91.39 1.84 91.87 1.16 93.18 0.73 91.46 1.19 92.20 0.93 92.91 0.88 91.86 1.31 93.61 0.50 92.37 1.13 92.67 1.02 90.06 0.90 93.26 0.75 93.24 0.69 
+
+UN-P IoU 82.15 1.46 85.70 2.21 85.73 1.71 87.57 1.18 85.08 1.76 86.05 1.45 87.22 1.35 85.87 1.84 88.16 0.87 86.52 1.59 86.96 1.54 82.39 1.40 87.72 1.21 87.63 1.11 
+
+DSC 90.89 0.89 91.71 1.68 91.83 1.02 93.15 0.76 92.23 1.22 92.40 0.90 93.06 0.81 92.34 0.98 93.04 0.73 92.42 0.82 92.64 0.88 92.64 0.72 93.62 0.65 93.11 0.72 
+
+A-UN IoU 83.78 1.39 85.99 2.02 85.50 1.54 87.54 1.21 86.41 1.75 86.35 1.39 87.42 1.27 86.34 1.51 87.31 1.17 86.33 1.30 86.76 1.38 86.61 1.16 88.26 1.04 87.44 1.17 
+
+DSC 91.54 0.58 92.60 0.87 92.69 0.70 93.84 0.47 92.71 0.53 93.30 0.55 93.69 0.46 92.94 0.45 93.64 0.52 93.07 0.65 93.71 0.47 93.30 0.54 93.72 0.49 93.77 0.46 
+
+SCD S-UN IoU 84.62 0.96 86.70 1.36 86.60 1.15 88.55 0.81 86.59 0.89 87.80 0.93 88.27 0.80 86.90 0.78 88.22 0.89 87.31 1.07 88.31 0.81 87.70 0.91 88.35 0.84 88.41 0.79 
+
+DSC 90.00 0.52 90.10 0.51 90.30 0.50 91.34 0.44 90.53 0.50 90.61 0.47 91.24 0.44 90.91 0.47 91.35 0.43 91.04 0.46 91.01 0.45 90.44 0.49 91.22 0.43 91.34 0.43 
+
+UN-P IoU 82.87 0.73 82.89 0.75 83.31 0.74 84.76 0.67 83.56 0.74 83.62 0.71 84.58 0.67 84.10 0.69 84.75 0.65 84.29 0.68 84.24 0.68 83.36 0.71 84.54 0.66 84.74 0.66 
+
+DSC 90.06 0.47 90.35 0.46 90.54 0.45 91.31 0.42 90.60 0.44 90.67 0.46 91.27 0.42 90.53 0.50 91.21 0.43 90.38 0.48 91.46 0.42 90.56 0.46 91.25 0.43 91.37 0.44 
+
+A-UN IoU 82.68 0.69 83.15 0.69 83.44 0.68 84.65 0.65 83.68 0.68 83.69 0.70 84.59 0.64 83.57 0.74 84.50 0.66 83.26 0.71 84.92 0.65 83.49 0.69 84.58 0.66 84.81 0.67 
+
+DSC 90.47 0.45 91.17 0.45 91.21 0.42 91.94 0.41 91.24 0.43 91.17 0.43 91.67 0.42 91.21 0.45 91.84 0.41 91.22 0.45 91.67 0.42 91.60 0.40 92.08 0.40 91.89 0.40 
+
+DMF S-UN IoU 83.30 0.67 84.50 0.68 84.49 0.65 85.72 0.64 84.57 0.65 84.43 0.65 85.28 0.65 84.56 0.68 85.54 0.64 84.59 0.68 85.27 0.65 85.23 0.62 85.92 0.62 85.59 0.62 
+
+DSC 89.17 1.82 89.59 1.81 88.89 1.49 91.73 1.19 90.56 1.86 90.10 1.85 91.64 1.21 90.72 1.45 91.03 1.59 89.57 1.83 90.73 1.41 89.60 1.71 90.62 1.69 92.01 1.02 
+
+UN-P IoU 82.93 2.05 83.53 1.95 81.99 1.96 86.01 1.56 85.23 1.97 84.40 1.94 85.93 1.60 84.81 1.81 85.46 1.78 83.69 2.08 84.79 1.82 83.45 1.99 85.04 1.90 86.24 1.45 
+
+DSC 89.25 1.94 88.38 1.91 89.19 1.88 91.37 1.47 91.40 1.01 89.76 1.25 91.42 1.60 90.10 1.90 90.96 1.73 89.00 2.28 90.57 1.74 89.84 1.71 90.29 1.68 91.20 1.50 
+
+A-UN IoU 83.28 2.06 81.91 2.15 83.03 2.02 85.80 1.70 85.15 1.43 82.90 1.71 86.19 1.82 84.79 2.08 85.64 1.88 83.74 2.32 85.06 1.94 83.84 1.97 84.51 1.93 85.57 1.72 
+
+DSC 90.44 1.07 91.02 1.46 91.44 1.37 92.63 0.83 91.90 1.13 91.81 1.15 92.70 0.87 91.77 0.91 91.72 1.10 90.63 1.33 92.10 1.37 91.52 1.44 92.55 1.06 92.71 0.74 
+
+COL S-UN IoU 83.64 1.49 85.17 1.68 85.68 1.56 86.96 1.22 86.14 1.45 86.01 1.45 87.16 1.25 86.54 1.34 85.81 1.46 84.35 1.63 86.76 1.52 86.00 1.67 87.18 1.42 87.01 1.15 
+
+DSC 92.01 1.12 92.62 1.03 92.67 1.00 93.80 0.63 93.34 0.91 92.98 0.71 93.81 0.69 92.53 0.96 93.48 0.76 92.27 1.05 93.33 0.66 92.55 0.81 93.72 0.75 93.64 0.71 
+
+UN-P IoU 86.80 1.28 87.70 1.25 87.78 1.27 88.97 0.89 88.61 1.09 87.69 1.00 89.09 0.95 87.30 1.13 88.64 1.01 87.23 1.32 88.21 0.94 87.15 1.11 89.00 0.98 88.85 0.98 
+
+DSC 92.42 1.08 92.56 1.08 92.74 0.73 93.61 0.70 93.04 1.01 93.12 0.82 93.98 0.68 93.00 1.01 93.67 0.73 92.42 1.02 93.57 0.71 92.56 0.88 93.36 0.75 94.01 0.57 
+
+A-UN IoU 87.38 1.21 87.70 1.28 88.15 0.99 88.76 0.96 88.34 1.19 88.16 1.08 89.39 0.95 88.26 1.19 88.87 0.94 87.31 1.22 88.70 0.96 87.29 1.15 88.41 1.01 89.23 0.82 
+
+DSC 91.08 1.08 92.09 0.94 92.34 0.95 93.38 0.80 92.59 1.00 92.84 0.94 93.49 0.85 93.00 0.95 93.47 0.83 92.70 0.93 93.03 0.92 91.51 1.07 93.20 0.88 93.36 0.83 
+
+CLI S-UN IoU 85.17 1.29 86.60 1.19 87.09 1.22 88.53 1.03 87.61 1.24 87.90 1.19 88.83 1.09 88.20 1.19 88.75 1.07 87.70 1.13 88.17 1.15 85.90 1.30 88.41 1.14 88.58 1.09 
+
+annealing with warm restarts (initial period 10 epochs, doubles after each restart) and early stopping (validation loss; patience 25 epochs) to minimize SmoothL1 loss (Eqn. 3) [13]. We set pweak = 0 .05 (Sec. 2.2) and generate K = 50 degraded masks per sample (Eqn. 1). On test sets, gϕ achieves MAE in [0.043, 0.088] and Pearson’s correlation coefficient ρ > 0.92 across all 5 datasets (Table 2 A). Zeroing the image input in Eqn. 2, i.e., gϕ(x = 0, ˜y), increases MAE by an average of 0.399 ± 0.137 across all 5 datasets (MAE ∈ [0 , 1] ), strongly confirming that gϕ leverages image content (contextual grounding), rather than relying on the mask alone. 
+
+SSL segmentation training and evaluation: Next, we leverage our trained quality predictor to improve segmentation using semi-supervised learning (SSL). We evaluate 3 architectures for fθ : a purely convolutional model, U-Net++ [44] (UN-P; 26.08M parameters, 14.14 GFLOPs), a convolutional model with atten-tion gates, Attention U-Net [26] (A-UN; 24.71M params, 6.16 GFLOPs), and a pure Transformer-based architecture, Swin-U-net [6] (S-UN; 34.27M params, 7.55 GFLOPs), optimizing Dice + cross-entropy loss (Eqn. 4) [16,37] for 200 epochs with AdamW (lr and weight decay set to 1e-4), a cosine annealing scheduler, and early stopping (validation DSC; patience of 30 epochs). We set 
+
+λqar = 0 .01 and λqw = 0 .25 (Eqn. 6,8) and follow a ramp-up schedule during initial training epochs [39], and report Dice (DSC) and Jaccard (IoU) averaged Quality-Guided Semi-Supervised Learning for Medical Image Segmentation 7A        
+
+> B
+> C
+> D
+> Fig. 2. Scatter plot of the segmentation predictions’ Dice DSC( y, ˆy)and the corre-sponding predicted quality estimates gϕ(x, ˆy)on the test set of CLI dataset, and four representative images (A-D) with the ground truth (green) and predicted (red) segmen-tations. We observe a strong, stat. sig., positive linear correlation ( ρ=0.69; p=1e-314).
+
+over 3 runs with different seeds. We compare QAR (Sec. 2.4 A) against exist-ing popular and widely used SSL paradigms: pseudolabels [19] with pixel-level confidence thresholded at 0.9 (PL-T), sample-level confidence-weighted pseu-dolabels [35] (PL-C), mean teacher [39] (MT) and its uncertainty-aware exten-sion [42] (UA-MT), interpolation consistency training [41] (ICT), pseudolabel-based contrastive learning [7] (CL), and cross-pseudo supervision [9] (CPS). We do not compare against Zheng et al. [43], despite them incorporating quality estimation into SSL, because their code is not available. Nevertheless, we note that their estimator is trained end-to-end with the segmentation model and coupled to a specific self-training pipeline, whereas ours is the first framework-agnostic approach: an independently trained quality predictor that enhances any pseudolabel-generating method without architectural changes or retraining. Table 1 shows that QAR outperforms all competing SSL paradigms across all datasets and models, indicating that segmentation quality, even when predicted, may still be a better training signal than model confidence or uncertainty. It is important to note that the last two competing methods, CL and especially CPS (as it trains two segmentation models in tandem), are computationally more demanding. Despite no architectural modifications, QAR matches or surpasses state-of-the-art results on these datasets [11,36,12,21,27,20], many of which em-ploy architectural innovations orthogonal to ours, suggesting further gains from combination. 
+
+Quality weighting as a drop-in module: Next, we show how our quality-weighted pseudolabels can be integrated with any approach that generates pseu-dolabels ˆyuj by weighting per-sample losses with wj (Sec. 2.4 B). Concretely, for MT [39]: LMT -QW = 1
+
+> M
+
+P 
+
+> j
+
+wj ∥fθ (xuj ) − ˆyuj ∥2; for CPS [9]: LCPS -QW =
+
+> 1
+> M
+
+P 
+
+> j
+
+[wj, 2 ℓseg (fθ 1(xuj ), ˆyuj, 2) + wj, 1 ℓseg (fθ 2(xuj ), ˆyuj, 1)] ; for ICT [41]: LICT -QW =
+
+> 1
+> M
+
+P 
+
+> j
+
+wj ℓseg (fθ (˜ xuj ), ˜yuj ); and for CL [7]: LCPL -QW = 1
+
+> M
+
+P 
+
+> j
+
+wj
+
+ℓseg (fθ (xuj ), ˆyuj )+ 8 K. Abhishek et al. 
+
+Table 2. Ablation and hyperparameter sensitivity experiments. The values used for the main experiments table (Table 1) are highlighted . Results reported as mean std.err. .Unless specified otherwise, DL is PH2, DU is ISIC2020-Train, gϕ is ResNet-18, fθ is Swin-Unet, pweak = 0 .05 , K = 50 , λqar = 0 .01 , λqw = 0 .25 , and M = 5 , 000 . eval96 
+
+denotes the number of training epochs for the validation DSC to reach 96%. 
+
+A. gϕ’s metrics for all datasets 
+
+Dataset PH2 SCD DMF COL CLI MAE / ρ 0.043 0.007 / 0.972 0.052 0.007 / 0.973 0.060 0.004 / 0.926 0.074 0.007 / 0.955 0.088 0.013 / 0.927 
+
+B. Varying gϕ’s backbones (Sec. 2.3) 
+
+Backbone MobileNetV3L EfficientNet-B0 ResNet-18 DenseNet-121 ConvNeXt-T Params / FLOPs 4.53M / 0.24G 4.34M / 0.42G 11.31M / 1.87G 7.22M / 2.95G 28.02M / 4.47G MAE / ρ 0.088 0.012 / 0.849 0.054 0.009 / 0.961 0.043 0.007 / 0.972 0.089 0.011 / 0.837 0.055 0.008 / 0.955 
+
+C. Varying pweak (i.e., probability of sampling from weak models’ predictions; Sec. 2.2) 
+
+pweak 0.00 0.05 0.10 0.15 0.20 
+
+MAE / ρ 0.053 0.008 / 0.960 0.043 0.007 / 0.972 0.048 0.007 / 0.965 0.049 0.007 / 0.953 0.051 0.009 / 0.948 
+
+D. Varying K (i.e., num. augmented training samples; Eqn. 1) 
+
+K 10 20 50 100 200 
+
+MAE / ρ 0.061 0.009 / 0.937 0.048 0.006 / 0.956 0.043 0.007 / 0.972 0.047 0.006 / 0.969 0.050 0.005 / 0.977 
+
+E. Impact of pweak > 0 on segmentation performance 
+
+pweak 0.00 0.05 pweak 0.00 0.05 
+
+QAR: DSC 94.91 0.49 95.58 0.42 PL-QW: DSC 95.10 0.46 95.57 0.41 
+
+F. Varying λqar , i.e., relative weight of Lqar (Eqn. 6) 
+
+λqar 0.00 0.01 0.05 0.10 0.20 
+
+DSC 93.02 0.55 95.58 0.42 95.52 0.42 95.14 0.48 95.03 0.49 
+
+G. Varying λqw , i.e., relative weight of Lqw (Eqn. 8) 
+
+λqw 0.00 0.25 0.50 0.75 1.00 
+
+DSC 93.02 0.55 95.57 0.41 95.25 0.44 95.31 0.43 95.14 0.44 
+
+H. Varying M , i.e., number of unlabeled samples (Eqns. 5–8) 
+
+M 1, 000 5, 000 10 , 000 20 , 000 30 , 000 
+
+QAR: DSC / eval96 95.48 0.43 / 13 95.58 0.42 / 2 95.36 0.43 / 1 95.50 0.43 / 1 95.36 0.45 / 1 PL-QW: DSC / eval96 95.48 0.43 / 12 95.57 0.41 / 2 95.35 0.43 / 2 95.48 0.43 / 1 95.35 0.44 / 1 
+
+λc Lcontrast (xuj , ˆyuj ), where quality weights both the pseudolabel loss and the contrastive loss. In all cases, wj = gϕ(xuj , ˆyuj ) (with wj,k evaluating the pseudola-bel from network k in CPS). Table 1 shows that quality-weighted variants ( ∗-QW) consistently outperform original versions across all but one setting (DMF + UN-P), confirming the general applicability of our quality-weighting. A scat-ter plot of the calculated DSC and the predicted quality (Fig. 2), on CLI’s test set across all 3 runs of both QAR and PL-QW, shows that the two are strongly correlated. Example images (A-D) show two successful gϕ predictions for near-perfect (B) and poor (C) segmentations, and two failure cases for gϕ (A, D). 
+
+Ablation studies (Table 2) : Among 5 backbones from different architecture families, ResNet-18 performs the best for gϕ (B). Incorporating weak-model cor-ruptions (i.e., pweak > 0) improves gϕ’s performance ( C), and increasing cor-rupted masks per sample (i.e., K) helps up to a saturation point ( D). gϕ trained with weak-model corruptions helps improve segmentation model performance for both QAR and PL-QW ( E). Varying λqar and λqw (F, G) shows that even subop-Quality-Guided Semi-Supervised Learning for Medical Image Segmentation 9
+
+timal weights outperform the zero-weight baseline. Finally, increasing unlabeled data ( H) has minimal impact on final DSC, but substantially accelerates conver-gence: eval96 (i.e., the number of epochs to reach 96% validation DSC) decreases considerably with larger M .
+
+4 Conclusion 
+
+We presented a contextually-grounded deep learning-based approach to esti-mating the quality of medical image segmentations. Our quality predictor is trained on corrupted masks generated using synthetic degradations and weak segmentation models’ predictions. We then integrated our quality predictor into existing semi-supervised learning (SSL)-based segmentation frameworks through two complementary mechanisms: either as a regularization loss or as a sample reweighting mechanism, without any architectural modifications to the segmen-tation network. Extensive experiments across multiple datasets and model ar-chitectures demonstrated consistent improvements over existing SSL paradigms, confirming that learned quality prediction provides an effective training signal for leveraging unlabeled data. Future work could explore extending quality-guided SSL to multi-class segmentation, and leveraging quality predictions for active learning to identify unlabeled samples to be prioritized for expert annotation. 
+
+Acknowledgments. The authors thank Darren Sutton for initial discussions and ac-knowledge computational support from NVIDIA Corporation and the Digital Research Alliance of Canada. Partial funding for this project was provided by the Natural Sci-ences and Engineering Research Council of Canada (NSERC RGPIN-2020-06752). 
+
+Disclosure of Interests. The authors have no competing interests to declare. 
+
+References 
+
+1. Asgari Taghanaki, S., Abhishek, K., Cohen, J.P., Cohen-Adad, J., Hamarneh, G.: Deep semantic segmentation of natural and medical images: a review. Arti-ficial intelligence review 54 (1), 137–178 (Jun 2021). https://doi.org/10.1007/ s10462-020-09854-1 
+
+2. Ballerini, L., Fisher, R.B., Aldridge, B., Rees, J.: A Color and Texture Based Hier-archical K-NN Approach to the Classification of Non-melanoma Skin Lesions. In: Celebi, M.E., Schaefer, G. (eds.) Color Medical Image Analysis. vol. 6, pp. 63–86. Springer Netherlands (2013). https://doi.org/10.1007/978-94-007-5389-1_4 
+
+3. Bernal, J., Sánchez, F.J., Fernández-Esparrach, G., Gil, D., Rodríguez, C., Vilar-iño, F.: Wm-dova maps for accurate polyp highlighting in colonoscopy: Validation vs. saliency maps from physicians. Computerized Medical Imaging and Graphics 
+
+43 , 99–111 (Jul 2015). https://doi.org/10.1016/j.compmedimag.2015.02.007 
+
+4. Bernal, J., Sánchez, J., Vilarino, F.: Towards automatic polyp detection with a polyp appearance model. Pattern Recognition 45 (9), 3166–3182 (Sep 2012). https: //doi.org/10.1016/j.patcog.2012.03.002 10 K. Abhishek et al. 5. Byrne, N., Clough, J.R., Montana, G., King, A.P.: A persistent homology-based topological loss function for multi-class CNN segmentation of cardiac MRI. In: Statistical Atlases and Computational Models of the Heart. M&Ms and EMIDEC Challenges. p. 3–13. Springer International Publishing (2021). https://doi.org/ 10.1007/978-3-030-68107-4_1 
+
+6. Cao, H., Wang, Y., Chen, J., Jiang, D., Zhang, X., Tian, Q., Wang, M.: Swin-Unet: Unet-like pure transformer for medical image segmentation. In: European Conference on Computer Vision. pp. 205–218. Springer (2022). https://doi.org/ 10.1007/978-3-031-25066-8_9 
+
+7. Chaitanya, K., Erdil, E., Karani, N., Konukoglu, E.: Local contrastive loss with pseudo-label based self-training for semi-supervised medical image segmentation. Medical Image Analysis 87 , 102792 (Jul 2023). https://doi.org/10.1016/j. media.2023.102792 
+
+8. Chen, S., Urban, G., Baldi, P.: Weakly supervised polyp segmentation in colonoscopy images using deep neural networks. Journal of Imaging 8(5), 121 (Apr 2022). https://doi.org/10.3390/jimaging8050121 
+
+9. Chen, X., Yuan, Y., Zeng, G., Wang, J.: Semi-Supervised Semantic Segmentation with Cross Pseudo Supervision. In: 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 2613–2622. IEEE, Nashville, TN, USA (Jun 2021). https://doi.org/10.1109/CVPR46437.2021.00264 
+
+10. DeVries, T., Taylor, G.W.: Leveraging uncertainty estimates for predicting seg-mentation quality. arXiv preprint arXiv:1807.00502 pp. 1–9 (Jul 2018) 11. Du, S., Bayasi, N., Hamarneh, G., Garbi, R.: MDViT: Multi-domain vision trans-former for small medical image segmentation datasets. In: Medical Image Com-puting and Computer Assisted Intervention – MICCAI 2023. p. 448–458. Springer Nature Switzerland (2023). https://doi.org/10.1007/978-3-031-43901-8_43 
+
+12. Dzieniszewska, A., Garbat, P., Piramidowicz, R.: Improving skin lesion segmen-tation with self-training. Cancers 16 (6), 1120 (Mar 2024). https://doi.org/10. 3390/cancers16061120 
+
+13. Girshick, R.: Fast R-CNN. In: 2015 IEEE International Conference on Computer Vision (ICCV). p. 1440–1448. IEEE (Dec 2015). https://doi.org/10.1109/iccv. 2015.169 
+
+14. Glaister, J., Amelard, R., Wong, A., Clausi, D.A.: MSIM: Multistage illumination modeling of dermatological photographs for illumination-corrected skin lesion anal-ysis. IEEE Transactions on Biomedical Engineering 60 (7), 1873–1883 (Jul 2013). 
+
+https://doi.org/10.1109/tbme.2013.2244596 
+
+15. Guo, C., Pleiss, G., Sun, Y., Weinberger, K.Q.: On calibration of modern neu-ral networks. In: International Conference on Machine Learning. pp. 1321–1330. PMLR (2017) 16. Isensee, F., Jaeger, P.F., Kohl, S.A., Petersen, J., Maier-Hein, K.H.: nnU-Net: a self-configuring method for deep learning-based biomedical image segmenta-tion. Nature Methods 18 (2), 203–211 (Feb 2021). https://doi.org/10.1038/ s41592-020-01008-z 
+
+17. Kirillov, A., Wu, Y., He, K., Girshick, R.: PointRend: Image segmentation as rendering. In: 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). p. 9796–9805. IEEE (Jun 2020). https://doi.org/10.1109/ cvpr42600.2020.00982 
+
+18. Kohlberger, T., Singh, V., Alvino, C., Bahlmann, C., Grady, L.: Evaluating Seg-mentation Error without Ground Truth. In: Hutchison, D., Kanade, T., Kit-tler, J., Kleinberg, J.M., Mattern, F., Mitchell, J.C., Naor, M., Nierstrasz, O., Quality-Guided Semi-Supervised Learning for Medical Image Segmentation 11 Pandu Rangan, C., Steffen, B., Sudan, M., Terzopoulos, D., Tygar, D., Vardi, M.Y., Weikum, G., Ayache, N., Delingette, H., Golland, P., Mori, K. (eds.) Medical Image Computing and Computer-Assisted Intervention – MICCAI 2012. vol. 7510, pp. 528–536. Springer Berlin Heidelberg, Berlin, Heidelberg (2012). 
+
+https://doi.org/10.1007/978-3-642-33415-3_65 
+
+19. Lee, D.H.: Pseudo-Label : The Simple and Efficient Semi-Supervised Learning Method for Deep Neural Networks. In: ICML 2013 Workshop on Challenges in Representation Learning. vol. 3 (2), pp. 1–6. Atlanta, Georgia, USA (Jun 2013) 20. Li, Y., Tian, T., Hu, J., Yuan, C.: SUTrans-NET: a hybrid transformer approach to skin lesion segmentation. PeerJ Computer Science 10 , e1935 (Mar 2024). https: //doi.org/10.7717/peerj-cs.1935 
+
+21. Liang, P., Chen, J., Wu, Y., Wu, R., Chen, Z., Pu, B., Chang, Q., Ran, G.: A multilevel alignment and cross-fusion knowledge distillation framework for vision transformer-based medical image segmentation. Future Generation Computer Sys-tems 177 , 108228 (Apr 2026). https://doi.org/10.1016/j.future.2025.108228 
+
+22. Litjens, G., Kooi, T., Bejnordi, B.E., Setio, A.A.A., Ciompi, F., Ghafoorian, M., Van Der Laak, J.A., Van Ginneken, B., Sánchez, C.I.: A survey on deep learning in medical image analysis. Medical Image Analysis 42 , 60–88 (Dec 2017). https: //doi.org/10.1016/j.media.2017.07.005 
+
+23. Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. In: International Conference on Learning Representations (2019), https://openreview.net/forum? id=Bkg6RiCqY7 
+
+24. Mehrtash, A., Wells, W.M., Tempany, C.M., Abolmaesumi, P., Kapur, T.: Con-fidence calibration and predictive uncertainty estimation for deep medical image segmentation. IEEE Transactions on Medical Imaging 39 (12), 3868–3878 (Dec 2020). https://doi.org/10.1109/tmi.2020.3006437 
+
+25. Mendonça, T., Ferreira, P.M., Marques, J.S., Marcal, A.R.S., Rozeira, J.: PH 2 - A dermoscopic image database for research and benchmarking. In: IEEE Engineering in Medicine and Biology Society. pp. 5437–5440 (Jul 2013). https://doi.org/10. 1109/embc.2013.6610779 
+
+26. Oktay, O., Schlemper, J., Folgoc, L.L., Lee, M., Heinrich, M., Misawa, K., Mori, K., McDonagh, S., Hammerla, N.Y., Kainz, B., Glocker, B., Rueckert, D.: Attention u-net: Learning where to look for the pancreas. In: Medical Imaging with Deep Learning (2018), https://openreview.net/forum?id=Skft7cijM 
+
+27. Perera, S., Erzurumlu, Y., Gulati, D., Yilmaz, A.: MobileUNETR: A lightweight end-to-end hybrid vision transformer for efficient medical image segmentation. In: Computer Vision – ECCV 2024 Workshops. p. 281–299. Springer Nature Switzer-land (2025). https://doi.org/10.1007/978-3-031-91721-9_18 
+
+28. Qiu, P., Chakrabarty, S., Nguyen, P., Ghosh, S.S., Sotiras, A.: QCResUNet: Joint Subject-Level and Voxel-Level Prediction of Segmentation Quality. In: Greenspan, H., Madabhushi, A., Mousavi, P., Salcudean, S., Duncan, J., Syeda-Mahmood, T., Taylor, R. (eds.) Medical Image Computing and Computer Assisted Intervention – MICCAI 2023. vol. 14223, pp. 173–182. Springer Nature Switzerland, Cham (2023). 
+
+https://doi.org/10.1007/978-3-031-43901-8_17 
+
+29. Ren, M., Zeng, W., Yang, B., Urtasun, R.: Learning to reweight examples for robust deep learning. In: International Conference on Machine Learning. pp. 4334–4343. PMLR (2018) 30. Robinson, R., Oktay, O., Bai, W., Valindria, V.V., Sanghvi, M.M., Aung, N., Paiva, J.M., Zemrak, F., Fung, K., Lukaschuk, E., et al.: Real-time prediction 12 K. Abhishek et al. of segmentation quality. In: International Conference on Medical Image Comput-ing and Computer-Assisted Intervention. pp. 578–585. Springer (2018). https: //doi.org/10.1007/978-3-030-00937-3_66 
+
+31. Ronneberger, O., Fischer, P., Brox, T.: U-net: Convolutional networks for biomed-ical image segmentation. In: International Conference on Medical image com-puting and computer-assisted intervention. pp. 234–241. Springer (2015). https: //doi.org/10.1007/978-3-319-24574-4_28 
+
+32. Rotemberg, V., Kurtansky, N., Betz-Stablein, B., Caffery, L., Chousakos, E., Codella, N., Combalia, M., Dusza, S., Guitera, P., Gutman, D., Halpern, A., Helba, B., Kittler, H., Kose, K., Langer, S., Lioprys, K., Malvehy, J., Musthaq, S., Nanda, J., Reiter, O., Shih, G., Stratigos, A., Tschandl, P., Weber, J., Soyer, H.P.: A patient-centric dataset of images and metadata for identifying melanomas using clinical context. Scientific Data 8(1), 34 (Jan 2021). https://doi.org/10.1038/ s41597-021-00815-z 
+
+33. Senbi, A., Huang, T., Lyu, F., Li, Q., Tao, Y., Shao, W., Chen, Q., Wang, C., Wang, S., Zhou, T., Zhang, Y.: Towards ground-truth-free evaluation of any segmentation in medical images. arXiv preprint arXiv:2409.14874 pp. 1–17 (2024) 34. Shu, J., Xie, Q., Yi, L., Zhao, Q., Zhou, S., Xu, Z., Meng, D.: Meta-weight-net: Learning an explicit mapping for sample weighting. Advances in Neural Informa-tion Processing Systems 32 (2019) 35. Sohn, K., Berthelot, D., Carlini, N., Zhang, Z., Zhang, H., Raffel, C.A., Cubuk, E.D., Kurakin, A., Li, C.L.: FixMatch: Simplifying semi-supervised learning with consistency and confidence. Advances in Neural Information Processing Systems 
+
+33 , 596–608 (2020) 36. Song, P., Wang, Z., Zhang, J., Fu, S., Zhang, Y., Wu, W., Bao, F.: SU-RMT: Toward bridging semantic representation and structural detail modeling for med-ical image segmentation. Information Fusion 131 , 104182 (Jul 2026). https: //doi.org/10.1016/j.inffus.2026.104182 
+
+37. Taghanaki, S.A., Zheng, Y., Zhou, S.K., Georgescu, B., Sharma, P., Xu, D., Co-maniciu, D., Hamarneh, G.: Combo loss: Handling input and output imbalance in multi-organ segmentation. Computerized Medical Imaging and Graphics 75 , 24–33 (Jul 2019). https://doi.org/10.1016/j.compmedimag.2019.04.005 
+
+38. Tajbakhsh, N., Jeyaseelan, L., Li, Q., Chiang, J.N., Wu, Z., Ding, X.: Embracing imperfect datasets: A review of deep learning solutions for medical image segmen-tation. Medical image analysis 63 , 101693 (Jul 2020). https://doi.org/10.1016/ j.media.2020.101693 
+
+39. Tarvainen, A., Valpola, H.: Mean teachers are better role models: Weight-averaged consistency targets improve semi-supervised deep learning results. In: Guyon, I., Luxburg, U.V., Bengio, S., Wallach, H., Fergus, R., Vishwanathan, S., Garnett, R. (eds.) Advances in Neural Information Processing Systems. vol. 30. Curran Associates, Inc. (2017) 40. Valindria, V.V., Lavdas, I., Bai, W., Kamnitsas, K., Aboagye, E.O., Rockall, A.G., Rueckert, D., Glocker, B.: Reverse Classification Accuracy: Predicting Segmenta-tion Performance in the Absence of Ground Truth. IEEE Transactions on Medi-cal Imaging 36 (8), 1597–1606 (Aug 2017). https://doi.org/10.1109/TMI.2017. 2665165 
+
+41. Verma, V., Kawaguchi, K., Lamb, A., Kannala, J., Solin, A., Bengio, Y., Lopez-Paz, D.: Interpolation consistency training for semi-supervised learning. Neural Networks 145 , 90–106 (Jan 2022). https://doi.org/10.1016/j.neunet.2021. 10.008 Quality-Guided Semi-Supervised Learning for Medical Image Segmentation 13 42. Yu, L., Wang, S., Li, X., Fu, C.W., Heng, P.A.: Uncertainty-Aware Self-ensembling Model for Semi-supervised 3D Left Atrium Segmentation. In: Shen, D., Liu, T., Peters, T.M., Staib, L.H., Essert, C., Zhou, S., Yap, P.T., Khan, A. (eds.) Medical Image Computing and Computer Assisted Intervention – MICCAI 2019. vol. 11765, pp. 605–613. Springer International Publishing, Cham (2019). https://doi.org/ 10.1007/978-3-030-32245-8_67 
+
+43. Zheng, Z., Wang, X., Zhang, X., Zhong, Y., Yao, X., Zhang, Y., Wang, Y.: Semi-supervised segmentation with self-training based on quality estimation and refinement. In: Machine Learning in Medical Imaging. p. 30–39. Springer In-ternational Publishing (2020). https://doi.org/10.1007/978-3-030-59861-7_4 ,
+
+http://dx.doi.org/10.1007/978-3-030-59861-7_4 
+
+44. Zhou, Z., Siddiquee, M.M.R., Tajbakhsh, N., Liang, J.: Unet++: Redesigning skip connections to exploit multiscale features in image segmentation. IEEE Transac-tions on Medical Imaging 39 (6), 1856–1867 (2019). https://doi.org/10.1109/ tmi.2019.2959609

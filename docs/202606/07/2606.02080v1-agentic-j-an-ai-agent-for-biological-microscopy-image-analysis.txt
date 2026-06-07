@@ -1,0 +1,610 @@
+Title: Agentic-J: An AI Agent for Biological Microscopy Image Analysis
+
+URL Source: https://arxiv.org/pdf/2606.02080v1
+
+Published Time: Tue, 02 Jun 2026 02:33:27 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+# Agentic-J: An AI Agent for Biological Microscopy Image Analysis 
+
+## Lukas Johanns 1†, Marilin Moor 2†, Davide Panzeri 1, Yu Zhou 1,3 , Xinyi Chen 4,Nora F. K. Pauly 1, Zixuan Pan 5, Matthias Gunzer 1,6 , Andreas M¨ uller 7,Yiyu Shi 5, Hedi Peterson 2, Jianxu Chen 1* 
+
+> 1*
+
+Leibniz-Institut f¨ ur Analytische Wissenschaften – ISAS – e.V., Dortmund, Germany. 
+
+> 2
+
+Institute of Computer Science, University of Tartu, Tartu, Estonia. 
+
+> 3
+
+Faculty of Computer Science, Ruhr University Bochum, Bochum, Germany. 
+
+> 4
+
+Informatics Institute, University of Amsterdam, Amsterdam, Netherlands. 
+
+> 5
+
+Department of Computer Science and Engineering, University of Notre Dame, Notre Dame, United States. 
+
+> 6
+
+Institute for Experimental Immunology and Imaging, University of Duisburg-Essen, Essen, Germany. 
+
+> 7
+
+Institute of Molecular and Clinical Immunology, Faculty of Medicine, Magdeburg, Germany. *Corresponding author(s). E-mail(s): jianxu.chen@isas.de; 
+
+> †
+
+These authors contributed equally to this work. 
+
+Abstract 
+
+Biological image analysis increasingly demands integration across heterogeneous tools, programming environments, and domain knowledge that few researchers can command simultaneously. We present Agentic-J, a containerised, multi-agent AI assistant, primarily for ImageJ/Fiji that enables biologists to specify analysis tasks in natural language, from nuclei segmentation and cell tracking to multi-condition quantification. The agent generates executable scripts organised into a documented project structure, so every analysis decision is traceable and the workflow can be reproduced or shared. The specialised sub-agents handle plugin management, code generation, debugging, quality assurance, and statistical reporting. In this paper we introduce the system’s design, demonstrate real biologi-cal microscopy image analysis workflows, and detailed the technical implementation. The Agentic-J project is available at https://mmv-lab.github.io/Agentic-J/.  
+
+> Keywords: bioimage analysis, multi-agent systems, ImageJ, Fiji, container, scientific automation
+
+1
+
+> arXiv:2606.02080v1 [cs.MA] 1 Jun 2026
+
+# 1 Introduction 
+
+Modern biology is increasingly an data-driven science. Advances in microscopy now generate datasets much larger than can be inspected or quantified manually. So, it is critical for microscopy data analysis tools for the automated processing of images to be reliable and reproducible. Fiji [1] and ImageJ [2] are among the most established platforms for this task, supported by a large community and a wide plugin ecosystem that covers segmentation, tracking, registration, and much more. Yet this breadth is also a source of friction: plugins often depend on incompatible software versions, their parameters are rarely documented for non-specialists, and assembling individual tools, together with the required plotting and statistics, into a reproducible workflow is difficult for new users. A substantial share of posts on community forums such as image.sc concern environment and plugin-compatibility issues rather than the biology itself [3]. Moreover, Fiji is built primarily as a GUI application: its macro language and scripting interfaces exist, but few non-developers learn them, so most users default to manual point-and-click analysis that is slow and hard to reproduce. The reasoning and planning capability of Large language models (LLMs) can lower this barrier by turning a natural-language description of an analysis goal into an executable and reproducible pipeline. However, general-purpose models have gaps in domain-specific knowledge such as biomedical image analysis, leading to poor tool choices and incorrect parameters [4]. Recent benchmarks designed for microscopy-based scientific reasoning show that even frontier multimodal LLMs achieve only around 53% accuracy on tasks requiring expert image understanding, hypothesis generation, and experiment proposal [5]. Additionally, an agent with unrestricted access to a user’s machine may accidentally delete files, over-write data, or expose private information, often through long generated scripts whose effects a non-expert cannot easily audit [6]. Several agentic systems have already addressed parts of this problem in the imag-ing domain, such as ImageJ Pipeline Builder [7], napari-MCP [8], BioImage.IO Chatbot [9], and general biomedical agents such as Biomni [10]. However, none of these systems combine sandboxed execution, managed plugin dependencies, and curated domain grounding specially for bioimage analysis in a single deployable system. In this work, we introduce Agentic-J, a containerized multi-agent system for reproducible biological image analysis in Fiji. A newcomer can run a complete analysis without managing software, choosing between guided UI instructions and automated script generation, while the agent operates inside a sand-box and records each project as a self-contained folder of data, scripts, and step-by-step documentation. The open-source code is available at https://github.com/MMV-Lab/Agentic-J. In general, the main features of Agentic-J are highlighted below: 
+
+• an accessible single-package system permits biologists to run complete bioimage analysis workflows in Fiji through natural language instructions, without installing or configuring any additional software; 
+
+• a human-in-the-loop design that keeps the familiar Fiji interface, a conversational agent, and a reproducible project record in one place, so that bioimage analysts stay in control; 
+
+• safe execution by sandboxing the agent and bundling a curated set of compatible plugins, so analyses run reliably and cannot affect the user’s base operating system; 
+
+• domain-aware reasoning that grounds the agents in curated bioimage analysis knowledge and improves over time by reusing past successes and avoiding repeating failure; 
+
+• standards compliance, with each project automatically audited against community standards for publishing images and analyses. The remainder of this paper is organised as follows. Section 2 describes the capabilities of Agentic-J and demonstrates them on real-world biological problems, including its reproducibility, quality-assurance, and teaching-oriented features. Section 3 then turns to the technical setup, covering the containerization, the multi-agent system, and the knowledge bases. Finally, Section 4 discusses the current limitations and outlines future works. 2Fig. 1 The Agentic-J interface from a browser view (1). In the middle, the Fiji task bar is available and can be accessed directly (13). Below is the chat interface, which the user uses to interact with the agent (2). The interface also includes previous chats that users can revisit and continue for topic-related discussions (10) and the option to start a new chat (12). On the right side of the interface, users can track the spent tokens, estimated cost, and agent runtime for the current chat thread (3). It is also possible to send an error report to the developers or save the project for reproducibility (4). Additionally, the QA agent can be activated to create a community-standard quality assessment of the project (5). In the message field (6) the user can ask the agent a question, by pressing the send button (8) and will receive an answer in the chat window (9). The agent can be interrupted with the stop button (7). The appearance and resolution of the window is controlled through the sidebar (11), where the user also can copy the clipboard from their computer. 
+
+# 2 Agentic-J in practice 
+
+## 2.1 Usability of Agentic-J 
+
+One of the defining features of Agentic-J is that it brings together tools that would ordinarily require significant technical effort to install and maintain and makes them available as a single, self-contained system, accessible via natural language instructions. As illustrated in Figure 1, the end user interacts with a familiar chat interface in the browser, while the full Fiji workspace is visible in the same tab; the technical integration happens invisibly in the background. A key usability challenge in bioimage analysis is that tools developed by different research groups often conflict with one another: deep learning segmentation models such as Cellpose and StarDist require different software versions that cannot coexist in a single installation. Agentic-J resolves this by packaging each tool in its own isolated environment, baked into the system at build time, so that switching between segmentation approaches requires no manual intervention from the user. The Fiji image analysis platform runs inside the same system through a direct software bridge, which mean the agent can open images, 3run plugins, and collect measurements without the user having to manage a separate application. The agent itself operates as a coordinated team of specialists subagents: a main supervisor agent understands the scientific goal delegates tasks to dedicated agents for code generation, error correction, and statistical analysis, etc. A built-in knowledge base populated with plugin documentation, scripting guides, and a record of previously encountered errors and their solutions, allows the agent to learn from accumulated experience rather than starting from scratch on each task. The system is compatible with both OpenAI and a range of other model providers [11, 12], so it is not tied to a single model vendor. The system runs equally on Windows, Linux, and macOS without any platform-specific configuration. Users provide their image data through a dedicated data folder, and all outputs, processed images, analysis scripts, result tables, and figures, are collected in the same location, making it straightforward to trace what was done and retrieve results for downstream use. Also, chat history is preserved across sessions. The user can return to any previous project, review what analysis was performed, and continue from where they left off, with all associated scripts, figures, and data still linked to that conversation thread. The architecture is also designed with future extensibility in mind. As biological questions increasingly require tools beyond ImageJ, the system can communicate with external platforms through standardised protocols. Rather than requiring a dedicated integration for each new tool, any external platform that supports the Model Context Protocol (MCP) can expose its functionality to the Agentic-J supervisor, which then treats those capabilities as its own. For example, three-dimensional visualisation in napari [13], is implemented through napari-MCP [8]. Napari is the first such use case, but the mechanism is not specific to any single software. 
+
+## 2.2 Image Analysis Workflows for Real-world Biological Problems with Agentic-J 
+
+To evaluate the practical utility of Agentic-J in real-world scenarios, we tested the system on two distinct workflows derived from peer-reviewed biological studies. These case studies are selected to demonstrate the two primary operational modes of the system. The first workflow illustrates how the agent provides step-by-step UI-guided instructions to help users navigate complex graphical plugins. While the second example shows the agent’s capacity to autonomously generate, execute, and document multi-step analysis scripts. Together, these examples provide an initial assessment of how the system can assist researchers in translating biological questions into reproducible image analysis pipelines. 
+
+2.2.1 Tracking mouse stem cells (reproducing a workflow from a paper using UI) 
+
+Celltraxx is an automatic workflow for tracking cell migration in phase contrast images [14], where the performance was compared with manual processing as well as TrackMate [15] using different datasets and tasks. One example was to analyze an image series of mouse muscle stem cells in hydrogel microwells. Provided the parameters and methods in the paper, we attempted to reproduce the analysis in Agentic-J (using TrackMate, via UI steps) to verify if one can use the same configuration to replicate the results. Specifically, we set up the experiment with the last 100 images from the aforementioned mouse muscle stem cell series in the data/mouse cell tracking folder, while the parameters/methods were collected from the paper and described as one prompt: 4Prompt 
+
+I have a list of images in the mouse cell tracking folder and I would need to find the number of tracks using TrackMate. These 16-bit images should first be converted to a binary image and then inverted to get white spots (255) on a grey background (123) such that the TrackMate thresholding detector could be used with a threshold grey level of 150 to easily distinguish all 2000 spots in this image series. The LAP tracker should be used for tracking the spots, but with more liberal gap closing settings in order to track the fast-moving spots as well as possible: 
+
+• max frame gap = 4 
+
+• alternative linking cost factor = 1.05 
+
+• linking max distance = 60 pixels 
+
+• gap closing max distance = 100 pixels 
+
+• allow gap closing = true 
+
+• allow track splitting = false 
+
+• allow track merging = false Could you give steps using UI? 
+
+After initial instructions, the user prompted extra information, as the plugin interface did not have all of the Linear Assignment Problem (LAP) tracker parameters that were initially required (likely due to a difference in TrackMate versions). The feedback from the agent helped to achieve the same results as the ones reported by the original authors [14]: the same number of tracks (29) and spots/cells (2001). The paper also reported the mean velocities ( μm/min) from image to image as a (bee)swarm plot (Figure S3e in [14]). In order to verify the capability of plotting in Agentic-J, the subtitle of the supple-mentary figure was adapted with physical unit details (initially only pixels information) and the type of plot with initial design features was described in the following prompt. Prompt I added the tracks csv to the initial data folder. Could you help me do a swarmplot with the comparison of the mean velocities from image to image calculated from tracking by TrackMate analysis of the corresponding GT images (dots in blue). Each dot represents the mean velocity from one time point to the next. The black line shows the overall mean velocity. I found out that the physical unit is 0.645 um per px and the time is 5 minutes between images. The first generated plot was modified using the chat interface by asking it to edit the plot style, i.e. removing x-axis labels, re-setting the y-axis to start from 0, ensuring that the increment is 1 etc. It is important to note that with the GPT-5.2-based plotting agent, the plotting style should be prompted as clearly as possible and repeated if necessary. Although some elements can be kept constant, successive interactions may still produce variations in the code or introduce changes to other sections. As can be seen from Figure 2, the imitation was quite successful, while the jitter style differs, the dots are following a similar distribution and the horizontal black line is situated in the same location. For the complete task (tracking task + plotting (to a satisfactory level)), the estimated thinking time was 7 minutes, this included iterative re-designing done by the plotting agent. On a side note, for the sake of clear visualisation in this paper, the generated script provided by Agentic-J was modified further (font-size of the axis texts and making the plot relative to the output size), and run independent of the system. Full prompts, generated scripts, and workflow outputs are included in the Appendix A. 5Fig. 2 On the left, the TrackMate (points in blue) distribution achieved in the peer-reviewed publication[14]. This figure is reused under CC BY 4.0. On the right, the TrackMate distribution generated via Agentic-J can be seen on the right. Each dot represents the mean velocity from one time point to the next. The black line shows the overall mean velocity. 
+
+2.2.2 Apoptotic behaviour of parasite-infested cells (building a multi-step workflow) 
+
+To demonstrate the coding and multi-step workflow capabilities of Agentic-J on a real-world microscopy image analysis task, the system was evaluated on a task derived from a peer-reviewed publication [16]. The biological objective of the original study was to investigate whether intracellular proliferation of the 
+
+Leishmania major parasite is associated with apoptotic behaviour of the infected host cell. We used the original image data and ROI annotations, provided by the authors of the study, for testing if Agentic-J is able to automatically build multi-step workflows. 
+
+Provided data 
+
+The dataset comprised two acquisitions of the same field of view, summarised in Table 1. Besides the raw images, to test the exact scenario in the original study, where biology experts manually annotated parasite in the image as ROI, Agentic-J received manually annotated parasite ROIs, while the determination of apoptotic host-cell status was left entirely to the generated workflow. Automatic parasite detection is also possible in theory, but may require additional training of an object detection model. Arguably, in practice, manual ROI selection or annotation is still much faster to get the results than building new models, and therefore still commonly used by biologists.  
+
+> Table 1 Channel composition of the two acquisitions provided for the parasite workflow. The live-cell movie was acquired over multiple time points at a temporal resolution of 10 minutes per frame; the fixed-endpoint image captured the same field of view after fixation and TUNEL staining.
+
+Acquisition Channel 1 Channel 2 Channel 3 Live-cell time-lapse Phase contrast mKikume green mKikume red (host cells) (parasites) (parasites) Fixed-endpoint TUNEL Phase contrast TUNEL signal DAPI (host cells) (apoptotic nuclei) (all nuclei) 
+
+Workflow objectives 
+
+The agent was asked to carry out the analysis in four connected steps. It first had to align the final phase-contrast frame of the live-cell movie with the phase-contrast channel of the fixed TUNEL image and apply the same transformation to all remaining channels, bringing the two acquisitions into a common 6coordinate frame. Working on these aligned images, it then measured fluorescence intensities from the provided parasite and background ROIs to calculate the proliferation index. Each parasite then had to be linked to its host cell and classified as TUNEL-positive or TUNEL-negative. Finally, drawing all of this together, the agent had to generate statistical analyses and publication-style plots evaluating the relationship between parasite proliferation and apoptotic host-cell status. For each parasite ROI, the proliferation index was defined as: 10 − RG
+
+where R/G corresponds to the ratio between the background-corrected red and green fluorescence intensities measured within the parasite ROI. 
+
+Generated workflow 
+
+Agentic-J autonomously generated a complete end-to-end analysis workflow that is visualized in Figure 3. The agent successfully assigned 38 out of the 45 provided parasite ROIs and reproduced a statistically similar relationship between proliferation index and apoptotic status compared to the expert annotations (Figure 4). However, approximately 50% of the TUNEL-positive parasites could not be assigned to a nearby nucleus, resulting in reduced sensitivity (see Figure B1). Overall classification accuracy reached 88.89%, with a specificity of 100% and a sensitivity of 50%. Importantly, the workflow autonomously identified and documented these shortcomings. The agent proposed several plausible explanations, including an overly restrictive parasite-to-nucleus assignment distance and inaccuracies in TUNEL thresholding. Another reason could be non-rigid morphological deformations introduced during fixation. Although rigid registration was successfully performed, local cellular deformations likely altered the spatial relationship between parasite ROIs and apoptotic nuclei. A knowledgeable user can inspect the generated quality control (QC) overlays and iteratively refine parameters such as the parasite-to-nucleus assignment distance. This experiment therefore highlights both the strengths and limitations of autonomous microscopy workflows: while the agent was capable of generating a reproducible end-to-end analysis pipeline with biologically meaningful results, expert-guided refinement remained critical for resolving ambiguous edge cases, to deliver trustworthy outputs. 
+
+## 2.3 Reproducibility and quality assurance 
+
+Reproducible reporting of microscopy pipelines requires that authors disclose not only their results but also the data, software, parameters and figure-preparation choices that produced them. To embed these expectations directly in the agent system, we implement a dedicated quality-assurance (QA) agent that audits each completed project against the community-developed checklists for publishing images and image analyses [18]. Items on the checklist are stratified into three tiers, namely minimal (required for publication), recommended (strongly encouraged) and ideal (best practice), and they cover both the anal-ysis workflow (citation of components and platform, processing sequence, key settings, exact software versions, documentation of manual ROIs, availability of example data and code) and the image publica-tion itself (format and cropping, channel and color choices including grayscale and colorblind-accessible palettes, scale bars and annotation legibility, lossless sharing and deposition in dedicated archives). The QA agent is invoked once, automatically, at the end of every project, and is strictly read-only. It reviews all project outputs, including scripts, documentation, tables, and figures, and grades each item (pass, partial, or fail) adding a brief explanatory note for each. The audit is consolidated into a single 
+
+QA Checklist Report.md placed in the project root, which closes with a prioritized to-do list separating critical failures from recommended improvements and ideal additions. By integrating the checklist directly into the analysis loop, the agent acts as a vehicle through which the community’s reproducibility guidelines are disseminated and applied after the pipeline is completed. 7Fig. 3 The end-to-end analysis workflow autonomously generated by Agentic-J for the parasite apoptosis task, comprising five sequential stages, each reported automatically to the user: (1) rigid registration of the fixed-endpoint image to the live-cell movie via TurboReg [17], with the transform propagated to all channels; (2) ROI-based, background-corrected measurement of parasite fluorescence and calculation of the proliferation index 10 − R/G ; (3) DAPI-based nucleus segmentation and Otsu-thresholded TUNEL-positive/negative classification; (4) assignment of each parasite to its nearest nucleus within a fixed maximum distance; and (5) consolidation of results, statistics, publication-ready plots, and automated workflow and QA reports. 
+
+8Fig. 4 Proliferation index (10 − R/G ) for the parasite ROIs, grouped by TUNEL classification. The underlying intensity measurements are identical in both panels; only the assignment of each parasite to a TUNEL-positive or TUNEL-negative host cell differs. Left: the agent’s automatic classification, restricted to the 38 parasites that could be assigned to a nucleus (7 unassigned ROIs dropped). Right: the expert manual ground-truth classification over all 45 ROIs. In both cases the TUNEL-positive and TUNEL-negative populations are significantly separated ( p = 0 .016 and p = 0 .015, respectively), showing that the agent-derived workflow reproduced a statistically similar separation between the two populations. 
+
+The current QA agent can be viewed as a proof-of-concept for community standard dissemination. Further guidelines, e.g., specifically for migration data, or how to report the usage of generative AI, can be further integrated when available. 
+
+## 2.4 Teaching-oriented design and domain-specific guidance 
+
+One of the goals of the Agentic-J system is to enable end-users to independently reason about and perform image analysis on their own. A prerequisite for reaching this goal is lowering the barrier to entry: research on online education consistently identifies the creation of accessible learning environments as essential to effective learning. The flexibility of pace, time and psychological anonymity also play a supportive role [19]. The straightforward chat interface and easy setup of the Agentic-J system directly serve this principle, allowing users to engage with the specifics of bioimage analysis in Fiji without configuration overhead. The knowledge base underpinning the system’s agentic reasoning is built predominantly on education-oriented open-source materials. This includes the open textbook “Introduction to Bioimage Analysis”, which aims to explain concepts in image analysis for biologists [20]. The knowledge base also draws on the community-curated Bio-image Analysis Notebooks, a CC-BY 4.0 collection of Jupyter notebooks covering programmatic image analysis, machine-learning methods, and quantitative image processing [21]. This RAG-based grounding in educational materials is shown to have potential in personalized learning. A short-term educational pilot study [22] indicated that the topics covered in embedded materials in RAG are less prone to hallucinations. This could be linked to another result from the same study, where higher student engagement and motivation to learn was qualitatively recorded [22]. One concrete example of domain-specific guidance in Agentic-J is the plugin parameter explana-tion feature. When a user gets stuck choosing values in a plugin dialog window, the system uses a separate vision-language model to translate the plugin interface into text, combines this with the plu-gin’s documentation, and considers the current image context to provide targeted recommendations with explanations. Optimal fine-tuning of parameters in image analysis is critical, and expert-informed, human-in-the-loop guidance has been demonstrated to improve results in microscopy workflows [23]. By 9providing context-aware parameter advice with explanations, the system supports users in developing a transferable understanding of image processing decisions rather than merely executing steps. A further avenue for learning is built into the system’s reproducibility infrastructure. Because all analysis steps are saved as Groovy/Python scripts, users have the option to inspect, adapt, and reason about the generated code. Code review is recognized as a straightforward and effective technique for accelerating learning and reducing potentially costly errors [24]. Users may also submit their own scripts for diagnosis, turning debugging into an active learning experience. Finally, where a generalist model might default to broad, high-level answers, Agentic-J is primed specif-ically for bioimage analysis. Its knowledge base comprises curated educational texts, plugin documentation in the form of human-authored API reference sheets, and ImageJ scripting resources (Groovy). 
+
+# 3 Agentic-J technical setup 
+
+## 3.1 The overall agentic system 
+
+An overview of the system architecture is provided in Figure 5. The system operates via API calls through an OpenRouter or OpenAI-compatible key, and users interact with it through a conversational chat interface. All incoming requests are first handled by a LangChain deep agent [26], which constructs a structured execution plan called the state ledger. This ledger is shared across all agents to keep the plan transparent and coordinated throughout the pipeline. The supervisor agent has access to a knowledge database to support context-aware planning. To protect user privacy, the agent does not have direct access to raw image data; instead, it retrieves file metadata and invokes dedicated file tools to gather the necessary input context. Plugin-related queries are routed to a plugin manager agent, which has visibility over both the installed plugin set and a broader plugin registry, enabling it to suggest additional tools beyond the curated container when needed. Once planning is complete and any additional context has been collected from the user, such as the execution mode (script-based or UI-guided) and the intended processing pipeline, the system may invoke one or more specialized agents: 
+
+• The coder agent generates scripts by consulting curated plugin documentation and domain-specific skills. 
+
+• The debugger agent performs iterative script correction. 
+
+• The plugin manager provides plugin-specific guidance, such as selecting the correct parameters in UI dialogs. 
+
+• An optional Python-based data analyst agent supports downstream quantitative analysis. 
+
+• Users may also request a QA agent, which evaluates whether the project meets established publication standards for reproducibility and figure correctness [18]. Each subagent is equipped with a targeted toolset: covering plugin UI inspection, file reading, Fiji Log window parsing, and more, thereby enabling reliable, domain-specific assistance at each stage of the workflow. 
+
+## 3.2 Containerisation and security 
+
+The Fiji ecosystem offers a large and varied collection of plugins, numbering in the hundreds, which, while a significant strength, introduces a non-trivial maintenance burden for end users. Ensuring plugin compatibility is essential to a stable experience, and is one of the primary motivations for providing a containerised environment with a curated set of pre-installed plugins. Plugin selection was carried out empirically using two complementary approaches: (1) citation-based analysis, examining how frequently each plugin’s associated paper was cited, as well as how often the plugin was mentioned in the methods sections of other works; and (2) download statistics from the ImageJ 10 Fig. 5 Structure of the Agentic-J system. A biologist submits a task via a chat interface [25] to a supervisor agent, which manages file operations, metadata extraction, and direct Fiji code execution, with access to a local data directory and a knowledge database. A state ledger storing pipeline instructions, metadata, and the scientific goal is shared across four subagents: a plugin manager, a coder–debugger, a plotting agent, and a quality assurance agent. Subagents draw on a shared skill repository of plugin documentation and workflow guidelines. The system is containerised with Docker and supports the OpenAI [11] and OpenRouter [12] APIs; external tools such as Napari via MCP [8] can be integrated as extensions. All registered trademarks, brand names, and logos (including Python, Docker, R, Fiji, OpenAI, OpenRouter and others) are the property of their respective owners. Their use here is solely for nominative, descriptive purposes to identify the integrated technologies and does not imply affiliation or endorsement. 
+
+11 site tracker, which logs the total number of unique update requests per plugin [27]. The top 30 non-built-in plugins were identified by aggregating these rankings. The resulting set includes widely-used tools such as MorphoLibJ [28], StarDist [29], TrackMate [15], and Labkit [30]. A recurring theme in the image.sc community forums further reinforces the need for containerisation: a notable proportion of Fiji-related posts concern plugin environment issues, including misconfigured Python environments and incorrect path settings [3]. Bundling plugins into a single pre-configured con-tainer removes this friction entirely, users do not need to manage dependencies, virtual environments, or plugin paths themselves. The most pressing motivation for containerisation, however, concerns security. Protecting users’ sensi-tive biological data and constraining unpredictable agent behaviour are both critical considerations. At the time of development, the rise of autonomous agent frameworks similar to OpenClaw [31], brought with it growing concerns around unintended system access and harmful side effects. Confining the agent’s filesys-tem access to a dedicated data/ directory, with all script generation and execution taking place inside the container, substantially reduces this risk. Prior work has highlighted the dangers of running agents with unrestricted local filesystem access [6]; of particular concern is the possibility that long generated scripts (e.g. in Groovy) may contain destructive file operations that a non-expert user would be unlikely to catch. While static rule-based guardrails can help restrict agent behaviour, their reliable enforcement is not guaranteed. Research has shown that the pattern matching technique of static rule-based guardrails (e.g. Llama-Guard) can be easily obfuscated [32]. An additional benefit of the unified plugin environment is improved agentic support: rather than relying on general pre-training knowledge, agents reference curated plugin documentation to produce accurate scripts and correct UI dialog guidance. More technically, the container packages a full Fiji/ImageJ distribution with pre-installed plugins, alongside pre-packaged Cellpose model weights and a Conda-managed Python environment providing pyimagej, Qdrant-backed RAG, and LangGraph for agent orchestration. At startup, the entrypoint pre-warms the jgo/Maven dependency cache to eliminate first-run network fetches, thereby bypassing potential SciJava downtime. The whole setup is exposed through a virtual desktop over noVNC on port 6080 running as a non-privileged user with all Linux capabilities dropped. 
+
+## 3.3 Databases 
+
+3.3.1 Knowledge database 
+
+General-purpose LLMs are trained on broad web corpora and consequently underperform on domain-specific tasks such as bioimage analysis or the authoring of ImageJ macros. To close this gap, the agent is coupled with a dedicated knowledge base that supports retrieval-augmented generation (RAG) [33]. The base is populated with open-source ImageJ training material, community best-practice guides, biomedical image-processing textbooks, and accompanying Jupyter notebooks; the full inventory is listed in the Appendix C. Documents are chunked at ingestion time and stored in a hybrid Qdrant collection combining sparse and dense embeddings, so that both keyword and semantic queries are supported. At runtime, the agent issues queries through a retrieval tool that fuses the two rankings via Reciprocal Rank Fusion (RRF) [34] and returns the top-scoring chunks. Users may additionally upload PDFs during a session. A naive chunking pass makes the document immediately queryable, while a higher-quality embedding job runs in the background and transparently replaces the provisional entry once it completes. 
+
+3.3.2 Errors and recipes 
+
+To let the agent benefit from prior runs, two complementary stores are maintained, both readable and writable by the relevant agents: a recipe database of working code and an error database of past failures. Whenever a snippet produced by the coder agent executes successfully, the supervisor commits it to the recipe database together with metadata describing the language, the required inputs, and an occurrence count. The debugger writes to both stores in the same fashion. The corrected snippet enters the recipe 12 database, while the originating failure is appended to the error database together with its error type, the offending class, and the broken code. On subsequent runs, the agent can therefore consult both known-good solutions and known failure modes before attempting a new implementation. 
+
+3.3.3 Skills 
+
+Vector databases enable low-latency retrieval but are inherently constrained by chunk size and by the loss of structural context between fragments. To complement RAG with structured, hierarchical knowledge, we adopt the skills pattern [35]. A skill is a directory containing documentation, ready-to-run scripts, and usage instructions, fronted by a SKILL.md file whose header alone is exposed to the agent. From this header the agent decides whether the skill is relevant and, if so, progressively opens the remaining files on demand, lifting the chunk-size ceiling without overloading the context window. This mechanism is used throughout the system. The supervisor’s context budget is kept small by outsourcing workflow descriptions and pipeline guidelines to dedicated skill files referenced from its system prompt. The plugin manager and the coder/debugger agents share a collection of plugin-specific skills, each comprising an overview SKILL.md , scripting and UI usage notes, and a sample workflow in Groovy or as a UI recipe. Finally, the statistics and plotting agent draws on a dedicated skill that codifies our conventions for publication-ready figures. 
+
+# 4 Discussion 
+
+In this work, we presented Agentic-J, a containerised multi-agent system that, in a single deployable pack-age, brings together sandboxed execution, managed plugin dependencies, and curated domain grounding for bioimage analysis. Just as central to the design, however, is what Agentic-J is not: it is not a terminal-only agent that displaces the analyst. Practical microscopy analysis is an inherently visual and iterative activity, thus our system is built around this philosophy. The familiar Fiji GUI, a conversational chat, and an agentic backend share a single browser tab and a single project folder, so a researcher can ask the agent to draft a Groovy pipeline, intervene through a plugin dialog when biological judgement is required, and request a re-plot or a parameter explanation in the same conversation. Analysis in Agentic-J becomes a collaboration between a human expert and an agent rather than an autonomous handover, what we believe matches how microscopy data is actually interpreted in practice, and one that distinguishes the system from fully autonomous pipelines that offer no natural point of intervention. Each project also leaves behind an automated audit against the publication checklists of Schmied et al. [18], to our knowl-edge the first runtime implementation of those checklists, closing a gap between community-established standards and day-to-day practice so that reproducibility is produced alongside the analysis rather than retrofitted afterwards. The attributes described in the preceding chapters represent a technical foundation, but their prac-tical value can only be established through structured collaboration with domain experts. Evaluating an agentic bioimage analysis system requires more than benchmark accuracy on curated datasets; it requires understanding whether the system meaningfully reduces the cognitive and technical burden that biologists currently bear when translating experimental questions into analysis pipelines. Planned collab-orations with researchers from different fields of biology will provide the diversity of use cases needed to surface failure modes, improve skills files and map unmet requirements. These collaborations will focus on accessibility and usability: specifically whether the conversational interface allows biologists to express intent naturally, whether the generated scripts and parameter choices align with domain expectations, and whether errors are communicated in a way that supports correction rather than confusion. A fundamental challenge in evaluating AI-assisted scientific analysis is that biologists possess tacit intuition about whether an output is plausible. A segmentation that is numerically accurate by pixel overlap metrics may still be biologically incorrect in a way that an expert recognises immediately. This connects to the phenomenon of criteria drift identified by Shankar et al. [36]: users need pre-existing criteria to grade outputs, yet the grading process itself shapes and revises those criteria, and some criteria 13 emerge only in response to the specific outputs observed. In the context of bioimage analysis, this means that evaluation protocols cannot be fully specified in advance: a biologist asked to assess a tracking result may articulate requirements (minimum track length, handling of cell division events, tolerance for gap-closing) only after seeing cases where the agent’s choices diverge from expectation. Addressing this requires iterative validation cycles in which biologists assess outputs and their stated criteria are captured alongside the result, allowing the evaluation standard itself to be treated as a structured output of the collaboration. The state ledger’s step-by-step record of agent decisions provides an audit trail that supports this kind of retrospective, criteria-aware validation. LLM-based agents are inherently stochastic: given the same task, successive runs may produce syn-tactically distinct scripts that are semantically equivalent, or occasionally diverge in parameter choices or model selection. Quantifying this variability is a prerequisite for scientific use. A repeatability study, run-ning a fixed panel of biological tasks across multiple independent agent sessions and measuring variance in generated code, parameter values, and quantitative outputs, is planned. Metrics of interest include script-level semantic equivalence (whether scripts produce statistically indistinguishable results on the same input), tool-call sequence consistency (whether the agent follows the same reasoning path), and downstream biological concordance (whether cell counts, morphology statistics, or track features agree within acceptable biological variability). Previous work on LLM output consistency provides methodolog-ical precedent for this kind of benchmarking [37]. To support this future assessment, the system already records each run’s tool-call sequence, parameter choices, and intermediate outputs in the state ledger, and maintains a versioned script archive with per-attempt failure provenance; these artefacts substantially reduce the cost of systematic repeatability analysis and provide an initial basis for inter-run comparison without requiring additional instrumentation. The agentic AI ecosystem is developing at a pace that makes any specific implementation a snapshot rather than a final design. New model families with substantially improved reasoning and coding capability are released on timescales of weeks. Open-source model improvements, particularly for code generation and scientific reasoning, are narrowing the gap with proprietary frontier models and may eventually enable fully local deployment without API dependency, which would strengthen the security posture and reduce operating costs for institutions with data governance constraints. The architecture described here is designed to accommodate this evolution: the skills filesystem is model-agnostic, the MCP adapter can expose any compliant host service without changes to agent code, and the conda environment isolation strategy means new computational tools (segmentation models, statistical packages, analysis frameworks) can be added without destabilising existing functionality. 
+
+# 5 Conclusion 
+
+Agentic-J is a containerised, multi-agent system that makes conversational bioimage analysis available to researchers without programming expertise, while remaining a practical tool for those who have extensive experience already. By keeping the familiar Fiji workspace central, accessible alongside the agent in a single browser tab, the system treats analysis as a collaboration between human expertise and automated assistance. The biologist remains in the loop at every step, exercising judgement where it matters while the agent handles the technical translation from scientific question to executable pipeline. Two case studies demonstrate the system operating across both of its working modes: a published TrackMate cell-migration analysis [14] was replicated through the graphical interface, and a multi-step apoptosis read-out for parasite-infected host cells [16] was produced as Groovy and Python code by the agent. Quantitative results matched published or expert-derived references, and deviations were flagged by the agent in its own workflow report, leaving an informed user well placed to intervene. Beyond execution, the system addresses the domain-knowledge gap of general-purpose LLMs in bioimage analysis without retraining the underlying model. A curated knowledge base paired with a plugin-specific skills filesystem, and complemented by recipe and error stores that grow with every session, gives the agent a form of domain competence that scales with use. 14 The broader practical value of the system will be established through planned collaborations with biologists across disciplines, and through repeatability studies that quantify the consistency of agent-generated pipelines. The architecture is designed to absorb the rapid evolution of the agentic AI landscape: new models, plugins, and external platforms can be integrated without restructuring the core. Agentic-J is a step towards making rigorous, documented, and reproducible bioimage analysis for every biologist who needs it. 
+
+# Acknowledgement 
+
+The work of ISAS was supported by the “Ministerium f¨ ur Kultur und Wissenschaft des Landes Nordrhein-Westfalen” and “Der Regierende B¨ urgermeister von Berlin, Senatskanzlei Wissenschaft und Forschung.” The work of L.J., Y.Z., J.C. was further supported by the Bundesministerium f¨ ur Forschung, Technolo-gie und Raumfahrt, BMFTR under the funding reference 161L0272. Xinyi Chen is funded by LESSEN (NWA.1389.20.183) and ELIAS (GA No. 101120237). The work of Institute of Computer Science (Univer-sity of Tartu) was conducted using the research infrastructure “ELIXIR Estonia” funded by the Estonian Research Council (TARISTU24-TK4). 15 Appendix A Supplementary material 
+
+All files related to the biological workflow (mouse stem cell tracking and the apoptotic behaviour of parasite-infested cells) tasks, including input data, scripts, results, and other project files such as costs and phase data can be found at: https://doi.org/10.5281/zenodo.20443685 
+
+# Appendix B Apoptotic behaviour of parasite-infested cell -Extended Material 
+
+## B.1 Task description 
+
+Background We work on intracellular parasites that live inside host cells. Sometimes a host cell dies by apoptosis (a controlled form of cell death), and we want to know whether parasites sitting inside such dying cells look different from parasites sitting inside healthy cells. Specifically, we want to compare a fluorescence read-out from the parasites between these two situations. To get at this, we image the same dish twice. First, while the cells are still alive, we film them under the microscope. Then we take the dish off the microscope, fix the cells (so nothing moves anymore) and stain them with TUNEL, a stain that lights up the nuclei of cells that were undergoing apoptosis. After that we put the dish back on the microscope and image the exact same spot again. So in the end we have a ”live” movie and an ”after-staining” picture of the same cells. Our parasites express a fluorescent protein called mKikume. mKikume is special because when you shine UV light on it, it switches from glowing green to glowing red. So each parasite has both a green and a red signal. The number we ultimately care about is the ratio of red to green fluorescence in each individual parasite. The data files 
+
+20211028 Position003.tif — The live movie. One position, several time points, 10 minutes between frames. 
+
+• Channel 1: phase contrast (you can see the host cells in this channel) 
+
+• Channel 2: mKikume green (parasites, green signal) 
+
+• Channel 3: mKikume red (parasites, red signal) 
+
+20211028 TUNEL Position003.tif — The same spot on the dish, but imaged after the cells were fixed and TUNEL-stained. 
+
+• Channel 1: phase contrast (same cells as in the live movie, but no longer alive) 
+
+• Channel 2: TUNEL signal — bright dots here mean an apoptotic nucleus 
+
+• Channel 3: DAPI — labels all nuclei in the field, apoptotic or not Provided ROIs (important change vs the original task) In this dataset, the parasites and their local background regions were already selected manually. This means you do NOT need to detect parasites automatically anymore. Instead, use the provided ROI set: Parasite and background.zip 
+
+ROI naming convention: 
+
+• Each parasite ROI is named: parasite <n>
+
+• For each parasite, three nearby background ROIs are provided and named: – background for parasite <n> 1
+
+– background for parasite <n> 2
+
+– background for parasite <n> 3
+
+• Because multiple ROI batches were merged, some parasite IDs can appear more than once. In that case, the later duplicates are tagged with a suffix: dup2 , dup3 , . . . Example: parasite 1 dup2 has matching backgrounds 
+
+background for parasite 1 1 dup2 , etc. The annoying practical problem (still applies) Because we had to take the dish off the microscope to fix and stain it, and then put it back, the field of view is not in exactly the same place anymore. When you open the two files side by side, the cells are clearly the same cells, but they sit at slightly different positions in the image, and the whole picture also looks a little tilted compared to the live movie. So if we just overlay the post-fixation TUNEL channel onto the live movie, the TUNEL dots end up next to the wrong cells, which is obviously useless. What we actually want is: for every parasite ROI drawn on the last frame of the live movie, we want to know whether the nucleus of its host cell was TUNEL-positive or not. For that to work, the two recordings need to be brought back on top of each other so that the same cell appears in the same place in both pictures. The phase contrast channel is recorded in both files and shows the same cells in both, so it should be possible to use that to figure out how the two views have to be lined up. Once the two phase contrast views match up, the TUNEL and DAPI channels need to be moved in the same way. What I want to get out of the analysis (apoptosis read-out) We use only the LAST frame of the live movie for this part — everything before it can be ignored. For every parasite ROI in the provided ROI set, I want to know two things: (a) Is the host cell that this parasite sits in apoptotic? In other words, does its nucleus light up in the TUNEL channel of the (aligned) post-fix image? The DAPI channel can help to locate nuclei in general; TUNEL-positive means it is also bright in the TUNEL channel, not just in DAPI. (b) What is the corrected red-to-green ratio of that parasite? 
+
+16 By ”corrected” I mean: the parasite itself has some red and green signal, but the surrounding area also has baseline fluorescence that should not be counted as parasite signal. Because background ROIs are already provided for each parasite, the simplest correction is: 
+
+• measure the mean intensity of the parasite ROI in green and red 
+
+• measure the mean intensity in each of the three background ROIs (green and red) 
+
+• average the three backgrounds per channel 
+
+• subtract that average background from the parasite mean in each channel After background subtraction, compute per parasite: 
+
+R/G = (background-corrected red) / (background-corrected green) final value = 10 − R/G 
+
+The ”10 − R/G ” is just the convention we use in our group, please keep it. What I’d ultimately like to see, per parasite: 
+
+• which parasite it is (ROI name/ID, ideally with a marked-up image so I can check), 
+
+• was its host cell TUNEL-positive (yes/no), 
+
+• its final 10 − R/G value. A simple table of these numbers, with the TUNEL+ and TUNEL- parasites clearly separable, is what we then use for the statistics in the paper. 
+
+## B.2 Workflow documentation 
+
+Workflow Documentation 
+
+Project name: parasite apoptosis roi alignment 
+
+Date: 2026-05-22 
+
+Workflow type: New Workflow (example / use-case execution) 
+
+1. Scientific Goal 
+
+Quantify parasite reporter conversion (mKikume red/green ratio) on the last frame of a live movie , and determine whether each parasite is in a TUNEL-positive vs TUNEL-negative host cell nucleus by aligning a post-fix TUNEL/DAPI image to the live phase-contrast image. 
+
+2. Software Components & Versions 
+
+(From logs/environment metadata.log )
+
+Component Version Role 
+
+ImageJ/Fiji 2.16.0/1.54p Alignment, ROI-based measurements, nuclei segmentation, TUNEL calling Python 3.13.13 Statistics + plotting pandas 3.0.2 Data wrangling numpy 2.4.3 Numeric computation scipy 1.17.1 Statistical tests matplotlib 3.10.9 Plot rendering seaborn 0.13.2 Plot styling Recommended Fiji plugin used for registration: TurboReg / StackReg .
+
+3. Processing Sequence 
+
+1. IO check (memory-safe) (phase4a io check.groovy )
+
+• Verified that the live movie TIFF, post-fix TIFF, and ROI zip load correctly. 
+
+• Opened large TIFFs as virtual stacks to avoid Java heap OutOfMemory. 
+
+• Output: data/IO check summary.csv 
+
+2. Rigid registration of post-fix → live (TurboReg on phase) (phase4b alignment turboreg single verification.groovy )
+
+• Extracted the last frame of the live movie. 
+
+• Used phase contrast channel as the registration reference. 
+
+• Estimated a rigid-body transform (TurboReg) to align post-fix phase to live phase. 
+
+• Applied the same transform to post-fix TUNEL and DAPI channels. 
+
+• Saved QC overlay and aligned channel images. 
+
+• Manual verification: user confirmed alignment looked good. 3. ROI-based parasite intensity measurement on live last frame (phase4b roi intensity measurement live lastframe.groovy )
+
+• Loaded ROI set from Parasite and background.zip .
+
+• For each parasite * ROI, measured mean intensities in: – live green channel (mKikume green) – live red channel (mKikume red) 
+
+• Background correction: 
+
+17 – matched background ROIs background for parasite <n> [1-3] 
+
+– averaged the 3 backgrounds and subtracted from parasite mean – handled duplicate parasite ROIs ( dup suffix) via base-ID fallback. 
+
+• Computed ratios: – R over G 
+
+– final 10 minus R over G = 10 - (R/G) 
+
+• Outputs: data/parasite ratio live lastframe.csv , processed images/parasite rois on live lastframe.tif 
+
+4. TUNEL+/ − calling from aligned post-fix image (phase4b tunel classification postfix aligned.groovy )
+
+• Segmented nuclei from aligned DAPI .
+
+• Measured mean TUNEL intensity per nucleus. 
+
+• Classified nuclei as TUNEL+/ − using Otsu threshold on nucleus mean TUNEL values (threshold reported as ∼227.6 in the run log/ledger). 
+
+• Assigned each parasite ROI to a nucleus: – first by ROI containment – else by nearest nucleus within a maximum distance (if none, parasite marked unassigned). 
+
+• Outputs: – data/nuclei tunel measurements.csv 
+
+– data/tunel calls per parasite.csv 
+
+– processed images/labeled nuclei.tif 
+
+– processed images/tunel positive overlay.tif 
+
+5. Merge results into one per-parasite table (phase4b merge results table.groovy )
+
+• Joined live ratio table with parasite-level TUNEL calls. 
+
+• Output: data/Parasite Apoptosis Final Table.csv 
+
+6. Statistics (assigned-only) (phase4c statistics final 10minus RoverG by TUNEL.py )
+
+• Compared final 10 minus R over G between TUNEL+ and TUNEL − groups. 
+
+• Reported: – Mann–Whitney U p ≈ 0.0161 – Cliff’s delta ≈ 0.661 – Welch t-test p ≈ 0.000892 
+
+• Outputs: data/Statistics Results.csv , data/Statistics Summary.md 
+
+7. Plotting (assigned-only) (phase4d plotting optional final10minusRoverG by TUNEL.py )
+
+• Generated: – violin/box/strip plot of final 10 minus R over G by TUNEL status (annotated with Mann–Whitney p) – count plot by TUNEL status 
+
+• Outputs (PNG + SVG): see figures/ .
+
+4. Key Settings & Parameters Parameter Value Script Rationale                        
+
+> Live frame used last frame (T=263) phase4b * Workflow goal specifies last live frame Registration TurboReg rigid-body on phase phase4b alignment turboreg single verification.groovy Phase channel shared pre/post fixation; rigid alignment sufficient for same field Background per parasite average of 3 ROI backgrounds phase4b roi intensity measurement live lastframe.groovy Reduces noise vs single background ROI Duplicate parasite ROI handling exact match, else base-ID fallback for dup phase4b roi intensity measurement live lastframe.groovy Ensures duplicates inherit the intended back-grounds Nucleus segmentation DAPI-based mask phase4b tunel classification postfix aligned.groovy DAPI provides nuclear boundary TUNEL thresholding Otsu on nucleus mean TUNEL phase4b tunel classification postfix aligned.groovy Objective thresholding for binary call Significance level p < 0.05 Python stats script Conventional threshold
+
+5. Input Data 
+
+• Live movie: /app/data/tasks/Parasite use case/20211028 Position003.tif 
+
+– 3 channels: phase, mKikume green, mKikume red – time series; last frame used for measurements 
+
+• Post-fix: /app/data/tasks/Parasite use case/20211028 TUNEL Position003.tif 
+
+– 3 channels: phase, TUNEL, DAPI 
+
+• ROI set: /app/data/tasks/Parasite use case/Parasite and background.zip 
+
+– parasite <n> plus background for parasite <n> [1-3] (with possible dup suffixes) Image metadata (from extraction/ledger): 16-bit; pixel size ≈ 0.322 μm/px. 
+
+6. Output Data 
+
+Primary results 
+
+• Final combined table: data/Parasite Apoptosis Final Table.csv 
+
+Intermediate tables 
+
+• data/parasite ratio live lastframe.csv 
+
+• data/tunel calls per parasite.csv 
+
+• data/nuclei tunel measurements.csv 
+
+• data/alignment report.csv 
+
+QC images 
+
+18 • processed images/alignment QC overlay.tif 
+
+• processed images/parasite rois on live lastframe.tif 
+
+• processed images/labeled nuclei.tif 
+
+• processed images/tunel positive overlay.tif 
+
+Statistics + figures 
+
+• Statistics: data/Statistics Results.csv , data/Statistics Summary.md 
+
+• Figures (300 DPI PNG + SVG): – figures/Fig1 final10minusRoverG by TUNEL assigned only.(png |svg) 
+
+– figures/Fig2 counts by TUNEL assigned only.(png |svg) 
+
+7. Statistical Analysis 
+
+• Groups: parasites assigned to TUNEL+ vs TUNEL − nuclei (assigned-only) 
+
+• Outcome: final 10 minus R over G 
+
+• Tests used: Mann–Whitney U; Welch’s t-test; effect size Cliff’s delta 
+
+• Significance threshold: 0.05 
+
+• Outliers: not explicitly removed (analysis is on the assigned-only subset) 
+
+8. Manual Steps (ROI / User Verification) 
+
+• User visually verified the registration QC overlay after TurboReg alignment (“looks good”). 
+
+• Parasite and background ROIs were provided as an input ROI zip (no manual drawing required during this run). 
+
+9. Rationale 
+
+• Use phase channel for alignment : phase contrast is present in both live and post-fix acquisitions. 
+
+• Apply the same transform to fluorescence channels : preserves relative channel geometry after alignment. 
+
+• ROI-based parasite measurement : the use-case provides curated parasite ROIs; avoids segmentation complexity. 
+
+• DAPI-based nuclei segmentation : creates nuclear regions for consistent TUNEL quantification. 
+
+10. Limitations & Known Issues 
+
+• Some parasite ROIs may be unassigned to any nucleus (reported in the final table assignment qc ). These should be reviewed/excluded if the biological question requires a nucleus call. 
+
+• Thresholding-based TUNEL calls depend on staining/background; Otsu is objective but may not match expert calls in all datasets. 
+
+• Java heap constraints required memory-safe (virtual-stack) IO; avoid opening full time-series as non-virtual in Fiji. 
+
+11. Reproducibility 
+
+• Groovy scripts: scripts/imagej/*.groovy 
+
+• Python scripts: scripts/imagej/*.py and scripts/python/*.py 
+
+• All outputs: within this project root. 
+
+• Example data: /app/data/tasks/Parasite use case/ 
+
+• Public access / DOI: [TO BE FILLED if you plan to publish the workflow] 
+
+## B.3 QA report 
+
+QA Checklist Report 
+
+Project: parasite apoptosis roi alignment 
+
+Date: 2026-05-22 
+
+Workflow type: New Workflow 
+
+Overall status: 
+
+• Workflow: 5/6 Minimal passed | 3/4 Recommended passed 
+
+• Image Publishing: 4/12 Minimal passed | 0/2 Recommended passed PART A: WORKFLOW STANDARDS 
+
+MINIMAL Requirements 
+
+19 Item Status Evidence 
+
+Cite components and plat-form 
+
+PASS Workflow Documentation.md + logs/environment metadata.log list Fiji/ImageJ and Python libs with versions (e.g., Fiji 2.16.0/1.54p; Python 3.13.13; pandas/numpy/scipy/matplotlib/seaborn). Describe sequence PASS Workflow Documentation.md Section 3 lists IO check → TurboReg alignment → ROI measurement → TUNEL classification → merge 
+
+→ stats → plotting. Key settings PASS Key parameters documented in Workflow Documentation.md and script docs: TurboReg rigidBody; nuclei segmentation sigma=1.0, Otsu, size ≥ 80 px; maxAssignDistance=50 px; ratio definition 10 − (R/G ). Example data and code PARTIAL Scripts are present under scripts/ , but raw images/ 
+
+is empty; example inputs are referenced as 
+
+/app/data/tasks/Parasite use case/... rather than copied into project. Manual ROI PASS Manual/interactive step documented: user verified alignment QC overlay ( Workflow Documentation.md Section 8). ROI drawing itself not performed in-run; ROIs provided as input zip. Exact versions PASS Exact versions recorded in logs/environment metadata.log and repeated in Workflow Documentation.md .
+
+> RECOMMENDED Requirements
+
+Item Status Evidence 
+
+All settings documented PARTIAL Many parameters are explicit (e.g., Gaussian sigma, min nucleus size, max assign distance, TurboReg landmarks), but not all image display/export settings are documented (e.g., LUTs/B&C, calibration retention checks, annotation sizes). Public example data and code 
+
+FAIL Workflow Documentation.md has “Public access / DOI: [TO BE FILLED]”; no URL/DOI/repository provided. Rationale PASS Rationale section present ( Workflow Documentation.md Section 9) explaining phase-based alignment, reuse transform, ROI-based measurement, DAPI segmentation. Limitations PASS Limitations listed ( Workflow Documentation.md Section 10) includ-ing unassigned parasites, Otsu dependence, Fiji memory con-straints. 
+
+> IDEAL Requirements
+
+Item Status Evidence 
+
+Screen recording or tuto-rial 
+
+FAIL No tutorial/screencast link/file found in project tree. Easy install / container FAIL No requirements.txt , environment.yml , or Dockerfile found; only 
+
+logs/environment metadata.log lists versions. 
+
+> PART B: IMAGE PUBLISHING STANDARDS
+> Image Format — MINIMAL
+
+Item Status Evidence 
+
+Focus on relevant content PARTIAL QC images are produced (ROI overlay; alignment overlay), but no explicit crop/rotate/resize to highlight relevant regions is documented in scripts. Separate individual images PARTIAL Multiple individual TIFF QC outputs exist in processed images/ 
+
+(aligned channels, overlays), but no explicit export set for per-channel presentation beyond these QC outputs; 
+
+processed images/channels/ is empty. Show example image FAIL raw images/ is empty; example inputs exist only as external paths /app/data/tasks/Parasite use case/... (referenced in doc-s/scripts). 
+
+> Image Colors & Channels — MINIMAL
+
+20 Item Status Evidence 
+
+Annotation of channels vis-ible 
+
+PASS Channel roles described in ledger + Workflow Documentation.md 
+
+(phase used for registration; TUNEL and DAPI; live green/red for mKikume). Report B&C adjustments FAIL No brightness/contrast adjustment parameters or statements found in Groovy/Python scripts or docs; QC overlays are saved without reporting display ranges. Grayscale for each channel PARTIAL Separate aligned TUNEL and DAPI TIFFs are saved (processed images/aligned postfix TUNEL.tif ,
+
+aligned postfix DAPI.tif ), but no documented saving of indi-vidual live channels or a structured processed images/channels/ 
+
+export (folder exists but empty). Same adjustments for com-parisons 
+
+FAIL Alignment QC overlay created via Merge Channels but no explicit consistent display scaling/B&C synchronization is documented. Color-blind accessible PASS Plot scripts use explicit colorblind-friendly palette (#D55E00 and gray) and save SVG/PNG at 300 DPI (phase4d plotting assigned only.py and 
+
+phase4d plotting optional final10minusRoverG by TUNEL.py ). 
+
+> Image Colors & Channels — RECOMMENDED
+
+Item Status Evidence 
+
+Provide intensity scales (scale bars) 
+
+FAIL No intensity calibration bars are created; no scripts call an intensity scale function or annotate LUT scales. 
+
+> Image Annotation — MINIMAL
+
+Item Status Evidence 
+
+Add scale information FAIL No scale bar added in scripts (no IJ.run("Scale Bar...") ); pro-cessed TIFFs appear to be raw QC outputs without scale annotation. Explain all annotations PARTIAL QC overlays exist (ROI labels; nucleus +/ − labels), but annota-tion meaning is not fully documented for publication (e.g., cyan vs red nuclei in tunel positive overlay.tif ). Annotations legible PARTIAL ROI and nucleus labels are added (TextRoi) but font size/line width standards are not fully specified; nucleus stroke width set to 1.5 (<2 recommended) in 
+
+phase4b tunel classification postfix aligned.groovy .Annotations don’t obscure data 
+
+PARTIAL Labels are placed at ROI bounding-box top-left (could obscure content); no documented strategy to avoid obscuring key data. 
+
+> Image Availability — MINIMAL
+
+Item Status Evidence 
+
+Images shared (lossless compression) 
+
+PASS Processed outputs are saved as TIFF ( processed images/*.tif ), not JPEG.                      
+
+> Action Items
+> WORKFLOW — Critical Failures
+> List every FAIL from workflow MINIMAL requirements:
+> •Example data and code: add at least one representative raw input image to raw images/ (or a small cropped sample) and/or a note explaining where the example data can be retrieved.
+> WORKFLOW — Recommended Improvements
+> List every FAIL or PARTIAL from workflow RECOMMENDED requirements:
+> •All settings documented: add explicit documentation of remaining parameters affecting outputs (e.g., any LUT/B&C choices, overlay annotation settings, calibration preservation checks).
+> •Public example data and code: fill in the [TO BE FILLED] DOI/URL/repository location in Workflow Documentation.md .
+> IMAGE PUBLISHING — Critical Failures
+> List every FAIL from image publishing MINIMAL requirements:
+> •Show example image: place at least one example raw image in raw images/ (or document an accessible location and include a small representative crop).
+> •Report B&C adjustments: document any brightness/contrast changes (min/max display values or statement of “linear, identical scaling across conditions”) for all published images.
+> •Same adjustments for comparisons: ensure comparison images (e.g., aligned vs live phase overlay) use identical display scaling and document it.
+
+21 • Add scale information: add scale bars (and confirm pixel size calibration is correct) for publication images.             
+
+> IMAGE PUBLISHING — Recommended Improvements
+> List every FAIL or PARTIAL from image publishing RECOMMENDED requirements:
+> •Provide intensity scales (scale bars): add intensity/LUT scale bars where intensity comparisons are visually interpreted.
+> •Focus on relevant content: add cropping/inset strategy and document any resizing/rotation.
+> •Separate individual images: export a clean set of per-channel grayscale images to processed images/channels/ (and a merged figure if needed).
+> •Explain all annotations / legibility / obscuration: document annotation conventions (colors, line widths ≥2, font size ≥12) and ensure labels do not cover key structures.
+
+Fig. B1 Agreement between the expert ground-truth and the agent-derived TUNEL classifications across all 45 parasite ROIs. Left: the confusion matrix; the agent produced no false positives (specificity 100%) but recovered only half of the expert TUNEL-positive parasites (sensitivity 50%). Right: a per-parasite breakdown of the ten expert TUNEL-positive parasites, showing which were recovered (green) and which were missed (red) by the agent. The missed parasites are largely those that could not be assigned to a nearby nucleus following image registration and nucleus assignment. 
+
+# Appendix C RAG knowledge base inventory 
+
+The BioimageAnalysisDocs Qdrant collection referenced in Section 3.3.1 was populated, at container build time, with the open-source resources listed below. Each item is chunked into hybrid sparse/dense embeddings; all sources are redistributable under CC-BY-4.0, BSD-3, or an equivalent permissive licence. 
+
+Biomedical image-processing textbooks. 
+
+• Bankhead, Introduction to Bioimage Analysis [20]. 
+
+• Bankhead, Analyzing fluorescence microscopy images with ImageJ (Queen’s University Belfast, 2014) [38]. 
+
+• Miura & Sladoje (eds.), Bioimage Data Analysis Workflows – Advanced Components and Methods ,Springer 2022 [39]. 
+
+Community best-practice guides. 
+
+• Senft et al., A biologist’s guide to planning and performing quantitative bioimaging experiments [40], together with its companion MicroscopyForBeginnersReferenceGuide / bioimagingguide.org web-site [41]. 22 ImageJ training material and reference manuals. 
+
+• Ferreira & Rasband, ImageJ User Guide – IJ 1.46r [42]. 
+
+• Nowell, Fiji Training Manual (v6.5) , Monash University 2023 [43]. 
+
+• NEUBIAS Community, Bioimage Analysis Training Resources [44]. 
+
+Plugin-specific documentation. 
+
+• MorphoLibJ – canonical reference paper [45] and NEUBIAS Academy@Home webinar slides [46]. 
+
+• 3D ImageJ Suite – NEUBIAS Academy@Home webinar slides by Boudier [47]; primary citation Ollion et al. [48]. 
+
+Jupyter notebook collections. 
+
+• Haase et al., BioImageAnalysisNotebooks , Zenodo v. gpt-2024.1.6 [21]. 23 References 
+
+[1] Schindelin, J., Arganda-Carreras, I., Frise, E., Kaynig, V., Longair, M., Pietzsch, T., Preibisch, S., Rueden, C., Saalfeld, S., Schmid, B., Tinevez, J.-Y., White, D.J., Hartenstein, V., Eliceiri, K., Toman-cak, P., Cardona, A.: Fiji: an open-source platform for biological-image analysis. Nature Methods 
+
+9(7), 676–682 (2012) https://doi.org/10.1038/nmeth.2019 [2] Schneider, C.A., Rasband, W.S., Eliceiri, K.W.: NIH Image to ImageJ: 25 years of image analysis. Nature Methods 9(7), 671–675 (2012) https://doi.org/10.1038/nmeth.2089 [3] Rueden, C.T., Ackerman, J., Arena, E.T., Eglinger, J., Cimini, B.A., Goodman, A., Carpenter, A.E., Eliceiri, K.W.: Scientific community image forum: A discussion forum for scientific image software. PLOS Biology 17 (6), 3000340 (2019) https://doi.org/10.1371/journal.pbio.3000340 [4] Haase, R., Tischer, C., H´ erich´ e, J.-K., Scherf, N.: Benchmarking large language models for bio-image analysis code generation. bioRxiv (2024) https://doi.org/10.1101/2024.04.19.590278 [5] Burgess, J., Nirschl, J.J., Bravo-S´ anchez, L., Lozano, A., Gupte, S.R., Galaz-Montoya, J.G., Zhang, Y., Su, Y., Bhowmik, D., Coman, Z., Hasan, S.M., Johannesson, A., Leineweber, W.D., Nair, M.G., Yarlagadda, R., Zuraski, C., Chiu, W., Cohen, S., Hansen, J.N., Leonetti, M.D., Liu, C., Lundberg, E., Yeung-Levy, S.: MicroVQA: A Multimodal Reasoning Benchmark for Microscopy-Based Scientific Research (2025). https://arxiv.org/abs/2503.13399 [6] Beurer-Kellner, L., Buesser, B., Cret ¸u, A.-M., Debenedetti, E., Dobos, D., Fabian, D., Fischer, M., Froelicher, D., Grosse, K., Naeff, D., Ozoani, E., Paverd, A., Tram` er, F., Volhejn, V.: Design Patterns for Securing LLM Agents against Prompt Injections. arXiv (2025). https://doi.org/10. 48550/ARXIV.2506.08837 [7] Buswinka, C.: ImageJ Pipeline Builder (IJPB): Natural-language Image Analysis Automation for ImageJ. https://www.imagejpipelinebuilder.com Accessed 2026-05-22 [8] Theodoro, I., Royer Lab: napari-mcp: An MCP Server for AI-powered Napari Control. Chan Zuckerberg Biohub San Francisco. https://github.com/royerlab/napari-mcp Accessed 2026-05-22 [9] Lei, W., Fuster-Barcel´ o, C., Reder, G., Mu˜ noz-Barrutia, A., Ouyang, W.: BioImage.IO Chatbot: a community-driven AI assistant for integrative computational bioimaging. Nature Methods 21 ,1368–1370 (2024) https://doi.org/10.1038/s41592-024-02370-y [10] Huang, K., Zhang, S., Wang, H., Qu, Y., Lu, Y., Roohani, Y., Li, R., Qiu, L., Li, G., Zhang, J., Yin, D., Marwaha, S., Carter, J.N., Zhou, X., Wheeler, M., Bernstein, J.A., Wang, M., He, P., Zhou, J., Snyder, M., Cong, L., Regev, A., Leskovec, J.: Biomni: A general-purpose biomedical ai agent. bioRxiv (2025) https://doi.org/10.1101/2025.05.30.656746 [11] OpenAI: OpenAI API. https://platform.openai.com/docs/api-reference. Accessed: 2026-05-26 (2026) [12] OpenRouter: OpenRouter API: A Unified Interface for LLMs. https://openrouter.ai/docs. Accessed: 2026-05-26 (2026) [13] Sofroniew, N., Lambert, T., Bokota, G., Nunez-Iglesias, J., Sobolewski, P., Sweet, A., Gaifas, L., Evans, K., Burt, A., Doncila Pop, D., Yamauchi, K., Weber Mendon¸ ca, M., Rodr´ ıguez-Guerra, J., Liu, L., Buckley, G., Vierdag, W.-M., Anderson, A., Monko, T., Willing, C., Rodr´ ıguez-Reza, C.M., Royer, L., Can Solak, A., Harrington, K.I.S., Abramo, J., Ahlers, J., Ajina, S., Althviz Mor´ e, D., 24 Amsalem, O., And` o, E., Annex, A., Aronssohn, C., Balzaretti, F., Boone, P., Bestak, K., Bragantini, J., Bunten, D., Bussonnier, M., Caporal, C., Chazotte, M., Coccimiglio, I., ˇCoˇ ckov´ a, Z., Eglinger, J., Eisenbarth, A., Freeman, J., Fukai T., Y., Gohlke, C., Gunalan, K., Halchenko, Y.O., Har-Gil, H., Harfouche, M., Hilsenstein, V., Hutchings, K., Kawai, H., Kozar, R., Lauer, J., Le Meur-Diebolt, S., Lefebvre, A.E.Y.T., Lichtner, G., Liu, H., Liu, Z., Lowe, A., Malin-Mayor, C., Marconato, L., Martin, S., McGovern, A., Migas, L., Miller, N., Mi˜ nano, S., Mu˜ noz, H., M¨ uller, J.-H., Nauroth-Kreß, C., Newstein, P., Obenhaus, H.A., Palecek, D., Pape, C., Pellegrini, Y., Perlman, E., Theart, R.P., Pevey, K., Pe˜ na-Castellanos, G., Phelps, J., Pierr´ e, A., Pinto, D., Ross, D., Russell, C.T., Ryan, J., Selzer, G., Smith, M., Smith, P., Sofiiuk, K., Soltwedel, J., Stansby, D., Teo, W., Vanaret, J., Wadhwa, P., Weigert, M., Windhager, J., Winston, P., Yu, Q., Zhang, L., Zhao, R., Witz, G., Leomil Zoccoler, M., Yadav, A.S., Hinderling, L.: napari: a multi-dimensional image viewer for Python. Zenodo (2026). https://doi.org/10.5281/ZENODO.3555620 . https://zenodo.org/doi/10.5281/zenodo.3555620 [14] Holme, B., Bjørnerud, B., Pedersen, N.M., Ballina, L.R., Wesche, J., Haugsten, E.M.: Automated tracking of cell migration in phase contrast images with celltraxx. Scientific Reports 13 (1) (2023) https://doi.org/10.1038/s41598-023-50227-9 [15] Ershov, D., Phan, M.-S., Pylv¨ an¨ ainen, J.W., Rigaud, S.U., Le Blanc, L., Charles-Orszag, A., Conway, J.R.W., Laine, R.F., Roy, N.H., Bonazzi, D., Dum´ enil, G., Jacquemet, G., Tinevez, J.-Y.: Bringing trackmate into the era of machine-learning and deep-learning (2021) https://doi.org/10.1101/2021. 09.03.458852 [16] Baars, I., Jaedtka, M., Dewitz, L.-A., Fu, Y., Franz, T., Mohr, J., Gintschel, P., Berlin, H., Degen, A., Freier, S., Rygol, S., Schraven, B., Kahlfuß, S., Zandbergen, G., M¨ uller, A.J.: Leishmania major drives host phagocyte death and cell-to-cell transfer depending on intracellular pathogen proliferation rate. JCI Insight 8(14) (2023) https://doi.org/10.1172/jci.insight.169020 [17] Th´ evenaz, P., Ruttimann, U.E., Unser, M.: A pyramid approach to subpixel registration based on intensity. IEEE Transactions on Image Processing 7(1), 27–41 (1998) [18] Schmied, C., Nelson, M.S., Avilov, S., Bakker, G.-J., Bertocchi, C., Bischof, J., Boehm, U., Brocher, J., Carvalho, M.T., Chiritescu, C., Christopher, J., Cimini, B.A., Conde-Sousa, E., Ebner, M., Ecker, R., Eliceiri, K., Fernandez-Rodriguez, J., Gaudreault, N., Gelman, L., Grunwald, D., Gu, T., Halidi, N., Hammer, M., Hartley, M., Held, M., Jug, F., Kapoor, V., Koksoy, A.A., Lacoste, J., Le D´ ev´ edec, S., Le Guyader, S., Liu, P., Martins, G.G., Mathur, A., Miura, K., Montero Llopis, P., Nitschke, R., North, A., Parslow, A.C., Payne-Dwyer, A., Plantard, L., Ali, R., Schroth-Diez, B., Sch¨ utz, L., Scott, R.T., Seitz, A., Selchow, O., Sharma, V.P., Spitaler, M., Srinivasan, S., Strambio-De-Castillia, C., Taatjes, D., Tischer, C., Jambor, H.K.: Community-developed checklists for publishing images and image analyses. Nat. Methods 21 (2), 170–181 (2024) https://doi.org/10.1038/s41592-023-01987-9 [19] Kiran, K., Saat, R.M., Demeester, L., Lew, M.D.N., Neo, W.L., Pausawasdi, N., Nopparatjamjomras, T.R.: Technology-enhanced personalized learning: Lessons from online teaching at three south-east asian universities. Contemporary Educational Technology 17 (2), 567 (2025) https://doi.org/10. 30935/cedtech/15946 [20] Bankhead, P.: Introduction to Bioimage Analysis. https://bioimagebook.github.io/. Accessed May 2026 (2023) [21] Haase, R., Lampert, M., Witz, G., Korten, T., Ankenbrand, M.J., Kugler, E., Zoccoler, M., Fernandes, M., Taylor, S., Ray, A.: haesleinhuepf/BioImageAnalysisNotebooks: Gpt-2024.1.6. https://doi.org/10.5281/zenodo.10465773 . CC-BY 4.0 & BSD-3. https://haesleinhuepf.github.io/ BioImageAnalysisNotebooks/intro.html 25 [22] N´ emeth, R., T´ atrai, A., Szab´ o, M., Zaletnyik, P.T., Tam´ asi, a.: Exploring the use of retrieval-augmented generation models in higher education: A pilot study on artificial intelligence-based tutoring. Social Sciences &; Humanities Open 12 , 101751 (2025) https://doi.org/10.1016/j.ssaho. 2025.101751 [23] Roels, J., Vernaillen, F., Kremer, A., Gon¸ calves, A., Aelterman, J., Luong, H.Q., Goossens, B., Philips, W., Lippens, S., Saeys, Y.: An interactive imagej plugin for semi-automated image denoising in electron microscopy. Nature Communications 11 (1) (2020) https://doi.org/10.1038/ s41467-020-14529-0 [24] Rokem, A.: Ten simple rules for scientific code review. PLOS Computational Biology 20 (9), 1012375 (2024) https://doi.org/10.1371/journal.pcbi.1012375 [25] Riverbank Computing: PyQt: Python Bindings for the Qt Application Framework. https://www. riverbankcomputing.com/software/pyqt/. Accessed: 2026-05-26 (2026) [26] AI, L.: Deepagents. Accessed: 2026. https://github.com/langchain-ai/deepagents [27] ImageJ Project: ImageJ Update Sites Metadata Index (sites.json). https://sites.imagej.net/sites.json. Data repository file; accessed May 2026 (2026) [28] Legland, D., Arganda-Carreras, I., Andrey, P.: Morpholibj: integrated library and plugins for mathe-matical morphology with imagej. Bioinformatics 32 (22), 3532–3534 (2016) https://doi.org/10.1093/ bioinformatics/btw413 [29] Schmidt, U., Weigert, M., Broaddus, C., Myers, G.: Cell detection with star-convex polygons. In: Medical Image Computing and Computer Assisted Intervention – MICCAI 2018. Lecture Notes in Computer Science, vol. 11071, pp. 265–273. Springer, Cham, Switzerland (2018). https://doi.org/ 10.1007/978-3-030-00934-2 30 [30] Arzt, M., Deschamps, J., Schmied, C., Pietzsch, T., Schmidt, D., Tomancak, P., Haase, R., Jug, F.: Labkit: Labeling and segmentation toolkit for big image data. Frontiers in Computer Science 4
+
+(2022) https://doi.org/10.3389/fcomp.2022.777728 [31] OpenClaw Team: OpenClaw. https://github.com/openclaw/openclaw [32] Yang, C.: AgentTrust: Runtime Safety Evaluation and Interception for AI Agent Tool Use (2026). https://doi.org/10.48550/arXiv.2605.04785 [33] Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., K¨ uttler, H., Lewis, M., Yih, W.-t., Rockt¨ aschel, T., Riedel, S., Kiela, D.: Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. arXiv (2020). https://doi.org/10.48550/ARXIV.2005.11401 [34] Cormack, G.V., Clarke, C.L.A., Buettcher, S.: Reciprocal rank fusion outperforms condorcet and individual rank learning methods. In: Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval. SIGIR ’09, pp. 758–759. Association for Computing Machinery, New York, NY, USA (2009). https://doi.org/10.1145/1571941.1572114 [35] Anthropic: Agent Skills: a standardized way to give AI agents new capabilities and expertise. Accessed: 2026-05-18. https://agentskills.io/home (2026) [36] Shankar, S., Zamfirescu-Pereira, J.D., Hartmann, B., Parameswaran, A.G., Arawjo, I.: Who Validates the Validators? Aligning LLM-Assisted Evaluation of LLM Outputs with Human Preferences. arXiv 26 (2024). https://doi.org/10.48550/ARXIV.2404.12272 [37] Stureborg, R., Alikaniotis, D., Suhara, Y.: Large Language Models are Inconsistent and Biased Evaluators (2024) [38] Bankhead, P.: Analyzing Fluorescence Microscopy Images with ImageJ. Queen’s University Belfast, Belfast, UK (2014). No DOI or ISBN issued – self-published handbook. Semantic Scholar Cor-pusID:18910833. Originally drafted at the Nikon Imaging Center, Heidelberg University (2010– 2012); later evolved into the online book at https://bioimagebook.github.io. https://petebankhead. gitbooks.io/imagej-intro/ [39] Miura, K., Sladoje, N. (eds.): Bioimage Data Analysis Workflows – Advanced Components and Methods. Learning Materials in Biosciences. Springer, Cham, Switzerland (2022). https://doi.org/ 10.1007/978-3-030-76394-7 . Open-access; companion to the earlier Miura & Sladoje (2020) volume. https://link.springer.com/book/10.1007/978-3-030-76394-7 [40] Senft, R.A., Diaz-Rohrer, B., Colarusso, P., Swift, L., Jamali, N., Jambor, H., Pengo, T., Brideau, C., Montero Llopis, P., Uhlmann, V., Kirk, J., Gonzales, K.A., Bankhead, P., Evans III, E.L., Eli-ceiri, K.W., Cimini, B.A.: A biologist’s guide to planning and performing quantitative bioimaging experiments. PLOS Biology 21 (6), 3002167 (2023) https://doi.org/10.1371/journal.pbio.3002167 [41] COBA-NIH and contributors: MicroscopyForBeginnersReferenceGuide: Companion website to “A biologist’s guide to planning and performing quantitative bioimaging experiments”. https://www.bioimagingguide.org/welcome.html. GitHub: https://github.com/COBA-NIH/ MicroscopyForBeginnersReferenceGuide; BSD-3 License. Companion to [40] (2023) [42] Ferreira, T., Rasband, W.S.: ImageJ User Guide – IJ 1.46r. National Institutes of Health, USA, (2012). National Institutes of Health, USA. Revised October 2012. https://imagej.net/ij/docs/guide/ user-guide.pdf [43] Nowell, C.J.: Fiji Training Manual (v6.5). Monash University. Monash Institute of Pharmaceuti-cal Science; CC-BY 4.0 (2023). https://doi.org/10.26180/21901989 . https://bridges.monash.edu/ articles/educational resource/Fiji Training Manual v6 5 /21901989 [44] NEUBIAS Community: Bioimage Analysis Training Resources. https://neubias.github.io/ training-resources/. GitHub: https://github.com/NEUBIAS/training-resources; CC-BY 4.0. Water-shed module: https://neubias.github.io/training-resources/watershed/index.html (2019–2026) [45] Legland, D., Arganda-Carreras, I., Andrey, P.: MorphoLibJ: integrated library and plugins for mathe-matical morphology with ImageJ. Bioinformatics 32 (22), 3532–3534 (2016) https://doi.org/10.1093/ bioinformatics/btw413 [46] Legland, D., Arganda-Carreras, I., Andrey, P.: Mathematical morphology with morphoLibJ [NEU-BIAS Academy@Home webinar slides]. F1000Research Slides 9:1378 (2020). https://doi.org/10. 7490/f1000research.1118396.1 . https://f1000research.com/slides/9-1378 [47] Boudier, T.: Introduction to 3D Analysis with 3D ImageJ Suite [NEUBIAS Academy@Home webinar slides]. F1000Research Slides 9:625. Slides also available at https://f1000research.com/slides/9-625; video at https://www.youtube.com/watch?v=OPC2kP-5By4 (2020). https://imagej.net/media/ plugins/3d-imagej-suite/neubias-3dsuite.pdf [48] Ollion, J., Cochennec, J., Loll, F., Escud´ e, C., Boudier, T.: TANGO: a generic tool for high-throughput 3D image analysis for studying nuclear organization. Bioinformatics 29 (14), 1840–1841 27 (2013) https://doi.org/10.1093/bioinformatics/btt276 . Primary citation requested by the 3D ImageJ Suite authors. 28
