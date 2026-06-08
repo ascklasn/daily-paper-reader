@@ -1,0 +1,937 @@
+Title: STREAM: Stochastic Riemannian Flow Matching with Anisotropic Decoder for Digital Histopathology Image Generation
+
+URL Source: https://arxiv.org/pdf/2606.07036v1
+
+Published Time: Mon, 08 Jun 2026 00:38:45 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# STREAM: Stochastic Riemannian Flow Matching with Anisotropic Decoder for Digital Histopathology Image Generation 
+
+Won June Cho Daeky Jeong Hyeongyeol Lim Hongjun Yoon 
+
+DEEPNOID Inc. 
+
+{wjcho, dkjeong, hylim, hyoon}@deepnoid.com 
+
+## Abstract 
+
+Synthetic histopathology image generation addresses critical challenges in com-putational pathology, including patient privacy and the growing need for large-scale training data for foundation models. Latent diffusion models have dominated the image generation domain, with recent works emphasizing that the choice of latent space is critical to the quality of generated images. Existing state-of-the-art generative models in histopathology use pretrained Vision Foundation Models (VFMs) as conditioning signals, and we observe that this leads to “conditioning collapse”, where the conditioning signal dominates the latent space and lowers the quality and diversity of generated samples. Therefore, we instead use pretrained histopathology VFMs as the latent space itself, leveraging their patch-token fea-tures that encode rich semantic information. We empirically show that these fea-tures are ℓ2-normalized and lie on the unit hypersphere Sd−1 with strong angular dominance and intrinsic curvature, making them naturally suited for a Rieman-nian formulation. We therefore present STREAM , the first framework to apply Riemannian flow matching in the pathology domain. STREAM consists of two stages: 1) a bridge-type stochastic perturbation that establishes per-token rectifi-ability on Sd−1 for training a Diffusion Transformer (DiT) in latent space, and 2) a novel anisotropic decoder that allocates robustness to low-energy directions of the velocity-field Jacobian while preserving fidelity along its high-energy direc-tions. Together, STREAM achieves state-of-the-art reconstruction and generation performance on breast and colorectal cancer datasets. The code will be publicly released upon acceptance. 
+
+## 1 Introduction 
+
+Synthetic medical image generation addresses critical challenges in computational histopathology: patient privacy concerns that limit data sharing across institutions [57] and the growing need for training data as large Vision Foundation Models (VFMs) and Vision-Language Models (VLMs) are applied to histopathology [10, 40, 59, 61, 72]. For high-resolution image generation, latent diffusion models [21, 46, 49] have dominated the space. A recent line of work redesigns the underlying tokenizer [9, 32, 64, 70], as the choice of latent space is increasingly recognized as critical to downstream generation quality. The underlying observation across these works is that latents generated via Variational Autoencoders (VAEs) primarily empha-size low-level details [8], with linear classifiers on VAE features substantially underperforming those on representation-encoder features [9, 70]. We confirm this pattern transfers to the histopathology setting: linear probing on downstream binary classification (Table 1) shows that the VAE encoders used by current state-of-the-art histopathology generative models ZoomLDM [17] and PixCell [66] yield substantially lower performance than histopathology VFMs [10, 61, 72]. Lacking semantic 
+
+> Preprint.
+> arXiv:2606.07036v1 [cs.CV] 5 Jun 2026
+
+content in their latent spaces, both methods compensate by conditioning diffusion on the [CLS]-token of a pretrained histopathology VFM, which we show empirically (Section 3.1) leads to “con-ditioning collapse”: the conditioning signal dominates output diversity and any de novo synthesis requires a VFM at inference—impractical for clinical deployment. Moreover, digital histopathology particularly benefits from unconditional generative approaches due to the high cost of expert pathol-ogist annotation [6] and the combinatorial diversity of tissue morphology [35]. Therefore, using histopathology VFM patch-token features directly as the generative latent space resolves both is-sues, but requires accounting for their geometry: the features are naturally ℓ2-normalized on the unit hypersphere Sd−1 [7, 27], with strong angular dominance (Section 3.1) and substantial intrinsic cur-vature (Section 3.2), motivating Riemannian flow matching (RFM). STREAM is the first framework to apply RFM with VFM encoders in the histopathology domain. Our main contributions are: 1. Motivating RFM in the histopathology domain (Section 3): we identify conditioning collapse in current state-of-the-art histopathology models and provide empirical evidence on the spherical geometry of histopathology VFM features that justifies a Riemannian formulation. 2. Bridge-type stochastic RFM (Section 4.2): a tangent-Gaussian perturbation of the SLERP geodesic on Sd−1 with a Brownian-bridge schedule that vanishes at the endpoints, providing full support of the marginal law for all t ∈ (0 , 1) and per-token rectifiability of the bridge con-struction at the population level (Theorem 3). 3. Anisotropic decoder training (Section 4.3): a novel decoder design whose noise covariance is shaped by the singular value decomposition (SVD) of the trained DiT’s velocity-field Jacobian — small noise along high-energy directions (those to which the velocity field is most sensitive) to preserve reconstruction fidelity, large noise along low-energy directions to absorb the residual drift the generator may exhibit at inference. 
+
+## 2 Related Work 
+
+Diffusion models for histopathology generation. Diffusion-based generative modeling for histopathology spans large-image and multi-scale synthesis [17, 28, 66]. Other works incorporate text or mask conditioning for guided synthesis like pathology reports [65], cell topology [62], and joint nuclei image–label co-synthesis [43]. While digital histopathology routinely leverages pre-trained VFMs for downstream tasks (classification, segmentation, retrieval), no current state-of-the-art histopathology generation model exploits these representations as the generative latent space. STREAM, however, intends to focus instead on purely unconditional histopathology generation: a diffusion model that faithfully learns the histopathology data distribution from a VFM-encoded latent space without external conditioning. On the other hand, STREAM can also form the uncondi-tional basis for a future conditional generative model in histopathology, as the high-level semantics of the latent space can potentially benefit conditional generation as well. 
+
+Latent space modification in diffusion model training. VFMs have emerged as feature extrac-tors for generative models via two paradigms. Paradigm 1 uses VFM features as training losses: REPA [67] aligns DiT features with DINOv2 [45], REPA-E [32] extends to end-to-end VAE tuning, and others similarly leverage VFM representations [51, 58, 64]. Paradigm 2 uses VFM features as the latent space: RAE [70] trains diffusion transformers directly on representation-encoder fea-tures with noise-augmented decoders, SVG [50] uses frozen DINOv3 [52] features, and related works explore quantizing representation encoders into discrete tokens for autoregressive genera-tion [69, 71] or fine-tuning them under a semantic-preservation loss (UniLIP [53]; AlignTok [8]). Decoder regularization via masking or denoising losses has been shown beneficial for jointly-trained tokenizers [26, 48, 63], but Yang et al. [63] explicitly note that gains depend on joint encoder– decoder training. We adopt Paradigm 2 because histopathology-specific VFMs [10, 61, 72] pro-duce ℓ2-normalized features naturally suited to Riemannian geometry. STREAM differs from ap-proaches that jointly adapt the tokenizer encoder–decoder to improve reconstruction fidelity (Align-Tok [8], REPA-E [32]) by keeping the histopathology VFM frozen and instead recovering diffusion-friendliness via geometry: a stochastic bridge on Sd−1 paired with anisotropic decoder regulariza-tion (Section 4.3). 
+
+Flow matching and Riemannian extensions. Flow matching (FM) [1, 34, 38] provides a simulation-free alternative for generative modeling, scaled to high-resolution synthesis [15, 41]. Rectified flow [36, 38] reframes generation as straight transport between marginals; Hertrich et al. 2Table 1: Conditioning collapse on TCGA-BRCA (Eq. (1)).               
+
+> Model H(X|C)H(X)ρcond CVS SPEC-diff ZoomLDM 1.28 5.17 76% 3.59 0.067 PixCell 1.81 4.78 62% 6.08 0.102
+
+Table 2: Linear probing on SPIDER-breast (benign vs. malignant).                              
+
+> Model dAUROC Acc dir Acc mag fangular
+> UNI v1 1024 0.995 0.993 0.051 0.999
+> UNI2-h 1536 0.997 0.995 0.178 0.973 DINOv3-L 1024 0.937 0.930 0.008 0.999 PixCell VAE 16 0.640 0.832 0.056 0.994 ZoomLDM VAE 30.624 0.609 0.313 0.813
+
+[19] delineate the (restrictive) Euclidean conditions under which rectification yields optimal trans-port, providing the smooth-positive-density sufficient condition that motivates our bridge construc-tion. On manifolds, Chen and Lipman [11] introduced SLERP conditional flows on Sd−1; RJF [27] added Jacobi-field reweighting and demonstrated that Riemannian FM on ℓ2-normalized VFM em-beddings outperforms Euclidean alternatives. Only two prior works apply Riemannian flow match-ing specifically to image generation: Geometry-Aware Image FM [30] introduces SFM with vanilla SLERP geodesic paths, and DINO-SAE [7] uses Chen–Lipman SLERP RFM on a patch-wise prod-uct of spheres with isotropic Euclidean noise augmentation borrowed from RAE [70]. Both adopt the deterministic SLERP conditional path without perturbation. STREAM’s design differs in three aspects: (i) replacing the deterministic SLERP conditional path with a bridge-perturbation loss, (ii) exploiting the Riemannian formulation for anisotropic decoder training, and (iii) jointly address-ing rectifiability and decoder–generator interaction in the RFM setting. Direct numerical comparison with these prior works was not possible as neither has been open-sourced. 
+
+## 3 Why RFM for Histopathology? 
+
+3.1 Conditioning Collapse and Angular Dominance in VFM Feature Spaces 
+
+State-of-the-art histopathology generative models ZoomLDM [17] and PixCell [66] condition dif-fusion models on VFM embeddings c = EVFM (I). We formalize a conditioning dominance ratio 
+
+via the entropy decomposition H(X) = H(X | C) + I(X; C):
+
+ρcond = I(X; C)
+
+H(X) = 1 − H(X | C)
+
+H(X) , (1) estimated via the Vendi Score [16], Conditional Vendi Score [22], and SPEC-diff [23] (Section C). Both models exhibit conditioning collapse (Table 1): 62–76% of output diversity is attributable to the conditioning signal rather than the learned latent space. This is compounded by VAE-extracted latents being weakly structured semantically [8, 9, 70]: linear-probe AUROC on SPIDER-breast [44] for malignant vs. benign tissue is ≥ 0.937 for VFMs vs. ≤ 0.640 for VAEs (Table 2; full protocol in Section C). This motivates using VFM features directly as the generative latent space. We next ask where in VFM features the semantic information resides via 1-NN angular vs. ra-dial perturbation on SPIDER-breast (full protocol in Section C). For both pathology VFMs (UNI, UNI2-h) and the natural-image-domain DINOv3-L, fangular > 0.97 (Table 2): class-discriminative information lives in the angular structure of Sd−1, directly motivating RFM. 
+
+3.2 Intrinsic Geometry of VFM Feature Manifolds 
+
+Following Xiong et al. [60], we analyze the intrinsic geometry of histopathology VFM features on TCGA-BRCA for UNI ( d=1024 ) and UNI2-h ( d=1536 ). Spectral analysis yields high effective rank ( Reff = 252 for UNI, 265 for UNI2-h), and tangent drift exceeds 0.72 at hop 1 (Fig. 3; full methodology and hop-saturation analysis in Section C.4) — direct evidence of manifold curvature. Hop-1 drift this large rules out Euclidean flow matching; combined with ℓ2-normalization onto 
+
+Sd−1, this justifies RFM on the hypersphere. We use UNI ( d=1024 ) henceforth. 
+
+## 4 Method: STREAM 
+
+Flow matching [34] learns a time-dependent velocity field vθ (x, t ) generating a probability path pt
+
+from a source p0 to data p1. The intractable marginal FM loss shares its gradient with the tractable 3Figure 1: Overview of STREAM. A frozen pathology VFM encoder maps each input patch to 
+
+N =256 tokens on the unit hypersphere Sd−1; a Diffusion Transformer learns to transport a uni-form source distribution on (Sd−1)N to the data distribution along bridge-perturbed geodesics. A separately-trained anisotropic decoder reconstructs histopathology images from generated features, with directional noise injection guided by the SVD of the trained DiT’s velocity-field Jacobian. conditional FM loss LCFM = Et,z,X t|z [∥vθ −ut∥2], where ut(x | z) is the conditional velocity along a known path. On the unit hypersphere Sd−1 = {x ∈ Rd : ∥x∥ = 1 }, the Riemannian structure replaces linear operations: the geodesic distance dg , exponential map Exp x, and logarithmic map 
+
+Log x are standard (Section A). The conditional path becomes a geodesic [11]—the spherical linear interpolation (SLERP) with constant speed ∥ ˙μt∥g = Ω :
+
+SLERP( x0, x 1, t ) = sin((1 − t)Ω) sin Ω x0 + sin( tΩ) sin Ω x1, Ω = dg (x0, x 1), (2) with conditional velocity ut(x | x1) = Log x(x1)/(1 − t). Background on optimal transport, the curvature–dimension condition, and rectifiability theory used in our proofs is collected in Section A. 
+
+4.1 Problem Setup 
+
+Our pipeline (Fig. 1) adopts the RAE framework [70]: 1. Encoder E : X → (Sd−1)N : A frozen VFM (UNI [10], ViT-L/16 [13]) mapping 256 ×256 histopathology patches to N = (256 /16) 2 = 256 ℓ2-normalized patch tokens of dimension 
+
+d = 1024 .2. Generator Gθ : A Diffusion Transformer (DiT) [46] learning to generate features ˆZ ∼ pθ ap-proximating pdata = E#(preal ).3. Decoder Dϕ : RN d → X : A ViT-based decoder reconstructing images from features. The three components interact as follows. The encoder E produces clean VFM features Z1 =
+
+E(I) ∈ (Sd−1)N for each training image I. The generator Gθ is trained to recover Z1 from a bridge-perturbed interpolant on (Sd−1)N : a uniform source Z0 ∼ p0 is interpolated toward Z1 along the SLERP geodesic to produce μt, then perturbed by tangent-Gaussian noise Xt = Exp μt (σ(t)ϵ)
+
+with the bridge schedule σ(t) = σmax sin( πt ) peaking at t=0 .5 and vanishing at the endpoints (full mechanics in Section 4.2). The decoder Dϕ is trained separately, after Gθ , on clean VFM features perturbed by anisotropic noise whose covariance is shaped by the SVD of the trained DiT’s velocity-field Jacobian (Section 4.3); this couples the decoder’s directional robustness budget to the very directions in which the DiT’s velocity field is most or least sensitive. At generation time, 
+
+Z0 ∼ p0 is integrated through Gθ via Riemannian Euler steps on (Sd−1)N to produce ˆZ1 ∼ pθ , and 
+
+Dϕ(ˆZ1) outputs the histopathology image; the bridge perturbation operates only at training time. The generative model operates on the product manifold (Sd−1)N with the product metric 
+
+g = LNn=1 gn, total dimension N (d − 1) = 261 ,888 . The source distribution is p0 =
+
+4Uniform (( Sd−1)N )—the unique stationary measure of Brownian motion on (Sd−1)N , geometri-cally canonical by the Bakry–Émery curvature-dimension condition CD (d − 2, ∞) [2]. Geodesics, exponential maps, and all constructions decompose as per-token operations on the product manifold; we present the theory for a single copy of Sd−1 throughout. Parts (i)–(ii) of Theorem 3 lift per-token to (Sd−1)N without further assumption; the O(σ2max ) transport bound (Theorem 7) additionally re-quires a cross-token regularity assumption surfaced in Section 4.2. 
+
+4.2 Stochastic Bridge RFM 
+
+Standard RFM [11, 27] on Sd−1 trains a velocity field vθ (xt, t ) via the conditional flow matching loss along deterministic SLERP paths, 
+
+LRFM (θ) = Et∼U [0 ,1] , (x0,x 1)∼π
+
+h
+
+vθ (xt, t ) − ut(xt | x1) 2
+
+> g
+
+i
+
+, (3) with xt = SLERP( x0, x 1, t ) and ut(xt | x1) = Log xt (x1)/(1 − t). Two limitations of Eq. (3) motivate our bridge construction: (L1) no general rectifiability guarantee [19], addressed by Theo-rem 3; and (L2) the disconnected-intermediate-support obstruction [19, Prop. 10] that arises when data clusters on Sd−1, resolved by Theorem 8. 
+
+Definition 1 (Stochastic bridge conditional path) . Given the independent coupling π = p0 ⊗ p1 on 
+
+Sd−1 × S d−1, (x0, x 1) ∼ π, and noise schedule σ(t) = σmax sin( πt ):
+
+μt = SLERP( x0, x 1, t ), xt = Exp μt
+
+ σ(t) ϵ, ϵ ∼ N (0 , Πμt ), (4) 
+
+where Πμt = I − μtμ⊤ 
+
+> t
+
+is the tangent-space projector. Throughout, t=0 corresponds to the source distribution p0 (uniform noise) and t=1 to the data distribution p1, following the flow-matching convention [34, 36]. 
+
+The stochastic noise schedule σ(t) = σmax sin( πt ) is the n = 1 Karhunen–Loève (KL) mode of the Brownian bridge — the unique sinusoid strictly positive on (0 , 1) with vanishing endpoints — with σmax ≲ π/ √d − 1 ensuring perturbations remain inside the injectivity radius of Sd−1
+
+(full derivation and comparison with variance-exploding/variance-preserving (VE/VP) alternatives in Section D.1). Vanishing endpoints σ(0) = σ(1) = 0 are critical: the bridge must not perturb the source ( t=0 ) or data ( t=1 ) endpoints, so X0 = x0 and X1 = x1 exactly — the network sees clean source and data without conflating them with noise. 
+
+Training loss and pipeline. We train with a chordal (extrinsic Euclidean) loss, hereafter the chord loss , replacing the tangent-space geodesic distance with the ambient ℓ2 distance between normalized predictions, using x-prediction [33] with normalized output ˆx1 = fθ (xt, t )/∥fθ (xt, t )∥:
+
+Lchord (θ) = Et, (x0,x 1)∼π, ϵ 
+
+ ∥ˆx1 − x1∥2
+
+(1 − t)2
+
+
+
+. (5) At the population level Lchord is identical to the natural Riemannian (geodesic) loss — both share the minimizer ˆx1 = x1 and the inference velocity vθ (xt, t ) = Log xt (ˆ x1)/(1 − t) — but avoids an arccos -induced singularity near t → 1 (Section D.2). Concretely, fθ is a LightningDiT-XL DiT trained to predict per-token data endpoints on Sd−1 from bridge-perturbed VFM embeddings (Algorithm 1 in Section D.3). At inference, generation uses 25 midpoint Euler steps on (Sd−1)N
+
+(Algorithm 3 in Section D.4), followed by anisotropic decoding (Section 4.3). 
+
+Proposition 2 (Full support) . Under the stochastic bridge (Theorem 1) with σmax > 0, law( Xt)
+
+has full support on Sd−1 for all t ∈ (0 , 1) .
+
+Theorem 3 (Per-token rectifiability via bridge perturbation) . Under the stochastic bridge (Theo-rem 1) with σmax > 0, on a single Sd−1:(i) supp(law( Xt)) = Sd−1 for all t ∈ (0 , 1) .(ii) The coupling (X0, X t, X 1) is rectifiable: the conditional distribution of (X0, X 1) given 
+
+Xt = x admits a smooth density for law( Xt)-a.e. x.(iii) The marginal velocity vt(x) is smooth on Sd−1 × [ϵt, 1 − ϵt], and ˙x = vt(x) admits a unique solution on [ϵt, 1 − ϵt] for any initial condition. 
+
+5Full proof in Section B.1 (cross-token caveat: parts (i)–(ii) lift per-token to (Sd−1)N ; the O(σ2max )
+
+transport bound (Theorem 7) requires an additional C2 regularity assumption on the cross-token marginal velocity). As a consequence (Theorem 8), for histopathology VFM features clustering by tissue type the bridge ensures full support for all t ∈ (0 , 1) , ruling out the disconnected-support obstruction. 
+
+4.3 Spectral-Informed Anisotropic Decoder Regularization 
+
+Without noise injection, a decoder trained on clean VFM features must handle generated features 
+
+ˆz ∼ pθ that may fall in regions of Sd−1 underrepresented in the training distribution. Isotropic noise augmentation improves generation quality (gFID) but degrades reconstruction quality (rFID) along all directions equally. Empirically (Table 4), allocating noise according to the SVD of the trained DiT’s velocity-field Jacobian J(z) = ∇z vθ (z, t ) yields complementary rFID/gFID gains; we interpret this as the SVD decomposing each token’s tangent space into high-energy directions 
+
+UH (where the velocity field is most sensitive to perturbation; these are the top-k∗ singular directions by spectral energy) and low-energy directions UL (where generated features may drift with smaller velocity-field response). We inject asymmetric noise: 
+
+Σnoise (z) = σ2 
+
+> H
+
+UH U ⊤ 
+
+> H
+
++ σ2 
+
+> L
+
+ULU ⊤ 
+
+> L
+
+, σH ≪ σL, (6) where UH , U L are the top-k∗ and remaining singular vectors of J(z), with k∗ defined by the energy threshold τ : k∗ = min {k : P 
+
+> i≤k
+
+s2 
+
+> i
+
+/ P 
+
+> i
+
+s2 
+
+> i
+
+≥ τ } where si are the singular values of J(z).The basis {UH (¯ zc), U L(¯ zc)} is precomputed once from the trained DiT: training features are k-means clustered into K centroids ¯zc, the per-(centroid, token) SVD of J is computed via batched forward-mode automatic differentiation (AD) with m random tangent probes, and at training time each sample is assigned to its nearest centroid and receives the corresponding Σnoise (¯ zc). Crucially, no discrete spectral gap is required—only the continuous energy ordering matters. Full computation and deployed values of K, m, σH , σL, τ in Section E. 
+
+4.4 Decoder Training 
+
+The decoder Dϕ : ( Sd−1)N → RH×W ×3 maps VFM embeddings on the product hypersphere back to histopathology images, trained from scratch with anisotropic noise injection from the start using a 4-component loss: 
+
+Ldec = λℓ1 ∥ ˆI − I∥1 + λLPIPS LPIPS ( ˆI, I ) + λcos (1 − ⟨ zrt , z ⟩) + ωGλadapt Ladv , (7) where ˆI = Dϕ(˜ z) is the reconstruction from noisy features ˜z = ( z + n)/∥z + n∥ with n ∼N (0 , Σnoise (z)) (Eq. (6)), zrt = E(Dϕ(˜ z)) is the round-trip re-encoding, and Ladv is an adver-sarial loss with adaptive weight following VQGAN [14]. The cosine round-trip loss targets the 
+
+clean features z (not ˜z), forcing the decoder to denoise. Training follows a standard VQGAN-style staged schedule [14, 49]—reconstruction-only warmup, discriminator warmup, then full adversarial training—with anisotropic noise from step 0 so the decoder jointly allocates capacity for reconstruc-tion and noise robustness (Section E). Deriving the noise covariance from the SVD of the velocity-field Jacobian (Eq. (6)) creates a de-liberate coupling: the spectral decomposition governing the DiT’s directional sensitivity determines the decoder’s robustness allocation. We observe a superadditive interaction between the stochastic bridge and anisotropic decoder (Table 4, analyzed in Section 6). 
+
+## 5 Experiments 
+
+5.1 Implementation Details Dataset and encoder. We use 12.2M patches from TCGA-BRCA [55] and 3.4M patches from TCGA-COADREAD [54] at 20 × magnification (256 ×256 pixels). To obtain training VFM features, UNI [10] (ViT-L/16, d = 1024 , N = 256 tokens) was used as the encoder. 
+
+Training. We train sequentially in two stages on 8 ×H200 GPUs. In Stage 1, we train the LightningDiT-XL DiT [64] ( ∼676 M parameters) with the extracted UNI patch embeddings for 95K 6Table 3: Generation results on TCGA-BRCA and TCGA-COADREAD 20 × patches ( 256 ×256 ). All metrics lower-is-better; best bold, second-best underlined within each method group. LPIPS is reconstruction-only.                                                                                                                                               
+
+> TCGA-BRCA
+> Method FID KID CMMD LPIPS FvD KvD vMMD
+> Reconstruction — Pathology domain
+> ZoomLDM 4.88 0.0040 0.2685 0.048 37.26 0.038 4.12 PixCell 2.88 0.0025 0.2590 0.036 18.11 0.018 2.04
+> STREAM 2.42 0.0019 0.1509 0.047 9.91 0.008 0.98
+> Reconstruction — VFM-based generation (natural-image domain)
+> RAE 7.35 0.0054 0.2102 0.139 144.58 0.147 15.03 SVG 6.30 0.0050 0.3100 0.116 74.13 0.067 7.23
+> Generation — Pathology domain
+> ZoomLDM 7.43 0.0058 0.2611 –196.41 0.194 21.01 PixCell 104.18 0.0984 0.6147 –1298.00 1.410 169.38
+> STREAM 6.61 0.0041 0.1282 –78.04 0.048 5.16
+> Generation — VFM-based generation (natural-image domain)
+> RAE 10.14 0.0067 0.2638 –264.54 0.255 27.09
+> SVG 69.62 0.0573 0.4583 –1169.21 1.157 113.46
+> TCGA-COADREAD
+> Method FID KID CMMD LPIPS FvD KvD vMMD
+> Reconstruction — Pathology domain
+> ZoomLDM 4.12 0.0033 0.1068 0.050 29.50 0.024 2.35 PixCell 2.58 0.0021 0.0796 0.038 15.87 0.012 1.20 STREAM 5.64 0.0043 0.0407 0.075 32.08 0.030 2.72
+> Reconstruction — VFM-based generation (natural-image domain)
+> RAE 10.61 0.0077 0.0717 0.200 109.78 0.101 9.13 SVG 4.68 0.0030 0.1859 0.118 44.40 0.029 2.83
+> Generation — Pathology domain
+> ZoomLDM 8.09 0.0053 0.0613 –139.63 0.097 9.52 PixCell 127.24 0.1132 0.9570 –1742.85 2.145 218.70
+> STREAM 7.68 0.0042 0.0293 –91.96 0.055 5.10
+> Generation — VFM-based generation (natural-image domain)
+> RAE 10.77 0.0073 0.0655 –173.07 0.144 13.39 SVG 16.52 0.0112 0.0690 –244.70 0.141 12.75
+
+steps with batch size 1024 using the stochastic bridge flow-matching loss (Algorithm 1). In Stage 2, we extract the cached SVD of the velocity-field Jacobian from the trained DiT first, and use it to train a ViT-XL decoder [13, 70] from scratch with anisotropic noise (Section 4.3) for 90K steps with batch size of 512. Full details in Section E. 
+
+Baselines. We benchmark against state-of-the-art pathology-domain models ZoomLDM [17] and PixCell [66], and state-of-the-art natural-image-domain models that utilize similar VFM-encoded latent spaces for diffusion model training: RAE [70] as our Euclidean baseline, and SVG [50], which augments RAE’s design with a learned residual encoder on top of the frozen VFM features. All baselines were trained on TCGA-BRCA and TCGA-COADREAD using default hyperparameters and settings from their respective papers. RAE and SVG were trained with their respective natural-image-domain VFM encoders to faithfully replicate their training pipelines (more protocol details are in Section E). 
+
+Evaluation. We evaluate with three ImageNet-pretrained distribution metrics — FID [20], KID [5], CMMD [24] — and three pathology-aware variants FvD, KvD, vMMD, in which the under-lying feature extractor is replaced by Virchow2 [72], a state-of-the-art histopathology VFM. Recon-struction quality is measured with LPIPS [68]. We focus the analysis on pathology-domain baselines (ZoomLDM, PixCell), since the natural-image-domain baselines (RAE, SVG) use natural-image VFMs as their encoders and are included only as the closest Euclidean counterparts to STREAM’s design. 
+
+5.2 Image Generation Results 
+
+As shown in Table 3, STREAM achieves the best gFID across both datasets (BRCA 6.61 , COAD-READ 7.68 ), the best rFID on BRCA ( 2.42 ), and competitive COADREAD rFID ( 5.64 ). PixCell’s design prevents unconditional generation: it always requires an input image (or a VFM embed-ding extracted from one) at inference. Forced to generate from its learned latent space alone, Pix-Cell reports extremely high gFID values, empirically realizing the conditioning-dominance ratio 
+
+ρcond =62% measured in Section 3.1. ZoomLDM partially sidesteps this requirement by training a conditional diffusion model directly on the VFM embedding, allowing unconditional sampling with-out an external image; yet its gFID remains elevated, especially compared to that of STREAM, again consistent with conditioning collapse. If ZoomLDM were also sampled unconditionally, its gFID would likely approach PixCell’s catastrophic regime — both results indicate that the VAE-induced latent space is too semantically poor to support true generative modeling, even where reconstruction remains strong. STREAM contradicts the reconstruction–generation tradeoff [64] by treating the VFM embedding as the latent space itself without external conditioning, achieving superior performance over its pathology-domain counterparts. However, STREAM’s performance is not solely due to UNI being 7utilized as the latent space: pure RFM without STREAM’s bridge × anisotropic-decoder design ac-tually performs worse than ZoomLDM and PixCell in both reconstruction and generation (Table 4). SVG augments RAE with a learnable residual encoder optimized for reconstruction, which explains the superior rFID and gFID results on both datasets. Furthermore, across both datasets and most metrics, both RAE and SVG display worse generation performance compared to reconstruction — confirming the reconstruction–generation tradeoff for models trained on high-dimensional VFM latents [64]. Across both datasets, the Virchow2-based FvD/KvD/vMMD largely preserve method ordering relative to their ImageNet/CLIP counterparts FID/KID/CMMD — showing that natural-image-domain evaluation can also be quite predictive of histopathology image quality (with the exception of CMMD vs. vMMD). ZoomLDM PixCell STREAM (Ours) RAE SVG 
+
+> BRCA COADREAD
+
+Figure 2: Generation samples from each trained model on TCGA-BRCA and TCGA-COADREAD. Figure 2 shows generation samples (i.e., the same set used for gFID evaluation) from each model— ZoomLDM, PixCell, STREAM (Ours), RAE, and SVG—selected by K-means clustering of ground-truth (GT) images in the Virchow2 feature space; for each cluster, we display the per-model sample whose Virchow2 feature is closest to the cluster centroid. Visual inspection corroborates the quan-titative results: ZoomLDM and PixCell exhibit visible artifacts and structural features that do not represent real histopathology tissue; RAE and SVG show similar results, which we attribute to their natural-image-domain VFM encoders. STREAM (Ours), in contrast, produces realistic-looking histopathology images with well-defined nuclei morphology and accurate structural detail. Addi-tional reconstruction and generation samples for all five models are provided in Section H. 
+
+## 6 Ablation Studies 
+
+Ablation on STREAM design. All ablation studies are performed on the TCGA-BRCA dataset. Table 4 isolates the two core STREAM contributions. Anisotropic noise alone (without the bridge) yields a meaningful improvement: rFID drops from 6.51 to 5.02 and gFID from 9.07 to 8.27 , con-sistent with allocating noise budget away from high-sensitivity directions. The bridge alone with isotropic noise marginally degrades gFID ( 9.07 → 9.37 ) while leaving rFID unchanged. Yet the full combination produces a superadditive effect: at 45K decoder steps, rFID drops to 3.52 and gFID to 
+
+6.86 —improvements far exceeding the sum of individual contributions. The superadditive effect admits a heuristic spectral interpretation. By Theorem 7 the bridge’s trans-port perturbation is asymptotically O(σ2max ), and by Theorem 3 the resulting marginal velocity field is smooth on (Sd−1)N at intermediate t; heuristically, since J(z) amplifies perturbations anisotrop-ically, the bridge sharpens velocities along high-energy directions UH while leaving low-energy directions UL with larger residual. With an isotropic decoder which lacks directional structure, this redistribution slightly degrades gFID ( 9.07 → 9.37 ) because the residual along UL passes unfiltered to image space. The anisotropic decoder is complementary, allocating robustness to UL (σL = 0 .02 )while preserving fidelity in UH (σH = 0 .002 ); together they eliminate the dominant error in each subspace, producing the joint rFID/gFID improvement of Table 4 (bottom row). The two following ablation studies support this claim (Table 5; Table 6 and Section F). 8Table 4: Ablation study on TCGA-BRCA (UNI encoder). Results reported at 45K decoder training steps.                    
+
+> Bridge Decoder rFID ↓gFID ↓
+> ✗Isotropic 6.51 9.07
+> ✗Anisotropic (Ours) 5.02 8.27
+> ✓(Ours) Isotropic 6.51 9.37
+> ✓(Ours) Anisotropic (Ours) 3.52 6.86
+
+Table 5: Anisotropic decoder inverts isotropic’s direc-tional preference.    
+
+> Decoder Rdec
+> Isotropic 0.43
+> Anisotropic (Ours) 3.4
+
+Table 6: Encoder-dependence ablation on TCGA-BRCA, trained on the natural-image-domain DINOv2-L VFM.         
+
+> Decoder rFID ↓gFID ↓
+> Isotropic 7.67 11.05 Anisotropic (Ours) 7.71 11.22
+
+Anisotropic decoder directional preference. At the decoder level, we directly test the spectral mechanism via a per-token directional Lipschitz contrast on 200 test BRCA images. For each image we sample one unit-norm tangent direction in UH and one in the orthogonal complement 
+
+UL (within the cached per-(centroid, token) basis), perturb z at matched per-token tangent norm 
+
+ϵ ∈ { 0.005 , 0.01 , 0.016 , 0.02 }, decode, and measure LPIPS sensitivity. The probe range is chosen to bracket the decoder’s training noise envelope: the anisotropic decoder was trained with σL = 0 .02 
+
+as the maximum low-energy magnitude, so the largest probe matches the training scale and the smaller values stay strictly inside it. Per-image polyfit slopes give per-direction Lipschitz constants 
+
+Ldec  
+
+> UH
+
+, L dec  
+
+> UL
+
+; their ratio Rdec = Ldec  
+
+> UH
+
+/L dec  
+
+> UL
+
+characterizes the decoder’s directional preference, with val-ues > 1 indicating UH -preference and < 1 indicating UL-preference (Table 5). The isotropic base-line most likely develops a UL-preference from data structure: along-manifold tangent variations produce visually meaningful image changes that the decoder must preserve, while manifold-normal variations are largely smoothed out during reconstruction. The anisotropic decoder reverses this preference by an order of magnitude — Rdec = 0 .43 for the isotropic baseline (slight UL-preference) versus 3.4 for the anisotropic decoder (strong UH -preference; Table 5) — directly confirming that anisotropic training causes the decoder to absorb UL noise while preserving fidelity along UH . The deployed σL = 0 .02 sits at the optimum of a decoder noise ablation over {0, 0.01 , 0.02 , 0.03 } on TCGA-BRCA (Section G): smaller magnitudes, larger magnitudes, and removing low-energy noise entirely all degrade gFID. 
+
+Ablation on Encoder dependence. To test whether our STREAM pipeline requires a domain-matched encoder (VFM), we replace UNI with DINOv2-L (a natural-image VFM, mismatched to the histopathology domain) and re-run the full STREAM pipeline. The anisotropic decoder advan-tage on UNI is largely erased on DINOv2-L (Table 6), confirming that the mechanism is encoder-dependent. Appendix analyses identify the failure mode (Section F): UNI’s pathology pretraining yields more stable cross-centroid bases for the SVD of the velocity-field Jacobian than DINOv2-L (median centroid alignment 0.36 vs. 0.23 ) and tighter effective-rank distributions without degener-ate centroids; meanwhile, when we train a DiT on DINOv2-L extracted features it still generates distributionally-correct latents (latent-space Fréchet distance ratio 1.04 vs. UNI; Section F.3), so the gFID gap (Table 6) isolates to the decoder rather than to a DiT training issue. This is ex-pected, as STREAM trains on the Riemannian manifold of the extracted VFM and the decoder must handle all domain mismatch by itself. Unlike approaches that tune the encoder (REPA-E [32], AlignTok [8]) or add auxiliary trainable rFID-reduction modules (DINO-SAE [7], SVG [50], LV-RAE [37]), STREAM’s anisotropic decoder—tied to the SVD of the velocity-field Jacobian at fixed VFM dimension—reverses RAE’s isotropic-noise rFID–gFID asymmetry, delivering joint improve-ment in Table 4. 
+
+## 7 Conclusion 
+
+We presented STREAM, a Riemannian flow-matching framework for unconditional histopathology generation in VFM latent spaces; a stochastic bridge paired with a spectral-informed anisotropic decoder. Both combine superadditively, achieving state-of-the-art performance on TCGA-BRCA and competitive performance on TCGA-COADREAD. Our limitations are that Theorem 3 is a population-level result with a per-token assumption, and our empirical evidence verifies the spectral mechanism’s predicted signatures. 9References 
+
+[1] Michael S. Albergo and Eric Vanden-Eijnden. Building normalizing flows with stochastic interpolants. In ICLR , 2023. [2] Dominique Bakry and Michel Émery. Diffusions hypercontractives. In Séminaire de Proba-bilités XIX . Springer, 1985. [3] Vansh Bansal, Saptarshi Roy, Purnamrita Sarkar, and Alessandro Rinaldo. On the Wasserstein convergence and straightness of rectified flows. arXiv preprint arXiv:2410.14949 , 2024. [4] Jean-David Benamou and Yves Brenier. A computational fluid mechanics solution to the Monge–Kantorovich mass transfer problem. Numerische Mathematik , 84(3):375–393, 2000. [5] Mikołaj Bi´ nkowski, Dougal J. Sutherland, Michael Arbel, and Arthur Gretton. Demystifying MMD GANs. In International Conference on Learning Representations (ICLR) , 2018. [6] Gabriele Campanella, Matthew G. Hanna, Luke Geneslaw, Allen Miraflor, Vitor Werneck Krauss Silva, Klaus J. Busam, Edi Brogi, Victor E. Reuter, David S. Klimstra, and Thomas J. Fuchs. Clinical-grade computational pathology using weakly supervised deep learning on whole slide images. Nature Medicine , 25:1301–1309, 2019. [7] Hun Chang, Byunghee Cha, and Jong Chul Ye. DINO-SAE: DINO spherical autoencoder for high-fidelity image reconstruction and generation. arXiv preprint arXiv:2601.22904 , 2026. [8] Bowei Chen, Sai Bi, Hao Tan, He Zhang, Tianyuan Zhang, Zhengqi Li, Yuanjun Xiong, Jian-ming Zhang, and Kai Zhang. Aligning visual foundation encoders to tokenizers for diffusion models. In ICLR , 2026. [9] Hao Chen, Yujin Han, Fangyi Chen, et al. Masked autoencoders are effective tokenizers for diffusion models. In ICML , 2025. [10] Richard J. Chen, Tong Ding, Ming Y. Lu, Drew F. K. Williamson, et al. Towards a general-purpose foundation model for computational pathology. Nature Medicine , 30(3):850–862, 2024. [11] Ricky T. Q. Chen and Yaron Lipman. Flow matching on general geometries. In ICLR , 2024. [12] Manfredo P. do Carmo. Riemannian Geometry . Birkhäuser, 1992. [13] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In ICLR , 2021. [14] Patrick Esser, Robin Rombach, and Björn Ommer. Taming transformers for high-resolution image synthesis. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2021. [15] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik Lorber, Axel Sauer, Frederic Boesel, Dustin Podell, Tim Dockhorn, Zion English, and Robin Rombach. Scaling rectified flow transformers for high-resolution image synthesis. In ICML , 2024. [16] Dan Friedman and Adji Bousso Dieng. The Vendi score: A diversity evaluation metric for machine learning. Transactions on Machine Learning Research , 2023. [17] Alexandros Graikos, Srikar Yellapragada, Minh-Quan Le, Saarthak Kapse, Prateek Prasanna, Joel Saltz, and Dimitris Samaras. Learned representation-guided diffusion models for large-image generation. In CVPR , 2024. [18] Nathan Halko, Per-Gunnar Martinsson, and Joel A. Tropp. Finding structure with randomness: Probabilistic algorithms for constructing approximate matrix decompositions. SIAM Review ,53(2):217–288, 2011. [19] Johannes Hertrich, Antonin Chambolle, and Julie Delon. On the relation between rectified flows and optimal transport. arXiv preprint arXiv:2505.19712 , 2025. [20] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner, Bernhard Nessler, and Sepp Hochre-iter. GANs trained by a two time-scale update rule converge to a local Nash equilibrium. In 
+
+NeurIPS , 2017. 10 [21] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising diffusion probabilistic models. In 
+
+NeurIPS , 2020. [22] Mohammad Jalali, Azim Ospanov, Amin Gohari, and Farzan Farnia. Conditional vendi score: An information-theoretic approach to diversity evaluation of prompt-based generative models. 
+
+arXiv preprint arXiv:2411.02817 , 2024. [23] Mohammad Jalali, Bahar Dibaei Nia, and Farzan Farnia. Towards an explainable comparison and alignment of feature embeddings. arXiv preprint arXiv:2506.06231 , 2025. [24] Sadeep Jayasumana, Srikumar Ramalingam, Andreas Veit, Daniel Glasner, Ayan Chakrabarti, and Sanjiv Kumar. Rethinking FID: Towards a better evaluation metric for image generation. In IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. [25] kaiko.ai, Nanne Aben, Edwin D. de Jong, Ioannis Gatopoulos, Nicolas Känzig, Mikhail Karasikov, Axel Lagré, Roman Moser, Joost van Doorn, and Fei Tang. Towards large-scale training of pathology foundation models. arXiv preprint arXiv:2404.15217 , 2024. [26] Theodoros Kouzelis, Ioannis Kakogeorgiou, Spyros Gidaris, and Nikos Komodakis. EQ-VAE: Equivariance regularized latent space for improved generative image modeling. In ICML ,2025. [27] Amandeep Kumar and Vishal M. Patel. Learning on the manifold: Unlocking standard diffu-sion transformers with representation encoders. arXiv preprint arXiv:2602.10099 , 2026. [28] Minh-Quan Le, Alexandros Graikos, Srikar Yellapragada, Rajarsi Gupta, Joel Saltz, and Dim-itris Samaras. ∞-Brush: Controllable large image synthesis with diffusion models in infinite dimensions. In ECCV , 2024. [29] John M. Lee. Introduction to Riemannian Manifolds . Springer, 2nd edition, 2018. [30] Junho Lee, Kwanseok Kim, and Joonseok Lee. Geometry-aware image flow matching. In 
+
+International Conference on Machine Learning (ICML) , 2026. [31] Sangyun Lee, Zinan Lin, and Giulia Fanti. Improving the training of rectified flows. In 
+
+NeurIPS , 2024. [32] Xingjian Leng, Jaskirat Singh, Yunzhong Hou, Zhenchang Xing, Saining Xie, and Liang Zheng. REPA-E: Unlocking VAE for end-to-end tuning with latent diffusion transformers. In ICCV , 2025. [33] Tianhong Li and Kaiming He. Back to basics: Let denoising generative models denoise. arXiv preprint arXiv:2511.13720 , 2025. [34] Yaron Lipman, Ricky T. Q. Chen, Heli Ben-Hamu, Maximilian Nickel, and Matt Le. Flow matching for generative modeling. In ICLR , 2023. [35] Geert Litjens, Thijs Kooi, Babak Ehteshami Bejnordi, Arnaud Arindra Adiyoso Setio, Francesco Ciompi, Mohsen Ghafoorian, Jeroen A. W. M. van der Laak, Bram van Ginneken, and Clara I. Sánchez. A survey on deep learning in medical image analysis. Medical Image Analysis , 42:60–88, 2017. [36] Qiang Liu. Rectified flow: A marginal preserving approach to optimal transport. arXiv preprint arXiv:2209.14577 , 2022. [37] Siyu Liu, Chujie Qin, Hubery Yin, Qixin Yan, Zheng-Peng Duan, Chen Li, Jing Lyu, Chun-Le Guo, and Chongyi Li. Improving reconstruction of representation autoencoder. arXiv preprint arXiv:2602.08620 , 2026. [38] Xingchao Liu, Chengyue Gong, and Qiang Liu. Flow straight and fast: Learning to generate and transfer data with rectified flows. In ICLR , 2023. [39] Grégoire Loeper. On the regularity of solutions of optimal transportation problems. Acta Mathematica , 202(2):241–283, 2009. [40] Ming Y. Lu, Bowen Chen, Drew F. K. Williamson, Richard J. Chen, Ivy Liang, Tong Ding, Guillaume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, Anil V. Sahai, and Faisal Mah-mood. A visual-language foundation model for computational pathology. Nature Medicine ,2024. [41] Nanye Ma, Mark Goldstein, Michael S. Albergo, Nicholas M. Boffi, Eric Vanden-Eijnden, and Saining Xie. SiT: Exploring flow and diffusion-based generative models with scalable interpolant transformers. In ECCV , 2024. 11 [42] Xi-Nan Ma, Neil S. Trudinger, and Xu-Jia Wang. Regularity of potential functions of the optimal transportation problem. Archive for Rational Mechanics and Analysis , 177(2):151– 183, 2005. [43] Seonghui Min, Hyun-Jic Oh, and Won-Ki Jeong. Co-synthesis of histopathology nuclei image-label pairs using a context-conditioned joint diffusion model. In ECCV , 2024. doi: 10.1007/ 978-3-031-72624-8_9. [44] Dmitry Nechaev, Alexey Pchelnikov, and Ekaterina Ivanova. SPIDER: A compre-hensive multi-organ supervised pathology dataset and baseline models. arXiv preprint arXiv:2503.02876 , 2025. [45] Maxime Oquab, Timothée Darcet, Théo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khali-dov, Pierre Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, Mahmoud As-sran, Nicolas Ballas, Wojciech Galuba, Russell Howes, Po-Yao Huang, Shang-Wen Li, Ishan Misra, Michael Rabbat, Vasu Sharma, Gabriel Synnaeve, Hu Xu, Herve Jegou, Julien Mairal, Patrick Labatut, Armand Joulin, and Piotr Bojanowski. DINOv2: Learning robust visual fea-tures without supervision. TMLR , 2024. [46] William Peebles and Saining Xie. Scalable diffusion models with transformers. In ICCV ,2023. [47] Bruno Pelletier. Nonparametric regression estimation on closed Riemannian manifolds. Jour-nal of Nonparametric Statistics , 18(1):57–67, 2006. [48] Kai Qiu, Xiang Li, Hao Chen, Jason Kuen, Xiaohao Xu, Jiuxiang Gu, Yinyi Luo, Bhiksha Raj, Zhe Lin, and Marios Savvides. Image tokenizer needs post-training. arXiv preprint arXiv:2509.12474 , 2025. [49] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution image synthesis with latent diffusion models. In CVPR , 2022. [50] Minglei Shi, Haolin Wang, Wenzhao Zheng, Ziyang Yuan, Xiaoshi Wu, Xintao Wang, Pengfei Wan, Jie Zhou, and Jiwen Lu. Latent diffusion model without variational autoencoder. arXiv preprint arXiv:2510.15301 , 2025. [51] Qingyu Shi, Size Wu, Jinbin Bai, Kaidong Yu, Yujing Wang, Yunhai Tong, Xiangtai Li, and Xuelong Li. RecTok: Reconstruction distillation along rectified flow. In CVPR , 2026. [52] Oriane Simeoni et al. DINOv3. arXiv preprint arXiv:2508.10104 , 2025. [53] Hao Tang, Chenwei Xie, Xiaoyi Bao, Tingyu Weng, Pandeng Li, Yun Zheng, and Liwei Wang. UniLiP: Adapting clip for unified multimodal understanding, generation and editing. arXiv preprint arXiv:2507.23278 , 2025. [54] The Cancer Genome Atlas Network. Comprehensive molecular characterization of human colon and rectal cancer. Nature , 487(7407):330–337, 2012. doi: 10.1038/nature11252. [55] The Cancer Genome Atlas Network. Comprehensive molecular portraits of human breast tumours. Nature , 490:61–70, 2012. [56] Max-K. von Renesse and Karl-Theodor Sturm. Transport inequalities, gradient estimates, en-tropy and Ricci curvature. Communications on Pure and Applied Mathematics , 58(7):923–940, 2005. [57] Jinzhuo Wang, Kai Wang, Yunfang Yu, Yuxing Lu, et al. Self-improving generative foundation model for synthetic medical image generation and clinical applications. Nature Medicine , 31 (2):609–617, 2025. [58] Runqian Wang and Kaiming He. Diffuse and disperse: Image generation with representation regularization. arXiv preprint arXiv:2506.09027 , 2025. [59] Jinxi Xiang, Xiyue Wang, Xiaoming Zhang, Yinghua Xi, Feyisope Eweje, Yuchen Chen, Yuan-feng Li, Colin Bergstrom, Matthew Gopaulchan, Ted Kim, Kun-Hsing Yu, Sierra Willens, Francesca M. Olguin, Jeffrey J. Nirschl, Joel Neal, Maximilian Diehn, Sen Yang, and Ruijiang Li. A vision-language foundation model for precision oncology. Nature , 638(8051):769–778, 2025. [60] Conghao Xiong, Zhengrui Guo, Zhe Xu, Yifei Zhang, Raymond Kai-yu Tong, Si Yong Yeo, Hao Chen, Joseph J. Y. Sung, and Irwin King. Exploiting low-dimensional manifold of features for few-shot whole slide image classification. In ICLR , 2026. 12 [61] Hanwen Xu, Naoto Usuyama, Jaspreet Bagga, Sheng Zhang, et al. A whole-slide foundation model for digital pathology from real-world data. Nature , 630(8015):181–188, 2024. [62] Meilong Xu, Saumya Gupta, Xiaoling Hu, Chen Li, Shahira Abousamra, Dimitris Samaras, Prateek Prasanna, and Chao Chen. TopoCellGen: Generating histopathology cell topology with a diffusion model. In CVPR , 2025. [63] Jiawei Yang, Tianhong Li, Lijie Fan, Yonglong Tian, and Yue Wang. Latent denoising makes good visual tokenizers. arXiv preprint arXiv:2507.15856 , 2025. [64] Jingfeng Yao, Bin Yang, and Xinggang Wang. Reconstruction vs. generation: Taming opti-mization dilemma in latent diffusion models. In CVPR , 2025. [65] Srikar Yellapragada, Alexandros Graikos, Prateek Prasanna, Tahsin Kurc, Joel Saltz, and Dim-itris Samaras. PathLDM: Text conditioned latent diffusion model for histopathology. In 
+
+IEEE/CVF Winter Conf. Appl. Comput. Vis. , 2024. [66] Srikar Yellapragada, Alexandros Graikos, Zilinghan Li, Kostas Triaridis, Varun Belagali, Tarak Nath Nandi, Karen Bai, Beatrice S. Knudsen, Tahsin Kurc, Rajarsi R. Gupta, Prateek Prasanna, Ravi K. Madduri, Joel Saltz, and Dimitris Samaras. PixCell: A generative founda-tion model for digital histopathology images. arXiv preprint arXiv:2506.05127 , 2025. [67] Sihyun Yu, Sangkyung Kwak, Huiwon Jang, Jongheon Jeong, Jonathan Huang, Jinwoo Shin, and Saining Xie. Representation alignment for generation: Training diffusion transformers is easier than you think. In ICLR , 2025. [68] Richard Zhang, Phillip Isola, Alexei A. Efros, Eli Shechtman, and Oliver Wang. The unrea-sonable effectiveness of deep features as a perceptual metric. In CVPR , 2018. [69] Anlin Zheng, Xin Wen, Xuanyang Zhang, Chuofan Ma, Tiancai Wang, Gang Yu, Xiangyu Zhang, and Xiaojuan Qi. Vision foundation models as effective visual tokenizers for autore-gressive image generation. In NeurIPS , 2025. [70] Boyang Zheng, Nanye Ma, Shengbang Tong, and Saining Xie. Diffusion transformers with representation autoencoders. arXiv preprint arXiv:2510.11690 , 2025. [71] Yongxin Zhu, Bocheng Li, Hang Zhang, Xin Li, Linli Xu, and Lidong Bing. Stabilize the latent space for image autoregressive modeling: A unified perspective. In NeurIPS , 2024. [72] Eric Zimmermann, Eugene Vorontsov, Julian Viret, Adam Casson, Michal Zelechowski, George Shaikovski, Neil Tenenholtz, James Hall, David Klimstra, Razik Yousfi, Thomas Fuchs, Nicolo Fusi, Siqi Liu, and Kristen Severson. Virchow2: Scaling self-supervised mixed magnification models in pathology. arXiv preprint arXiv:2408.00738 , 2024. 13 A Mathematical Preliminaries 
+
+We collect established results invoked in our proofs. All results in this section are known. 
+
+A.1 Riemannian Primitives on Sd−1
+
+The geodesic distance, exponential map, and logarithmic map on the unit hypersphere are: 
+
+dg (x, y ) = arccos( ⟨x, y ⟩), (8) 
+
+Exp x(v) = cos( ∥v∥) x + sin( ∥v∥) v
+
+∥v∥ , v ∈ TxSd−1, (9) 
+
+Log x(y) = θ
+
+sin θ (y − cos θ x ), θ = dg (x, y ). (10) 
+
+A.2 Background: OT, Curvature-Dimension, Flow Matching 
+
+We collect the standard background invoked in our proofs in compact form. The 2-Wasserstein distance W 22 (p0, p 1) = inf γ∈Γ( p0,p 1)
+
+R dg (x, y )2 dγ admits the dynamic Benamou–Brenier formu-lation [4]; on Sd−1, optimal transport (OT) maps inherit smoothness from the Ma–Trudinger–Wang (MTW) condition [39, 42]. The sphere satisfies the Bakry–Émery curvature-dimension condition 
+
+CD( d − 2, ∞) [2], with Ric ≥ (d − 2) g implying W2-contraction of the heat semigroup at rate 
+
+d − 2 [56]; this makes p0 = Uniform( Sd−1) the canonical source. Flow matching [1, 34, 36, 38] learns a velocity field via the conditional FM (CFM) loss LCFM = E[∥vθ − ut∥2]; for Riemannian flows on Sd−1 [11], the SLERP conditional path ψt(x0|x1) = SLERP( x0, x 1, t ) and conditional velocity ut = Log xt (x1)/(1 − t) are the standard choices. 
+
+A.3 Rectifiability Theory 
+
+The Euclidean rectifiability theory of Hertrich et al. [19] provides a sufficient condition we extend to Sd−1 as an assumption (cf. Section 4.2): 
+
+Theorem (Sufficient Rectifiability) [19, Thm. 14]. If PX0|X1=x1 is absolutely continuous with smooth positive density, then (X0, X 1) is rectifiable. 
+
+Proposition (Disconnected-support obstruction) [19, Prop. 10]. There exist couplings with zero rectification loss whose intermediate marginals have disconnected support and whose rectification fixed point is not the optimal-transport coupling, invalidating earlier rectification–OT equivalence claims. 
+
+Both results are stated and proved in Rd with gradient potentials and full Lebesgue support; we treat the Riemannian extension as an assumption (Section 4.2, Theorem 7). Recent rectified-flow con-vergence theory [3, 31] establishes regularity-based Wasserstein bounds and training improvements analogous to ours; STREAM’s bridge perturbation supplies on Sd−1 the smooth-density premise that Hertrich’s Thm. 14 requires (on the cut-locus complement, a full-volume subset for d ≥ 3). 
+
+## B Complete Proofs 
+
+B.1 Proof of Theorem 3: Rectifiability via Bridge Perturbation Lemma 4 (Exponential map Jacobian) . For v ∈ TxSd−1 with 0 < ∥v∥ = r < π (i.e., Exp x(v)
+
+outside the cut locus of x): det( d Exp x)v = (sin r/r )d−2.Proof. In geodesic polar coordinates the Riemannian volume element is sin d−2(r) dr dω and the Euclidean tangent-space element is rd−2 dr dω [12, Ch. 4]; the ratio is (sin r/r )d−2.
+
+Lemma 5 (Full support of conditional distribution) . For any σ > 0 and μ ∈ S d−1, the distribution of X = Exp μ(σϵ ) with ϵ ∼ N (0 , Πμ) (the rank-(d − 1) tangent-space Gaussian, embedded in Rd)has positive density on Sd−1 \ {− μ}.
+
+14 Proof. The Gaussian σϵ has full support on the column space TμSd−1 ∼= Rd−1 of Πμ. The expo-nential map is a diffeomorphism on the open ball of radius π in TμSd−1 onto Sd−1 \ {− μ}. By Theorem 4 and the change-of-variables formula, the principal-branch pushforward density is: 
+
+pX (y) = 1(2 πσ 2)(d−1) /2 exp 
+
+
+
+− dg (μ, y )2
+
+2σ2
+
+  dg (μ, y )sin( dg (μ, y )) 
+
+d−2
+
+, y ∈ S d−1 \ {− μ}.
+
+Smoothness follows because dg (μ, ·)2 is C∞ on Sd−1 \{− μ} and r 7 → (r/ sin r)d−2 is real-analytic on [0 , π ). Positivity follows from positivity of the Gaussian factor. Wrap-around contributions through the cut locus are bounded by P (σ∥ϵ∥ ≥ π) ≤ exp( − 12 (π/σ − √d − 1) 2); in the deployed regime σmax = 0 .01 ≪ π/ √d − 1 ≈ 0.098 for d = 1024 , this is below e−3×10 4
+
+and does not affect positivity or smoothness. 
+
+Full proof of Theorem 2. Fix t ∈ (0 , 1) . Then σ(t) = σmax sin( πt ) > 0. By Theorem 5, law( Xt |
+
+x0, x 1) has positive smooth density on Sd−1 \{− μt(x0, x 1)} for each (x0, x 1). The map (x0, x 1) 7 →−μt(x0, x 1) is a smooth submersion on (Sd−1 × S d−1) \ ¯∆ (where ¯∆ is the antipodal locus, π-null under absolutely continuous π), so for vol g -a.e. y ∈ S d−1 the preimage {(x0, x 1) : y =
+
+−μt(x0, x 1)} is a codimension-(d − 1) submanifold and hence π-null. By Fubini, the marginal 
+
+law( Xt) = R law( Xt | x0, x 1) dπ has positive density a.e. and topological support equal to Sd−1.
+
+Proposition 6 (Bounded velocity and finite action) . Under σ(t) = σmax sin( πt ): ∥ut(xt |
+
+x0, x 1)∥g ≤ σmax π∥ϵ∥ + Ω for all t ∈ (0 , 1) , where Ω = dg (x0, x 1).Proof. For t ∈ [0 , 1) , sin( πt ) = sin( π(1 − t)) ≤ π(1 − t) (using sin x ≤ x for x ≥ 0), so 
+
+σ(t)/(1 − t) ≤ σmax π. The geodesic distance satisfies dg (xt, μ t) ≤ σ(t)∥ϵ∥ unconditionally: when 
+
+σ(t)∥ϵ∥ < π (inside the injectivity ball), this holds with equality by the radial isometry Exp μt ;otherwise dg (xt, μ t) ≤ π ≤ σ(t)∥ϵ∥ trivially since Sd−1 has diameter π. The triangle inequality therefore yields, unconditionally: 
+
+∥ut∥g = dg (xt, x 1)1 − t ≤ dg (xt, μ t) + dg (μt, x 1)1 − t ≤ σ(t)∥ϵ∥ + (1 − t)Ω 1 − t ≤ σmax π∥ϵ∥ + Ω .
+
+Using E[∥ϵ∥2] = d − 1, E∥ϵ∥ ≤ √d − 1 (Jensen), Ω ≤ π, and independence of Ω and ∥ϵ∥, the action integral satisfies R 10 E[∥vt∥2 
+
+> g
+
+] dt ≤ (σmax π√d − 1 + π)2 < ∞.
+
+Proposition 7 (Approximate transport) . The bridge-augmented flow satisfies: (i) boundary con-sistency ( σ(0) = σ(1) = 0); (ii) velocity perturbation ∥˜vt − vdet  
+
+> t
+
+∥∞ = O(σ2max sin 2(πt )) ;(iii) W2((Φ ˜v 
+
+> 1
+
+)#p0, p 1) = O(σ2max ).Proof. (i) Immediate from σ(0) = σ(1) = 0 .(ii) The bridge-augmented velocity ˜vt is a kernel-smoothed conditional expectation with bandwidth 
+
+σ(t). By on-manifold kernel-regression bias theory for closed Riemannian manifolds [47], the bias is O(σ(t)2) on [ϵt, 1−ϵt] when vdet  
+
+> t
+
+is C2 (the Riemannian volume Jacobian of Exp μt is 1− d−26 r2 +
+
+O(r4) for r = ∥σ(t)ϵ∥; the O(r2) term carries a dimensional (d − 2) /6 factor that we absorb into the O(σ(t)2) bound, leaving leading-order bias unchanged). On a single Sd−1, C2 regularity of 
+
+vdet  
+
+> t
+
+follows from C∞ regularity of the OT map (Ma–Trudinger–Wang theory [39, 42]) propagated through vdet  
+
+> t
+
+= Log x(x1)/(1 − t), bounded on [ϵt, 1 − ϵt]. The cross-token regularity assumption for the product manifold (Sd−1)N is surfaced in Section 4.2. (iii) On [ϵt, 1 − ϵt], the marginal velocity vt is uniformly Lipschitz with constant L =
+
+L(N, d, Ωmax , σ max , ϵ t). By Grönwall’s inequality, sup x dg (Φ ˜v 
+
+> 1
+
+(x), Φvdet  
+
+> 1
+
+(x)) ≤ Cσ 2max with C
+
+depending on the same parameters; coupling X ∼ p0 through both flows gives a valid coupling of 
+
+(Φ ˜v 
+
+> 1
+
+)#p0 and (Φ vdet  
+
+> 1
+
+)#p0 = p1, so W 22 ((Φ ˜v 
+
+> 1
+
+)#p0, p 1) ≤ Ex∼p0 [dg (Φ ˜v 
+
+> 1
+
+(x), Φvdet  
+
+> 1
+
+(x)) 2] ≤ C2σ4max ,giving W2 ≤ Cσ 2max . We note that C depends on ϵt via the velocity blow-up at t → 1; the asymptotic O(σ2max ) rate is honest, but the absolute constant at deployed ϵt is large and the qualita-tive smallness of the transport perturbation is corroborated empirically (Table 4, isotropic-decoder rows). 15 Corollary 8 (Bridge resolution of the disconnected-support obstruction) . The bridge perturbation ensures supp(law( Xt)) = Sd−1 for all t ∈ (0 , 1) regardless of the coupling π or the structure of 
+
+p1. Consequently, no rectification iterate can become a non-optimal Hertrich-type fixed point [19, Prop. 10] exhibiting the disconnected-support obstruction. Proof. By Theorem 2, the bridge marginal law( Xt) has full topological support on Sd−1 for ev-ery t ∈ (0 , 1) and every coupling π, including all rectification iterates. Hence no fixed point of the bridge–rectification map exhibits the disconnected-support pathology underlying the Hertrich counterexample. 
+
+Full proof of Theorem 3. (i) Theorem 2. (ii) By Bayes’ rule (with respect to the Riemannian volume measure on Sd−1 as the dominating reference): p(x0, x 1 | Xt = x) ∝ p(Xt = x | x0, x 1) dπ , where the conditional density p(Xt =
+
+x | x0, x 1) is given by Theorem 5 on the cut-locus complement (a full-measure subset of Sd−1 for 
+
+d ≥ 3). The numerator is smooth on this domain (Gaussian pushforward through the exponential map). The denominator is positive (part (i)) and smooth on the cut-locus complement, using the per-direction Gaussian decay of Theorem 5 as the integrable dominating function for differentiation under the integral. We treat this as the Riemannian extension of Hertrich et al. [19, Thm. 14]; the per-token regularity follows from MTW theory [39] and the Riemannian-flow framework of Chen and Lipman [11], Kumar and Patel [27], with the cross-token extension surfaced in Section 4.2 as an assumption. (iii) On [ϵt, 1 − ϵt]: vt(x) = E[ut | Xt = x] is smooth by differentiation under the integral (using the Gaussian dominating function from (ii) and the bounded ut from Theorem 6). Differentiating once more, ∥∇ xvt∥∞ ≤ L with L = L(d, Ωmax , σ max , ϵ t) finite on the closed interval (the kernel-derivative bound scales as σ(t)−1, which is bounded below by σmax sin( πϵ t) > 0). The Picard– Lindelöf theorem for time-dependent Lipschitz vector fields on a compact Riemannian manifold [29] then gives existence and uniqueness of the IVP ˙x = vt(x), x (t0) = x0 on [ϵt, 1 − ϵt] for any t0 in the same interval. 
+
+## C Conditioning Collapse Analysis 
+
+We provide the full conditioning collapse analysis summarized in Section 3.1. 
+
+C.1 Entropy Estimation via Vendi Score 
+
+For VFM-conditioned models, the output diversity decomposes as H(X) = H(X | C) + I(X; C),where C = EVFM (I) is the conditioning embedding. We estimate these quantities using the Vendi Score of order 1 [16], which computes Vendi 1(K) = exp( H1(λ(K))) where λ(K) are the normal-ized eigenvalues of the similarity kernel matrix K and H1 is Shannon entropy. For a set of samples 
+
+{Xj }, log Vendi 1 estimates the Shannon entropy of the kernel-induced output distribution. 
+
+Key property. Because we use a deterministic sampler (PLMS with η = 0 ), the only source of randomness is the initial latent noise zT ∼ N (0 , I ). The entropy we estimate is therefore model-induced diversity—the pushforward entropy of N (0 , I ) through fθ (·, c )—not sampler noise. This avoids step-wise noise inflation and confounding stochasticity from the sampling procedure. 
+
+Important caveats. The quantities we estimate are not : (i) the true data entropy H(pdata (X | C)) ;(ii) the training objective entropy; or (iii) Shannon mutual information I(X; C) in pixel space. Rather, we estimate the conditional entropy of the generative model’s output distribution , under a fixed inference procedure, measured in VFM (UNI) embedding space. This is a valid and infor-mative diagnostic because UNI embeddings are approximately information-preserving for tissue-level semantics—the relevant notion of diversity in histopathology. The difference I(X; C) = 
+
+H(X) − H(X | C) is a kernel-induced Shannon mutual information, which is monotonic in di-versity and comparable across models evaluated with the same kernel and embedding space. 16 C.2 Measurement Protocol Step 1: Clustering. We apply spherical k-means on TCGA-BRCA UNI embeddings ( ∼500 k sam-ples) to obtain conditioning clusters. We evaluate K ∈ { 5, 8, 10 , 12 , 15 , 20 , 30 }, selecting K∗ = 10 
+
+via the elbow method with Adjusted Rand Index (ARI) stability ≥ 0.90 across bootstrap resamples. Cluster weights wk = |Ck|/N total reflect the empirical conditioning distribution. 
+
+Step 2: Conditional entropy H(X | C). For each cluster k, we sample conditioning vectors 
+
+ck,m and generate multiple images per condition by varying zT . The per-condition Vendi Score estimates H(X | C = ck,m ). Averaging over conditions with cluster weights gives ˆH(X | C) = P 
+
+> k
+
+wk · Em[H(X | C = ck,m )] .
+
+Step 3: Marginal entropy H(X). We pool all generated samples across all conditions and compute a single Vendi Score on the full set. This approximates H(X) via Monte Carlo marginalization over 
+
+C.
+
+Step 4: Mutual information. I(X; C) = H(X) − H(X | C), normalized as ρcond =
+
+I(X; C)/H (X).
+
+Step 5: Inter-cluster spectral diversity. We compute SPEC-diff [23]—the operator norm of the difference between per-cluster and overall kernel matrices—to quantify inter-cluster spectral diver-sity. Low CVS combined with low SPEC-diff is a signature of conditioning collapse. 
+
+C.3 Linear Probing: SPIDER-breast Dataset 
+
+The linear probing evaluation uses SPIDER-breast [44] with an 11-class binary split into Be-nign/Proliferative (6 classes, 26,664 patches) and Malignant (5 classes, 27,164 patches); class-level breakdown in Table 7. A linear classifier is trained on frozen embeddings from each model/encoder; AUROC with 95% bootstrap CI is reported in Table 8. Table 7: SPIDER-breast class composition.                
+
+> Class Patches
+> Benign/Proliferative (6 classes)
+> Adenosis 2,899 Sclerosing adenosis 3,423 Fibrocystic changes 5,027 Typical ductal hyperplasia 5,546 Fibroadenoma 5,243 Benign phyllodes 4,526
+> Subtotal 26,664 Malignant (5 classes)
+> DCIS low-grade 5,017 DCIS high-grade 5,632 Invasive NST carcinoma 6,142 Lobular invasive carcinoma 5,102 Malignant phyllodes 5,271
+> Subtotal 27,164
+> Total 53,828
+
+Table 8: Linear-probe AUROC (95% bootstrap CI) on SPIDER-breast.              
+
+> Encoder dAUROC [95% CI]
+> UNI2-h 1536 0.997 [0.996, 0.998] UNI 1024 0.995 [0.993, 0.996] DINOv3-L 1024 0.937 [0.931, 0.942] PixCell VAE 16 0.640 [0.628, 0.653] ZoomLDM VAE 30.624 [0.611, 0.637]
+
+C.4 Intrinsic Geometry: Extended Analysis 
+
+We extend the geometric characterization of Xiong et al. [60] to TCGA-BRCA at scale ( ∼1M20 × patches) for UNI ( d=1024 ) and UNI2-h ( d=1536 ). Spectral analysis of the ℓ2-normalized feature covariance reveals high effective rank— Reff = 252 and 265 respectively, with von Neu-mann entropy S1 = 5.53 and 5.58 —consistent with Xiong et al.’s result of Reff = 235 .5
+
+for UNI on Camelyon16, confirming that histopathology-specific self-supervised pretraining dis-tributes semantic information across hundreds of dimensions. Tangent space analysis ( k=12 , in-trinsic dimension ds=10 ) shows drift rising steeply from 0.737 ±0.141 /0.721 ±0.147 at hop 1 to 
+
+0.943 ±0.016 /0.941 ±0.017 at hop 3, saturating near 0.976 at hop 7. The sharp collapse in stan-17 (a) Spectral analysis (b) Tangent drift 
+
+Figure 3: Intrinsic geometry of histopathology VFM feature manifolds on TCGA-BRCA. (a) Eigen-value spectrum of the ℓ2-normalized feature covariance for UNI and UNI2-h, showing high effective rank ( Reff = 252 /265 ). (b) Tangent drift D vs. graph-hop distance, demonstrating monotonically increasing misalignment of local tangent spaces—direct evidence of a curved, non-flat manifold structure. dard deviation beyond hop 3 ( σ < 0.02 ) demonstrates stable, data-wide manifold curvature— substantially exceeding values reported for CONCH [40] by Xiong et al. [60]. 
+
+## D Additional Technical Details 
+
+D.1 Noise Schedule Choice 
+
+The KL expansion of the Brownian bridge yielding sin( nπt ) modes (with eigenvalues λn =1/(nπ )2) and the rationale for using only the n = 1 mode are stated in Section 4.2; here we contrast the resulting bridge perturbation with VE/VP alternatives. The bridge-type perturbation is chosen over VE/VP alternatives for three reasons: (i) Exact boundary conditions : σ(0) = σ(1) = 0 ensures X0 = x0 and X1 = x1 exactly; VE-type processes do not naturally satisfy σ(1) = 0 .(ii) Intrinsic to Sd−1: VP-type linear interpolation (1 − β)x0 + βx 1 + σϵ leaves the sphere; our construction uses the exponential map, keeping all intermediate points on Sd−1.(iii) Controlled noise budget : R 10 σ(t)2 dt = σ2max /2 directly controls transport error via Theo-rem 7. 
+
+D.2 x-Prediction Formulation and Chord-vs-Geodesic Loss 
+
+The conditional velocity contains σ′(t)/σ (t) = π cos( πt )/ sin( πt ), which diverges at t = 0 and 
+
+t = 1 . The x-prediction formulation [33] avoids this: the network fθ (xt, t ) predicts the data endpoint with normalized output ˆx1 = fθ (xt, t )/∥fθ (xt, t )∥, and at inference the velocity is recovered as 
+
+vθ (xt, t ) = Log xt (ˆ x1)/(1 − t). The sin( πt )/(1 − t) → π cancellation (Theorem 6) ensures this remains bounded as t → 1. Time t is sampled from a logit-normal distribution clamped to [ϵt, 1−ϵt]
+
+with ϵt = 10 −5, following the time-shift formulation of Esser et al. [15]; both x-prediction and the logit-normal schedule are inherited from pixel-space flow matching without Riemannian-regime ablation. 
+
+Chord vs. geodesic loss (full derivation). The natural Riemannian (geodesic) training loss mea-sures velocity error in the tangent space via the logarithmic map: 
+
+Lgeo (θ) = Et, (x0,x 1)∼π, ϵ 
+
+" ∥ Log xt (ˆ x1) − Log xt (x1)∥2
+
+> g
+
+(1 − t)2
+
+#
+
+. (11) However, the Log map involves arccos (cf. Eq. (10)), whose Jacobian diverges as θ =arccos( ⟨xt, ˆx1⟩) → 0, i.e., when the prediction collapses toward the current point xt — a regime 18 Algorithm 1: STREAM Stage 1 DiT Training 
+
+Input: Data features {Z1,j }Bj=1 ∼ pdata on (Sd−1)N , noise level σmax  
+
+> 1
+
+for each minibatch do  
+
+> 2
+
+Sample Z0,j ∼ Uniform (( Sd−1)N ) for j = 1 , . . . , B ; 
+
+> 3
+
+Sample t ∼ Logit-Normal (−0.5, 1) , clamp to [ϵt, 1 − ϵt]; 
+
+> 4
+
+for each token n = 1 , . . . , N do  
+
+> 5
+
+μ(n) 
+
+> t
+
+← SLERP( z(n)0 , z (n)1 , t ); 
+
+> 6
+
+Sample ϵ(n) ∼ N (0 , Πμ(n)
+
+> t
+
+); 
+
+> 7
+
+z(n) 
+
+> t
+
+← Exp μ(n)
+
+> t
+
+(σmax sin( πt ) · ϵ(n)); 
+
+> 8
+
+end  
+
+> 9
+
+Predict ˆZ1 = fθ (Zt, t ); normalize each token: ˆz(n)1 ← ˆz(n)1 /∥ˆz(n)1 ∥; 
+
+> 10
+
+L ← 1 
+
+> N(1 −t)2
+
+PNn=1 ∥ˆz(n)1 − z(n)1 ∥2 ; // chord loss  
+
+> 11
+
+Update θ via gradient descent on L; 
+
+> 12
+
+end 
+
+that becomes unavoidable near t = 1 where xt ≈ x1. This creates a poorly conditioned gradient landscape. The chord loss Eq. (5) replaces the tangent-space distance with the ambient ℓ2 distance between normalized predictions and shares the same population minimizer ( ˆx1 = x1) and the same inference velocity vθ (xt, t ) = Log xt (ˆ x1)/(1 − t); only the training gradient landscape changes, avoiding the arccos singularity. 
+
+D.3 Stage 1 and Stage 2 Training Algorithms 
+
+Algorithm 1 summarizes Stage 1 training of the LightningDiT-XL generator fθ on bridge-perturbed VFM embeddings (Theorem 1) with the chord loss Eq. (5). For each minibatch, source latents 
+
+Z0 are sampled from the uniform distribution on (Sd−1)N , paired with data latents Z1 from the encoder; per-token bridge interpolants z(n) 
+
+> t
+
+= Exp μ(n)
+
+> t
+
+(σmax sin( πt ) ϵ(n)) are formed with ϵ(n) ∼N (0 , Πμ(n)
+
+> t
+
+); and the network’s normalized prediction is regressed against the data endpoint with the 1/(1 − t)2 weighting absorbed into the chord loss. Algorithm 2 summarizes Stage 2 decoder training. The trained DiT fθ and frozen encoder E are reused; the precomputed centroid bases {UH (¯ zc), U L(¯ zc)}Kc=1 from the SVD of the velocity-field Jacobian (Section 4.3) determine the anisotropic noise covariance for each token. Each minibatch encodes images, perturbs each token with anisotropic noise drawn from its assigned centroid’s co-variance, projects back onto Sd−1, and decodes; the 4-component loss Eq. (7) combines pixel-space 
+
+ℓ1, LPIPS, a cosine round-trip term targeting the clean latent (forcing the decoder to denoise), and an adaptive adversarial term. 
+
+D.4 Integration Approximation and Generation Algorithm 
+
+At inference, we use per-token projected Euler integration (z(n) + v(n) · dt )/∥z(n) + v(n) · dt ∥ rather than the exact Riemannian exponential map. Projection must be applied per-token (onto Sd−1 for each token n), not globally (which would project onto SN d −1 and destroy the product structure). This is a first-order retraction with per-step error O(∥v(n)∥2dt 2).For faster generation, nsteps = 25 midpoint Euler steps (second-order Runge–Kutta with per-token projection) achieve comparable accuracy at reduced cost. Each step (a) advances by a half-step 
+
+z(n)1/2 ← (z(n) + ( dt/ 2) v(n) 
+
+> t
+
+)/∥ · ∥ , (b) evaluates the midpoint velocity v(n) 
+
+> mid
+
+= Log z(n)1/2
+
+(ˆ z(1 /2) 1 )/(1 −
+
+t−dt/ 2) from a fresh network call at t+dt/ 2, then (c) takes a full step z(n) ← (z(n) +dt v (n) 
+
+> mid
+
+)/∥·∥ .This achieves O(dt 3) per-step error (global O(dt 2)) vs. O(dt 2) per-step ( O(dt ) global) for projected Euler, so fewer steps suffice for matched accuracy. Algorithm 3 above details the full generation routine. 19 Algorithm 2: STREAM Stage 2 Decoder Training 
+
+Input: Frozen DiT fθ , frozen encoder E, centroids {¯zc}Kc=1 and bases {UH (¯ zc), U L(¯ zc)}Kc=1 ,noise scales σH , σ L, loss weights (λℓ1 , λ LPIPS , λ cos , ω G) 
+
+> 1
+
+for each minibatch of images {Ij }Bj=1 do  
+
+> 2
+
+Encode: Zj ← E(Ij ) ∈ (Sd−1)N ; // frozen  
+
+> 3
+
+for each token n = 1 , . . . , N do  
+
+> 4
+
+c∗ ← arg min c ∥z(n) − ¯zc∥ ; // nearest centroid  
+
+> 5
+
+Σ(n) ← σ2 
+
+> H
+
+UH (¯ zc∗ )UH (¯ zc∗ )⊤ + σ2 
+
+> L
+
+UL(¯ zc∗ )UL(¯ zc∗ )⊤; 
+
+> 6
+
+Sample n(n) ∼ N (0 , Σ(n)); 
+
+> 7
+
+˜z(n) ← (z(n) + n(n))/∥z(n) + n(n)∥ ; // retract to Sd−1 
+
+> 8
+
+end  
+
+> 9
+
+Decode: ˆIj ← Dϕ(˜Zj ); 
+
+> 10
+
+Round-trip: zrt ,j ← E( ˆIj ) ; // frozen encoder  
+
+> 11
+
+Ldec ← λℓ1 ∥ ˆIj − Ij ∥1 + λLPIPS LPIPS ( ˆIj , I j ) + λcos (1 − ⟨ zrt ,j , z j ⟩) + ωG λadapt Ladv ; 
+
+> 12
+
+Update ϕ via gradient descent on Ldec ; 
+
+> 13
+
+end Algorithm 3: STREAM Generation 
+
+Input: Number of steps nsteps = 25 , decoder Dϕ 
+
+> 1
+
+Sample Z0 ∼ Uniform (( Sd−1)N ); 
+
+> 2
+
+dt ← 1/n steps ; 
+
+> 3
+
+for i = 0 , . . . , n steps − 1 do  
+
+> 4
+
+t ← i/n steps ; 
+
+> 5
+
+ˆZ1 ← fθ (Z, t ); normalize each token;  
+
+> 6
+
+for each token n do  
+
+> 7
+
+v(n) ← Log z(n) (ˆ z(n)1 )/(1 − t) ; // velocity at t 
+
+> 8
+
+z(n)1/2 ← (z(n) + ( dt/ 2) · v(n))/∥ · ∥ ; // half-step retraction  
+
+> 9
+
+end  
+
+> 10
+
+ˆZ(1 /2) 1 ← fθ (Z1/2, t + dt/ 2) ; normalize each token ; // fresh DiT call  
+
+> 11
+
+for each token n do  
+
+> 12
+
+v(n) 
+
+> mid
+
+← Log z(n)1/2
+
+(ˆ z(1 /2) ,(n)1 )/(1 − t − dt/ 2) ; 
+
+> 13
+
+z(n) ← (z(n) + dt · v(n) 
+
+> mid
+
+)/∥ · ∥ ; // full step with midpoint velocity  
+
+> 14
+
+end  
+
+> 15
+
+end  
+
+> 16
+
+return Dϕ(Z);
+
+## E STREAM Training Hyperparameters 
+
+Architectures. The DiT generator uses LightningDiT-XL [64]: 28 layers, hidden 1152 , 16 heads, SwiGLU FFN, RMSNorm, RoPE positional embeddings, AdaLN-Zero modulation (time-only), 
+
+∼ 676 M parameters; per-token ℓ2-normalized output for x-prediction on Sd−1. The decoder uses the ViT-XL decoder of RAE [70] (built on the ViT architecture [13]) with Tanh output mapped to [−1, 1] . The encoder is frozen UNI ViT-L/16 [10] (ViT [13]) producing 256 ℓ2-normalized to-kens of dimension 1024 from 256 × 256 patches. The discriminator is Kaiko ViT-S/8 [25] — a histopathology-specific Vision Transformer pretrained on large-scale tissue patches — with frozen backbone and trainable spectrally-normalized projection heads, so the adversarial signal is computed in a pathology-aware feature space rather than a natural-image one. 
+
+Fair-comparison protocol. Baselines vary in batch size and reported step count. To equalize com-pute, we trained every baseline (and STREAM) for the ImageNet-equivalent of 80 epochs, adjusting 20 Table 9: STREAM training hyperparameters.                                                            
+
+> Setting Stage 1 (DiT) Stage 2 (Decoder) Architecture LightningDiT-XL ViT-XL decoder + Kaiko disc. Parameters ∼676 MViT-XL + frozen UNI + frozen Kaiko Loss Chord loss Eq. (5) ℓ1+ LPIPS + cos round-trip + GAN Loss weights —λℓ1=1 .0, λ LPIPS =0 .5, λ cos =0 .5, ω G=0 .75
+> Time sampling Logit-Normal (−0.5,1) on [ϵt,1−ϵt],
+> ϵt=10 −5
+> —Bridge σmax 0.01 —Noise injection —Anisotropic SVD (Eq. (6)): σH=0 .002 ,
+> σL=0 .02 ,τ=0 .90
+> Optimizer AdamW, β=(0 .9,0.95) AdamW, β=(0 .9,0.95) , WD = 0 .05
+> Learning rate 4×10 −4, constant 2×10 −4→2×10 −5cosine Warmup 5000 steps 3000 steps Schedule —3-phase: A(0 –17 .5%) recon; B
+> (17 .5–20%) disc; C (20 –100%) full Steps 95K 90K Batch size 1024 512 Grad clip 5.0—EMA decay 0.9999 0.9978
+> Generation 25 midpoint Euler steps —
+
+the total number of optimization steps to match the dataset × batch-size product accordingly. All hyperparameters other than schedule length follow each method’s published configuration. The cosine round-trip loss in Stage 2 targets the clean features z (not the noisy input ˜z), so the decoder implicitly learns to denoise. The construction ˜z = ( z+n)/∥z+n∥ with n ∼ N (0 , Σnoise (z)) 
+
+adds noise in the ambient space and then re-projects onto Sd−1 per token; this approximates a tangent-Gaussian perturbation Exp z (η) with η ∈ Tz Sd−1 to first order in ∥n∥. Adversarial adaptive weight: λadapt = ∥∇ last Lrec ∥/(∥∇ last Ladv ∥ + 10 −6), clamped to [0 .05 , 10000] .
+
+SVD of the velocity-field Jacobian (computation). Using torch.func.jvp for batched forward-mode AD: m = 600 random Gaussian tangent probes per centroid yield m Jacobian-vector products, then SVD of the resulting d × m matrix (per token). This is a randomized-range-finder construction in the sense of Halko et al. [18]: with target effective rank k∗ ≈ 60 –120 and probe count m = 600 , the oversampling ratio m/k ∗ ≈ 5–10 is well above the constant-factor regime where the Halko bounds give near-optimal top-k∗ subspace recovery with overwhelming probabil-ity ( ≥ 1 − O(m−(m−k∗)) in the spectral norm). Features are clustered into K = 50 centroids via 
+
+k-means on mean-pooled token features, with one SVD per centroid. At training time, each sample is assigned to its nearest centroid and receives the corresponding anisotropic noise. Total SVD cache size: ∼ 30 GB ( K × N × d × m). The deployed energy threshold τ = 0 .90 yields per-centroid k∗ in the regime 1 ≪ k∗ ≪ d − 1, where the anisotropic covariance differs meaningfully from isotropic. 
+
+## F Encoder Quality Dependence 
+
+We provide three cross-encoder analyses supporting the encoder-dependent anisotropic-decoder advantage of Table 6. Together they identify the failure mode of domain-mismatched encoders (DINOv2-L on TCGA-BRCA) as basis instability and effective-rank degeneracy rather than DiT incompetence. 
+
+F.1 Subspace Stability Across Centroids 
+
+For each encoder (UNI, DINOv2-L) we compute the cached per-(centroid, token) SVD of the velocity-field Jacobian at the deployed time anchor and measure the principal-angle alignment of the top-k = 64 subspace between every pair of K = 50 centroids (  50 2
+
+ = 1225 pairs per encoder). The alignment metric is the squared Frobenius inner product of QR-orthonormalized top-k bases, averaged per token then across tokens. 21 UNI yields median alignment 0.360 (IQR [0 .330 , 0.388] , range [0 .158 , 0.462] ); DINOv2-L yields 
+
+0.228 (IQR [0 .206 , 0.251] , range [0 .131 , 0.314] ). Paired bootstrap on ∆median = +0 .132 has 98 .75% 
+
+CI [0 .127 , 0.137] excluding zero; KS test p ≈ 0; Mann–Whitney p ≈ 0 (alternative: UNI >
+
+DINOv2-L). UNI’s pathology pretraining produces consistently more stable cross-centroid bases than DINOv2-L’s natural-image pretraining—exactly what the anisotropic decoder needs. 
+
+F.2 Effective Rank Distribution Across Centroids 
+
+For each encoder we compute the τ = 0 .9 effective rank k∗ 
+
+> τ
+
+= min {k : P 
+
+> i≤k
+
+s2 
+
+> i
+
+/ P 
+
+> i
+
+s2 
+
+> i
+
+≥ τ } per (centroid, token) and report the per-centroid distributions across K = 50 centroids and N = 256 
+
+tokens. UNI: k∗ median 238 (IQR [214 .5, 253] , range [178 , 336] ). DINOv2-L: k∗ median 280 (IQR 
+
+[268 , 293 .75] , range [1 , 343] ). DINOv2-L’s range includes degenerate centroids ( k∗ = 1 ) where the Jacobian is dominated by a single direction—a pathology absent in UNI. The wider distribu-tion and degenerate floor confirm that domain mismatch produces unstable basis dimensionality, undermining any fixed-k∗ anisotropic allocation. 
+
+F.3 Diffusion Transformer vs. Decoder Isolation via Latent-Space Fréchet Distance (FD) 
+
+To rule out the alternative explanation that DINOv2-DiT itself fails to generate plausible latent sam-ples (which would invalidate the basis-stability story), we compute the latent-space Fréchet Distance (FD) between 1,000 DiT-generated latent samples and the corresponding real test latents in each en-coder’s own latent space (mean-pooled tokens) — i.e., the multivariate-Gaussian Fréchet distance 
+
+FD( ˆZ, Zreal ) = ∥μˆZ − μZreal ∥2 + tr(Σ ˆZ + Σ Zreal − 2(Σ ˆZΣZreal )1/2) on the encoder’s native feature space, analogous to FID but evaluated on encoder features rather than Inception/Virchow2 features. Generation uses the deployed integrator at K = 25 steps; the comparison is in the encoder’s native latent space, isolating DiT competence from any decoder behavior. UNI-DiT yields FD UNI-latent = 0 .030 ; DINOv2-DiT yields FD DINOv2-latent = 0 .032 . The ratio FD DINOv2 /FD UNI = 1 .04 falls comfortably in the [0 .5, 3] band that we pre-registered as the DiT-validity range, indicating DINOv2-DiT generates distributionally-correct latents. The end-to-end gFID gap (Table 6) therefore isolates to the decoder, consistent with the basis-stability mechanism above. 
+
+## G Decoder Noise Magnitude Ablation 
+
+We ablate the low-energy decoder noise magnitude σL on TCGA-BRCA at 45K decoder train-ing steps with all other settings fixed at the deployed configuration ( σH = 0 .002 , τ = 0 .90 ,
+
+σmax = 0 .01 bridge, UNI encoder). The deployed default σL = 0 .02 minimizes gFID. Increas-ing σL predictably increases rFID — the decoder’s reconstruction of clean inputs degrades because it has been trained to denoise increasingly large perturbations — but the relationship with gFID is non-monotone. Going from σL = 0 .01 to 0.02 increases rFID and decreases gFID; pushing further to σL = 0 .03 injects too much noise into the low-energy directions during decoder training, and the decoder begins absorbing these directions in addition to the residual generation drift it was meant to absorb, which corrupts the final image and degrades gFID. Removing low-energy noise entirely (σL = 0 ) recovers the no-bridge anisotropic-decoder row of Table 4 (Row 2: gFID 8.27 , rFID 5.02 ), worse than every nonzero entry below on gFID — confirming both that low-energy noise injection is essential, and that the deployed magnitude sits at the optimum of the explored grid. Table 10: Decoder σL ablation on TCGA-BRCA at 45K decoder steps. Bridge ( σmax =0 .01 ) and 
+
+σH =0 .002 held fixed.            
+
+> σLrFID ↓gFID ↓
+> 0.01 2.41 7.39
+> 0.02 (deployed) 3.52 6.86
+> 0.03 5.12 7.97
+
+22 H Image Gallery 
+
+> 23
+
+H.1 Reconstruction comparison on TCGA-BRCA 
+
+GT 1 GT 2 GT 3 GT ZoomLDM PixCell STREAM (Ours) RAE SVG 
+
+Figure 4: Reconstruction comparison on TCGA-BRCA: ground truth (GT) and reconstruction outputs (used for rFID evaluation) from ZoomLDM, PixCell, STREAM (Ours), RAE, and SVG. Patches were selected by per-image LPIPS ranking on the GT–reconstruction pairs to highlight per-ceptual differences across models. 24 H.2 Reconstruction comparison on TCGA-COADREAD 
+
+GT 1 GT 2 GT 3 GT ZoomLDM PixCell STREAM (Ours) RAE SVG 
+
+Figure 5: Reconstruction comparison on TCGA-COADREAD: ground truth (GT) and reconstruc-tion outputs (used for rFID evaluation) from ZoomLDM, PixCell, STREAM (Ours), RAE, and SVG. Patches were selected by per-image LPIPS ranking on the GT–reconstruction pairs to highlight per-ceptual differences across models. 25 H.3 Generation samples on TCGA-BRCA 
+
+Cluster 1 Cluster 2 Cluster 3 ZoomLDM PixCell STREAM (Ours) RAE SVG 
+
+Figure 6: Generation samples on TCGA-BRCA: unconditional samples (used for gFID evaluation) from ZoomLDM, PixCell, STREAM (Ours), RAE, and SVG. Each column corresponds to a repre-sentative tissue cluster obtained by K-means on Virchow2 features of the GT set; for each cluster we display the per-model sample whose Virchow2 feature is closest to the cluster centroid. 26 H.4 Generation samples on TCGA-COADREAD 
+
+Cluster 1 Cluster 2 Cluster 3 ZoomLDM PixCell STREAM (Ours) RAE SVG 
+
+Figure 7: Generation samples on TCGA-COADREAD: unconditional samples (used for gFID eval-uation) from ZoomLDM, PixCell, STREAM (Ours), RAE, and SVG. Each column corresponds to a representative tissue cluster obtained by K-means on Virchow2 features of the GT set; for each cluster we display the per-model sample whose Virchow2 feature is closest to the cluster centroid. 27

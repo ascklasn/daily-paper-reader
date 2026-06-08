@@ -1,0 +1,687 @@
+Title: LLM-Guided Evolution for Medical Decision Pipelines
+
+URL Source: https://arxiv.org/pdf/2606.07342v1
+
+Published Time: Mon, 08 Jun 2026 01:13:15 GMT
+
+Number of Pages: 23
+
+Markdown Content:
+# LLM-Guided Evolution for Medical Decision Pipelines 
+
+Ivan Sviridov 1,* , Artem Oskin 2, Ivan Panin 2,Iaroslav Bespalov 2, Dmitry Dylov 2, Ivan Oseledets 2, Aleksandr Nesterov 2,* 
+
+> 1
+
+Sber AI Lab, 2AIRI    
+
+> *Correspondence: Ivan Sviridov, wchhiaarid@gmail.com ; Aleksandr Nesterov, nesterov@airi.net
+
+Abstract 
+
+Adapting large language models (LLMs) to clinical workflows often requires costly fine-tuning or manual prompt and pipeline engineer-ing. We study LLM-guided MAP-Elites evolu-tion as an inference-time alternative for discov-ering medical decision strategies and provide an implementation repository. We formulate urgency triage, interactive consultation, and medical image classification as evolutionary searches over executable artifacts optimized by task-specific fitness functions. Across all three settings, evolution improves over manually designed baselines under practi-cal constraints. In triage, evolved programs increase Semigran accuracy from 77 .3% to 
+
+87 .1% and emergency recall from 0.60 to 
+
+0.97 , while improving safety-weighted held-out MIMIC-ESI performance. In interactive consultation, evolved policies improve the accuracy–cost frontier across Llama-3, Qwen-3.5, and Gemma-4 and transfer to held-out iCRAFTMD. In PneumoniaMNIST, prompt-only evolution improves frozen MedGemma VLMs while preserving strict JSON outputs. Qualitative analysis shows that the gains come from interpretable program-level mechanisms, calibrated triage boundaries, targeted evidence acquisition, selective commitment, and finding-oriented visual decision rules, rather than su-perficial prompt rewording alone. 
+
+1 Introduction 
+
+Recent advances in deep learning, particularly large language models (LLMs), have enabled increas-ingly capable medical decision pipelines that com-bine model inference with prompting strategies, evidence acquisition, and task-specific decision rules. Such pipelines have demonstrated strong per-formance across clinical settings such as medical triage, image classification, and interactive clini-cal reasoning (Masanneck et al., 2024; Fang et al., 2025; Li et al., 2024), motivating growing interest in using LLMs to assist clinical decision-making and support healthcare workflows. However, adapting LLMs to specialized domains such as healthcare remains computationally and operationally expensive. Fine-tuning LLMs re-quires substantial GPU resources, large-scale an-notated datasets, and careful hyperparameter op-timization (Singh et al., 2025). In parallel, de-veloping effective prompting strategies and infer-ence pipelines often depends on iterative human-in-the-loop refinement, expert intuition, and repeated empirical testing (Shen et al., 2018; Zhang et al., 2025). This manual process of refining prompts, parameters, and heuristics is time-consuming, dif-ficult to reproduce, and often inconsistent across practitioners and application settings (Beam et al., 2020; Ferreira et al., 2025). Recently, LLM-guided MAP-Elites optimization has emerged as an inference-time alternative to fine-tuning and manual pipeline engineering (Lehman et al., 2022). MAP-Elites is a quality-diversity al-gorithm that preserves high-performing candidates across behavioral dimensions rather than optimiz-ing only a single best solution (Mouret and Clune, 2015).In this setting, a frozen LLM mutates candi-date artifacts such as programs, configurations, or prompts, while task-specific evaluators score them and update the archive (Lim et al., 2024). This com-bination of LLM-based rewriting and archive-based selection has improved solutions across algorith-mic and optimization tasks (Novikov et al., 2025; Khrulkov et al., 2025). However, compared with other application domains, the use of MAP-Elites-based, LLM-driven evolutionary frameworks in medicine re-mains limited. Existing MAP-Elites prompt-optimization studies mainly target general-domain benchmarks (Santos et al., 2025), leaving open whether such methods can optimize medical de-cision pipelines across a broader clinical decision spectrum. We therefore study three complemen-1
+
+> arXiv:2606.07342v1 [cs.CL] 5 Jun 2026
+
+tary settings that span distinct modes of clinical reasoning: triage classification for risk-sensitive urgency assessment (Da’Costa et al., 2025), inter-active consultation for sequential evidence acquisi-tion under incomplete information (Li et al., 2024), and medical image classification for visual diagno-sis (Schouten et al., 2025). Across these settings, we evaluate whether LLM-guided MAP-Elites evolution can improve medical decision pipelines over manually designed base-lines while preserving practical constraints such as interaction cost, safety-relevant behavior, and output validity. We use task-specific candidate rep-resentations and MAP-Elites configurations, rang-ing from executable decision programs to prompt-producing modules to support search across het-erogeneous clinical decision settings rather than a single fixed pipeline. 
+
+Contributions. Our contributions are threefold. 
+
+(i) We show that LLM-guided MAP-Elites evo-lution can generate and refine medical decision strategies that match or outperform manually de-signed baselines under task-specific clinical objec-tives across three decision settings. (ii) We evaluate when and how these gains hold through quantita-tive and qualitative analyses of accuracy, safety-relevant behavior, interaction cost, cross-model transfer, held-out generalization, and ablations. (iii) 
+
+We show that the gains arise from interpretable changes in decision logic, including risk-sensitive classification, targeted evidence acquisition, se-lective commitment, and finding-oriented visual prompts with strict structured outputs. 
+
+2 Related Work 
+
+Evolutionary algorithms (EAs) are population-based optimizers that iteratively generate, evaluate, and select candidate solutions under a task-specific fitness function ( ˇ Crepinšek et al., 2013). A par-ticularly relevant family is MAP-Elites , a quality-diversity algorithm that preserves high-performing candidates in an archive indexed by behavioral de-scriptors (Mouret and Clune, 2015). Rather than returning only a single best solution, MAP-Elites maintains diverse solution types while optimizing fitness within each archive cell, making it well-suited to automated pipeline design where struc-turally different programs or prompts may solve the same task through different strategies (Lim et al., 2024). Recent work combines this archive-based search with LLM-generated mutations: pre-trained LLMs have been used as mutation operators for discovering robot-control programs (Lehman et al., 2022), as program-search engines for mathemati-cal discovery (Romera-Paredes et al., 2024), and as coding agents for larger codebases and scientific or engineering tasks (Novikov et al., 2025). Related work on co-evolving rationales with executable code and on open-source evolutionary optimiza-tion frameworks further suggests that LLM-guided evolutionary search is reproducible and broadly ap-plicable (Liu et al., 2024; Khrulkov et al., 2025). These studies establish LLM-guided evolution as a general program-optimization paradigm, but they do not directly address safety-sensitive medical de-cision pipelines. Automated LLM optimization has begun to ap-pear in medical machine learning. However, exist-ing work mostly targets isolated prompts or general medical QA benchmarks rather than executable de-cision procedures whose prompts, control logic, interaction policy, and output constraints can all change during search (Chen et al., 2025; Wu et al., 2025). This distinction is important across the three settings we study. In triage, prior work evalu-ates LLMs and symptom-checking systems under fixed prompts or manually designed decision proce-dures, rather than evolving the decision pipeline it-self (Williams et al., 2024; Masanneck et al., 2024; MedAsk, 2025). In medical image analysis, recent studies typically evaluate fixed radiology-inspired prompts, visual finding checklists, or manually as-sembled description-then-classification pipelines, rather than treating the prompt or inference pro-cedure as an object of systematic evolutionary search (Qin et al., 2022; Byun et al., 2026). In multi-turn clinical dialogue, question-asking and abstention strategies are likewise manually de-signed and implemented as fixed policy families (Li et al., 2024). In contrast, we evaluate LLM-guided MAP-Elites as a unified approach for optimizing medical decision pipelines across triage classifica-tion, interactive consultation, and medical image classification, with task-specific fitness functions reflecting safety-sensitive recall, interaction cost, and structured-output validity. 
+
+3 Clinical Tasks 
+
+3.1 Shared Evolutionary Setup 
+
+We use GigaEvo, an open-source framework for LLM-guided program evolution with MAP-Elites search, asynchronous evaluation, rewrite-based mu-2tation, and lineage tracking (Khrulkov et al., 2025). Across tasks, candidate solutions are executable artifacts–decision programs, consultation policies, or prompt-producing modules–that are scored by task-specific fitness functions, selected via MAP-Elites, and rewritten by an LLM mutator. This formulation enables optimization of heterogeneous medical decision pipelines without fine-tuning the underlying task models. The mutation step requires reliable code rewrit-ing, structured use of fitness feedback, and med-ically informed reasoning. We therefore use 
+
+gpt-oss-120b as the evolver: an open-weight sparse-MoE model with strong reported coding, reasoning, tool-use, and structured-output capabil-ities (Agarwal et al., 2025). Its medical knowl-edge distillation further supports this setting, where candidate programs may elicit clinical reasoning without relying only on explicit domain knowledge bases (Zhou et al., 2025). For each task, we select final candidates based on training fitness and repeat-edly re-evaluate on held-out test data to account for LLM stochasticity. Task-specific candidates and fitness functions are described below; full seed pools, optimization details, and MAP-Elites hyper-parameters are in Appx. A. 
+
+3.2 Triage 
+
+Triage evaluates whether evolution can improve the assignment of urgency under asymmetric clinical risk. We consider two complementary formula-tions. The first is the Semigran vignette benchmark (Semigran et al., 2015), a three-class symptom-checker triage task with labels em (emergency), ne 
+
+(non-emergency requiring clinical evaluation), and 
+
+sc (self-care). Because Semigran contains only 45 vignettes, we additionally evaluate transfer to the independently constructed Levine et al. vignette set (Levine et al., 2023). The second formulation is MIMIC-IV-ED-derived Emergency Severity In-dex (ESI) prediction (Gaber et al., 2025), where each program receives a patient description contain-ing history of present illness, demographics, chief complaint, and initial vitals, and predicts an ESI level from 1 to 5. This setting supports a cleaner train/audit/test protocol: programs evolve on the MIMIC-derived training pool, are selected on a fixed, balanced audit split, and are finally evaluated on a held-out test split. Candidate triage systems are standalone Python modules that call the underlying LLM through structured helper APIs and return a prediction for each case. Evolution may therefore modify not only the prompt, but also decision decomposi-tion, voting, retrieval, resource scoring, and rule-based post-processing. In the Semigran setting, ini-tial programs include direct prompting, structured JSON output, chain-of-thought prompting, debate-style prompting, knowledge-base retrieval, severity scoring, and decision-tree logic. In the MIMIC-ESI setting, initial programs include article-style clini-cal prompts, structured ESI assessment, resource-count reasoning, self-consistency voting, and com-pact local ESI-reference retrieval. Detailed seed descriptions are in Appx. A.1. The Semigran fitness function combines overall accuracy with emergency recall ( Rem ), reflecting the higher clinical cost of undertriage; Rne and Rsc 
+
+denote non-emergency and self-care recall. For MIMIC-ESI, we optimize a safety-weighted ob-jective combining exact ESI accuracy, range accu-racy, and ESI-1 recall; range accuracy treats exact predictions and one-level safer overtriage as cor-rect. During the final evaluation, we additionally report undertriage, severe undertriage, overtriage, and class-specific recall to expose safety-specific trade-offs. Full formulas and audit/test selection details are given in Appx. A.1. 
+
+3.3 Interactive Consultation 
+
+Interactive consultation evaluates sequential evi-dence acquisition under incomplete information. We use the MEDIQ formulation (Li et al., 2024), where an Expert model receives an initially incom-plete patient case, asks follow-up questions to a Patient system, and decides when the collected evidence is sufficient to answer a multiple-choice medical question. We use the iMEDQA training split (Jin et al., 2021) and reserve iCRAFTMD as the held-out evaluation set (Johri et al., 2025). This task differs from static medical QA because the candidate must jointly learn when to ask, what to ask, and when to stop. Each candidate program implements an absten-tion policy controlling whether the Expert should continue information gathering or produce a final answer. We initialize from MEDIQ-style strate-gies, including implicit abstention, binary criteria, and numerical or scale-based confidence estima-tion, optionally combined with rationale genera-tion and self-consistency. We evaluate both di-rect comparability with Llama-3-8B-Instruct and Llama-3-70B-Instruct (Grattafiori et al., 2024) and transfer to stronger open-weight models, Qwen-33.5-27B (Team, 2026) and Gemma-4-31B. Since interaction cost is central to this setting, we report answer accuracy along with average Expert-token usage; for modern-model comparisons, we also use a Borda-style (Lippman, 2022) aggregate rank that combines accuracy and token cost. The full partial-evaluation scheme, including structured batches, lineage blending, and the follow-up-question cap, is described in Appx. A.2. 
+
+3.4 PneumoniaMNIST 
+
+PneumoniaMNIST evaluates prompt-only evolu-tion for fixed medical vision-language models. The task is binary pediatric chest-X-ray classifi-cation from the MedMNIST collection, with labels 
+
+normal and pneumonia (Yang et al., 2023). We run separate experiments for the MedMNIST+ im-age resolutions 28 × 28 , 64 × 64 , 128 × 128 , and 
+
+224 × 224 (Doerrich et al., 2025), and evaluate two MedGemma multimodal models: MedGemma-4B and MedGemma-27B multimodal (Sellergren et al., 2025). For each model-resolution pair, the underlying VLM, image preprocessing, label set, and JSON output parser are fixed; evolution can improve performance only by changing the prompt returned by the candidate program. Each candidate is a Python module that re-turns a prompt for the fixed MedGemma classi-fier, which must output strict JSON with class_id 
+
+and class_name . We initialize baselines from radiology-style prompts, select the best training seed as B ASE , evolve on a balanced 100-image training subset, and evaluate the selected Base and evolved prompts on the official test split. Full prompt seeds and optimization details are in Appx. A.3. 
+
+4 Quantitative Results 
+
+4.1 Triage Task Results Semigran Vignette Benchmark. Table 1 shows that MAP-Elites substantially improves over the best initial Semigran program. The strongest evolved program, SG-c1189 , reaches 87 .1% ± 2.0
+
+accuracy, improving over Base by +9 .8 pp ( p < 
+
+0.001 , Wilcoxon signed-rank, K=10 ), while in-creasing emergency recall from Rem = 0 .60 to 
+
+0.97 and preserving useful non-emergency and self-care recall. This result addresses the main baseline failure mode: the best initial program recognizes non-emergency and self-care cases well, but misses many emergency cases. Appx. B.3 further shows                                           
+
+> Program Acc (%) Rem Rne Rsc Fit. ∆Acc
+> Base (best init.) 77 .3±1.80.60 0.88 0.84 0.747 —
+> SG-c1189 87 .1±2.00.97 0.83 0.81 0.886 +9 .8
+> SG-a4a9e 86 .4±1.90.97 0.81 0.81 0.881 +9 .2
+> SG-3eed9 84 .0±2.00.93 0.81 0.78 0.853 +6 .7
+> SG-d49e8 83 .3±2.60.96 0.68 0.86 0.852 +6 .0
+> SG-1043d 81 .8±1.80.97 0.69 0.79 0.841 +4 .4
+
+Table 1: Top-5 evolved programs vs. best initial pro-gram on Semigran. All evolved programs significantly outperform Base ( p < 0.001 , Wilcoxon signed-rank, 
+
+K=10 paired runs).                                                        
+
+> System Model Acc (%) Rem Rne Rsc
+> Physicians aHuman 91.0 ———MedAsk bPropr. 82 .7±4.00.96 0.80 0.72 o4-mini co4-mini 80.4 0.89 0.81 0.71 o3 co3 75.6 0.91 0.83 0.53 o1 bo1 73 .3±3.50.87 0.89 0.44 GPT-4o bGPT-4o 69 .3±1.00.80 0.88 0.40 o3-mini bo3-mini 69 .3±2.90.80 0.95 0.33 GPT-4.5 cGPT-4.5 68.9 0.93 0.83 0.31 Base (best init.) gpt-oss-120b 77 .3±1.80.60 0.88 0.84
+> SG-c1189 gpt-oss-120b 87 .1±2.00.97 0.83 0.81
+
+Table 2: Comparison with published triage systems on Semigran. a (Semigran et al., 2015); b MedAsk, Mar 2025 (5 runs); c MedAsk, Jul 2025 (single run). 
+
+that this program transfers without code changes to unseen LLM backbones. Table 2 contextualizes this result against pub-lished Semigran triage systems. SG-c1189 outper-forms all compared LLM and symptom-checker baselines except human physicians, while main-taining both high emergency recall ( Rem > 0.97 )and self-care recall ( Rsc > 0.80 ). In contrast, high-recall external LLM baselines often sacrifice self-care recognition. On the independently constructed Levine vi-gnette set (Appx. B.4), SG-c1189 preserves per-fect emergency recall ( Rem = 1 .00 ) but drops to 
+
+75 .1% ± 2.9 accuracy due to conservative over-triage of non-emergency cases. This difference suggests safety-oriented transfer with Semigran-specific specialization. 
+
+MIMIC-ESI Benchmark. Table 3 reports re-sults on the held-out MIMIC-ESI test split (n=2 ,000 ). Unlike Semigran, this experiment uses a train/audit/test protocol: programs evolve on strat-ified batches from the MIMIC training pool, are selected on a fixed audit split, and are evaluated on the test split only after selection. Figure 2 in Appx. B.6 shows sustained improvement in archive fitness across generations. The best-evolved program, MIMIC-023 , outper-forms all hand-designed baselines. It reaches 
+
+62 .0% ± 0.4 exact accuracy, compared with 
+
+56 .7% ± 1.1 for the strongest exact-accuracy base-4line, KB-F ULL -C ONTEXT , and achieves fitness 
+
+0.648 ±0.003 , compared with 0.558 ±0.031 for the strongest baseline by fitness, S ELF -C ONSISTENCY -VOTE . It also improves range accuracy from 70 .3% 
+
+to 77 .0% and reduces severe undertriage from 
+
+3.6% to 1.2% relative to S ELF -C ONSISTENCY -VOTE . Other evolved programs exhibit different operating points: MIMIC-018 is close in terms of exact accuracy and fitness. In contrast, MIMIC-011 
+
+favors a more safety-oriented profile with higher range accuracy and ESI-1 recall but lower exact accuracy. Table 10 in Appx. B.5 contextualizes MIMIC-023 
+
+against the MIMIC-derived ESI results of Gaber et al. (Gaber et al., 2025). This comparison is not a di-rect replication, since the systems use different base models, retrieval setups, and evaluation splits. Still, 
+
+MIMIC-023 is competitive with Claude 3 Sonnet on exact accuracy ( 62 .0% vs. 61 .65% ), improves over it on range accuracy ( 77 .0% vs. 74 .55% ), and ap-proaches the RAG-assisted range accuracy reported in the reference study. 
+
+4.2 Interactive Consultation Task Results iM ED QA Results. Table 4 summarizes the main iM ED QA accuracy–cost comparison across expert models; full per-baseline results are provided in Appx. C.3. On Llama-3-8B and Llama-3-70B, the evolved strategy improves over the strongest non-evolved comparators with reported token us-age by +3 .1 and +3 .6 percentage points, respec-tively, while reducing average Expert-token usage by 89 .6% and 67 .6% . It also exceeds the best accu-racies reported by the original M EDI Q configura-tions, improving from 45 .8% to 48 .2% on Llama-3-8B and from 60 .9% to 62 .2% on Llama-3-70B. However, the use of tokens for those reference con-figurations is not stated in the original paper. The same pattern largely transfers to stronger open-weight models. On Qwen-3.5-27B, the evolved strategy achieves the best accuracy, im-proving over the numerical-cutoff baseline from 
+
+71 .1% to 73 .6% while reducing token usage from 
+
+2100 to 961 tokens. On Gemma-4-31B, the evolved strategy trades a small accuracy drop rel-ative to the numerical-cutoff baseline ( 75 .6% vs. 
+
+76 .4% ) for a much larger reduction in token usage (104 vs. 1412 tokens, 92 .6% fewer). Thus, evo-lution does not simply increase dialogue length: it finds policies that preserve or improve decision quality while moving the strategy toward a better accuracy–cost frontier. 
+
+Held-out Evaluation on iC RAFT MD. To as-sess whether the evolved strategy generalizes be-yond iM ED QA used during evolution, we evalu-ated the same mutants on the held-out iC RAFT MD split. Tables 11 and 12 in Appx. C show that the evolved strategy preserves its accuracy–cost ad-vantage across both model families, consistently achieving the highest aggregate rank of 7 under the Borda-style score. This observation again indicates that the strategy does not improve accuracy by sim-ply increasing the number of interaction tokens, but instead maintains strong decision quality while keeping interaction cost low. 
+
+Ablation Study. Table 14 in Appx. C.4 shows that both fitness-stabilization components matter: removing structured batch composition reduces Llama-3-8B accuracy from 48 .2% to 44 .8% , and further removing lineage blending lowers it to 
+
+43 .0% , indicating that both components help stabi-lize candidate ranking under partial evaluation. 
+
+4.3 Results for Classification of PneumoniaMNIST 
+
+Table 5 compares the best initial prompt and the best evolved prompt on the official Pneumoni-aMNIST test split across all image resolutions. For each model–resolution pair, Base denotes the highest-fitness initial seed prompt and Final de-notes the highest-fitness evolved prompt selected after evolution. Across resolutions, the evolved prompt improves test accuracy and macro-F1 for both MedGemma model families. Resolution has a strong effect, even though all images are resized to the MedGemma in-put size before inference: higher source resolution preserves more diagnostic structure before resiz-ing. For MedGemma-27B, both Base and Final improve sharply from 64 × 64 to 128 × 128 , after which performance largely saturates; the best result is obtained at 224 × 224 , with 84 .46% accuracy and 83 .88% macro-F1. The evolutionary gain is largest when the Base prompt is still weak, and be-comes smaller at 224 ×224 , where the Base prompt already reaches 83 .33% accuracy. MedGemma-4B is more resolution-sensitive in absolute performance, but also benefits more from prompt evolution at low and medium resolutions. Its Base prompt remains below 51% accuracy up to 128 × 128 , whereas Final reaches 68 .01% at 
+
+28 ×28 and 63 .24% at 64 ×64 . At 224 ×224 , Final reaches the strongest 4B result, 72 .50% accuracy, 5Program Exact (%) ↑ Range (%) ↑ Under. (%) ↓ Severe under. (%) ↓ RESI= 1 ↑ Fitness ↑                                                                                                            
+
+> Article prompt clinical 51 .4±0.564 .7±0.135 .1±0.15.0±0.127 .3±1.20.523 ±0.004
+> KB-Full-Context 56 .7±1.165 .0±1.734 .9±1.63.7±0.416 .2±0.40.547 ±0.010
+> Self-Consistency-Vote 54 .1±2.570 .3±4.729 .2±4.73.6±1.630 .4±3.50.558 ±0.031
+> MIMIC-011 53 .5±2.078 .4±2.615 .8±2.72.7±3.779 .8±0.40.624 ±0.019
+> MIMIC-018 60 .9±0.875 .4±0.522 .8±0.61.0±0.056 .0±1.30.640 ±0.008
+> MIMIC-023 62 .0±0.477 .0±0.421 .6±0.51.2±0.152 .9±1.00.648 ±0.003
+
+Table 3: MIMIC-ESI held-out results on the test split. Range metric includes exact predictions and one-level safer overtriage; Under. denotes undertriage.                                                                                   
+
+> Policy Acc. (%) ↑Avg. tok. ↓∆Acc. Tok. red. (pp) (%) Llama-3-8B
+> Num. cutoff 45 .1±0.62788 ±7––Best from M EDI Q45 .8±1.4–+0 .7–Evolved 48 .2±0.4289 ±2+3 .189 .6
+> Llama-3-70B
+> Binary 58 .6±0.31585 ±1––Best from M EDI Q60 .9±1.4–+2 .3–Evolved 62 .2±0.3514 ±1+3 .667 .6
+> Qwen-3.5-27B
+> Num. cutoff 71 .1±1.12100 ±10 ––Evolved 73 .6±0.6961 ±8+2 .554 .2
+> Gemma-4-31B
+> Num. cutoff 76 .4±0.41412 ±1––Evolved 75 .6±0.5104 ±3−0.892 .6
+
+Table 4: iM ED QA test accuracy–cost summary on the MEDI Q benchmark. For each model, evolved is com-pared against the strongest non-evolved baseline with reported token usage; ∆Acc. and Tok. red. are com-puted relative to that baseline. Full per-baseline results are reported in Appx. C.3. 
+
+and 72 .50% macro-F1. This result suggests that, for the smaller VLM, the prompt plays a larger role in setting the decision threshold between normal and pneumonia, especially when low-resolution images make visual findings subtle or ambiguous. 
+
+Comparison with prior PneumoniaMNIST re-sults. Compared with prior PneumoniaMNIST work, our results should be interpreted as a data-efficient prompt-only adaptation result rather than as a substitute for supervised fine-tuning or multi-model diagnostic pipelines. A recent pre-consultation dialogue framework evaluates several VLM-based settings on PneumoniaMNIST: plain MedGemma-4B zero-shot prompting achieves 
+
+45 .8% accuracy / 40 .8% F1, and chain-of-thought prompting achieves 46 .3% / 41 .5% ; the corre-sponding dialogue-based zero-shot variant reaches 
+
+87 .8% / 87 .6% with MedGemma-4B and 94 .6% 
+
+/ 94 .3% with Qwen-2.5-VL (Lokesh et al., 2026). Thus, our evolved single-prompt MedGemma setup substantially outperforms the plain MedGemma-4B zero-shot and chain-of-thought baselines re-ported in that study, while remaining below its man-ually engineered multi-agent dialogue pipeline. Task-adapted medical VLMs and specialist clas-sifiers provide a complementary upper-reference regime. A diagnosis-guided, bootstrapped medical VLM reported to achieve 87 .0% accuracy/ 87 .3% 
+
+macro-F1, and its retrieval-augmented variant 
+
+92 .9% /92 .6% (He et al., 2024). Task-specific vi-sual instruction tuning reaches 93 .1% accuracy / 
+
+92 .3% macro-F1, while a fully supervised task-specific ViT classifier reaches 96 .8% / 96 .5% (Bai et al., 2024). These results illustrate the expected gap between prompt-only adaptation of a frozen VLM and methods that use task-specific training, retrieval, specialist components, or multi-turn in-ference machinery. In contrast, our method keeps MedGemma frozen and evolves only the prompt, using a fixed 100 -image-labeled subset for fitness evaluation. 
+
+5 Qualitative Results 
+
+The quantitative results show that LLM-guided evo-lution improves accuracy, safety-sensitive behavior, interaction cost, and output validity across the three tasks. We next analyze the best evolved programs to understand how these improvements arise. This analysis is important because the search space con-tains executable decision artifacts rather than only natural-language prompts: evolution can change not only wording, but also voting rules, stopping criteria, retrieval use, fallback behavior, and deter-ministic post-processing. Across tasks, we find that the evolved candidates are interpretable and that their gains come from program-level mechanisms: calibrated triage boundaries, targeted evidence acquisition, selective commitment, and finding-oriented visual decision rules. Extended qualitative analyses and representative code excerpts are pro-vided in Appendices D and E. 
+
+5.1 Triage 
+
+In triage, evolution primarily shifts the decision sys-tem’s operating point. On Semigran, the strongest initial program, B ASE , already recognizes non-6Program Resolution MedGemma-27B MedGemma-4B Acc. (%) ↑ Macro-F1 (%) ↑ Acc. (%) ↑ Macro-F1 (%) ↑                                                                                                                        
+
+> Base 28 ×28 52 .53 ±0.24 52 .18 ±0.23 37 .50 ±0.00 27 .27 ±0.00
+> Final 28 ×28 63 .40 ±0.30 63 .25 ±0.29 68 .01 ±0.58 67 .35 ±0.56
+> Base 64 ×64 52 .92 ±0.06 51 .10 ±0.05 38 .62 ±0.00 29 .45 ±0.00
+> Final 64 ×64 65 .80 ±0.08 65 .76 ±0.08 63 .24 ±0.31 53 .18 ±0.36
+> Base 128 ×128 75 .06 ±0.08 75 .03 ±0.08 50 .32 ±0.00 47 .10 ±0.00
+> Final 128 ×128 83 .81 ±0.10 81 .68 ±0.13 62 .12 ±0.35 63 .91 ±0.33
+> Base 224 ×224 83 .33 ±0.00 82 .96 ±0.00 63 .04 ±0.08 62 .51 ±0.09
+> Final 224 ×224 84 .46 ±0.14 83 .88 ±0.15 72 .50 ±0.37 72 .50 ±0.38
+> Table 5: PneumoniaMNIST test results across image resolutions (5 runs). Base and Final denote the best initial and evolved prompts selected by training fitness, respectively.
+
+emergency and self-care cases reasonably well, but misses many emergencies ( Rem =0 .60 ). The best evolved program, SG-c1189 , shifts this bound-ary toward safety, reaching Rem =0 .97 while pre-serving useful non-emergency and self-care recall (Rne =0 .83 , Rsc =0 .81 ). This observation is not the degenerate solution of predicting emergencies for most cases: compared with high-recall external systems, the evolved program retains substantially stronger self-care recognition. Qualitatively, the change is a recalibration of the triage boundary rather than a formatting improvement. A second Semigran observation is that the best evolved program does not rely on the explicit triage knowledge base. Although several seed programs inject ESI, CTAS, or START reference material, the winning candidate is a compact prompt-based wrap-per. In this setting, evolution improves decision framing and class-boundary calibration more than it benefits from additional retrieved context. How-ever, the Levine transfer evaluation also shows the cost of this specialization: SG-c1189 preserves per-fect emergency recall on independently constructed vignettes, but overtriages many non-emergency cases. Thus, the Semigran result is best interpreted as successful safety-oriented specialization, not as evidence that a single evolved vignette wrapper solves triage robustness. The MIMIC-ESI setting reveals a comple-mentary pattern. The best held-out program, 
+
+MIMIC-023 , combines local ESI reference retrieval, structured voting, and resource-sensitive reasoning, yielding the best exact accuracy and overall fitness on the MIMIC test split. Other evolved candidates expose different clinically meaningful points on the search landscape. For example, MIMIC-011 is more conservative: it improves safety-oriented behavior on MIMIC by increasing ESI-1 recall and reducing undertriage, but at the expense of exact accuracy. Under external transfer, this same candidate col-lapses into an all-emergency classifier because a high-acuity rule treats missing systolic blood pres-sure as zero. This failure mode is informative: evo-lution can discover plausible safety heuristics, but such heuristics need explicit robustness constraints around missingness and distribution shift. 
+
+5.2 Interactive Consultation 
+
+For interactive consultation, evolution discovers policies that improve the accuracy–cost trade-off by changing when the agent commits, what it asks, and how it stabilizes final decisions. The Llama-3-8B evolved program keeps the low-cost structure of implicit abstention, but derives a confidence es-timate from the answer-vote distribution and com-mits only under a supermajority threshold. This result preserves the efficiency of a single-pass im-plicit strategy while adding a reliability check be-fore the final answer. The Llama-3-70B evolved program changes the question-selection policy: in-stead of choosing follow-up questions only by vote frequency or at random, it scores questions for clinically informative attributes such as onset, du-ration, severity, risk factors, and family history. This change shifts the consultation from generic information-gathering to high-yield evidence ac-quisition. The transferred evolved programs show two fur-ther mechanisms. The Qwen-3.5-27B candidate tracks evidence at the answer-option level and asks fallback questions about the least-supported hy-pothesis, implementing an evidence-balancing pol-icy across competing diagnoses or treatments. The Gemma-4-31B candidate applies self-consistency selectively at forced commitment: it samples mul-tiple final answers only when the interaction bud-get is exhausted, reducing variance at the most consequential step without increasing sampling throughout the dialogue. Together, these mech-anisms explain why the evolved strategies improve the accuracy–cost balance: they do not simply ask 7more questions, but allocate computation to uncer-tainty, discrimination, and final commitment. 
+
+5.3 Classification of PneumoniaMNIST 
+
+For PneumoniaMNIST, evolution operates only at the prompt-program level: the MedGemma model, image preprocessing, label set, and JSON parser remain fixed. The strongest initial prompts al-ready enforce structured output, but the evolved prompts change the clinical framing of the visual task. The most consistent shift is from label-first classification to finding-oriented image assessment. Evolved prompts cast the model as a pediatric chest-radiograph reader and instruct it to inspect both lung fields for pneumonia-compatible findings such as focal or lobar air-space opacity, consolidation, patchy or perihilar infiltrates, interstitial patterns, air bronchograms, pleural effusion, and left–right asymmetry. The final prompt then maps observed findings to the required JSON label, preserving out-put validity while changing the internal decision procedure. Evolution also tunes the decision threshold to the model and image resolution. Several 27B prompts favor pneumonia in the face of ambiguity, which helps improve sensitivity when subtle opacities are present. In contrast, the 4B 28 ×28 final prompt be-comes more conservative, requiring stronger visual evidence and defaulting to normal under uncer-tainty. This observation suggests that the search is not merely adding medical terminology. It recom-bines task-level radiological hints into operational checklists and then sharpens them into model- and resolution-specific decision rules. In this sense, the qualitative effect of evolution is to turn a fixed VLM prompt into an executable visual decision policy whose threshold is adapted to the observed error profile. 
+
+6 Conclusions 
+
+We presented LLM-guided MAP-Elites evolution as an inference-time approach for adapting medical decision pipelines without fine-tuning the underly-ing task models. Across urgency triage, interactive consultation, and PneumoniaMNIST classification, the same optimization framework improved man-ually designed baselines while operating over dif-ferent executable artifacts: triage programs, consul-tation policies, and prompt-producing modules for frozen vision-language models. The results show that evolutionary search can im-prove clinically relevant operating points, not only aggregate accuracy. In Semigran triage, evolution increased accuracy from 77.3% to 87.1% and emer-gency recall from 0.60 to 0.97. In MIMIC-ESI, the best evolved program improved held-out ex-act accuracy, range accuracy, and safety-weighted fitness relative to hand-designed baselines. In in-teractive consultation, evolved policies improved the accuracy–cost frontier across Llama-3, Qwen-3.5, and Gemma-4, and transferred to held-out iCRAFTMD. In PneumoniaMNIST, prompt-only evolution improved frozen MedGemma models across image resolutions while preserving strict JSON output validity. Qualitative analysis suggests that these gains come from interpretable program-level mecha-nisms rather than superficial prompt edits. Evolved systems recalibrate triage boundaries, combine re-trieval and safety-biased voting, acquire more tar-geted consultation evidence, decide more selec-tively when to commit, and transform fixed VLM calls into finding-oriented visual decision proce-dures with model- and resolution-specific thresh-olds. This inspectability is especially important in medical settings, where candidate strategies must be auditable as decision procedures rather than treated as opaque prompts. Evolution also introduces a non-negligible search cost. As reported in Appx. F, this cost de-pends on the task structure: MIMIC-ESI is dom-inated by multi-call candidate evaluation, interac-tive consultation by multi-turn textual contexts, and PneumoniaMNIST by repeated image evalua-tions. However, these costs are incurred during inference-time search rather than during model training, making this a practical alternative for a small-to-medium number of optimization runs when frozen models must be adapted under explicit metrics and structured-output constraints. Overall, our findings suggest that LLM-guided evolution is a promising tool for discovering effec-tive, inspectable, and adaptable medical decision strategies across heterogeneous clinical tasks. It is not a substitute for prospective validation, robust calibration, or safety governance. However, it pro-vides a reproducible way to search over prompts, control logic, and decision rules that align with clinically motivated objectives. 8Limitations 
+
+Semigran benchmark size and overfitting. The Semigran triage results should be interpreted with particular care. Semigran is a compact and widely used public vignette benchmark, but it contains only 45 cases; therefore, the same set serves as both the evolutionary target and the main evalu-ation benchmark. This fact makes overfitting a central limitation. The Levine evaluation partially addresses this concern by testing transfer to inde-pendently constructed vignettes, where the evolved program preserves emergency recall but shifts to-ward conservative overtriage; however, it is not a substitute for a larger held-out benchmark from the same distribution. 
+
+Retrospective MIMIC-ESI benchmark. Our MIMIC-ESI study is based on a retrospective MIMIC-derived benchmark rather than a prospec-tive clinical deployment. This setup enables a re-producible train/audit/test protocol, but improved offline ESI prediction does not by itself establish improved patient outcomes, workflow utility, or safety in real emergency-department use. Several limitations also arise from the benchmark construc-tion itself: following the source-side preprocess-ing (Gaber et al., 2025), our corpus contains no observed ESI-5 cases and very few ESI-4 cases in the article-like held-out split. The training loader draws balanced batches across present classes, but cannot generate examples for absent labels. Conse-quently, although the task is defined over five ESI levels, our evidence is strongest for observed high-and mid-acuity cases and weak for the low-acuity tail. In addition, the benchmark uses history-of-present-illness text extracted from discharge notes, which may contain information unavailable at first-contact triage. 
+
+Safety-weighted objectives and inference budget. 
+
+The optimization objective encodes task-specific value judgments. Alongside exact accuracy, we optimize range accuracy, treating exact predictions and one-level safer overtriage as correct, and explic-itly rewarding ESI-1 recall. These choices reflect the asymmetric clinical cost of undertriage, but they are not neutral over all error types and may favor systems that trade specificity for safety. Moreover, candidate programs can differ in inference budget: multi-stage prompting, voting, and retrieval may require more model calls than one-shot baselines. Accuracy gains should therefore be interpreted to-gether with latency and cost. 
+
+Reference-system and cross-benchmark com-parisons. Our local ESI reference KB is use-ful for ablations, but it is not a recreation of the PubMed-scale RAG store used by Gaber et al. (Gaber et al., 2025); consequently, retrieval ex-periments should be interpreted as comparisons among candidate wrapper designs rather than as a direct reproduction of the reference paper’s RAG system. Similarly, external evaluation of the Sem-igran and Levine tests focuses on transfer rather than strict task equivalence. Mapping ESI levels 1– 2 to em , level 3 to ne , and levels 4–5 to sc enables comparison with symptom-checker benchmarks, but collapses the finer-grained ESI structure used during training. These external vignette sets can re-veal robustness beyond the MIMIC source distribu-tion, yet they do not replace prospective, multi-site validation on contemporary emergency-department data. 
+
+PneumoniaMNIST probability metrics. For PneumoniaMNIST, we report accuracy and macro-F1 but not ROC-AUC, because MedGemma is a generative VLM and does not natively provide calibrated, thresholdable class scores. Estimating ROC-AUC would require an additional scoring and calibration protocol beyond our prompt-only evalu-ation. 
+
+Ethics Statement 
+
+This work uses only publicly available or access-controlled research datasets under their respective research terms, accessed only after the required credentialing and data-use approval. We do not redistribute protected health information, patient records, dataset contents, or access-controlled ma-terials, and release only code, prompts, aggregate metrics, and derived experimental outputs that do not identify individuals. All experiments are retrospective and benchmark-based. The proposed systems are research prototypes for medical decision-pipeline optimization, not tools for clinical deployment or autonomous medical decision-making. Given the safety-sensitive setting, we report clinically relevant trade-offs, including emergency recall, undertriage, severe undertriage, overtriage, and interaction cost where applicable. 9References 
+
+Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Alt-man, Andy Applebaum, Edwin Arbus, Rahul K Arora, Yu Bai, Bowen Baker, Haiming Bao, and 1 others. 2025. gpt-oss-120b & gpt-oss-20b model card. arXiv preprint arXiv:2508.10925 .Yang Bai, Yang Zhou, Jun Zhou, Rick Siow Mong Goh, Daniel Shu Wei Ting, and Yong Liu. 2024. From gen-eralist to specialist: Adapting vision language mod-els via task-specific visual instruction tuning. arXiv preprint arXiv:2410.06456 .Andrew L Beam, Arjun K Manrai, and Marzyeh Ghas-semi. 2020. Challenges to the reproducibility of machine learning models in health care. Jama ,323(4):305–306. Ji Young Byun, Young-Jin Park, Navid Azizan, and Rama Chellappa. 2026. Test-time scaling in clinical decision making. In Proceedings of The 9th Inter-national Conference on Medical Imaging with Deep Learning , volume 315 of Proceedings of Machine Learning Research , pages 2118–2142. PMLR. Yinda Chen, Yangfan He, Jing Yang, Dapeng Zhang, Zhenlong Yuan, Muhammad Attique Khan, Jamel Baili, and Por Lip Yee. 2025. Empower: Evolution-ary medical prompt optimization with reinforcement learning. Preprint , arXiv:2508.17703. Cem Colakca, Mehmet Ergin, Huseyin Selcuk Ozensoy, and 1 others. 2024. Emergency department triaging using chatgpt based on emergency severity index principles: a cross-sectional study. Scientific Reports ,14:22106. Matej ˇ Crepinšek, Shih-Hsi Liu, and Marjan Mernik. 2013. Exploration and exploitation in evolution-ary algorithms: A survey. ACM computing surveys (CSUR) , 45(3):1–33. Adebayo Da’Costa, Jennifer Teke, Joseph E Origbo, Ayokunle Osonuga, Eghosasere Egbon, and David B Olawade. 2025. Ai-driven triage in emergency de-partments: A review of benefits, challenges, and fu-ture directions. International Journal of Medical Informatics , 197:105838. Sebastian Doerrich, Francesco Di Salvo, Julius Brock-mann, and 1 others. 2025. Rethinking model pro-totyping through the medmnist+ dataset collection. 
+
+Scientific Reports , 15:7669. Mengjie Fang, Zipei Wang, Sitian Pan, Xin Feng, Yun-peng Zhao, Dongzhi Hou, Ling Wu, Xuebin Xie, Xu-Yao Zhang, Jie Tian, and 1 others. 2025. Large models in medical imaging: Advances and prospects. 
+
+Chinese Medical Journal , 138(14):1647–1664. Clement Farabet and Olivier Lacombe. 2026. Gemma 4: Byte for byte, the most capable open mod-els. https://blog.google/innovation-and-ai/ technology/developers-tools/gemma-4/ . Ac-cessed: 2026-04-26. Ronivaldo Ferreira, Guilherme da Silva, Carla Rocha, and Gustavo Pinto. 2025. From pre-labeling to pro-duction: Engineering lessons from a machine learn-ing pipeline in the public sector. arXiv preprint arXiv:2511.01545 .Farieda Gaber, Maqsood Shaik, Fabio Allega, Agnes Ju-lia Bilecz, Felix Busch, Kelsey Goon, Vedran Franke, and Altuna Akalin. 2025. Evaluating large lan-guage model workflows in clinical decision support for triage and referral and diagnosis. npj Digital Medicine , 8:263. Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schel-ten, Alex Vaughan, Amy Yang, Angela Fan, Anirudh Goyal, Anthony Hartshorn, Aobo Yang, Archi Mi-tra, Archie Sravankumar, Artem Korenev, Arthur Hinsvark, and 542 others. 2024. The llama 3 herd of models. Preprint , arXiv:2407.21783. Sunan He, Yuxiang Nie, Hongmei Wang, Shu Yang, Yihui Wang, Zhiyuan Cai, Zhixuan Chen, Yingxue Xu, Luyang Luo, Huiling Xiang, Xi Lin, Mingxi-ang Wu, Yifan Peng, George Shih, Ziyang Xu, Xian Wu, Qiong Wang, Ronald Cheong Kin Chan, Varut Vardhanabhuti, and 5 others. 2024. GSCo: Towards generalizable ai in medicine via generalist-specialist collaboration. arXiv preprint arXiv:2404.15127 .Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. 2021. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Ap-plied Sciences , 11(14). Alistair Johnson, Lucas Bulgarelli, Tom Pollard, Leo Anthony Celi, Roger Mark, and Steven Horng. 2023. MIMIC-IV-ED. PhysioNet . Version 2.2. Shreya Johri, Jaehwan Jeong, Benjamin A Tran, Daniel I Schlessinger, Shannon Wongvibulsin, Leandra A Barnes, Hong-Yu Zhou, Zhuo Ran Cai, Eliezer M Van Allen, David Kim, and 1 others. 2025. An eval-uation framework for clinical use of large language models in patient interaction tasks. Nature medicine ,31(1):77–86. Valentin Khrulkov, Andrey Galichin, Denis Bashkirov, Dmitry Vinichenko, Oleg Travkin, Roman Alferov, Andrey Kuznetsov, and Ivan Oseledets. 2025. Gi-gaevo: An open source optimization framework pow-ered by llms and evolution algorithms. arXiv preprint arXiv:2511.17592 .Eyal Klang, Donald Apakama, Ethan E Abbott, Akhil Vaid, Joshua Lampert, Ankit Sakhuja, Robert Free-man, Alexander W Charney, David Reich, Mon-ica Kraft, and 1 others. 2024. A strategy for cost-effective large language model use at health system-scale. NPJ digital medicine , 7(1):320. Joel Lehman, Jonathan Gordon, Shawn Jain, Ka-mal Ndousse, Cathy Yeh, and Kenneth O. Stanley. 2022. Evolution through large models. Preprint ,arXiv:2206.08896. 
+
+10 David M Levine, Rudraksh Tuwani, Benjamin Kompa, Amita Varma, Samuel G. Finlayson, Ateev Mehrotra, and Andrew Beam. 2023. The diagnostic and triage accuracy of the gpt-3 artificial intelligence model. 
+
+medRxiv .Shuyue Stella Li, Jimin Mun, Faeze Brahman, Pedram Hosseini, Bryceton G Thomas, Jessica M Sin, Bing Ren, Jonathan S Ilgen, Yulia Tsvetkov, and Maarten Sap. 2025. Alfa: Aligning llms to ask good questions a case study in clinical reasoning. arXiv preprint arXiv:2502.14860 .Stella Li, Vidhisha Balachandran, Shangbin Feng, Jonathan Ilgen, Emma Pierson, Pang Wei W Koh, and Yulia Tsvetkov. 2024. Mediq: Question-asking llms and a benchmark for reliable interactive clinical reasoning. Advances in Neural Information Process-ing Systems , 37:28858–28888. Bryan Lim, Manon Flageat, and Antoine Cully. 2024. Large language models as in-context ai generators for quality-diversity. Preprint , arXiv:2404.15794. David Lippman. 2022. Voting theory. In Math in Soci-ety , 2.6 edition, pages 42–43. OpenTextBookStore. Chengyuan Liu, Yangyang Kang, Fubang Zhao, Kun Kuang, Zhuoren Jiang, Changlong Sun, and Fei Wu. 2024. Evolving knowledge distillation with large language models and active learning. Preprint ,arXiv:2403.06414. K. Lokesh, Abhirama Subramanyam Penamakuri, Uday Agarwal, Apoorva Challa, Shreya K. Gowda, Somesh Gupta, and Anand Mishra. 2026. PatientVLM meets docVLM: Pre-consultation dialogue between vision-language models for efficient diagnosis. arXiv preprint arXiv:2601.10945 .Steffen Masanneck, Michael Lotzin, Lian Furaijat, and 1 others. 2024. Triage performance across large lan-guage models, chatgpt, and untrained doctors in emer-gency medicine: Comparative study. Journal of Med-ical Internet Research , 26(1):e53297. MedAsk. 2025. Medask outperforms leading llms and symptom checkers in triage accuracy. Accessed: 2026-02-15. Jean-Baptiste Mouret and Jeff Clune. 2015. Illumi-nating search spaces by mapping elites. Preprint ,arXiv:1504.04909. Alexander Novikov, Ngân V ˜u, Marvin Eisenberger, Em-ilien Dupont, Po-Sen Huang, Adam Zsolt Wagner, Sergey Shirobokov, Borislav Kozlovskii, Francisco J. R. Ruiz, Abbas Mehrabian, M. Pawan Kumar, Abi-gail See, Swarat Chaudhuri, George Holland, Alex Davies, Sebastian Nowozin, Pushmeet Kohli, and Matej Balog. 2025. Alphaevolve: A coding agent for scientific and algorithmic discovery. Preprint ,arXiv:2506.13131. OpenAI. 2026. Gpt-3.5 turbo model documen-tation. https://developers.openai.com/api/ docs/models/gpt-3.5-turbo . Accessed: 2025-12-26. Ziyuan Qin, Hua Hui Yi, Qicheng Lao, and Kang Li. 2022. Medical image understanding with pretrained vision language models: A comprehensive study. In 
+
+The Eleventh International Conference on Learning Representations .Iain Robertson-Steel. 2006. Evolution of triage systems. 
+
+Emergency medicine journal , 23(2):154–155. Bernardino Romera-Paredes, Mohammadamin Barekatain, Alexander Novikov, Matej Balog, M Pawan Kumar, Emilien Dupont, Francisco JR Ruiz, Jordan S Ellenberg, Pengming Wang, Omar Fawzi, and 1 others. 2024. Mathematical discoveries from program search with large language models. 
+
+Nature , 625(7995):468–475. Gabriel Machado Santos, Rita Maria da Silva Julia, and Marcelo Zanchetta do Nascimento. 2025. Di-verse prompts: Illuminating the prompt space of large language models with map-elites. Preprint ,arXiv:2504.14367. Daan Schouten, Giulia Nicoletti, Bas Dille, Cather-ine Chia, Pierpaolo Vendittelli, Megan Schuurmans, Geert Litjens, and Nadieh Khalili. 2025. Navigat-ing the landscape of multimodal ai in medicine: a scoping review on technical challenges and clinical applications. Medical image analysis , 105:103621. Andrew Sellergren, Sahar Kazemzadeh, Tiam Jaroensri, Atilla Kiraly, Madeleine Traverse, Timo Kohlberger, Shawn Xu, Fayaz Jamil, Cían Hughes, Charles Lau, and 1 others. 2025. Medgemma technical report. 
+
+arXiv preprint arXiv:2507.05201 .Hannah L Semigran, Jeffrey A Linder, Courtney Gi-dengil, and Ateev Mehrotra. 2015. Evaluation of symptom checkers for self diagnosis and triage: au-dit study. BMJ , 351. Zhenqian Shen, Yongqi Zhang, Lanning Wei, Huan Zhao, and Quanming Yao. 2018. Automated Ma-chine Learning: From principles to practices. arXiv preprint arXiv:1810.13306 .Aditi Singh, Nirmal Prakashbhai Patel, Abul Ehtesham, Saket Kumar, and Tala Talaei Khoei. 2025. A survey of sustainability in large language models: Appli-cations, economics, and challenges. In 2025 IEEE 15th Annual Computing and Communication Work-shop and Conference (CCWC) , pages 00008–00014. IEEE. Ivan Sviridov, Amina Miftakhova, Tereshchenko Artemiy Vladimirovich, Galina Zubkova, Pavel Blinov, and Andrey Savchenko. 2025. 3mdbench: Medical multimodal multi-agent dialogue benchmark. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 26625–26665. 
+
+11 Qwen Team. 2026. Qwen3.5: Accelerating productivity with native multimodal agents. Tao Tu, Mike Schaekermann, Anil Palepu, Khaled Saab, Jan Freyberg, Ryutaro Tanno, Amy Wang, Brenna Li, Mohamed Amin, Yong Cheng, and 1 others. 2025. Towards conversational diagnostic artificial intelli-gence. Nature , 642(8067):442–450. Cory Y K Williams, Travis Zack, Brian Y Miao, Mad-humita Sushil, and 1 others. 2024. Use of a large language model to assess clinical acuity of adults in the emergency department. JAMA Network Open ,7(5):e248895. Sean Wu, Michael Koo, Fabien Scalzo, and Ira Kurtz. 2025. AutoMedPrompt: A new framework for opti-mizing LLM medical prompts using textual gradients. 
+
+arXiv preprint arXiv:2502.15944 .Yuchen Xia, Jiho Kim, Yuhan Chen, Haojie Ye, Souvik Kundu, Cong Callie Hao, and Nishil Talati. 2024. Understanding the performance and estimating the cost of llm fine-tuning. In 2024 IEEE International Symposium on Workload Characterization (IISWC) ,pages 210–223. IEEE. Jiancheng Yang, Rui Shi, Donglai Wei, Zequan Liu, Lin Zhao, Bilian Ke, Hanspeter Pfister, and Bingbing Ni. 2023. Medmnist v2: A large-scale lightweight bench-mark for 2d and 3d biomedical image classification. 
+
+Scientific Data , 10(1):41. Yanbo Zhang, Sumeer A Khan, Adnan Mahmud, Huck Yang, Alexander Lavin, Michael Levin, Jeremy Frey, Jared Dunnmon, James Evans, Alan Bundy, and 1 others. 2025. Exploring the role of large language models in the scientific method: from hypothesis to discovery. npj Artificial Intelligence , 1(1):14. Yuxuan Zhou, Yubin Wang, Bin Wang, Chen Ning, Xien Liu, Ji Wu, and Jianye Hao. 2025. Enhancing the medical context-awareness ability of llms via mul-tifaceted self-refinement learning. arXiv preprint arXiv:2511.10067 .
+
+12 Parameter Triage Interactive consultation PneumoniaMNIST                                                                                   
+
+> MAP-Elites setup Semigran: two-island;
+> MIMIC-ESI: two-island Single-island Single-island Archive axes Semigran: Island 1: accuracy ×Rem ; Island 2: fitness ×accuracy.
+> MIMIC-ESI: Island 1: exact accuracy ×range accuracy; Island 2: fitness ×RESI=1
+> Fitness ×mean Expert-token us-age Fitness ×validity Binning Semigran: Island 1: 60 ×40 ; Island 2: 50 ×50 .
+> MIMIC-ESI: Island 1: 60 ×40 ; Island 2: 50 ×40 50 ×100 150 ×2
+> Archive cap 75 programs per island for both triage settings 75 programs 75 programs Archive score Semigran: Island 1: 0.85 ·accuracy + 0 .15 ·Rem ;Island 2: 0.7·fitness + 0 .3·accuracy.
+> MIMIC-ESI: Island 1: 0.7·exact + 0 .3·range ;Island 2: 0.8·fitness + 0 .2·RESI=1
+> Fitness score Fitness score Migration Every 25 generations; 10% migration rate; up to 5 migrants/island for both triage settings ––Elites selected per generation 5 for both triage settings 55Mutants per genera-tion 8 for both triage settings 48Stopping rule Semigran: 600 generations;
+> MIMIC-ESI: 300 generations 24-hour wall-clock budget 30 generations
+
+Table 6: MAP-Elites configurations across the three medical tasks. 
+
+A Clinical Tasks Details 
+
+A.1 Triage Task 
+
+Triage assigns patients to urgency levels that de-termine the required speed and intensity of medi-cal care (Robertson-Steel, 2006), with prior work on LLM-based triage spanning several increas-ingly realistic settings. Masanneck et al. (Masan-neck et al., 2024) benchmark LLMs on standard-ized emergency vignettes against human raters; Colakca et al. (Colakca et al., 2024) evaluate ChatGPT on real-time emergency-department ad-missions under ESI principles; and Williams et al. (Williams et al., 2024) study clinical-acuity rank-ing from emergency-department notes rather than end-to-end ESI prediction. Gaber et al. (Gaber et al., 2025) evaluate Claude-family models to-gether with a RAG-assisted workflow on 2,000 MIMIC-IV-derived cases for ESI prediction, re-ferral, and diagnosis. Together, these studies show that LLM-based triage has been examined across vignette benchmarks, real-world emergency-department data, note-based acuity assessment, and retrieval-augmented clinical workflows. 
+
+A.1.1 Task Setup 
+
+We study triage in two complementary settings. The first is the Semigran benchmark (Semigran et al., 2015), the most widely used public stan-dard for evaluating symptom-checker triage ac-curacy. It is a three-class urgency classification task over 45 clinical vignettes evenly distributed across em (emergency-requires immediate care), 
+
+ne (non-emergency-warrants clinical evaluation within days), and sc (self-care-manageable without professional intervention). As a held-out general-ization check for this vignette setting, we addition-ally evaluate on the Levine et al. (2023) (Levine et al., 2023) vignette set ( n=48 ), which was con-structed independently of Semigran and is dis-cussed in Section 4.1. The second setting is a MIMIC-IV-ED-derived (Johnson et al., 2023) Emergency Severity Index (ESI) prediction task, following the bench-mark construction of Gaber et al. (Gaber et al., 2025) and its public code release 1. Here each pro-gram receives a patient description containing his-tory of present illness, demographics, chief com-plaint, and initial vitals, and predicts an ESI level from 1 to 5. This task is more clinically grounded than the vignette benchmark and, crucially, sup-ports a cleaner train/audit/test protocol. We evolve on the MIMIC-derived training pool ( n=25 ,330 ;ESI counts 2,827 /11 ,625 /10 ,763 /115 for levels 1–4), use a fixed balanced audit split ( n=460 ; 115 examples per observed class) for candidate selec-tion, and reserve an article-like held-out split of 2,000 cases for final evaluation. The held-out split is not used for broad candidate selection. 
+
+A.1.2 Candidates and Baselines 
+
+Each candidate triage program is a standalone Python module that receives a list of patient de-scriptions and returns a structured prediction for each case. In the Semigran setting, programs out-put one of em , ne , or sc ; in the MIMIC-ESI setting, they output predicted_acuity in {1, . . . , 5}. Pro-
+
+> 1https://github.com/BIMSBbioinfo/ medLLMbenchmark
+
+13 grams interact with the underlying language model through an ask_llm() or ask_llm_json() API; the evolutionary process searches over the program logic that structures and refines interactions with the model, including prompt construction, decision decomposition, retrieval, voting, resource scoring, and rule-based post-processing. The base model is the open-source gpt-oss-120b served via an OpenAI-compatible endpoint. For the Semigran experiment, B ASE is a hand-designed reference wrapper, while the remain-ing initial programs are LLM-assisted seed wrap-pers generated to provide a diverse starting pop-ulation. These seeds cover direct prompting, structured JSON output, chain-of-thought prompt-ing, differential diagnosis, debate-style prompting, knowledge-base retrieval, severity scoring, and sim-ple decision-tree logic. For the MIMIC-ESI ex-periment, we initialize evolution from a similar mixture of manually specified reference programs and LLM-assisted seed programs. Several seeds are adapted from the prompting style and ESI eval-uation setup of Gaber et al. (Gaber et al., 2025), including article-style clinical prompts; others im-plement structured ESI assessment, resource-count reasoning, self-consistency voting, and local ESI knowledge-base retrieval. The local ESI knowl-edge base contains compact reference material and is used to compare candidate wrapper designs; it is not a recreation of the PubMed-scale RAG system used in the reference study. For contextual comparison we report results alongside publicly available triage benchmark num-bers from the MedAsk triage benchmark (MedAsk, 2025), which evaluates triage performance of large language models and symptom-checking systems on the same Semigran vignettes. 
+
+A.1.3 Optimization Objective 
+
+The optimization objective or fitness score is a com-posite score: fitness = 0 .85 · accuracy + 0 .15 · recall em .
+
+The asymmetric weighting is motivated by the clinical cost structure of triage errors: under-triage (missing a genuine emergency) carries sig-nificantly higher risk than overtriage (sending a non-urgent patient to the emergency department). The recall em component explicitly penalizes under-triage by rewarding programs that correctly identify life-threatening cases, even at a modest cost to over-all accuracy. The 0.85/0.15 split was chosen so that a program with perfect accuracy ( fitness =1 .0) is preferred over one that achieves perfect emergency recall at the expense of other classes, while still providing sufficient selective pressure to drive Rem 
+
+upward. A validity gate requires accuracy ≥ 50% 
+
+for a program to enter the archive, which prevents degenerate solutions (e.g., always predicting em ). For the MIMIC-ESI experiment, we use a safety-weighted objective: fitness = 0 .65 ·exact +0 .25 ·range +0 .10 ·RESI=1 .
+
+Exact accuracy requires matching the recorded ESI label. Range accuracy follows the source bench-mark convention: exact predictions are correct, and one-level safer overtriage is also accepted (e.g., pre-dicting ESI 2 for a true ESI 3 case). We additionally track undertriage, severe undertriage, overtriage, and ESI-1 recall. During evolution, each candidate is evaluated on a fresh random class-balanced sam-ple from the full MIMIC training pool rather than on a single fixed subset. This makes individual fit-ness estimates noisy, but allows many generations of search to cover the full source distribution while avoiding the cost of evaluating every mutant on all 25,330 training cases. After evolution, top candi-dates are re-evaluated on the fixed balanced audit split and only then on the held-out article-like test set. 
+
+A.2 Interactive Consultation Task 
+
+In this paper, we study interactive consultation as a medical information-seeking task in which a model receives an initially incomplete patient case, asks follow-up questions, and decides when the collected evidence is sufficient to produce a final answer. This follows the M EDI Q benchmark formulation, which departs from static medical QA by casting clinical reasoning as an ask-or-answer process under a limited interaction budget (Li et al., 2024). This framing is consistent with work on conversational diagnostic AI, which emphasizes the need to evaluate history-taking and diagnostic reasoning in realistic multi-turn consultations (Tu et al., 2025), while recent work on clinical question-asking highlights the importance of asking clear, relevant, and diagnostically useful follow-up ques-tions (Li et al., 2025). Together, these perspectives motivate consultation strategies that jointly deter-mine what information to request and when the available evidence is sufficient for a reliable deci-sion. 14 A.2.1 Task Setup 
+
+For the telemedicine consultation setting, we adopt the M EDI Q benchmark, which models interactive clinical reasoning as a multi-turn dialogue between a Patient system and an Expert system (Li et al., 2024). At the start of each case, the Expert receives basic patient information k0 (age, gender, and chief complaint), while the complete patient record set is multiple complaints K = {k0, k 1, . . . , k n}. At the start of the t-th turn, the Expert may ask the Patient a follow-up question qt, to which the Pa-tient system responds with a set of facts rt ⊆ K
+
+derived from the underlying record, updating the Expert’s knowledge to Kt = Kt−1 ∪ rt. The objec-tive is to iteratively acquire sufficient information to recover the subset of clinically relevant facts 
+
+K∗ ⊆ K, after which the Expert produces a final answer to a multiple-choice medical question (e.g., diagnosis or treatment decision). The goal is to learn an Expert policy that efficiently gathers infor-mative evidence prior to making a prediction. The benchmark is constructed from M ED QA (Jin et al., 2021) and C RAFT MD (Johri et al., 2025) datasets, converted into an interactive setting as iM ED QA and iC RAFT MD using GPT-3.5 (OpenAI, 2026) as the Patient model. To ensure a fair comparison, we follow the original M EDI Q setup by using the same Patient model and evaluating consultation strate-gies by mean answer accuracy across evaluated cases. 
+
+A.2.2 Candidates and Baselines 
+
+Each candidate program corresponds to a distinct abstention strategy, i.e., a policy that determines whether the Expert should produce a final answer or continue information gathering. Strategies are implemented via prompt templates and correspond-ing program logic that control the interaction with the underlying LLM. Specifically, we adopt as base strategies those proposed in M EDI Q, includ-ing implicit abstention decisions, binary criteria, and graded confidence estimation (numerical or Likert-scale scoring). In addition, candidates may incorporate two optional enhancements: rationale generation (explicit intermediate reasoning) and self-consistency (up to 3 times), which aggregates decisions across multiple sampled reasoning tra-jectories. As reported in the M EDI Q paper, the strongest-performing configuration combines scale-based abstention with rationale generation and self-consistency over three sampled reasoning trajecto-ries. We evaluate the candidate and baseline strate-gies with two groups of Expert models. First, we use Llama-3-8B-Instruct and Llama-3-70B-Instruct (Grattafiori et al., 2024) to enable direct comparison with the M EDI Q baselines. Second, to assess whether the evolved strategy transfers to stronger modern open-weight models, we further evaluate it on Qwen-3.5-27B (Team, 2026) and Gemma-4-31B-it (Farabet and Lacombe, 2026), se-lected for their strong performance among similarly sized open-source LLMs in Arena AI 2 at the time of writing. Since all evaluated models are used in instruction-tuned variants or configurations, we omit instruction-tuning suffixes and refer to them by their base model names hereafter. Since both accuracy and interaction cost are cen-tral to our setting, we compare methods using an-swer accuracy and average Expert-token usage. For the modern-model comparison, we additionally use a Borda-style ranking (Lippman, 2022) that scores methods separately by accuracy and average token usage, assigns positional scores from 4 to 0, and sums them across the two metrics, treating both objectives as equally important while remaining robust to their different scales. 
+
+A.2.3 Optimization Objective 
+
+We define fitness score as mean answer accuracy across evaluated cases, following the evaluation protocol used in the M EDI Q paper, and perform evolution on the iM ED QA training split, while iC RAFT MD (140 cases) is reserved as a held-out evaluation set due to its smaller size. However, evaluating each candidate requires multi-turn inter-action with an LLM across all 1,273 training cases, which is computationally expensive. To address this, our evolutionary configuration is designed to (i) keep evaluation tractable and (ii) ensure reliable candidate ranking under partial evaluation. First, we estimate fitness on a fixed subset of 50 cases per mutant, which provides a practical trade-off between computational cost and estima-tor variance. To mitigate the noise introduced by subset-based evaluation, we use a structured batch composition instead of purely random sampling: each batch consists of 25 random training cases for global coverage, 10 lineage cases inherited from the parent’s evaluation history to maintain compara-bility between related candidates, and 15 hard cases sampled based on historical failure rates. This com-
+
+> 2https://arena.ai/leaderboard/text?license= open-source
+
+15 position balances exploration, local consistency, and sustained pressure on difficult examples. Second, to further stabilize candidate ranking, we introduce lineage blending , combining the current mutant accuracy with an exponentially weighted lineage estimate using γ = 0 .7. This strategy reduces sensitivity to subset noise by mak-ing selection robust to accidentally easy or difficult batches, preventing spurious promotion of weak mutants and penalization of strong ones. In ad-dition, we apply a conservative rejection rule: a mutant is discarded if its raw score falls below the lineage estimate by more than 0.15, preventing un-stable candidates from entering the archive. We selected all hyperparameters based on preliminary experiments and fixed them for all reported runs. In addition to accuracy, we track the mean num-ber of Expert tokens per case as a proxy for inter-action cost and discourage strategies that rely on excessive querying by constraining the maximum number of follow-up questions for baselines and mutants to 8, reflecting typical bounds in real-world clinical consultations (Sviridov et al., 2025). This constraint helps avoid unnecessarily prolonged in-teraction patterns observed in prior M EDI Q-style setups, while preserving sufficient flexibility for informative evidence gathering. 
+
+A.3 Classification of PneumoniaMNIST A.3.1 Task Setup 
+
+We formulate medical image classification as 
+
+prompt-only evolutionary optimization for a fixed medical vision-language model. The task is Pneu-moniaMNIST from the MedMNIST collection, a widely used benchmark for medical image classi-fication. It is a binary pediatric chest X-ray task derived from 5,856 chest radiographs, with labels 
+
+normal and pneumonia (Yang et al., 2023). We use the MedMNIST+ image versions at all available 2D resolutions, 28 × 28 , 64 × 64 , 128 × 128 , and 
+
+224 ×224 , and run the experiment independently at each resolution (Doerrich et al., 2025). The official PneumoniaMNIST test split contains 624 images: 234 normal chest radiographs and 390 pneumonia cases. We evaluate two instruction-tuned multimodal models from the MedGemma family: MedGemma 4B and MedGemma 27B multimodal (Sellergren et al., 2025). For each model-resolution pair, the underlying VLM, image input, and output schema are fixed during evolution. The evolutionary pro-cess can therefore improve performance only by changing the prompt returned by the candidate pro-gram, rather than by changing the model, image preprocessing, or evaluation code. 
+
+A.3.2 Candidates and Baselines 
+
+Each candidate is a standalone Python module whose entrypoint() returns a single prompt string. The validator sends this prompt to-gether with a chest X-ray image to the fixed MedGemma model and expects a binary class pre-diction in a strict JSON object with class_id 
+
+and class_name . This candidate representation makes the search space a set of executable prompt-producing modules while keeping the classification pipeline itself fixed. The initial population consists of 10 seed prompt programs generated by ChatGPT-5 3. The seed prompts cover several clinically interpretable ra-diographic instruction styles. Some prompts frame the task as chest-radiograph interpretation and ask the model to consider findings compatible with pneumonia, including focal or lobar air-space opac-ities, patchy opacities, consolidation, and possi-ble air bronchograms. Other prompts add pedi-atric chest-radiograph context, such as perihilar or patchy opacities and segmental/lobar consoli-dation. A separate group of prompts introduces differential-diagnosis guidance for common mim-ics and confounders, including atelectasis with vol-ume loss or linear opacities, pulmonary edema with more diffuse or bilateral patterns, and technical artifacts such as motion, rotation, and under- or over-exposure. We use the best seed prompt on the training sub-set as the Base baseline, and compare it with the best evolved prompt produced by MAP-Elites. 
+
+A.3.3 Optimization Objective 
+
+For each image resolution, evolution is run on a fixed balanced subset sampled from the official PneumoniaMNIST training split: 50 normal im-ages and 50 pneumonia images. Candidate fitness is classification accuracy on this 100-image train-ing subset: fitness = #correct predictions 
+
+#evaluated images .
+
+We run GigaEvo with a single-island MAP-Elites strategy for 30 generations, using gpt-oss-120b 
+
+> 3https://openai.com/index/introducing-gpt-5/
+
+16 Program Acc (%) Rem Rne Rsc Fitness                                                                                            
+
+> Base 77 .3±1.80.60 0.88 0.84 0.747 Decision-Tree 75 .1±0.90.53 0.87 0.86 0.717 Triage-05-03 68 .0±3.00.68 0.80 0.56 0.680 Triage-Codex 68 .9±2.10.60 0.74 0.73 0.676 Json-Structured 65 .6±2.80.55 0.92 0.50 0.639 Multi-Model 62 .2±3.60.59 0.97 0.31 0.617 CoT-Single 62 .9±4.90.54 0.85 0.50 0.616 Debate-Triage 64 .4±3.00.43 0.94 0.57 0.612 KB-Full-Context 62 .7±3.60.47 0.97 0.45 0.603 Diff-Dx 52 .0±3.00.99 0.51 0.07 0.590 Minimal-Prompt 59 .8±2.70.51 0.93 0.35 0.585 KB-TF-IDF 62 .4±2.70.32 0.90 0.65 0.579 Severity-Scoring 52 .7±2.40.65 0.00 0.93 0.546
+
+Table 7: Pre-evolution performance of 13 hand-designed initial programs on the Semigran vignette set (10 runs). Sorted by fitness ( 0.85 · Acc + 0 .15 · Rem ). 
+
+as the mutator model. After evolution, we se-lect two programs by training fitness: the best initial seed prompt and the best evolved descen-dant prompt. These selected programs are then re-evaluated on the official PneumoniaMNIST test split for the same resolution, containing 234 nor-mal and 390 pneumonia images. Final results are reported from this held-out test split, separately for each MedGemma model and image resolution. 
+
+B Triage Task Results 
+
+B.1 Initial Program Pool 
+
+Table 7 reports the pre-evolution seed pool for the Semigran triage experiment. The programs cover diverse hand-designed strategies, including direct prompting, structured output, chain-of-thought prompting, debate-style prompting, knowledge-base retrieval, severity scoring, and decision-tree logic. Base is the strongest initial program by fit-ness. 
+
+B.2 Semigran Vignette Evolution Dynamics 
+
+Figure 1 shows the MAP-Elites fitness trajectory for the Semigran evolution run. Archive fitness increases steadily across generations, indicating that search continues to discover stronger triage programs rather than saturating early. 
+
+B.3 Cross-Model Transfer 
+
+Table 8 evaluates whether the best Semigran evolved program transfers across unseen LLM backbones without code changes. SG-c1189 preserves high accuracy and emergency recall across all models, while Base remains substantially weaker. 
+
+Figure 1: Semigran MAP-Elites fitness dynamics over generations.                                                       
+
+> Prog. Model Acc (%) Rem Rne Rsc ∆Acc
+> Base gpt-oss-120b ⋆77 .3±1.80.60 0.88 0.84 —
+> SG-c1189 gpt-oss-120b ⋆87 .1±2.00.97 0.83 0.81 +9 .8
+> Base gpt-oss-20b 74 .2±3.40.55 0.83 0.85 —
+> SG-c1189 gpt-oss-20b 87 .3±2.60.98 0.81 0.83 +13 .1
+> Base Qwen-3.5-122B 74 .7±3.00.57 0.84 0.83 —
+> SG-c1189 Qwen-3.5-122B 86 .9±2.50.99 0.79 0.83 +12 .2
+> Base Qwen-3.5-27B 74 .9±2.10.55 0.89 0.81 —
+> SG-c1189 Qwen-3.5-27B 86 .2±2.90.96 0.81 0.82 +11 .3
+
+Table 8: Cross-model transfer on the Semigran bench-mark (10 runs, ⋆ denotes used evolution model). The evolved program transfers without modification to three unseen models, maintaining 86–87% accuracy and 
+
+Rem ≥ 0.96 throughout. 
+
+B.4 Held-Out Evaluation 
+
+Table 9 evaluates transfer to the independently con-structed Levine vignette set. SG-c1189 preserves perfect emergency recall but shifts toward conser-vative overtriage. 
+
+B.5 Contextual Comparison on MIMIC-derived ESI Prediction 
+
+Table 10 contextualizes our best MIMIC-ESI pro-gram against the reference study. The comparison is not direct, since the systems use different model backbones and evaluation splits, but it provides an external calibration point for exact and range accuracy. 
+
+B.6 MIMIC-ESI Evolution Dynamics 
+
+Figure 2 summarizes the MIMIC-ESI evolutionary run, with the best-so-far frontier showing sustained improvement across generations. 
+
+C Interactive Consultation Task Results 
+
+C.1 Performance on iC RAFT MD For Llama-3 
+
+Table 11 evaluates whether the evolved consulta-tion strategy transfers from iM ED QA to the held-out iC RAFT MD split. Across both Llama-3 mod-17 Program Acc (%) Rem Rne Rsc                 
+
+> Base 82 .2±2.30.91 0.76 0.86
+> SG-c1189 75 .1±2.91.00 0.57 0.85 GPT-3 (Levine et al.) 71 ———
+
+Table 9: Held-out evaluation on Levine vi-gnettes (Levine et al., 2023) (n=48 , 10 runs). GPT-3 result is from Levine et al.                  
+
+> System Exact (%) Range (%)
+> RAG-assisted LLM 65.75 77.15 Claude 3.5 Sonnet 64.40 82.40 Claude 3 Sonnet 61.65 74.55 Claude 3 Haiku 59.00 66.15
+> MIMIC-023 (ours) 62 .0±0.477 .0±0.4
+
+Table 10: Contextual comparison on MIMIC-derived ESI prediction. Reference values are clinical-user triage-level results from Gaber et al. (Gaber et al., 2025); ours are evaluated on a separate held-out test split. 
+
+els, Evolved achieves the best accuracy while keep-ing token usage close to the cheapest baseline. 
+
+C.2 Performance On iC RAFT MD For Modern LLM 
+
+Table 12 evaluates held-out iC RAFT MD transfer with stronger open-weight models. Evolved keeps the highest aggregate rank for both models, match-ing or approaching the best accuracy while using substantially fewer tokens than explicit cutoff base-lines. 
+
+C.3 Full iM ED QA Results C.4 Ablation Study 
+
+Table 14 isolates the contribution of the two fitness-stabilization components used during interactive-consultation evolution. Removing structured batches and lineage blending progressively reduces accuracy, indicating that both help stabilize candi-date selection under partial evaluation. 
+
+D Extended Qualitative Analysis 
+
+This appendix provides the extended qualitative analysis summarized in Section 5. We focus on the mechanisms that are difficult to capture with aggregate metrics alone: how evolved programs shift decision boundaries, how they use or avoid ex-ternal context, how they allocate interaction budget, and how they translate clinical cues into executable prompt or program logic. Representative code ex-cerpts are provided in Appendix E. 
+
+D.1 Triage Semigran vignette triage. The Semigran exper-iment provides a compact example of evolution changing the operating point of a triage system 0 50 100 150 200 250 300 
+
+> Generation
+> 0.30
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> 0.60
+> 0.65
+> Fitness
+> Mean
+> Median
+> Best so far
+
+Figure 2: MIMIC-ESI evolution dynamics. The plot shows rolling mean archive fitness, median fitness, and the best-so-far frontier over generations.                                                                             
+
+> Algorithm Acc (%) ↑Avg. tok. ↓Rank ↑
+> Llama-3-8B
+> Scale 56 .2±1.22727 ±10 2 + 0 = 2
+> Implicit 43 .6±4.3154 ±20 + 4 = 4
+> Binary 57 .4±0.42137 ±18 1 + 1 = 2
+> Numerical cutoff 56 .4±0.73463 ±20 3 + 2 = 5
+> Evolved 63.8 ±1.1156 ±13 4+3=7 Llama-3-70B
+> Scale 75 .7±1.42496 ±22 3 + 2 = 5
+> Implicit 72 .4±2.7418 ±18 0 + 4 = 4
+> Binary 76 .2±2.51966 ±22 1 + 0 = 1
+> Numerical cutoff 76 .4±1.91931 ±23 2 + 1 = 3
+> Evolved 78.1 ±1.5477 ±64+3=7
+
+Table 11: iC RAFT MD results on the M EDI Q benchmark with Llama-3 models (3 runs). Rank sums Borda-style scores for accuracy and token usage. 
+
+rather than merely improving formatting. The strongest initial program, B ASE , already recognizes non-emergency and self-care cases reasonably well, but its emergency recall is low ( Rem =0 .60 ). This is the clinically undesirable direction of error: the system is relatively specific, but it misses too many emergencies. The best evolved pro-gram, SG-c1189 , shifts this boundary substan-tially, reaching Rem =0 .97 while preserving use-ful non-emergency and self-care recall ( Rne =0 .83 ,
+
+Rsc =0 .81 ). This differs from a trivial conservative solution. MedAsk and several LLM baselines also achieve high emergency recall, but typically lose more self-care specificity, whereas SG-c1189 keeps both emergency sensitivity and self-care recogni-tion high. A second qualitative observation is that the best Semigran solution does not rely on the explicit triage knowledge base. Although several initial pro-grams inject ESI, CTAS, or START reference mate-rial, the evolved winner is a compact prompt-based wrapper. In this setting, evolution appears to im-prove decision framing and class-boundary calibra-tion more than it benefits from additional retrieved context. This is consistent with the knowledge-base 18 Algorithm Acc (%) ↑ Avg. tok. ↓ Rank ↑                                                                      
+
+> Qwen-3.5-27B
+> Scale 85 .1±2.11710 ±33 3 + 0 = 3
+> Implicit 62 .4±4.1625 ±54 0 + 4 = 4
+> Binary 85 .5±0.81753 ±24 1 + 2 = 3
+> Numerical cutoff 88 .1±0.82214 ±72 + 1 = 3
+> Evolved 88.3 ±3.3789 ±22 4+3=7 Gemma-4-31B
+> Scale 88 .5±2.91065 ±29 4 + 0 = 4
+> Implicit 80 .7±1.2294 ±22 0 + 3 = 3
+> Binary 89 .0±0.8844 ±81 + 1 = 2
+> Numerical cutoff 89.8 ±1.61554 ±12 2 + 2 = 4
+> Evolved 89 .5±0.846 ±23+4=7
+
+Table 12: iC RAFT MD results on the M EDI Q benchmark with modern LLMs (3 runs). Rank sums Borda-style scores for accuracy and token usage. 
+
+ablation: dedicated KB baselines are weaker than both B ASE and SG-c1189 . The result suggests that, for short standardized vignettes, external context can be less useful than a well-calibrated instruction that elicits the model’s latent triage knowledge. The Levine evaluation reveals the cost of this Semigran specialization. SG-c1189 transfers its safety behavior—it reaches perfect emergency re-call on Levine—but overall accuracy drops because many non-emergency cases are overtriaged. This is a clinically safer failure mode than undertriage, but it shows that optimizing on a small vignette set can still overfit the boundary between em and 
+
+ne . In contrast, B ASE generalizes more uniformly to Levine, even though it is weaker on Semigran. Thus, the Semigran result is best interpreted as successful safety-oriented specialization, not as ev-idence that a single evolved vignette wrapper has solved triage robustness. 
+
+MIMIC-ESI triage. The MIMIC-ESI experi-ment reveals two qualitatively different kinds of evolved behavior. The strongest held-out program, 
+
+MIMIC-023 , combines local ESI reference retrieval with structured voting and resource-sensitive rea-soning, yielding the best exact accuracy and overall fitness on the held-out MIMIC split. A second fam-ily, represented by MIMIC-011 , exposes a different point on the search landscape: it is much more conservative, achieving high ESI-1 recall and low undertriage on MIMIC, but at the cost of lower exact accuracy. This kind of candidate is clinically interesting because it optimizes the safety-weighted objective without necessarily optimizing the same operating point that would be preferred for deploy-ment. The external transfer evaluation shows why this distinction matters. When mapped to Semigran and Levine, MIMIC-011 collapses to an all-emergency                                                                                                                                                             
+
+> Algorithm Acc (%) ↑Avg. tok. ↓Rank ↑
+> Llama-3-8B
+> Binary 43 .6±1.01671 ±2–Implicit 43 .5±0.2339 ±8–Numerical cutoff 45 .1±0.62788 ±7–Scale 44 .2±0.22193 ±10 –Best from M EDI Q45 .8±1.4––Evolved 48.2 ±0.4289 ±2–
+> Llama-3-70B
+> Binary 58 .6±0.31585 ±1–Implicit 57 .5±0.7813 ±14 –Numerical cutoff 58 .4±1.71625 ±3–Scale 57 .5±0.51627 ±4–Best from M EDI Q60 .9±1.4––Evolved 62.2 ±0.3514 ±1–
+> Qwen-3.5-27B
+> Binary 70 .1±0.71727 ±16 1 + 2 = 3
+> Implicit 65 .9±0.9707 ±60 + 4 = 4
+> Numerical cutoff 71 .1±1.12100 ±10 3 + 0 = 3
+> Scale 70 .3±0.41860 ±21 2 + 1 = 3
+> Evolved 73.6 ±0.6961 ±84+3=7 Gemma-4-31B
+> Binary 74 .8±0.5933 ±71 + 2 = 3
+> Implicit 72 .1±0.6417 ±40 + 3 = 3
+> Numerical cutoff 76.4 ±0.41412 ±14 + 0 = 4
+> Scale 75 .1±0.81132 ±62 + 1 = 3
+> Evolved 75 .6±0.5104 ±33+4=7
+
+Table 13: Full per-baseline iM ED QA results on the MEDI Q benchmark. Results are averaged over three runs. Bold indicates the best result and underline indi-cates the second-best result within each model block. Rank denotes the Borda-style aggregate over accuracy and average token usage where reported; it is omitted for Llama-3 because the original M EDI Q best-accuracy reference does not report token usage.            
+
+> Method Acc (%) ↑
+> Full configuration 48.2 ±0.4 w/o structured batch composition 44.8 ±0.7 w/o lineage blending 43.0 ±0.7
+
+Table 14: Ablation study of fitness stabilization com-ponents on the iM ED QA test subset of the M EDI Qbenchmark on Llama-3-8B (3 runs). 
+
+classifier: it predicts em for all 45 Semigran cases and all 48 Levine cases. Inspecting the evolved code reveals the mechanism. The program contains an early high-acuity rule that returns ESI 1 before any LLM call when systolic blood pressure appears below 90. However, for vignette datasets without structured vitals, the parser returns an empty dic-tionary and the code evaluates missing SBP with a default value of zero: 
+
+> vitals.get("SBP", 0) < 90
+
+Thus, absent vitals are interpreted as critical hy-potension. This single default value turns a safety check that is useful in the MIMIC setting into a degenerate shortcut under distribution shift. We view this as a useful failure mode rather than merely a bad candidate. It shows that evolution-ary search can discover clinically plausible safety 19 heuristics, but also that such heuristics need robust-ness constraints around missingness and dataset shift. In triage, where undertriage and overtriage have asymmetric costs, an objective that rewards conservative behavior can produce programs that look attractive on safety metrics while losing speci-ficity out of distribution. This motivates reporting not only exact accuracy and range accuracy, but also prediction distributions, undertriage rates, and external transfer behavior. 
+
+D.2 Interactive Consultation 
+
+For the interactive consultation task, the evolved programs reveal several qualitatively distinct mech-anisms for improving the accuracy–cost trade-off. These mechanisms affect different parts of the con-sultation policy: commitment decisions, fallback behavior, question selection, evidence tracking, and final forced choice. Representative code excerpts for this task are provided in Appendix E.2. 
+
+Vote-based confidence without an extra scoring call. The baseline strategies expose a trade-off between cost and reliability. Explicit confidence-based baselines, such as numerical or Likert-scale cutoffs, make an additional LLM call to estimate a confidence score, while implicit and binary base-lines are cheaper but commit whenever any major-ity vote appears, relying on a simple voting rule. The evolved program for Llama-3-8B keeps the single-pass implicit format, without a separately prompted confidence score, but derives a numeric confidence estimate from the vote distribution it-self. It requires a supermajority threshold ( ≥ 0.75 ), meaning that all three sampled answers must agree before the program commits to a final answer. This strategy preserves the low cost of implicit absten-tion while adding a simple reliability check before the final answer. 
+
+Utility-based question selection. The baseline strategies select follow-up questions from self-consistency samples either randomly or by maxi-mum vote frequency, without estimating their ex-pected clinical utility. The Llama-3-70B evolved program introduces a lightweight utility score based on clinically informative attributes, such as onset, duration, severity, risk factors, and family history. This score is combined with vote frequency when choosing the next question, shifting the pol-icy from purely frequency-based selection toward high-yield information gathering. As a result, the agent prioritizes questions that are more likely to reduce diagnostic uncertainty. 
+
+Evidence-balanced hypothesis probing. The baseline strategies generate follow-up questions without explicitly tracking how much evidence has been collected for each answer option. As a re-sult, fallback questions are either generic or se-lected from candidate questions without consider-ing which hypotheses remain underexplored. The Qwen-3.5-27B evolved program introduces option-level evidence tracking: it analyzes the interac-tion history, estimates which answer option has the least accumulated support, and generates a fallback question targeting that option. This implements an evidence-balancing policy, where the agent probes the weakest part of the current hypothesis space in-stead of asking a generic follow-up question. Such behavior is directly relevant for multiple-choice clinical reasoning, where the goal is to distinguish between competing diagnoses or treatment options. 
+
+Selective self-consistency at forced commitment. 
+
+The baseline strategies make a single LLM call when the interaction budget is exhausted and the agent is forced to return a final answer. The Gemma-4-31B evolved program changes this fi-nal step by applying self-consistency only at forced commitment: it samples multiple final answers and returns the majority choice. This is a targeted use of additional computation, since the final forced decision is made under the highest uncertainty and directly determines task accuracy. The mecha-nism therefore reduces variance at the most critical point of the dialogue without increasing sampling throughout the full interaction. Overall, these qualitative findings show that evo-lution discovers program-level mechanisms rather than only local prompt edits. The learned policies improve when to answer, what to ask, how to avoid wasted turns, and how to stabilize final decisions, providing a plausible explanation for the strong quantitative accuracy–cost trade-off. 
+
+D.3 Classification of PneumoniaMNIST 
+
+For PneumoniaMNIST, evolution operates at the prompt-program level: every candidate is a small Python module whose entrypoint() returns the prompt sent to the fixed MedGemma VLM. The strongest initial programs were already competent format controllers. For 27B, the selected B ASE 
+
+prompts were often minimal JSON-only classifiers; for 4B, the selected B ASE prompts usually added a 20 simple sensitive rule, asking the model to choose pneumonia when it sees a convincing abnormal opacity or infiltrate. The evolved programs pre-serve this strict output contract, but change the clinical framing and the decision procedure used before the JSON answer is produced. The most consistent qualitative change is a shift from label-first prompting to finding-oriented im-age assessment. Evolved prompts introduce a concrete radiology role, often specialized to pe-diatric AP/PA chest radiographs, and ask the model to inspect both lung fields for focal or lobar air-space opacity, consolidation, patchy or perihilar infiltrates, interstitial patterns, air bronchograms, pleural effusion, and left–right asymmetry. The MedGemma-27B 224 ×224 final program in Ap-pendix E.3 is representative: it wraps a strict JSON output contract around an explicit check-list and a deterministic rule that maps any observed pneumonia-compatible finding to class 1. This helps explain why gains persist even though the model, image preprocessing, label set, and parser are fixed. Evolution also adjusts the operating point differ-ently across resolutions and model sizes. Several 27B final prompts favor pneumonia under ambigu-ity, which is useful for increasing sensitivity when subtle opacities are present. By contrast, the 4B 
+
+28 ×28 final prompt becomes more conservative: it asks for at least two separate opacities or a sin-gle opacity involving more than about 10% of a lung field, and defaults to normal under uncertainty. This suggests that the search is not merely adding medical vocabulary; it is tuning decision thresholds to the error profile of a particular model-resolution pair. Comparing B ASE and Final prompts suggests two sources of improvement. Many ingredients are recombinations of information already present in the task description and seed prompts: strict JSON formatting, the binary label schema, pedi-atric AP/PA chest-X-ray framing, focal or lobar air-space opacity, patchy and interstitial opacities, air bronchograms, pleural effusion, common con-founders, and the general idea of thresholding the decision boundary. Evolution makes these ingre-dients more operational by choosing which find-ings to emphasize, ordering them into an internal checklist, and pairing them with a concrete deci-sion rule. Other details appear to be prompt-level elaborations introduced during mutation and then retained by selection, such as approximate opacity-area thresholds, a minimum perihilar-opacity size, costophrenic-angle blunting, and model-specific uncertainty defaults. In this sense, evolution acts less like unconstrained invention and more like clinically informed recombination plus selective sharpening: it turns task-level medical hints into executable prompt programs whose thresholds are tuned to a particular model-resolution pair. 
+
+E Representative Evolved Program Snippets 
+
+E.1 Triage Semigran: urgency-biased consensus without explicit KB context.                 
+
+> _MAX_QUERIES = 30 _BATCH_SIZE = 3 _CONFIDENCE_THRESHOLD = 0.60 _URGENCY_PRIORITY = {"em": 3, "ne": 2, "sc": 1}
+> def _deterministic_choice(votes: Counter) -> str :
+> if not votes:
+> return "" max_votes = max (votes.values()) candidates = [c for c, cnt in votes.items() if cnt == max_votes] candidates.sort(key= lambda c: _URGENCY_PRIORITY[c], reverse=True)
+> return candidates[0]
+> while total_queries < _MAX_QUERIES: current_conf = max (votes.values()) / total_queries
+> if current_conf >= _CONFIDENCE_THRESHOLD:
+> break
+> batch_votes = await _vote_batch(prompt, _BATCH_SIZE) votes.update(batch_votes) total_queries += _BATCH_SIZE
+
+MIMIC-023: retrieval, resource reasoning, and safety-biased voting.                                    
+
+> TOP_K = 3 SIMILARITY_CUTOFF = 0.30
+> def retrieve(text: str ) -> str :...
+> for idx, _ in ranked: sim = _cosine(query_vec, _VECTORS_CACHE[idx], _NORMS_CACHE[idx])
+> if sim < SIMILARITY_CUTOFF:
+> continue
+> parts.append(f"### {_KB_CACHE[idx][ 'title ']}\n{snippet}")
+> if len (parts) >= TOP_K:
+> break return "\n\n".join(parts)
+> def majority_vote(votes: List[ str ]) -> str :cnt = Counter(votes)
+> if cnt["1"] >= 1:
+> return "1"
+> if cnt["2"] >= 2:
+> return "2" max_cnt = max (cnt.values()) tied = [ int (v) for v, c in cnt.items() if c == max_cnt]
+> return str (min (tied)) # lower ESI number is more urgent raw_votes = await asyncio.gather(*(one_vote(txt, sys) for sys in systems)
+> ,→)res = await ask_llm_json(txt, RESOURCE_SYSTEM) res_vote = resource_vote(txt, parse_count(res.get("resource_count"))) valid_votes = [v for vin raw_votes if vis not None] + [res_vote] pred = majority_vote(valid_votes)
+
+MIMIC-011: missing vitals become a brittle safety shortcut.         
+
+> def high_acuity_rule(patient: dict ) -> bool :txt = patient_text(patient).lower().replace("-", " ") ... vitals = _parse_vitals(patient.get("initial_vitals", ""))
+> if vitals.get("SBP", 0) < 90:
+> return True
+> if vitals.get("HR", 0) > 130:
+> return True
+> if vitals.get("RR", 0) > 30:
+
+21 return True 
+
+if vitals.get("SpO2", 100) < 90: 
+
+return True 
+
+return False async def classify(patient: dict ) -> dict :
+
+if high_acuity_rule(patient): 
+
+return {"predicted_acuity": "1"} ... 
+
+E.2 Interactive Consultation Task Vote-based confidence without an extra scoring call. 
+
+... 
+
+if answer_votes: chosen_letter = max (set (answer_votes), key=answer_votes.count) confidence = answer_votes.count(chosen_letter) / total_iters raw = answer_texts.get(chosen_letter, "") 
+
+elif question_votes: ... 
+
+if answer is not None and confidence >= CONFIDENCE_THRESHOLD: 
+
+return {"abstain": False, "confidence": confidence, "messages": messages, "letter_choice": answer, "atomic_question": None, }
+
+Utility-based question selection. 
+
+... HIGH_VALUE_KEYWORDS = [ "duration", "onset", "severity", "frequency", "risk factor", "family history", "exposure", "pain", "fever", "cough", "headache", ]
+
+def _score_question(question: str ) -> int :lower = question.lower() 
+
+return sum (keyword in lower for keyword in HIGH_VALUE_KEYWORDS) scored = { question: _score_question(question) + Counter(questions)[question] 
+
+for question in set (questions) }best_question = max (scored, key=scored.get) 
+
+Evidence-balanced hypothesis probing. 
+
+def _suggest_discriminative_question( patient_state, options_dict, asked_options, ): vote_counts = {option: 0 for option in options_dict} 
+
+for qa in patient_state["interaction_history"]: answer = parse_choice(qa.get("answer", ""), options_dict) 
+
+if answer: vote_counts[answer] += 1 remaining = [ option for option in options_dict 
+
+if option not in asked_options ]
+
+if remaining: target = min (remaining, key= lambda o: vote_counts.get(o, 0)) 
+
+else :target = min (vote_counts, key=vote_counts.get) 
+
+return (f"Does the patient exhibit any findings " f"that would support diagnosis {target}?" )
+
+Selective self-consistency at forced commitment. 
+
+... n = PROGRAM_PARAMS["self_consistency"] responses = get_responses(messages, n=n, **kwargs) letters = [] 
+
+for response in responses: _, letter = expert_response_choice( messages, options_dict, forced_response=response, **kwargs, )
+
+if letter in ("A", "B", "C", "D"): letters.append(letter) ... 
+
+return max (set (letters), key=letters.count) 
+
+E.3 Classification of PneumoniaMNIST Checklist-driven prompt program for MedGemma-27B. 
+
+# Program implementation PROMPT = """You are an expert pediatric radiologist. Task: classify the chest X-ray (pediatric AP/PA view) as normal vs 
+
+,→ pneumonia. Think internally, then output ONLY a single-line JSON object with EXACTLY 
+
+,→ these keys: {"class_id": <0 or 1>, "class_name": "<normal or pneumonia>"} Guidelines: 1) Systematically inspect the right and left lung fields for any of the 
+
+,→ following findings: - focal or lobar airspace opacity - consolidation - patchy infiltrates - air bronchograms - perihilar opacity >=0.5 cm or diffuse subtle opacities 2) If any such finding is present in either lung, label pneumonia ( 
+
+,→ class_id 1, class_name "pneumonia"). 3) If findings are present in both lungs, choose the dominant pathology ( 
+
+,→ the lung with the more extensive opacity) - still pneumonia. 4) If no findings from step 1 are observed, label normal (class_id 0, 
+
+,→ class_name "normal"). 5) If you are uncertain, select the class you deem most likely based on 
+
+,→ the visual evidence (do NOT default to normal). 6) Do NOT include any explanations, markdown, or extra characters before 
+
+,→ or after the JSON. The output must be a single line. """ 
+
+def entrypoint(): 
+
+return PROMPT 
+
+22 Task Runs Evolver calls/run Evolver tokens/call Expert calls/eval Expert tokens/call                        
+
+> MIMIC-ESI triage (estimated) 12,101 in: 9,932 /11 ,472 /12 ,143
+> out: 2,468 /2,666 /3,009 214 /347 /358 in: 327 /429 /583
+> out: 7/7/7
+> Interactive consultation 41,499 /1,698 /2,302 in: 6,153 /7,954 /10 ,880
+> out: 1,063 /1,295 /2,884 266 /387 /535 3,606 /6,337 /19 ,252
+> PneumoniaMNIST 24 240 in: 2,140 /2,159 /2,182
+> out: 826 /966 /1,097 100 402 /429 /440
+
+Table 15: Evolution resource consumption across tasks. Evolver statistics describe LLM-guided mutation calls, while expert statistics describe task-model calls used during candidate evaluation. Calls are reported per evolutionary run, and token counts are reported as 25th/50th/75th percentiles per call. 
+
+F Evolution Costs 
+
+Table 15 reports the resource consumption of the evolutionary pipelines. For the MIMIC-ESI triage task, a single evolutionary run produced 2,101 non-root candidate programs. Each candidate was eval-uated on a stratified batch of 96 patient cases, and the final evolved wrappers typically made multi-ple expert-model calls per case because they used combinations of ESI-level voting, resource-count estimation, retrieval, and safety checks. This leads to a relatively high number of expert calls per eval-uation batch, but the individual expert prompts are short compared with dialogue-based tasks. For the interactive consultation task, a median run corresponds to an estimated API cost of roughly $2.30–5.18 when using a 27B+ expert model, de-pending on model choice and provider pricing 4. As a point of reference, fine-tuning introduces GPU-provisioning and training costs that depend on model size, sequence length, and GPU architecture. Even under an efficient setup, prior cost model-ing reports $17.9–32.7 for a single sparse Mixtral-8x7B fine-tuning run, using a 47B-parameter MoE model adapted with QLoRA (Xia et al., 2024). Thus, for low-to-medium run counts, inference-time evolution can be a practical alternative to fine-tuning because it avoids dedicated training infrastructure, although its API-based cost accu-mulates with repeated searches and large-scale de-ployment (Klang et al., 2024). For PneumoniaMNIST, the evolutionary setup is structurally simpler because each candidate is only a prompt-producing Python module. However, evaluation is image-call intensive: each candidate is scored on a fixed balanced subset of 100 training images, so one candidate evaluation requires 100 MedGemma calls. We ran four image resolutions and two MedGemma model sizes, with three re-peated evolutionary runs per model–resolution pair, for a total of 24 evolutionary runs. Each run used 30 generations with 8 mutants per generation, cor-
+
+> 4https://computeprices.com/models
+
+responding to 240 evolver calls per run. Compared with the interactive consultation task, Pneumoni-aMNIST uses much shorter textual contexts. Its cost profile is therefore not driven by long dialogue histories or large textual contexts, but by the multi-plicity of independent image evaluations. 23
