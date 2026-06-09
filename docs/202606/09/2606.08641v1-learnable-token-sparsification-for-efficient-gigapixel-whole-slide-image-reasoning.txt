@@ -1,0 +1,204 @@
+Title: Learnable Token Sparsification for Efficient Gigapixel Whole Slide Image Reasoning
+
+URL Source: https://arxiv.org/pdf/2606.08641v1
+
+Published Time: Tue, 09 Jun 2026 01:37:05 GMT
+
+Number of Pages: 12
+
+Markdown Content:
+# LEARNABLE TOKEN SPARSIFICATION FOR EFFICIENT 
+
+# GIGAPIXEL WHOLE SLIDE IMAGE REASONING 
+
+Jingzhi Chen 
+
+Shenzhen University of Advanced Technology 
+
+Landi He 
+
+Shenzhen University of Advanced Technology 
+
+Zhuo Chen 
+
+Shenzhen University of Advanced Technology 
+
+Shawn Young 
+
+Shenzhen University of Advanced Technology 
+
+Lijian Xu ∗
+
+Shenzhen University of Advanced Technology June 9, 2026 
+
+# ABSTRACT 
+
+The processing of gigapixel whole slide images within vision language models faces a major dif-ficulty due to an excessive number of visual tokens. Existing solutions typically rely on spatial downsampling or heuristic pruning strategies that operate without training, and these methods often discard subtle but clinically meaningful patterns because pathological evidence is scattered irregu-larly across the tissue. To overcome this limitation, we reformulate token reduction in whole slide images as a trainable sparsification problem, allowing the model to learn an optimal selection strat-egy instead of following fixed heuristics. We propose a decoupled routing architecture. To enable gradient propagation through the nondifferentiable pruning operation during training, we introduce a component called SparseLearn. This component uses a variance preserving noise gate that reg-ulates the information flow of each patch via a differentiable Soft Top K operator, together with a diagonal attention denoiser that recovers perturbed representations without leaking spatial informa-tion. At inference time, the SparseLearn module is entirely discarded, and the trained scorer applies a deterministic Hard Top K operator to keep only the highest scoring 32 tokens, incurring no extra computation. By compressing the visual sequence down to a sparse set of just 32 tokens, which rep-resents as little as 0.78 % of the original length, our framework achieves 73.32 % overall accuracy on SlideBench (TCGA), consistently surpassing sampling based baselines and general purpose vi-sion language models. It also demonstrates strong zero shot generalization on SlideBench (BCNB) and WSI VQA*. By resolving the visual context bottleneck and preventing the dilution of sparse diagnostic evidence, this work provides a highly efficient paradigm for end to end gigapixel whole slide image reasoning. 
+
+Keywords Gigapixel Whole-Slide Images · Learnable Sparsity · Token Pruning · Vision-Language Models. 
+
+# 1 Introduction 
+
+Vision-language models (VLMs) [1, 2, 3, 4] have catalyzed a paradigm shift in computational pathology, enabling in-teractive diagnostic reasoning and slide-level question answering. However, scaling these models to gigapixel Whole-Slide Images (WSIs) presents a fundamental computational bottleneck. A single WSI typically generates over 10 5
+
+patches [5, 6], whose end-to-end processing amplifies the quadratic self-attention complexity and memory overhead during the large language model (LLM) prefill stage, rendering dense visual ingestion intractable [7, 8, 9]. 
+
+> ∗
+
+Corresponding author. 
+
+> arXiv:2606.08641v1 [cs.CV] 7 Jun 2026
+
+A PREPRINT - J UNE 9, 2026 To mitigate this sequence explosion, prevailing paradigms resort to training-free visual token reduction. Spatial sam-pling strategies restrict the input to a fixed context window by uniformly or randomly discarding most patches [10]. Training-free pruning methods rely on proxy metrics such as attention magnitude or visual similarity [11, 12, 13, 14] to filter tokens before generative reasoning. While computationally efficient, these filters treat compression merely as identifying background noise, overlooking the extreme sparsity of pathology data where decisive diagnostic evidence, such as micro-metastases, often occupies less than 1% of the slide. To prevent information loss, recent efforts have shifted toward learnable token selection, exploring semantic slot aggregation for compact visual representations. Yet, routing only the most informative tokens to the LLM inher-ently requires discrete, hard-gating decisions such as Hard Top-K [15], which are fundamentally non-differentiable [16]. Existing frameworks circumvent this by relying on surrogate objectives, external bounding-box annotations, or intrusive routing layers deep within transformer blocks [17], disrupting pre-trained language priors and hindering end-to-end multimodal alignment (see Figure 1). We address this bottleneck by reconceptualizing WSI token pruning as learnable sparsity . Instead of static, training-free spatial discard, we enable the model to autonomously learn an optimal token pruning strategy via continuous optimization. We propose a decoupled routing framework. To establish continuous gradients for the non-differentiable pruning operation during training, we introduce SparseLearn. Guided by a Soft Top-K operator, SparseLearn employs a continuous variance-preserving (VP) noise gate to modulate each patch’s information flow, creating continuous gra-dients without removing tokens. A diagonal-attention Denoiser subsequently repairs latent distribution shifts while strictly preventing spatial information leakage. At inference, the SparseLearn module is entirely detached; a determin-istic Hard Top-K operator executes token pruning based on the trained Scorer, adding zero computational latency. Our contributions are summarized as follows: (1) We reformulate WSI token pruning from training-free pruning into a learnable sparsity paradigm, optimized end-to-end through continuous gradients without auxiliary losses or architectural intrusions into the frozen LLM. (2) We introduce a decoupled routing mechanism. To bridge the optimization gap of discrete Top-K token selection, we design SparseLearn, a training module pairing a VP noise gate with diagonal-attention denoising to establish continuous gradients. (3) Empirical evaluations validate our framework under a strict sparsity budget. Enforcing a fixed 32-token budget, our approach achieves an average 58-fold reduction in visual sequence length and a maximum 128-fold dynamic com-pression limit. Under this compact regime, our framework yields 73.32% overall accuracy on SlideBench (TCGA), with competitive zero-shot generalization on SlideBench (BCNB) and WSI-VQA*. 
+
+# 2 Related Work 
+
+2.1 WSI Representation Paradigm 
+
+Gigapixel WSIs analysis is predominantly formulated as weakly supervised multiple instance learning. Early frame-works like AB-MIL [18] and CLAM [19] introduced attention-based aggregation but overlooked spatial correlations. Transformer-based architectures such as TransMIL [20] subsequently captured tissue-wide dependencies, with re-cent advances incorporating mixture-of-experts [21, 22], dynamic fusion [23], and slide-level supervision [24, 25]. Pathology-specific foundation models [26, 27, 28, 29], including vision-language [30, 31] and multimodal variants [32], now encode raw patches as high-dimensional morphological tokens. Other representation learning strategies [33, 34, 35] have also been explored in medical imaging contexts. Despite these advances, a standard slide yields hundreds of thousands of instances, introducing the gigapixel curse [5, 10]. Global self-attention incurs O(N 2) complexity, which becomes critical when deploying Multimodal LLMs [36, 37, 38, 39] with strictly bounded context windows. Existing remedies such as aggressive downsampling, sequence truncation [5], or regional slicing like HIPT [10] mitigate the quadratic explosion but disrupt global spatial continuity. More importantly, these strategies process the tissue without spatial awareness, failing to address the extreme hetero-geneity where crucial diagnostic indicators occupy a minute fraction of the tissue. Random sampling or threshold-based filtering largely fails in this sparse regime, rendering models susceptible to discarding scarce but decisive tokens. Resolving this demands explicit optimization of token selection under a strict sparsity budget, ensuring critical mor-phological features are preserved without information dilution. 2A PREPRINT - J UNE 9, 2026 
+
+Figure 1: Illustration of WSI sparsity and pruning methods. The left panel highlights the inherent sparsity of WSIs, where critical tumor regions are submerged in redundant normal tissue. The right panel contrasts training-free sampling with learning-based pruning, noting that the latter leverages loss feedback for better generalization in LLMs. 
+
+2.2 Visual Token Redundancy and Reduction 
+
+A natural approach to the sequence length crisis is to adopt token reduction strategies from general computer vision, which fall into trainable pruning [40, 41, 42] and training-free methods [12, 43, 44]. However, directly transplanting these algorithms to gigapixel WSI inference exposes fundamental limitations. Training-free methods, while computationally efficient, are sensitive to attention biases such as attention sinks and dispersion [45], often retaining semantically uninformative tokens under high compression ratios and degrading no-ticeably under aggressive pruning [46]. Their generalization also remains limited, as they rely heavily on model-specific statistics. Trainable pruning frameworks attempt to learn dynamic token routing but face a deeper bottleneck: hard pruning severs gradient flow, necessitating gradient approximations like the Straight-Through Estimator (STE) [16, 17] or Gumbel-Softmax relaxation[47]. While STE-induced bias is tolerable in densely supervised natural im-ages, it becomes catastrophic under the sparse, weakly supervised gigapixel WSIs setting where the approximated gradients fail to credit scarce tumor tokens, causing the model to collapse into degenerate minima and discard critical signals as background. To address these challenges, emerging efforts explore specialized token pruning paradigms [48, 49, 50]. Yet a critical gap remains: the field lacks a mathematically rigorous mechanism that avoids both the semantic dilution of training-free blending and the optimization collapse of STE-based routing. Diagnostic token retention must instead be governed by stable, continuous gradient flow under a fixed sparsity budget, ensuring robust convergence without sacrificing scarce pathological signals. 
+
+# 3 Methodology 
+
+3.1 System Formalization 
+
+Given a WSI I, we first discretize it into a sequence of N non-overlapping patches {pn}Nn=1 , and extract the corre-sponding visual feature sequence: 
+
+Xv = {x1, x 2, . . . , x N } ∈ RN ×dv
+
+where dv denotes the feature dimension of the visual encoder. This step establishes the initial comprehensive repre-sentation of the visual information. 3A PREPRINT - J UNE 9, 2026 
+
+Figure 2: Overview of our framework. Frozen encoders extract visual and textual features. To mitigate LLM context bottlenecks, a learnable sparsity mechanism dynamically reduces visual tokens via decoupled routing. Training path :To enable continuous gradients for discrete pruning, the SparseLearn module computes token importance ( si) via a Scorer, mapped to continuous weights ( α) using Soft Top-K. A VP Noise Gate injects α-scaled VP noise for continuous optimization without token removal, while a Denoiser recovers perturbed representations. Inference path :SparseLearn is detached. Guided solely by the trained Scorer, a Hard Top-K operator executes deterministic token pruning, retaining critical pathology features with zero computational overhead. Fire and snowflake icons denote trainable and frozen modules. However, the extensive visual sequence of length N generated by WSI imposes a quadratic computational and memory burden on the self-attention mechanism. Given that the forward pass of the visual encoder accounts for less than 5% of the total overhead, whereas the LLM’s prefill stage for processing long visual prefixes constitutes the primary computational bottleneck, we introduce a learnable token pruning framework between the visual encoder Ev and the projection layer Pv→ℓ. Figure 2 illustrates the complete pipeline, wherein WSI patches and text prompts are processed in parallel before fusion (a), and the token routing process is decoupled into two equivalent paths for training and inference (b). To drive the training phase without losing differentiability, we introduce SparseLearn , a specialized training module comprising a learnable scorer Sθ (parameterized by θ) and a lightweight denoiser Dω (parameterized by ω). These components aim to learn an optimal pruning strategy under a strict sparsity budget K (K ≪ N ). 
+
+Training path. During training, the scorer Sθ computes per-token importance scores, which are subsequently po-larized by a differentiable Soft Top-K operator under the fixed sparsity budget K. Instead of directly discarding tokens—which would sever gradients—we maintain the full sequence length N by applying a VP noise gating mech-anism within the SparseLearn module. Noise is injected with a magnitude inversely proportional to each token’s polarized score, generating a continuous noise-injected sequence ˜Xv . The lightweight denoiser Dω then processes this perturbed sequence to restore the perturbed representations before forwarding the representations through the projection layer Pv→ℓ to the LLM. We jointly optimize the scorer parameters θ, the denoiser parameters ω, and the low-rank adaptation (LoRA) parameters ϕ of the LLM via the negative log-likelihood (NLL) loss for next-token prediction: 
+
+min  
+
+> θ,ω,ϕ
+
+JNLL 
+
+
+
+fLLM 
+
+
+
+[Dω ( ˜Xv )Pv→ℓ; Et(T )]; Θ , ϕ 
+
+
+
+, {y∗ 
+
+> t
+
+}
+
+
+
+(1) where Θ denotes the frozen original parameters of the LLM, Et(T ) is the text prompt embedding, and {y∗ 
+
+> t
+
+} represents the ground-truth targets. 
+
+Inference path. To execute the learned token pruning, the denoiser and noise injection mechanisms of SparseLearn are completely detached. The system relies entirely on the trained scorer Sθ to evaluate token importance and executes a deterministic hard pruning strategy. It directly retains the top K most representative feature vectors via a standard hard Top-K operator: 
+
+ˆXv = Top-K(Xv , Sθ (Xv ), K ) ∈ RK×dv (2) 4A PREPRINT - J UNE 9, 2026 In this process, the retained tokens ˆXv must preserve their spatial position indices from the original sequence. This design ensures that the rotary position embedding (RoPE) within the LLM can accurately capture the geometric topo-logical correlations among tokens, a property crucial for understanding the spatial morphology of pathological tissues. Through this two-stage formalization, we reformulate WSI token pruning as a learnable sparsity problem. Under this framework, the scorer Sθ is optimized under a strict sparsity budget, where it must learn to prioritize the most informative tokens. It must learn to identify and prioritize the transmission of critical pathological semantics for downstream diagnostic reasoning under a strict sparsity budget, thereby achieving efficient end-to-end analysis of high-resolution WSI. 
+
+3.2 Learnable Token Scorer with Soft Top-K Selection 
+
+The scorer Sθ comprises L lightweight Transformer encoder blocks followed by a linear projection, mapping each of the N tokens to a scalar importance score: 
+
+s = Sθ (Xv ) ∈ RN . (3) To transform these raw scores into continuous weights under a strict sparsity budget, we employ the Soft Top-K
+
+operator ΦK . Raw scores are first z-score normalized for numerical stability, then mapped through ΦK :
+
+α = Φ K (ˆ s / τ ) ∈ [0 , 1] N , with 
+
+> N
+
+X
+
+> i=1
+
+αi ≈ K, (4) where ˆs denotes the normalized scores and τ > 0 is the temperature parameter. Conceptually, ΦK functions as a smooth, temperature-scaled mapping similar to softmax. The primary difference lies in the normalization constraint: unlike softmax, which requires P 
+
+> i
+
+αi = 1 , ΦK enforces P 
+
+> i
+
+αi = K, modifying the operation into a sparsity-constrained soft assignment. Furthermore, an implicit data-dependent threshold distinguishes ΦK from softmax by pushing the output scores toward 
+
+0 or 1, resulting in a bimodal distribution instead of being spread across all tokens. Given the fixed sparsity budget K,the scorer naturally learns to identify which tokens to retain, rather than determining how many . During training, τ is annealed from τstart to τend using a cosine schedule. At larger values of τ , the assigned weights remain diffuse, and as τ → 0, they asymptotically approximate the deterministic binary mask used for token pruning at inference. 
+
+3.3 Continuous Gradients via Noise Injection 
+
+Having obtained the polarized importance scores α from the Soft Top-K operator, we must restrict the information transmission to the downstream LLM. Implementing a standard hard Top-K pruning directly discards low-scoring to-kens, introducing a discrete discontinuity that produces zero gradients almost everywhere and fundamentally prevents end-to-end optimization. To circumvent this non-differentiability and establish continuous gradients while strictly enforcing the sparsity budget, we maintain the constant sequence length N and modulate the token-wise information through continuous noise injection. Specifically, we implement a VP noise gating mechanism. For the i-th visual token xi ∈ Rdv , the noise-injected representation ˜xi is formulated as: 
+
+˜xi = √αi xi + √1 − αi ϵi, ϵi ∼ N (0, Idv ) (5) where Idv ∈ Rdv ×dv is the identity matrix. From an information-theoretic perspective, this operation establishes a differentiable proxy for discrete token removal. When αi → 1 for diagnostically critical tokens, the noise component diminishes, preserving the original feature; when αi → 0, the visual signal is subsumed by isotropic Gaussian noise. Intermediate values yield a smooth interpolation between these two states. To ensure Var (˜ xi) ≈ Var (xi), we design the noise injection using coefficients √αi and √1 − αi. This VP formulation is mathematically grounded by the fact that standard visual encoders typically output layer-normalized features. Pre-serving this latent feature scale is critical to preventing distribution shifts that would otherwise destabilize the LLM. Through this explicit design, the scorer dictates the noise magnitude—and consequently the effective information flow—of each token during optimization. As empirically verified in Section 4, this continuous VP gating successfully simulates the information restriction behavior of deterministic hard Top-K token pruning. 
+
+3.4 Lightweight Denoiser with Diagonal Attention 
+
+While the VP gating ensures macroscopic variance stability across the feature sequence, the localized addition of Gaussian noise inherently perturbs the latent distribution of individual tokens. This deviation is most severe for tokens 5A PREPRINT - J UNE 9, 2026 assigned low importance scores, where the visual signal is largely overshadowed by noise. To realign these perturbed representations with the manifold expected by the frozen LLM, we append a lightweight denoiser Dω instantiated as a single Transformer encoder block. Applying standard global self-attention over the noise-injected sequence would allow semantic details to propagate from high-fidelity tokens to heavily noised ones via the attention matrix. Such cross-token communication would inadvertently circumvent the precise sparsity bottlenecks established by the preceding VP gate. To eliminate this risk, we implement a diagonal attention strategy: an identity mask isolates each token, restricting it to self-reference only. Consequently, the self-attention module reduces to a point-wise nonlinear mapping, operating strictly through the value projection and feed-forward networks. This structural constraint guarantees zero spatial leakage while providing the necessary representational capacity to bridge the distribution gap. The denoiser is not utilized during inference, incurring zero computational latency. 
+
+# 4 Experiments 
+
+4.1 Experimental Setup and Implementation Details Datasets and Evaluation Protocol. Our model is trained and evaluated on the SlideBench (TCGA) benchmark [51], reporting both overall accuracy and performance stratified across two critical categories: Microscopy assesses the de-scription of low-level morphological and staining features; Diagnosis evaluates histology-based reasoning and clinical subtyping. To assess out-of-distribution robustness, we further conduct zero-shot generalization tests on SlideBench (BCNB) and the external WSI-VQA* dataset [52]. 
+
+Baselines. To rigorously validate our framework across diverse diagnostic dimensions, we construct a comprehen-sive baseline matrix. This matrix includes theoretical upper-bound uncompressed models like SlideChat [51], which retain full-slide evidence without token reduction; compute-matched spatial sampling and general-purpose VLMs, in-cluding LLaVA-Med [36], Quilt-LLaVA [39], MedDr [38], and the proprietary GPT-4o [37], which represent current paradigms for training-free or large-scale multimodal reasoning. 
+
+Training and Optimization. The architecture is optimized utilizing two NVIDIA A6000 GPUs via a progressive two-stage training protocol. In Stage 1, the LLM backbone is strictly frozen, and optimization is restricted to the active components: the slide encoder, the SparseLearn module, and the cross-modal projector. In Stage 2, to prevent catastrophic forgetting of learned spatial priors, the slide encoder is frozen. We continue updating the SparseLearn module and the projector, while simultaneously introducing parameter-efficient fine-tuning (LoRA) to the LLM. Table 1: Main results on SlideBench (TCGA) and zero-shot generalization on SlideBench (BCNB) and WSI-VQA*. 
+
+# Methods FLOPs SlideBench (TCGA) SlideBench WSI Micros. Diagnos. Overall (BCNB) (VQA*) 
+
+# (Upper Bound) SlideChat 133.3T 87.64 73.27 81.17 54.14 60.18 (token pruning ∼ 60 ×)Random Baseline – 24.44 24.91 25.02 24.40 24.14 GPT-4o – 62.89 46.69 57.91 41.43 30.41 LLaVA-Med 1.70T 47.34 32.78 42.00 30.10 26.31 Quilt-LLaVA 1.70T 57.76 35.96 48.07 32.19 44.43 MedDr 1.70T 73.30 57.78 67.70 33.67 54.36 
+
+# Ours 1.73T 81.68 70.09 73.32 56.89 60.76 
+
+6A PREPRINT - J UNE 9, 2026 
+
+Figure 3: Accuracy and token efficiency. Our framework achieves competitive diagnostic accuracy using only 32 tokens, which is 128 times fewer than the SlideChat [51] baseline. Furthermore, it significantly outperforms traditional patch-based VLM methods that demand over 17.2K tokens. 
+
+4.2 Main Results SlideBench Benchmark and Zero-Shot Evaluation. Table 1 summarizes the quantitative results on the SlideBench (TCGA) benchmark. Under a stringent capacity constraint, our approach achieves 73.32% overall accuracy, estab-lishing a definitive performance margin over compute-matched spatial sampling paradigms. This gap validates that our learnable semantic selection effectively preserves sparse diagnostic evidence typically discarded by spatial sam-pling. Crucially, on the Diagnosis subset, our framework (70.09%) retains over 96% of the reasoning capacity of the uncompressed SlideChat upper bound (73.27%) while consuming merely 1.3% of its computational overhead. This performance extends to zero-shot settings consistently outperforming all equivalent compressed baselines and GPT-4o. This robust generalization confirms that prioritizing tokens via learned semantic importance, rather than rigid spatial anchors, enables the extraction of domain-invariant morphological features and effectively mitigates spatial overfitting. 
+
+4.3 Efficiency Analysis 
+
+Figure 3 demonstrates the efficiency of the proposed method. While the baseline SlideChat operates with a maximum input capacity of 4,096 tokens, our framework achieves comparable performance with a fixed budget of only 32 tokens, representing a 128 × reduction in sequence length. Given that accuracy remains robust even for slides exceeding 4,096 patches, this 32-token representation establishes a dynamic limit for distilling gigapixel information. By fixing the sequence length at this compact scale, the quadratic computational overhead of the LLM reasoning stage becomes independent of the raw patch count N . This decoupling effectively mitigates the primary computational bottleneck, as the LLM no longer needs to process an expensive, variable-length visual prefix. Figure 4 further illustrates our framework maintains consistent diagnostic fidelity across a wide spectrum of input scales. Although the raw sequence lengths range from 64 to over 10,000 patches, the interval accuracy remains stable 7A PREPRINT - J UNE 9, 2026 
+
+Figure 4: Performance stability across varying sequence lengths. The interval accuracy (orange line) remains highly stable near the global average (73.32%) despite exponential variations in WSI token counts (blue bars). This demonstrates that the model’s reasoning capability is inherently insensitive to the input scale. 
+
+Figure 5: UMAP visualizations of the latent feature space across three diverse WSIs. The selected tokens consistently cluster at topological extremities, demonstrating the model’s precision in isolating sparse, discriminative morphologi-cal outliers without semantic dilution. near the global average of 73.32%. This insensitivity confirms that the learnable selection mechanism effectively isolates an invariant semantic subspace, ensuring that reasoning is governed by intrinsic morphological features rather than the physical dimensions of the specimen. To qualitatively validate our selection mechanism, we project the high-dimensional visual features into a 2D topo-logical space using UMAP (see Figure 5). The vast majority of unselected tokens form dense central manifolds, corresponding to highly redundant stromal or healthy background tissues. In contrast, the 32 tokens retained by our approach consistently cluster at the extreme topological margins or isolated sub-clusters across diverse slides. This 8A PREPRINT - J UNE 9, 2026 spatial divergence corroborates that our sparsity-constrained routing effectively pinpoints extremely sparse, highly discriminative morphological outliers. 
+
+4.4 Ablation Studies 
+
+Table 2: Ablation studies results at K = 32 . Each row reports the accuracy. “Base” denotes the full SparseLearn configuration (VP noise + diagonal attention). 
+
+# Configuration Modification K = 32 
+
+# Base (VP noise + diagonal) † – 73.32% Scale gating VP noise → scale 70.40% (-2.92) 
+
+# Global attention diagonal → global 71.62% (-1.70) 
+
+We evaluate the architectural necessity of the two key modules: the diagonal attention mechanism and the VP noise gating within the training phase. 
+
+Diagonal vs. global attention. Table 2 shows that replacing the diagonal attention in the denoiser with standard global self-attention causes a significant performance drop from 73.32% to 71.62%. This degradation confirms the semantic leakage hypothesis. Global attention allows low-importance tokens to incorporate information from high-score neigh-bors, effectively circumventing the intended sparsity bottleneck during training. Enforcing diagonal isolation is thus essential for ensuring that the information throughput of each token is strictly governed by its own importance score, thereby maintaining the integrity of the sparsity-constrained formulation. 
+
+VP noise gating vs. scale gating. Substituting our VP noise gating with a conventional scale-based gating mech-anism (direct multiplication by α) results in a decrease to 70.40%. This performance gap highlights the sensitivity of the frozen LLM to distributional shifts in the visual prefix. Unlike scale gating, which shrinks feature magnitudes and causes latent collapse, VP noise gating preserves the macroscopic feature variance. This stochastic proxy more accurately simulates the information restriction of discrete token pruning, providing a more stable optimization target for the scorer and ensuring robust end-to-end continuous gradient flow. 
+
+# 5 Conclusion 
+
+In this work, we reformulate WSI token pruning as a learnable sparsity paradigm. By decoupling VP noise gating during training from deterministic Hard Top-K token pruning at inference, the SparseLearn training module resolves the non-differentiability of discrete pruning without requiring architectural modifications or auxiliary losses. The overall framework demonstrates scale-invariance in gigapixel WSIs reasoning. By distilling the visual context into a strict 32-token sparsity budget and achieving up to a 128-fold reduction in sequence length, our approach yields 73.32% overall accuracy on SlideBench (TCGA) and distinctly improves zero-shot generalization. This establishes an end-to-end paradigm that balances global receptive fields with optimal inference latency. Regarding limitations, our framework relies on a localized Scorer, assuming diagnostic importance is fully decipher-able at the individual patch level. For macroscopic morphological patterns or diffuse tissue margins, the lack of early cross-patch communication prior to the pruning bottleneck may omit broader relational context. Additionally, enforc-ing a static sparsity budget limits flexibility across diverse clinical applications. Future work will explore dynamic budget allocation and incorporate spatial-graph priors into the scoring mechanism to enable adaptive token pruning for pathology foundation models. 
+
+# References 
+
+[1] Xiaoyu Yang, Lijian Xu, Xingyu Zeng, Xiaosong Wang, Hongsheng Li, and Shaoting Zhang. Scalar: Spatial-concept alignment for robust vision in harsh open world. Pattern Recognition , page 113203, 2026. [2] Lijian Xu, Ziyu Ni, Xinglong Liu, Xiaosong Wang, Hongsheng Li, and Shaoting Zhang. A unified multi-task framework enables interpretable chest radiograph analysis. arXiv preprint arXiv:2606.03417 , 2026. [3] Lijian Xu, Ziyu Ni, Hao Sun, Hongsheng Li, and Shaoting Zhang. A foundation model for generalizable disease diagnosis in chest x-ray images. arXiv preprint arXiv:2410.08861 , 2024. 9A PREPRINT - J UNE 9, 2026 [4] Shawn Young and Lijian Xu. Xrayclaw: Cooperative-competitive multi-agent alignment for trustworthy chest x-ray diagnosis. arXiv preprint arXiv:2604.02695 , 2026. [5] Gabriele Campanella, Matthew G Hanna, Luke Geneslaw, et al. Clinical-grade computational pathology using weakly supervised deep learning on whole slide images. Nature medicine , 25(8):1301–1309, 2019. [6] Shawn Young, Xingyu Zeng, and Lijian Xu. Fewer tokens, greater scaling: Self-adaptive visual bases for efficient and expansive representation learning. arXiv preprint arXiv:2511.19515 , 2026. [7] Yi Zheng, Rushin H Gindra, Emily J Green, et al. A graph-transformer for whole slide image classification. 
+
+IEEE transactions on medical imaging , 41(11):3003–3015, 2022. [8] Hans Pinckaers, Bram Van Ginneken, and Geert Litjens. Streaming convolutional neural networks for end-to-end learning with multi-megapixel images. IEEE transactions on pattern analysis and machine intelligence ,44(3):1581–1590, 2020. [9] Zhuo Chen, Shawn Young, and Lijian Xu. Tc-ssa: Token compression via semantic slot aggregation for gigapixel pathology reasoning. arXiv preprint arXiv:2603.01143 , 2026. [10] Richard J Chen, Cheng Chen, Yicong Li, et al. Scaling vision transformers to gigapixel images via hierar-chical self-supervised learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 16144–16155, 2022. [11] Yongming Rao, Wenliang Zhao, Benlin Liu, Jiwen Lu, Jie Zhou, and Cho-Jui Hsieh. Dynamicvit: Efficient vision transformers with dynamic token sparsification. In Advances in Neural Information Processing Systems ,volume 34, pages 13937–13949, 2021. [12] Daniel Bolya, Cheng-Yang Fu, Xiaodong Dai, Peize Zhang, and Judy Hoffman. Token merging: Your ViT but faster. In International Conference on Learning Representations , 2023. [13] Landi He, Xiaoyu Yang, and Lijian Xu. The model knows which tokens matter:automatic token selection via noise gating. arXiv preprint arXiv:2603.07135 , 2026. [14] Yonghan Gao, Zehong Chen, Lijian Xu, Jingzhi Chen, Jingwei Guan, and Xingyu Zeng. Zerosense: How vision matters in long context compression. arXiv preprint arXiv:2603.11846 , 2026. [15] Wouter Kool, Herke Van Hoof, and Max Welling. Stochastic beams and where to find them: The gumbel-top-k trick for sampling sequences without replacement. In International conference on machine learning , pages 3499–3508. PMLR, 2019. [16] Yoshua Bengio, Nicholas Léonard, and Aaron Courville. Estimating or propagating gradients through stochastic neurons for conditional computation. arXiv preprint arXiv:1308.3432 , 2013. [17] Rinyoichi Takezoe, Yaqian Li, Zihao Bo, Anzhou Hou, Mo Guang, and Kaiwen Long. Learnpruner: Rethinking attention-based token pruning in vision language models. arXiv preprint arXiv:2604.23950 , 2026. [18] Maximilian Ilse, Jakub Tomczak, and Max Welling. Attention-based deep multiple instance learning. In Inter-national conference on machine learning , pages 2127–2136. PMLR, 2018. [19] Ming Y Lu, Drew FK Williamson, Tiffany Y Chen, et al. Data-efficient and weakly supervised computational pathology on whole-slide images. Nature biomedical engineering , 5(6):555–570, 2021. [20] Zhuchen Shao, Hao Bian, Yang Chen, Yifeng Wang, Jian Zhang, Xiangyang Ji, et al. Transmil: Transformer based correlated multiple instance learning for whole slide image classification. Advances in neural information processing systems , 34:2136–2147, 2021. [21] Noriaki Hashimoto, Hiroyuki Hanada, Hiroaki Miyoshi, et al. Multimodal gated mixture of experts using whole slide image and flow cytometry for multiple instance learning classification of lymphoma. Journal of Pathology Informatics , 15:100359, 2024. [22] Junxian Wu, Minheng Chen, Xinyi Ke, Tianwang Xun, Xiaoming Jiang, Hongyu Zhou, Lizhi Shao, and Youyong Kong. Learning heterogeneous tissues with mixture of experts for gigapixel whole slide images. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 5144–5153, 2025. [23] Bing Cao, Yiming Sun, Pengfei Zhu, and Qinghua Hu. Multi-modal gated mixture of local-to-global experts for dynamic image fusion. In Proceedings of the IEEE/CVF international conference on computer vision , pages 23555–23564, 2023. [24] Wenhao Tang, Fengtao Zhou, Sheng Huang, et al. Feature re-embedding: Towards foundation model-level performance in computational pathology. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11343–11352, 2024. 10 A PREPRINT - J UNE 9, 2026 [25] Wenhao Tang, Rong Qin, Heng Fang, Fengtao Zhou, Hao Chen, Xiang Li, and Ming-Ming Cheng. Revisiting end-to-end learning with slide-level supervision in computational pathology. Advances in Neural Information Processing Systems , 38:160279–160312, 2026. [26] Richard J Chen, Tong Ding, Ming Y Lu, et al. Towards a general-purpose foundation model for computational pathology. Nature medicine , 30(3):850–862, 2024. [27] Hanwen Xu, Naoto Usuyama, Jaspreet Bagga, et al. A whole-slide foundation model for digital pathology from real-world data. Nature , 630(8015):181–188, 2024. [28] Peihang Wu, Zehong Chen, and Lijian Xu. Multimodal model for computational pathology: Representation learning and image compression. arXiv preprint arXiv:2603.18660 , 2026. [29] Lijian Xu, Hao Sun, Ziyu Ni, Hongsheng Li, and Shaoting Zhang. Medvilam: A multimodal large language model with advanced generalizability and explainability for medical data understanding and generation. arXiv preprint arXiv:2409.19684 , 2024. [30] Zhi Huang, Federico Bianchi, Mert Yuksekgonul, Thomas J Montine, and James Zou. A visual–language foun-dation model for pathology image analysis using medical twitter. Nature medicine , 29(9):2307–2316, 2023. [31] Ming Y Lu, Bowen Chen, Drew FK Williamson, Richard J Chen, et al. A visual-language foundation model for computational pathology. Nature medicine , 30(3):863–874, 2024. [32] Yuxuan Sun, Yixuan Si, Chenglu Zhu, et al. Cpath-omni: A unified multimodal foundation model for patch and whole slide image analysis in computational pathology. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 10360–10371, 2025. [33] Xiaoyu Yang, Lijian Xu, Simon Yu, Qing Xia, Hongsheng Li, and Shaoting Zhang. Segmentation and vascular vectorization for coronary artery by geometry-based cascaded neural network. IEEE Transactions on Medical Imaging , 44(1):259–269, 2024. [34] Xiaoyu Yang, Lijian Xu, Simon Yu, Qing Xia, Hongsheng Li, and Shaoting Zhang. Geometry-based end-to-end segmentation of coronary artery in computed tomography angiography. In International Workshop on Trustworthy Machine Learning for Healthcare , pages 190–196. Springer, 2023. [35] Wangyu Feng, Shawn Young, and Lijian Xu. Efficient chest x-ray representation learning via semantic-partitioned contrastive learning. arXiv preprint arXiv:2603.07113 , 2026. [36] Chunyuan Li, Cliff Wong, Sheng Zhang, et al. Llava-med: Training a large language-and-vision assistant for biomedicine in one day. Advances in Neural Information Processing Systems , 36:28541–28564, 2023. [37] Aaron Hurst, Adam Lerer, Adam P Goucher, et al. Gpt-4o system card. arXiv preprint arXiv:2410.21276 , 2024. [38] Sunan He, Yuxiang Nie, Zhixuan Chen, Zhiyuan Cai, Hongmei Wang, Shu Yang, and Hao Chen. Meddr: Diagnosis-guided bootstrapping for large-scale medical vision-language learning. arXiv preprint arXiv:2404.15127 , 1(3):6, 2024. [39] Mehmet Saygin Seyfioglu, Wisdom O Ikezogwo, Fatemeh Ghezloo, et al. Quilt-llava: Visual instruction tuning by extracting localized narratives from open-source histopathology videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13183–13192, 2024. [40] Hao Wu, Yingqi Fan, Jinyang Dai, Junlong Tong, Yunpu Ma, and Xiaoyu Shen. Hidrop: Hierarchical vision token reduction in mllms via late injection, concave pyramid pruning, and early exit. International Conference on Learning Representations , 2026. [41] Xiaoyu Yang, Lijian Xu, Hongsheng Li, and Shaoting Zhang. One leaf reveals the season: Occlusion-based contrastive learning with semantic-aware views for efficient visual representation. In International Conference on Machine Learning , pages 71425–71440, 2025. [42] Landi He, Mingde Yao, Shawn Young, and Lijian Xu. Beyond surrogate gradients: Fully differentiable token pruning for vision-language models. arXiv preprint arXiv:2605.28051 , 2026. [43] Sixun Dong, Juhua Hu, Mian Zhang, et al. Mmtok: Multimodal coverage maximization for efficient inference of vlms. International Conference on Learning Representations , 2026. [44] Qizhe Zhang, Mengzhen Liu, Lichen Li, et al. Beyond attention or similarity: Maximizing conditional diversity for token pruning in mllms. Advances in Neural Information Processing Systems , 38:25438–25468, 2026. [45] Senqiao Yang, Yukang Chen, Zhuotao Tian, et al. Visionzip: Longer is better but not necessary in vision language models. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 19792– 19802, 2025. 11 A PREPRINT - J UNE 9, 2026 [46] Kele Shao, Keda Tao, Kejia Zhang, et al. When tokens talk too much: A survey of multimodal long-context token compression across images, videos, and audios. arXiv preprint arXiv:2507.20198 , 2025. [47] Eric Jang, Shixiang Gu, and Ben Poole. Categorical reparameterization with gumbel-softmax. arXiv preprint arXiv:1611.01144 , 2016. [48] Qingqiao Hu, Weimin Lyu, Meilong Xu, et al. Loc-path: Learning to compress for pathology multimodal large language models. arXiv preprint arXiv:2512.05391 , 2025. [49] Baizhi Wang, Kun Zhang, Yuhao Wang, et al. Wsisum: Wsi summarization via dual-level semantic reconstruc-tion. Medical Image Analysis , page 103970, 2026. [50] Zhengrui Guo, Conghao Xiong, Jiabo Ma, et al. Focus: Knowledge-enhanced adaptive visual compression for few-shot whole slide image classification. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 15590–15600, 2025. [51] Ying Chen, Guoan Wang, Yuanfeng Ji, et al. Slidechat: A large vision-language assistant for whole-slide pathol-ogy image understanding. In Proceedings of the Computer Vision and Pattern Recognition Conference , pages 5134–5143, 2025. [52] Pingyi Chen, Chenglu Zhu, Sunyi Zheng, Honglin Li, and Lin Yang. Wsi-vqa: Interpreting whole slide images by generative visual question answering. In European Conference on Computer Vision , pages 401–417. Springer, 2024. 12

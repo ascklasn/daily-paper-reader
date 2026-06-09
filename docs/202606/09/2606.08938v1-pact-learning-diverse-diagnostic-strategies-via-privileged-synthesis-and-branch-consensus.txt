@@ -1,0 +1,839 @@
+Title: PACT: Learning Diverse Diagnostic Strategies via Privileged Synthesis and Branch Consensus
+
+URL Source: https://arxiv.org/pdf/2606.08938v1
+
+Published Time: Tue, 09 Jun 2026 01:37:11 GMT
+
+Number of Pages: 16
+
+Markdown Content:
+## PACT: Learning Diverse Diagnostic Strategies via Privileged Synthesis and Branch Consensus 
+
+Gen Li 1 Yuanze Hu 1 Zhichao Yang 1 Qingchen Yu 1 Jianwei Lv 2 Yue Guo 2 Yujing Liu 3
+
+Faguo Wu 1 Hongwei Zheng 4 Xiandong Li 2† Bo Yuan 2† Yifan Sun 5∗ Zhaoxin Fan 1∗
+
+1Beihang University 2Baidu 3ByteDance 
+
+4Beijing Academy of Blockchain and Edge Computing 5Renmin University of China 
+
+> †
+
+Project leaders. ∗Corresponding authors. Correspondence: sunyifan1984@163.com , zhaoxinf@buaa.edu.cn 
+
+Abstract 
+
+Clinical diagnosis requires flexible use of mul-tiple reasoning paradigms under incomplete pa-tient information. Existing LLM-based med-ical agents show strong medical reasoning ability, but single-paradigm or naively mixed dialogue supervision makes these paradigms difficult to learn without interference. We propose PACT (Periodic Anchor Consensus Training), a framework that couples super-vised multi-paradigm dialogue synthesis with consensus-based Branch training. At the data level, DPS (Doctor-Patient-Supervisor) uses complete electronic medical records (EMRs) for quality control while keeping the doctor agent restricted to patient-visible information. This produces validated dialogues under four diagnostic reasoning paradigms without leak-ing hidden clinical answers. At the training level, PACT trains one paradigm-specific LoRA Branch per paradigm and periodically aggre-gates Branches into a shared Anchor through sign consensus. We further construct a dy-namic multi-turn Chinese medical diagnosis benchmark for interactive consultation. Exper-iments show that PACT achieves state-of-the-art performance among compared proprietary, medical-specialized, and task-adapted base-lines on diagnostic outcome and consultation-process metrics. 
+
+1 Introduction 
+
+The rapid expansion of online medical consultation platforms has created growing demand for diagnos-tic dialogue systems that can conduct safe and ef-fective multi-turn consultations (Zeng et al., 2020; Valizadeh and Parde, 2022). Unlike single-turn medical question answering, clinical diagnosis is a conversation under uncertainty: the doctor must ask follow-up questions, collect missing evidence, and decide when enough information has been gath-ered (Croskerry, 2009; Norman, 2005). Although 500 1000 1500 2000 2500 
+
+> Training Step
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Mean Pairwise Cosine
+> Branch Update Direction Alignment
+> PACT
+> Independent
+
+(a) Mean pairwise cosine across training. S                                                                                  
+
+> T
+> H
+> F
+> Independent  1.00 0.67 0.63 0.60
+> 0.67 1.00 0.60 0.56
+> 0.63 0.60 1.00 0.57
+> 0.60 0.56 0.57 1.00
+> Early
+> 1.00 0.24 0.23 0.22
+> 0.24 1.00 0.21 0.20
+> 0.23 0.21 1.00 0.21
+> 0.22 0.20 0.21 1.00
+> Mid
+> 1.00 0.20 0.19 0.18
+> 0.20 1.00 0.18 0.16
+> 0.19 0.18 1.00 0.18
+> 0.18 0.16 0.18 1.00
+> Final
+> STHF
+> S
+> T
+> H
+> F
+> PACT
+> 1.00 0.98 0.97 0.97
+> 0.98 1.00 0.96 0.96
+> 0.97 0.96 1.00 0.96
+> 0.97 0.96 0.96 1.00
+> STHF
+> 1.00 1.00 1.00 1.00
+> 1.00 1.00 0.99 0.99
+> 1.00 0.99 1.00 1.00
+> 1.00 0.99 1.00 1.00
+> STHF
+> 1.00 1.00 1.00 1.00
+> 1.00 1.00 1.00 1.00
+> 1.00 1.00 1.00 1.00
+> 1.00 1.00 1.00 1.00 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Pairwise cosine
+> Branch pair (S=Serial, T=Tree, H=Heap, F=Feedback)
+
+(b) Checkpoint heatmaps. 
+
+Figure 1: Branch alignment during training. Each Branch corresponds to one diagnostic reasoning mode. Independent training causes Branch updates to diverge, whereas PACT maintains high alignment and merge-compatible update directions. 
+
+large language models (LLMs) have shown promis-ing medical reasoning abilities (Zhang et al., 2023; Achiam et al., 2023), strong medical knowledge does not necessarily imply knowing what to ask next in multi-turn consultation (Guo et al., 2026; Lai et al., 2025). Learning multiple diagnostic rea-soning paradigms in one deployable model there-fore remains a key challenge. A key reason is that clinical diagnosis involves multiple reasoning paradigms rather than a single template. A doctor may proceed step by step from symptoms to diagnosis, compare several possible diseases in parallel, ask the most urgent question first, or revise earlier hypotheses after receiving new evidence (Croskerry, 2009; Norman, 2005). 1
+
+> arXiv:2606.08938v1 [cs.CL] 8 Jun 2026
+
+An LLM-based doctor should therefore learn these reasoning paradigms and draw on them during consultation. This central challenge decomposes into two sub-problems: how to synthesize train-ing dialogues that demonstrate different reasoning paradigms, and how to train one model to learn these paradigms without making them interfere with each other? The challenge in data synthesis lies in obtaining controlled diagnostic trajectories without violating doctor-patient information asymmetry. Clinician-authored diagnostic dialogues are expensive and scarce, and existing medical dialogue datasets are often collected from natural online consultations rather than controlled diagnostic processes (Zeng et al., 2020; Liu et al., 2022). LLM-based syn-thesis is a practical alternative, but it has a basic information-asymmetry problem. To generate a medically correct dialogue, the synthesis system needs access to the complete electronic medical record (EMR), including the final diagnosis and ex-amination results. However, the simulated doctor in the dialogue should not see this hidden informa-tion; otherwise, it may ask questions that implicitly leak the answer. In contrast, if the doctor and pa-tient agents freely role-play without supervision, the dialogue may become repetitive, hallucinated, or clinically invalid. The challenge in training lies in integrating mul-tiple reasoning paradigms into a single deployable model. Even with multi-paradigm dialogues, sim-ply mixing them for supervised fine-tuning can blur paradigm-specific learning. Training sepa-rate Branches—one LoRA adapter per reasoning paradigm—preserves specialization, but indepen-dently trained Branches may move in incompatible directions and become hard to combine into one deployable model. Sequentially training on one paradigm after another can also bias the model to-ward later paradigms. Figure 1 shows this conflict empirically: under independent training, Branch update directions diverge to a mean pairwise co-sine of 0.18, and 38% of parameters conflict during TIES merging. Thus, reasoning paradigms require training-time periodic aggregation rather than only data-level collection. To address these problems, we propose PACT 
+
+(Periodic Anchor Consensus Training), a frame-work that couples supervised multi-paradigm di-alogue synthesis with consensus-based Branch training. At the data level, DPS (Doctor-Patient-Supervisor) addresses the synthesis prob-lem through role-separated supervision inspired by Learning Using Privileged Information (LUPI) (Vapnik and Vashist, 2009), preserving doctor-patient information asymmetry while yielding vali-dated dialogues under four reasoning paradigms— 
+
+Serial , Tree , Heap , and Feedback .At the training level, PACT trains one LoRA Branch for each reasoning paradigm. These Branches are periodically aggregated into a shared Anchor through sign-consensus merging, and an L1 regularization term keeps Branches close to the Anchor between aggregation rounds. The fi-nal Anchor is deployed as a standard single-LoRA model, requiring no routing mechanism, architec-tural change, or additional inference overhead. Existing medical benchmarks mainly test single-turn QA or static diagnosis, leaving limited support for evaluating whether an agent can collect miss-ing evidence through multi-turn consultation. We therefore introduce a dynamic multi-turn Chinese medical diagnosis benchmark to evaluate diagnos-tic agents under interactive consultation. Our con-tributions are: • We propose DPS, a distillation-based data-construction module that synthesizes vali-dated dialogues under controlled reasoning paradigms while preserving doctor-patient in-formation asymmetry. • We propose PACT, a consensus-based LoRA training method that learns paradigm-specific Branches and periodically aggregates them into one deployable Anchor without extra in-ference cost. • We introduce a dynamic multi-turn Chinese medical diagnosis benchmark and compare task-specific adaptation with zero-shot propri-etary and specialized baselines under the same simulator-based protocol. 
+
+2 Related Work 
+
+Medical dialogue data and synthetic supervision. 
+
+Large-scale healthcare dialogue corpora such as MedDialog (Zeng et al., 2020) and MedDG (Liu et al., 2022) lack controlled diagnostic trajecto-ries or preservation of doctor-patient information asymmetry. Recent medical LLMs improve in-struction following and reasoning (Zhang et al., 2023; Chen et al., 2023, 2024; Zhang et al., 2024; Jeong et al., 2024), yet their supervision remains closer to single-turn QA than interactive diagnosis. 2LLM-based synthesis can scale clinician-level su-pervision, but single-generator pipelines risk leak-ing privileged labels, while unconstrained role-play drifts into clinically invalid trajectories. Dr. As-sistant (Guo et al., 2026) shows that guideline-distilled reasoning data with RL improves multi-turn inquiry. In contrast, DPS constructs EMR-grounded validated dialogues under multiple rea-soning paradigms while preserving doctor-patient information asymmetry through LUPI-style privi-leged supervision (Vapnik and Vashist, 2009) and lightweight LLM-as-a-Judge intervention (Zheng et al., 2023). 
+
+Clinical reasoning strategies. Clinical diagno-sis has long been viewed as a heterogeneous rea-soning process involving hypothesis testing, dif-ferential diagnosis, test-threshold decisions, and reflection (Elstein et al.; Bowen, 2006; Pauker and Kassirer, 1980; Schön, 2017; Croskerry, 2009; Nor-man, 2005). Prompting methods such as chain-of-thought and tree-of-thought operationalize re-lated ideas at inference time (Wei et al., 2022; Yao et al., 2023). Our four reasoning paradigms— Serial, Tree, Heap, and Feedback—move these complementary diagnostic modes to the training-data level, exposing the model to paradigm-specific supervision rather than a single undifferentiated mixture. 
+
+Parameter-efficient adaptation and branch ag-gregation. LoRA (Hu et al., 2021) enables train-ing multiple task-specific adapters, but combining them into single model remains difficult. Post-hoc merging methods like model soups, task arith-metic, SLERP, DARE, and TIES (Wortsman et al., 2022; Ilharco et al., 2022; Goddard et al., 2024; Yu et al., 2024; Yadav et al., 2023) assume that independently trained models are already merge-compatible. Related work in multi-task and fed-erated optimization studies gradient conflict and client drift (Yu et al., 2020; Liu et al., 2021; McMa-han et al., 2017; Li et al., 2020; Karimireddy et al., 2020). PACT instead treats adapter compatibil-ity as a training-time objective, replacing one-shot post-hoc merging with periodic aggregation over paradigm-specific LoRA Branches. 
+
+3 Methodology 
+
+In this section, we first formulate multi-turn diagno-sis as a partially observable decision process. Then we introduce DPS, which constructs information-asymmetric validated dialogues under four reason-ing paradigms, and PACT, which trains one Branch per reasoning paradigm and periodically aggregates Branches into a shared Anchor for single-LoRA de-ployment. Figure 2 gives an overview of the full DPS–PACT pipeline. 
+
+3.1 Problem Formulation 
+
+Given a hidden clinical state and an observable dialogue history, our goal is to train a diagnostic agent that asks informative follow-up questions and produces an accurate diagnosis within a limited number of turns. We formalize this as a partially observable multi-turn decision process. Each case has a hidden clinical state s that in-cludes the complete medical record, examination results, and target diagnosis d∗. The diagnostic agent cannot observe s directly. A consultation be-gins with the patient’s chief complaint c0; at each turn t, the doctor issues a question qt and receives a patient answer at, building the trajectory 
+
+τt = ( c0, q 1, a 1, . . . , q t, a t). (1) After at most Tmax turns, the doctor terminates with a diagnosis ˆd and examination recommenda-tion ˆe. Let π denote the diagnostic policy that maps the current trajectory to the next doctor action, in-cluding follow-up questioning, stopping, diagnosis, and examination recommendation. The objective is 
+
+max  
+
+> π
+
+P ( ˆd = d∗ | τT ; π), T ≤ Tmax . (2) This formulation highlights the two requirements addressed below: reliable data must preserve the information gap between s and τt, and training must integrate different reasoning paradigms into one model. Next, we introduce DPS for construct-ing information-asymmetric paradigm-specific di-alogues, followed by PACT for training a single deployable model from these dialogues. 
+
+3.2 DPS Data Synthesis Architecture 
+
+DPS is designed to synthesize validated dialogues without exposing hidden EMR information to the simulated Doctor. The key tension is that dialogue generation needs the complete clinical trajectory for quality control, but the Doctor role should only see patient-visible information. DPS resolves this tension through visible/privileged state separation, role-separated dialogue generation, and minimal supervisor validation. The resulting dialogues are 3PACT Training DPS Data Distillation        
+
+> EMRs
+> �퐩퐫  
+> Final diagnosis :
+> acute pancreatitis;
+> Required exams :
+> amylase,
+> abdominal CT.
+> �   
+> I have had upper
+> abdominal pain
+> for ...
+> Clinical Reasoning Paradiagms
+> CoT
+> Clip
+> Patient Doctor
+> loop until end
+> s
+> ��
+> ��
+> P1
+> P0
+> P2
+> Heap
+> d
+> d1 d2
+> Tree
+> Diagnosis
+> centric Symptom
+> centric
+> QJ
+> R
+> Feedback
+> Query-Judge-
+> Refine
+> A
+> b
+> c
+> Serial
+> Known-
+> Unknown
+> 42, recurrent
+> epigastric pain ...
+> Diagnosis :
+> pancreatitis.
+> Exams :serum
+> amylase,
+> abdominal CT.
+> ��
+> ��
+
+��  
+
+> ��
+> ��
+> �    ,�퐩퐫   ,��−1
+
+�1
+
+�2
+
+�3
+
+�4
+
+△anc
+
+> �∗
+> Aggregation
+> {△(�)}
+> 1.Trim
+
+△anc  
+
+> 2.Sign Elect
+> 3.Merge
+> SVD
+> 푛� ∗
+> Aggregation
+> ∙∙∙
+> ∙∙∙
+> ℳ+△(�)
+> �
+> +
+> △퐚�  ∙∙∙
+> ∙∙∙
+> ∙∙∙
+> ∙∙∙
+> ∙∙∙
+> ∙∙∙
+> ∙∙∙
+
+△ancFigure 2: Overview of the PACT framework. Left: DPS splits each EMR into patient-visible memory and privileged clinical state, generates paradigm-conditioned Doctor–Patient dialogues, and uses Patient/Doctor Supervisors for minimal PASS-or-REWRITE quality control. Right: PACT trains one Branch LoRA per reasoning paradigm and periodically aggregates Branches into a global Anchor via sign-consensus merging, with L1 regularization constraining Branch drift between aggregation rounds. 
+
+conditioned on four reasoning paradigms and later used as PACT training data. 
+
+Visible and privileged state. To enforce this information boundary, DPS first partitions each EMR into patient-visible information svis (chief complaint, symptom history, physical signs) and privileged clinical information spriv (unrevealed ex-aminations, target diagnosis, treatment plan): 
+
+s =  svis , s priv . (3) 
+
+Role-separated dialogue generation. Given this partition, DPS then generates the dialogue with separated Doctor and Patient roles. At turn t, the Doctor drafts a question qt from the accumulated trajectory τt−1, and the Patient drafts an answer at
+
+from svis only. Thus, the Doctor never observes 
+
+spriv . Let SD and SP denote the Doctor-Supervisor and Patient-Supervisor, respectively; DPS applies them as minimal PASS-or-REWRITE mappings: 
+
+˜qt = SD(qt; τt−1, s ), (4) 
+
+˜at = SP (at; svis , ˜qt). (5) 
+
+Supervisor validation. After each draft ex-change, the Supervisors validate whether the Doc-tor question and Patient answer should be kept. If an output passes inspection, it is unchanged; other-wise, the Supervisor makes a local correction such as removing leakage, adjusting pacing, or adding a missing high-value question, without rewriting the whole response or injecting unrevealed patient facts. The validated exchange is then appended to the observable trajectory: 
+
+τt = ( τt−1, ˜qt, ˜at). (6) Privileged information therefore affects the di-alogue only through non-conversational process supervision. This design reduces direct label leak-age, though privileged supervision can still intro-duce trajectory-level bias; we analyze this in Ap-pendix G, and DPS data quality in Table 14. 
+
+Reasoning-paradigm conditioning. Finally, DPS repeats the same information-asymmetric gen-eration under four reasoning paradigms inspired by clinical reasoning theories (Elstein et al.; Bowen, 2006; Pauker and Kassirer, 1980; Schön, 2017): Se-rial , Tree , Heap , and Feedback . Serial follows step-wise hypothesis testing; Tree maintains competing diagnoses for differential inquiry; Heap prioritizes questions by urgency and expected information value; Feedback performs a brief self-critique be-fore responding. We do not assume that the gener-ated dialogues are perfectly separable by paradigm; instead, the paradigms serve as controlled sources of variation for training. Prompt templates and gen-eration controls are summarized in Appendix A. We denote the validated dialogues collected under paradigm k as Dk; the K=4 datasets {Dk}Kk=1 are passed to PACT as training inputs. 
+
+3.3 PACT: Periodic Anchor Consensus Training 
+
+After DPS constructs the K=4 paradigm-specific datasets {Dk}Kk=1 , the next challenge is to train one deployable model from them. Two direct strategies are Mixed-SFT, which trains one adapter on the union of all dialogues, and independent Branch training, which trains one adapter per reasoning paradigm. The former can blur paradigm-specific 41.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 
+
+> Relative expert pairwise distance (× initial)
+> 1.0
+> 1.1
+> 1.2
+> 1.3
+> 1.4
+> 1.5
+> Relative diagnostic PPL (× initial)
+> Within-backbone r = 0.92/0.94
+> N = 20 checkpoints
+> Across 2 backbones
+> Independent drift predicts validation degradation
+> Qwen3-8B
+> Qwen3.5-9B
+> Global trend
+
+Figure 3: Pilot study on independent fine-tuning. Across Qwen3-8B and Qwen3.5-9B, increasing Branch pair-wise distance correlates with diagnostic validation PPL degradation. Distances and PPL are normalized by the first checkpoint within each backbone for cross-model comparability. 
+
+learning, while the latter can produce Branches that drift into incompatible update directions. PACT therefore alternates between local Branch training with Anchor regularization and periodic Anchor aggregation through sign-consensus merging. Fig-ure 3 shows that larger Branch distance correlates with worse diagnostic validation PPL; parameter-space drift trends are further analyzed in Appendix Figure 5. 
+
+Branch training with Anchor regularization. 
+
+We first train one LoRA Branch (a paradigm-specific adapter) ∆(k) for each reasoning paradigm while maintaining a shared Anchor ∆anc as the de-ployable consensus adapter. Both are initialized to zero at the start of training, so the initial L1 penalty regularizes Branches toward the base model. Each Branch minimizes: 
+
+L(k) 
+
+> total
+
+= L(k) 
+
+> task
+
++ λ · ∥ ∆(k) − ∆anc ∥1, (7) where L(k) 
+
+> task
+
+is the next-token cross-entropy loss on Dk, and λ controls consensus strength. The L1 penalty encourages sparse paradigm-specific deviations while keeping most Branch directions close to the Anchor. 
+
+Periodic sign-consensus aggregation. After lo-cal Branch updates, PACT periodically refreshes the Anchor. Every T ∗ epochs, it updates the Anchor from the current Branch deltas through three sign-consensus steps: trim, elect, and merge-project. 
+
+Step 1: Trim. The first step removes low-magnitude LoRA updates that mainly reflect opti-mization noise rather than paradigm-specific learn-ing. Retaining only the top-ρ fraction of updates by magnitude reduces noise interference before aggregation: 
+
+ˆ∆(k) = Trim(∆ (k), ρ ), (8) where ρ is a shared density hyperparameter applied to each Branch’s own magnitude distribution inde-pendently. 
+
+Step 2: Elect. Next, PACT resolves conflicting update directions across Branches by majority vote on the sign of each parameter dimension: 
+
+γi = sign 
+
+PKk=1 ˆ∆(k)
+
+> i
+
+
+
+. (9) Only updates whose sign agrees with γi contribute to aggregation, discarding contributions that would cause destructive interference. 
+
+Step 3: Merge-project. Finally, PACT averages only sign-consistent values and projects the result back to LoRA rank. Let Si = {k : sign( ˆ∆(k) 
+
+> i
+
+) = 
+
+γi} denote the set of sign-consistent Branches at position i. We first build a full consensus matrix 
+
+¯∆ by averaging only sign-consistent values at each coordinate: 
+
+¯∆i = 1
+
+|S i|
+
+X
+
+> k∈S i
+
+ˆ∆(k) 
+
+> i
+
+. (10) The consensus matrix is then projected back to LoRA rank r via truncated SVD: 
+
+∆anc ← SVD r
+
+  ¯∆. (11) The SVD r projection is required because the coordinate-wise consensus matrix is generally full-rank; truncated SVD recovers the closest rank-r
+
+approximation, maintaining valid LoRA structure. Branches are not reset to the Anchor after aggre-gation: retaining local parameters preserves opti-mization continuity, while the updated Anchor redi-rects subsequent training toward the new consen-sus. Together, Anchor regularization controls local Branch drift, while periodic aggregation refreshes the deployable Anchor as training progresses. Al-gorithm 1 summarizes the full training loop. 
+
+Deployment. After training, PACT discards all Branch adapters and deploys only M + ∆ anc . The deployed model is therefore identical to a standard single-LoRA model in architecture and inference cost, while the training process exposes the An-chor to all four reasoning paradigms through pe-riodic aggregation. A detailed discussion is pro-vided in Appendix C, implementation details are in Appendix D, and checkpoint-level sign-conflict analysis is provided in Appendix H.4. 5Algorithm 1 PACT: Periodic Anchor Consensus Training 
+
+Require: Base model M, datasets {Dk}Kk=1 , λ,
+
+T ∗, TIES density ρ 
+
+> 1:
+
+Initialize Branches {∆(k)}Kk=1 and Anchor 
+
+∆anc  
+
+> 2:
+
+for each training phase do  
+
+> 3:
+
+Train each Branch on Dk with L(k) 
+
+> task
+
++
+
+λ∥∆(k) − ∆anc ∥1 
+
+> 4:
+
+if phase reaches aggregation interval T ∗
+
+then  
+
+> 5:
+
+ˆ∆(k) ← Trim(∆ (k), ρ ) for each k 
+
+> 6:
+
+γi ← sign  P  
+
+> k
+
+ˆ∆(k)
+
+> i
+
+ for each i 
+
+> 7:
+
+Apply sign-consensus merge and rank-r
+
+projection to update ∆anc  
+
+> 8:
+
+Update the Anchor reference; Branches continue from their local parameters  
+
+> 9:
+
+end if  
+
+> 10:
+
+end for  
+
+> 11:
+
+return M + ∆ anc 
+
+4 Experiments 
+
+4.1 Experimental Setup 
+
+Existing medical benchmarks mainly test single-turn QA or static diagnosis, and therefore do not measure whether a diagnostic agent can collect missing evidence through multi-turn consultation. We therefore construct a dynamic multi-turn Chi-nese diagnosis benchmark and evaluate all models under the same simulator-based protocol. 
+
+Data. We collect 10,000 de-identified Inter-nal Medicine electronic medical records (EMRs). From this pool, we sample 6,357 EMRs for DPS synthesis, producing 25,428 validated dialogue candidates (4 paradigms per EMR). After quality filtering—removing EMRs where ≥ 2 paradigm-specific dialogues fail diagnosis matching—we re-tain 20,684 validated dialogues from 5,171 unique EMRs, evenly distributed across the four reason-ing paradigms. These 5,171 EMRs constitute the synthesis-derived training pool and are split at the EMR level into train/validation/test partitions with an 85%/5%/10% ratio. The dynamic evaluation set is constructed separately from the remaining de-identified Internal Medicine pool and contains 438 unique held-out EMR cases; no EMR in this set appears in the DPS synthesis or training par-titions. The retained synthesis pool covers 145 unique diagnostic labels. 
+
+Model and Training. We use Qwen3-8B (Yang et al., 2025) as the primary base model, with Qwen3.5-9B, Llama3.1-8B, and Ministral-3-8B for cross-architecture analysis. LoRA adapters are con-figured with rank r = 64 , α = 64 , and applied to all attention projection matrices. Training uses AdamW with learning rate 5 × 10 −4, cosine sched-ule, warmup ratio 0.03, and bfloat16 precision. The effective batch size is 64 (per-device 2 × gradient accumulation 8 × 4 GPUs). For PACT, we set the synchronization strength λ = 200 , aggrega-tion interval T ∗ = 0 .25 epochs, and TIES density 
+
+ρ = 0 .5. Additional dataset, preprocessing, evalu-ation, and hyperparameter details are provided in Appendix B, with sensitivity to λ and T ∗ reported in Appendix Figure 4. 
+
+Evaluation Protocol. We adopt a dynamic multi-turn evaluation protocol where the trained model interacts with a GPT-4o-powered patient simula-tor (Hurst et al., 2024) for up to 8 rounds per held-out EMR case. A separate GPT-4o judge scores the completed dialogue on three dimensions: 
+
+Diagnosis (Strict DA for exact top-1 match, Re-laxed DA for hierarchical/top-3 credit, and Soft Score as a graded composite), Examinations (Exam F1/Precision/Recall against the gold-standard list), and Process (Symptom Coverage of key clinical information and average dialogue rounds). De-tailed scoring rubrics are in Appendix B. Each EMR case is evaluated over four independent roll-outs to reduce simulator variance; statistical tests (Appendix E) are paired at the EMR-case level. 
+
+Baselines. We compare against proprietary LLMs evaluated zero-shot under the same proto-col: GPT-5 (Singh et al., 2025), GPT-4.1 (OpenAI, 2025), Gemini-3.1 Pro (Google DeepMind, 2026), DeepSeek-R1 (Guo et al., 2025), and Doubao-Seed-1.6 (Seed, 2025); and medical-specialized LLMs : HuatuoGPT2-7B (Chen et al., 2023), HuatuoGPT-o1-8B (Chen et al., 2024), UltraMed-ical (Zhang et al., 2024), Doctor-R1 (Lai et al., 2025), DoctorAgent-RL (Feng et al., 2026), and Reflect-PubMed (Jeong et al., 2024). Cross-architecture results on general-purpose LLMs (Qwen3-8B, Qwen3.5-9B (Yang et al., 2025), Llama3.1-8B (Grattafiori et al., 2024), Ministral-3-8B (Liu et al., 2026)) are in Table 2. 
+
+4.2 Main Results 
+
+Table 1 presents the main comparison across 11 baselines spanning proprietary and medical-specialized LLMs. PACT achieves 55.31% Strict 6Method Size Diagnosis Examination Process Strict DA Relaxed DA Soft Score Exam F1 Exam P Exam R Avg Rnd Symp Cov 
+
+Proprietary LLMs 
+
+Gemini-3.1 Pro – 29.00 63.93 52.63 9.22 11.03 8.74 6.61 83.50 DeepSeek-R1 – 29.39 72.20 56.85 19.26 20.21 22.45 3.32 87.00 Doubao-Seed-1.6 – 30.08 71.69 57.75 25.71 29.53 27.45 3.96 89.60 GPT-5 – 33.45 64.10 54.06 12.83 14.45 13.92 5.64 79.02 GPT-4.1 – 36.70 78.82 64.86 17.26 20.40 19.76 3.85 94.04 
+
+Medical-specialized LLMs 
+
+Reflect-PubMed 8B 14.69 51.20 39.40 10.39 2.57 10.73 2.71 67.70 DoctorAgent-RL 8B 20.36 61.43 48.74 8.25 2.01 7.53 4.36 65.65 UltraMedical 8B 21.77 77.71 58.67 25.70 27.56 28.07 3.73 71.27 HuatuoGPT2-7B 7B 27.85 63.64 51.24 9.99 11.71 10.47 1.80 54.39 HuatuoGPT-o1-8B 8B 30.54 70.61 57.26 3.21 1.54 3.36 1.72 63.88 Doctor-R1 8B 33.50 72.09 57.80 21.00 22.57 23.92 4.88 77.00 PACT 8B 55.31 † 85.79 † 76.16 † 61.33 † 57.50 74.27 4.02 93.39 
+
+Table 1: Main results on dynamic multi-turn diagnostic evaluation. Best results are bolded , second best are underlined . PACT is trained on Qwen3-8B. † indicates significant improvement over GPT-4.1 under paired bootstrap (p < 0.05 ). 
+
+DA and 76.16 Soft Score, significantly exceed-ing the strongest zero-shot proprietary reference GPT-4.1 on Strict DA (+18.61, 95% CI [15.24, 22.03], p < 0.0001 ), Soft Score (+11.30, 95% CI [8.68, 13.94], p < 0.0001 ), and Exam F1 (+44.06, 95% CI [41.26, 46.77], p < 0.0001 ). PACT also improves over its own Qwen3-8B base model by +22.78 Strict DA points (Table 2). Notably, GPT-4.1 attains the highest symptom coverage (94.04%), slightly exceeding PACT (93.39%); this difference is not statistically significant ( p = 0 .061 ), indicat-ing that symptom gathering ability alone does not substitute for the structured diagnostic reasoning that PACT acquires through multi-paradigm con-sensus training. Many medical-specialized LLMs are optimized for single-turn QA or static reasoning rather than interactive diagnosis (Lai et al., 2025; Feng et al., 2026). Doctor-R1, which benefits from multi-turn interaction training, becomes the strongest medical-specialized baseline. Mixed-SFT on DPS data already surpasses Doctor-R1 on Qwen3-8B (51.48% vs. 32.65%; Table 2), and PACT further improves over Mixed-SFT by +3.82 Strict DA points with statistical significance (95% CI [1.31, 6.28], p = 0 .003 ), while also achieving higher Exam F1 (61.33 vs. 59.83). 
+
+English-translated setting. To test whether the learned diagnostic behavior transfers beyond the original Chinese setting, we also evaluate an English-translated variant. English PACT improves over the English Base by +12.45 Strict DA, +18.65 Base Model Config Strict DA Exam F1 Symp Cov Qwen3.5-9B Base 35.90 15.00 78.15 Mixed-SFT 48.29 62.45 93.52                               
+
+> PACT 49.76 63.11 79.52 Qwen3-8B Base 32.53 21.53 77.11 Mixed-SFT 51.48 59.83 93.72
+> PACT 55.31 61.33 93.39 Llama3.1-8B Base 16.89 16.68 75.04 Mixed-SFT 51.37 45.87 74.79 PACT 53.03 60.92 93.14
+> Ministral-3-8B Base 20.94 5.08 43.28 Mixed-SFT 36.44 28.61 88.54
+> PACT 50.26 45.71 75.38
+
+Table 2: Cross-architecture generalization (key metrics). Full results in Appendix Table 13. 
+
+Exam F1, and reduces average dialogue rounds from 3.73 to 1.27 (Appendix Table 16). 
+
+4.3 Ablation Study 
+
+Setting Strict DA Exam F1 Symp Cov All four paradigms 51.48 59.83 93.39 
+
+w/o Serial 51.43 54.51 93.21 w/o Tree 50.34 53.87 93.22 w/o Heap 50.23 53.64 92.69 w/o Feedback 51.91 53.29 92.94 
+
+Table 3: Leave-one-out data-paradigm ablation under SFT on Qwen3-8B. Each row removes one reasoning-paradigm subset from the training data. 
+
+Leave-one-out data-paradigm ablation. Table 3 shows that SFT with all four reasoning-paradigm subsets achieves the strongest exam recommen-dation quality and the highest symptom coverage. 7Removing any paradigm reduces Exam F1 by 5.3– 6.5 points, while the leave-one-out variants remain competitive on Strict DA and Symp Cov. This sug-gests that the four reasoning paradigms provide complementary supervision rather than any single paradigm being indispensable. Strategy Strict DA Exam F1 Symp Cov Mixed-SFT 51.48 59.83 93.72 Sequential Curriculum 50.17 57.86 94.72                
+
+> FedAvg-style Avg 54.39 18.74 94.11 Indep. + Linear 52.91 56.27 93.92 Indep. + TIES 40.41 59.03 89.81 Indep. + DARE-TIES 52.45 57.16 93.66 PACT 55.31 ∗61.33 93.39
+
+Table 4: Training paradigm ablation on Qwen3-8B. The table compares mixed training, sequential learning, post-hoc merging (Ilharco et al., 2022; Yadav et al., 2023), periodic averaging, and PACT. ∗ indicates a significant improvement over Mixed-SFT under paired bootstrap over EMR cases ( p < 0.05 ). 
+
+Training paradigm ablation. Table 4 shows that PACT achieves the best Strict DA and significantly improves over Mixed-SFT (+3.82, p = 0 .003 ). PACT also outperforms Mixed-SFT on Exam F1 and surpasses Sequential Curriculum on both Strict DA (+5.14) and Exam F1 (+3.47), while Sequential Curriculum retains the highest symptom coverage. Post-hoc branch merging is sensitive to the merge operator: TIES degrades Strict DA to 40.41%, and DARE-TIES only partially recovers performance; detailed post-hoc merging results are reported in Appendix Table 12. Regularization Strict DA Exam F1 Symp Cov None 33.45 56.96 89.83 L2 Prox 33.16 58.00 89.23 Cosine 54.05 62.32 91.02 L1 Anchor 55.31 61.33 93.39 
+
+Table 5: Regularization distance ablation with TIES ag-gregation fixed. L2 Prox follows the FedProx proximal objective (Li et al., 2020). 
+
+Regularization distance ablation. As shown in Table 5, L1 Anchor regularization gives the strongest Strict DA and symptom coverage, whereas no regularization or L2 proximity leads to unstable anchor training. This supports L1 shrink-age to keep Branches close to the Anchor while allowing sparse paradigm-specific deviations. 
+
+Aggregation operator ablation. Table 6 shows that with L1 Anchor regularization fixed, TIES Aggregation Strict DA Exam F1 Symp Cov Linear Avg 55.19 33.74 93.28 SLERP 54.45 36.43 93.68 TIES 55.31 61.33 93.39 
+
+Table 6: Aggregation operator ablation with L1 Anchor regularization fixed. Methods: Linear Avg, SLERP (Goddard et al., 2024), and TIES (Yadav et al., 2023). 
+
+maintains both diagnostic accuracy and examina-tion quality, while Linear Avg and SLERP preserve Strict DA but reduce Exam F1. This indicates that sign-consensus filtering is important for resolving conflicting paradigm updates. 
+
+Cross-architecture generalization. Table 2 shows that PACT improves over the zero-shot Base across all architectures, and consistently outperforms Mixed-SFT on Strict DA: Qwen3-8B (+3.83), Qwen3.5-9B (+1.47), Llama3.1-8B (+1.66), and Ministral-3-8B (+13.82). PACT also substan-tially improves examination planning quality on Llama3.1-8B (+15.05 Exam F1) and Ministral-3-8B (+17.10 Exam F1). Full results are in Appendix Table 13; DPS data-quality analysis is reported in Appendix H. 
+
+5 Conclusion 
+
+We present PACT, a framework for multi-turn med-ical diagnostic dialogue that combines privileged data synthesis with training-time Branch aggre-gation. DPS constructs validated dialogues un-der multiple reasoning paradigms while preserving doctor-patient information asymmetry, and PACT aggregates paradigm-specific LoRA Branches into a single deployable Anchor through periodic sign-consensus aggregation. Experiments on a dynamic Chinese medical diagnosis benchmark show that PACT achieves state-of-the-art performance among compared task-adapted, post-hoc merging, and zero-shot LLM baselines under the same simulator-based evaluation protocol. 
+
+Limitations 
+
+This study remains limited by its reliance on syn-thetic supervision, LLM-based patient simulation and judging, and de-identified EMRs from a sin-gle Internal Medicine department. Recurring fail-ure modes—including premature closure, exami-nation omission, and over-broad differentials—are discussed in Appendix G. The results should there-fore be interpreted as evidence for task-specific 8diagnostic-dialogue adaptation rather than clinical deployment readiness. Public models and base-lines are used under their original licenses or ser-vice terms, and proprietary LLMs are accessed through their official services. The de-identified internal EMRs and derived DPS/benchmark arti-facts are restricted to research use and are not in-tended for clinical deployment or unrestricted re-distribution. Future work should incorporate clini-cian evaluation, judge-robustness checks, broader cross-institutional validation, and safer evaluation protocols. 
+
+References 
+
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, and 1 others. 2023. Gpt-4 techni-cal report. Judith L Bowen. 2006. Educational strategies to pro-mote clinical diagnostic reasoning. New England Journal of Medicine , 355(21):2217–2225. Junying Chen, Zhenyang Cai, Ke Ji, Xidong Wang, Wanlong Liu, Rongsheng Wang, Jianye Hou, and Benyou Wang. 2024. Huatuogpt-o1, towards medical complex reasoning with llms. Junying Chen, Xidong Wang, Ke Ji, Anningzhe Gao, Feng Jiang, Shunian Chen, Hongbo Zhang, Dingjie Song, Wenya Xie, Chuyi Kong, and 1 others. 2023. Huatuogpt-ii, one-stage training for medical adaption of llms. arXiv preprint arXiv:2311.09774 .Pat Croskerry. 2009. A universal model of diagnostic reasoning. Academic medicine , 84(8):1022–1028. Arthur S. Elstein, Lee S. Shulman, and Sarah A. Sprafka. 
+
+Medical Problem Solving: An Analysis of Clinical Reasoning .Yichun Feng, Jiawei Wang, Lu Zhou, Zhen Lei, and Yixue Li. 2026. Doctoragent-rl: A multi-agent col-laborative reinforcement learning system for multi-turn clinical dialogue. In ICASSP 2026-2026 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP) , pages 16952–16956. IEEE. Charles Goddard, Shamane Siriwardhana, Malikeh Ehghaghi, Luke Meyers, Vladimir Karpukhin, Brian Benedict, Mark McQuade, and Jacob Solawetz. 2024. Arcee’s mergekit: A toolkit for merging large lan-guage models. In Proceedings of the 2024 Confer-ence on Empirical Methods in Natural Language Processing: Industry Track , pages 477–485. Google DeepMind. 2026. Gemini 3.1 Pro model card. https://deepmind.google/models/ model-cards/gemini-3-1-pro/ . Google DeepMind, February 2026. Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, and 1 others. 2024. The llama 3 herd of models. arXiv preprint arXiv:2407.21783 .Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, and 1 others. 2025. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning. arXiv preprint arXiv:2501.12948 .Yue Guo, Fanfu Wang, Jianwei Lv, Xincheng Shi, Yuchen Li, Youya Wang, Yunsheng Zeng, Yujing Liu, Yunhao Qiao, Gen Li, and 1 others. 2026. Dr. assistant: Enhancing clinical diagnostic inquiry via structured diagnostic reasoning data and reinforce-ment learning. arXiv preprint arXiv:2601.13690 .Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen. 2021. Lora: Low-rank adaptation of large language models. arXiv e-prints , pages arXiv– 2106. Aaron Hurst, Adam Lerer, Adam P Goucher, Adam Perelman, Aditya Ramesh, Aidan Clark, AJ Ostrow, Akila Welihinda, Alan Hayes, Alec Radford, and 1 others. 2024. Gpt-4o system card. arXiv preprint arXiv:2410.21276 .Gabriel Ilharco, Marco Tulio Ribeiro, Mitchell Worts-man, Suchin Gururangan, Ludwig Schmidt, Han-naneh Hajishirzi, and Ali Farhadi. 2022. Edit-ing models with task arithmetic. arXiv preprint arXiv:2212.04089 .Minbyul Jeong, Jiwoong Sohn, Mujeen Sung, and Jae-woo Kang. 2024. Improving medical reasoning through retrieval and self-reflection with retrieval-augmented large language models. Bioinformatics ,40(Supplement_1):i119–i129. Sai Praneeth Karimireddy, Satyen Kale, Mehryar Mohri, Sashank Reddi, Sebastian Stich, and Ananda Theertha Suresh. 2020. Scaffold: Stochastic controlled averaging for federated learning. In In-ternational conference on machine learning , pages 5132–5143. PMLR. Yunghwei Lai, Kaiming Liu, Ziyue Wang, Weizhi Ma, and Yang Liu. 2025. Doctor-r1: Mastering clinical inquiry with experiential agentic reinforcement learn-ing. arXiv preprint arXiv:2510.04284 .Tian Li, Anit Kumar Sahu, Manzil Zaheer, Maziar San-jabi, Ameet Talwalkar, and Virginia Smith. 2020. Federated optimization in heterogeneous networks. 
+
+Proceedings of Machine learning and systems , 2:429– 450. Alexander H Liu, Kartik Khandelwal, Sandeep Sub-ramanian, Victor Jouault, Abhinav Rastogi, Adrien Sadé, Alan Jeffares, Albert Jiang, Alexandre Cahill, Alexandre Gavaudan, and 1 others. 2026. Ministral 3. arXiv preprint arXiv:2601.08584 .
+
+9Bo Liu, Xingchao Liu, Xiaojie Jin, Peter Stone, and Qiang Liu. 2021. Conflict-averse gradient descent for multi-task learning. Advances in neural information processing systems , 34:18878–18890. Wenge Liu, Jianheng Tang, Yi Cheng, Wenjie Li, Yefeng Zheng, and Xiaodan Liang. 2022. Meddg: an entity-centric medical consultation dataset for entity-aware medical dialogue generation. In CCF Interna-tional Conference on Natural Language Processing and Chinese Computing , pages 447–459. Springer. Brendan McMahan, Eider Moore, Daniel Ramage, Seth Hampson, and Blaise Aguera y Arcas. 2017. Communication-efficient learning of deep networks from decentralized data. In Artificial intelligence and statistics , pages 1273–1282. Pmlr. Geoffrey Norman. 2005. Research in clinical reasoning: past history and current trends. Medical education ,39(4):418–427. OpenAI. 2025. Introducing GPT-4.1 in the API. 
+
+https://openai.com/index/gpt-4-1/ .OpenAI, April 2025. Stephen G Pauker and Jerome P Kassirer. 1980. The threshold approach to clinical decision making. New England Journal of Medicine , 302(20):1109–1117. Donald A Schön. 2017. The reflective practitioner: How professionals think in action . Routledge. ByteDance Seed. 2025. Introduction to techniques used in seed1. 6. Online. Accessed , pages 12–21. Aaditya Singh, Adam Fry, Adam Perelman, Adam Tart, Adi Ganesh, Ahmed El-Kishky, Aidan McLaughlin, Aiden Low, AJ Ostrow, Akhila Ananthram, and 1 oth-ers. 2025. Openai gpt-5 system card. arXiv preprint arXiv:2601.03267 .Mina Valizadeh and Natalie Parde. 2022. The ai doctor is in: A survey of task-oriented dialogue systems for healthcare applications. In Proceedings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 6638– 6660. Vladimir Vapnik and Akshay Vashist. 2009. A new learning paradigm: Learning using privileged infor-mation. Neural networks , 22(5-6):544–557. Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, and 1 others. 2022. Chain-of-thought prompting elic-its reasoning in large language models. Advances in neural information processing systems , 35:24824– 24837. Mitchell Wortsman, Gabriel Ilharco, Samir Ya Gadre, Rebecca Roelofs, Raphael Gontijo-Lopes, Ari S Mor-cos, Hongseok Namkoong, Ali Farhadi, Yair Car-mon, Simon Kornblith, and 1 others. 2022. Model soups: averaging weights of multiple fine-tuned mod-els improves accuracy without increasing inference time. In International conference on machine learn-ing , pages 23965–23998. PMLR. Prateek Yadav, Derek Tam, Leshem Choshen, Colin A Raffel, and Mohit Bansal. 2023. Ties-merging: Re-solving interference when merging models. Ad-vances in neural information processing systems ,36:7093–7115. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, and 1 others. 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 .Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan. 2023. Tree of thoughts: Deliberate problem solving with large language models. Advances in neural information processing systems , 36:11809–11822. Le Yu, Bowen Yu, Haiyang Yu, Fei Huang, and Yongbin Li. 2024. Language models are super mario: Absorb-ing abilities from homologous models as a free lunch. In Forty-first International Conference on Machine Learning .Tianhe Yu, Saurabh Kumar, Abhishek Gupta, Sergey Levine, Karol Hausman, and Chelsea Finn. 2020. Gradient surgery for multi-task learning. Advances in neural information processing systems , 33:5824– 5836. Guangtao Zeng, Wenmian Yang, Zeqian Ju, Yue Yang, Sicheng Wang, Ruisi Zhang, Meng Zhou, Jiaqi Zeng, Xiangyu Dong, Ruoyu Zhang, and 1 others. 2020. Meddialog: Large-scale medical dialogue datasets. In Proceedings of the 2020 conference on empirical methods in natural language processing (EMNLP) ,pages 9241–9250. Hongbo Zhang, Junying Chen, Feng Jiang, Fei Yu, Zhi-hong Chen, Guiming Chen, Jianquan Li, Xiangbo Wu, Zhang Zhiyi, Qingying Xiao, and 1 others. 2023. Huatuogpt, towards taming language model to be a doctor. In Findings of the association for com-putational linguistics: EMNLP 2023 , pages 10859– 10885. Kaiyan Zhang, Sihang Zeng, Ermo Hua, Ning Ding, Zhang-Ren Chen, Zhiyuan Ma, Haoxin Li, Ganqu Cui, Biqing Qi, Xuekai Zhu, and 1 others. 2024. Ultramedical: Building specialized generalists in biomedicine. Advances in Neural Information Pro-cessing Systems , 37:26045–26081. Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, and 1 others. 2023. Judging llm-as-a-judge with mt-bench and chatbot arena. Advances in neural information pro-cessing systems , 36:46595–46623. 
+
+10 A Prompt Templates and Generation Controls 
+
+All DPS synthesis prompts are written in Chinese to match the source EMRs and the target diagnostic di-alogue setting. For readability, we provide faithful English renderings of the complete prompt struc-tures below while preserving the original place-holders. 
+
+Shared Doctor instruction. You are an experi-enced and logically rigorous doctor conducting an online consultation. Your goal is to collect infor-mation through multi-turn interaction and, before the final turn, provide both examination recommen-dations and a preliminary diagnosis. Examination recommendations include laboratory tests, imag-ing tests, and other auxiliary examinations. The preliminary diagnosis should be based on the chief complaint, history, physical signs, and available examinations; because information is incomplete, it should be framed as a preliminary rather than final diagnosis. Information should be organized in a medical-record format covering basic infor-mation, chief complaint, history of present illness, past medical history, allergy history, and physical examination. The Doctor receives the dialogue history {{history}} and the latest patient mes-sage {{message}} , reasons internally, and out-puts only the direct patient-facing reply. 
+
+Serial Doctor template. The Doctor follows a step-by-step consultation policy. The internal rea-soning template contains: (1) known information organized by medical-record fields, (2) diagnos-tic hypotheses matching the current evidence, (3) missing information to be collected, (4) a decision to either collect more information or give the final opinion, and (5) a response strategy. This template encourages linear hypothesis testing and asks one or two high-priority questions per turn. 
+
+Tree Doctor template. The Doctor maintains a set of candidate diseases and uses high-discrimination questions to narrow the differential diagnosis. The internal reasoning template con-tains: (1) known information, (2) current suspected diseases, (3) discriminative features among these diseases, (4) the best question for maximizing in-formation gain, (5) a collect-or-finalize decision, and (6) a response strategy. 
+
+Heap Doctor template. The Doctor prioritizes information by diagnostic importance, urgency, and specificity. The internal reasoning template contains: (1) known information, (2) analysis of known symptoms with high/medium/low impor-tance weights, (3) the most important symptoms to lock onto, (4) deeper inquiry over missing high-value evidence, (5) a collect-or-finalize decision, and (6) a response strategy. 
+
+Feedback Doctor template. The Doctor per-forms a generate–critique–revise rehearsal before responding. The internal reasoning template con-tains: (1) known information, (2) an initial response plan, (3) error detection for logical gaps, insuffi-cient evidence, or previously denied symptoms, (4) control revision, and (5) the final decision. This template encourages reflection before producing the patient-facing reply. 
+
+Patient template. The Patient is instructed to role-play an online consultation patient using only patient-visible facts {{patient_memory}} 
+
+and the dialogue history {{history}} . If the history is empty, the Patient starts with a short natu-ral opening based only on the chief complaint. The Patient must convert medical-record language into lay expressions, answer only what the Doctor asks, avoid disclosing the full record at once, and answer “not sure”, “did not notice”, or “have not done that test” when the requested information is absent from the visible memory. 
+
+Doctor-Supervisor template. The Doctor-Supervisor acts as a privileged clinical supervisor with access to the full ground-truth EMR {{ground_truth}} , target diagnosis {{diagnosis}} , dialogue history {{history}} , and Doctor draft 
+
+{{draft_response}} . It checks whether the Doctor should receive PASS or REWRITE. Required rewrites include severe diagnostic drift, missed high-risk clues, logical dead ends, missing key examinations at closure, failure to use already collected evidence, over-suspicion, and over-examination. The Supervisor must preserve knowledge isolation: it may use privileged information to judge the process, but its rewritten patient-facing response must not reveal facts that the Doctor could not know from the dialogue. Rewrites are limited to adding necessary questions, removing low-value questions, or appending missing examination suggestions. 
+
+Patient-Supervisor template. The Patient-Supervisor receives patient-visible information 11 Item Value De-identified EMR pool 10,000 Clinical department Internal Medicine EMRs sampled for DPS synthesis 6,357 Raw synthesized dialogues 25,428 Retained unique EMRs after filtering 5,171 Retained synthesized dialogues 20,684 Reasoning paradigms per EMR 4Train / validation / test split 85% / 5% / 10% Unique diagnostic labels in retained pool 145 Held-out dynamic evaluation EMRs 438 Rollouts per held-out EMR 4Total dynamic evaluation episodes 1,752 Maximum dialogue rounds 8
+
+Table 7: Dataset statistics for DPS synthesis and dy-namic evaluation. 
+
+{{patient_profile}} , dialogue his-tory {{history}} , and the Patient draft 
+
+{{draft_response}} . It checks whether the Patient response faithfully follows the visible facts. Required rewrites include fabricated positive symptoms, direct copying of medical jargon, over-answering beyond the Doctor’s question, and role-play inconsistencies. The output contains a correction analysis, a PASS-or-REWRITE decision, and a concise rewritten patient reply only when rewriting is necessary. 
+
+B Dataset, Evaluation, and Hyperparameter Details 
+
+B.1 Dataset Statistics 
+
+Table 7 provides the dataset statistics used in our experiments. All splits are performed at the EMR level to avoid overlap between training and evalua-tion cases. 
+
+B.2 Evaluation Rubric 
+
+Table 8 summarizes the metrics used by the GPT-4o judge in dynamic multi-turn evaluation. The judge evaluates both outcome quality and consultation process quality after each completed dialogue. 
+
+B.3 Training and Evaluation Hyperparameters 
+
+Table 9 lists the main training and evaluation hyper-parameters. Unless otherwise specified, the same settings are used for the primary Qwen3-8B experi-ments and cross-architecture runs. 
+
+Preprocessing. Dialogue data are converted into chat-style training examples by mapping Patient utterances to user turns and Doctor utterances to assistant turns. Loss is applied only to assistant responses. Residual thinking tags are removed be-fore training, and models without a built-in chat template are assigned a ChatML-style template for consistent formatting. 
+
+B.4 Dataset Filtering Analysis 
+
+Table 10 summarizes the filtering stages used to construct the final DPS training pool. We first re-move very short or invalid dialogue trajectories, and then apply record-level quality filtering: if at least two paradigm-specific dialogues from the same EMR fail diagnosis matching, all four di-alogues from that EMR are removed. This rule preserves paradigm balance in the retained set, but may bias the training pool toward cases with clearer diagnostic trajectories. The record-level quality filter removes 957 EMRs from the round-filtered pool, correspond-ing to 3,828 paradigm-specific dialogues. Among removed EMRs, 685 have two failed paradigms, 217 have three failed paradigms, and 55 fail across all four paradigms. We therefore treat filtering as a quality-control step rather than a neutral sampling operation, and explicitly acknowledge its potential easy-case bias in the paper limitations. 
+
+C Theoretical Discussion 
+
+This section gives a more detailed justification of the specialization–consensus design in PACT. The goal is not to establish a global convergence the-orem for non-convex LLM training, but to clarify why periodic consensus can be preferable to ei-ther mixed SFT or post-hoc branch merging under standard local assumptions. 
+
+C.1 Local Assumptions 
+
+Let ∆(k) denote the LoRA update learned by Branch k on paradigm-specific data Dk, and let 
+
+Lk(∆) be its local training objective in the LoRA update space. We use two local assumptions. 
+
+Local PL condition. Around the optimization trajectory of each Branch, assume Lk satisfies a Polyak–Łojasiewicz (PL) inequality with parame-ter μk > 0:
+
+∥∇L k(∆) ∥22 ≥ 2μk (Lk(∆) − L k(∆ ∗
+
+> k
+
+)) , (12) where ∆∗ 
+
+> k
+
+is a local minimizer for Branch k. This assumption is weaker than local strong convexity and is used only to reason about local descent and bounded suboptimality. 12 Dimension Metric Definition Diagnosis Strict DA The top-1 diagnosis exactly matches the ground-truth diagnosis or an accepted synonym. Diagnosis Relaxed DA Credits strict matches, hierarchical matches, or top-3 diagnostic hits. Diagnosis Soft Score Assigns 1.0 / 0.7 / 0.3 / 0 for strict, hierarchical, top-3, and missed diagnoses. Examination Exam Precision Fraction of recommended examinations that match the gold-standard examination list. Examination Exam Recall Fraction of gold-standard examinations covered by the model’s recommendations. Examination Exam F1 Harmonic mean of Exam Precision and Exam Recall. Process Symptom Coverage Coverage of key clinical information collected during the dialogue. Efficiency Avg Rnd Average number of dialogue rounds before termination. 
+
+Table 8: Evaluation rubric for dynamic multi-turn diagnosis.                          
+
+> Hyperparameter Value LoRA rank r64 LoRA α64 LoRA target modules Attention projection matrices Optimizer AdamW Learning rate 5×10 −4
+> Schedule Cosine Warmup ratio 0.03 Precision bfloat16 Effective batch size 64 Number of GPUs 4PACT synchronization strength λ200 Aggregation interval T∗0.25 epochs TIES density ρ0.5 Maximum training sequence length 4096 Dynamic evaluation episodes per EMR 4Dynamic evaluation maximum rounds 8
+
+Table 9: Main hyperparameters used for training and evaluation. 
+
+Stage EMRs Dialogues Raw DPS synthesis 6,357 25,428 Round/validity filtered 6,128 24,512 Record-level quality filtered 5,171 20,684 
+
+Table 10: DPS filtering stages for the synthesis-derived training pool. 
+
+Local merge compatibility. Because all Branches start from the same base model and optimize low-rank LoRA updates, we assume that a local low-loss region connects compatible Branch updates. Formally, for sign-consistent updates 
+
+∆(i) and ∆(j), there exists a path γ(α) between them such that Lk(γ(α)) does not exceed the endpoint losses by more than a small compatibility error ϵlmc . This is a restricted-subspace version of local linear mode connectivity and motivates aggregating LoRA deltas rather than full model weights. 
+
+C.2 Why Simple Averaging Can Lose Signal 
+
+Consider a single parameter coordinate j across K
+
+Branch updates. Simple averaging produces 
+
+¯∆j = 1
+
+K
+
+> K
+
+X
+
+> k=1
+
+∆(k) 
+
+> j
+
+. (13) If Branches trained on different reasoning paradigms update this coordinate in opposite di-rections, a coordinate-level analogue of the gra-dient conflicts studied in multi-task learning (Yu et al., 2020; Liu et al., 2021), positive and nega-tive values cancel. Let Pj = {k : ∆ (k) 
+
+> j
+
+> 0}
+
+and Nj = {k : ∆ (k) 
+
+> j
+
+< 0}. When both sets are non-empty, the magnitude | ¯∆j | can be much smaller than the average magnitude of either sign-consistent group. Thus, averaging may remove a useful paradigm-shared signal simply because a mi-nority of Branches moves in the opposite direction. TIES aggregation reduces this cancellation by retaining the majority sign: 
+
+∆ties  
+
+> j
+
+=
+
+( 1 
+
+> |Pj|
+
+P 
+
+> k∈Pj
+
+∆(k) 
+
+> j
+
+, |Pj | > |Nj |, 
+
+> 1
+> |Nj|
+
+P 
+
+> k∈Nj
+
+∆(k) 
+
+> j
+
+, |Nj | ≥ | Pj |. (14) Low-magnitude coordinates are trimmed before sign election, so the aggregation focuses on dimen-sions with stronger evidence. This does not guar-antee that the majority direction is always correct, but it prevents direct destructive cancellation and provides an explicit filter for conflicting updates. 
+
+C.3 Effect of L1 Anchor Regularization 
+
+PACT trains each Branch with the local objective 
+
+eLk(∆) = Lk(∆) + λ∥∆ − ∆anc ∥1. (15) At a stationary point b∆k of the regularized objec-tive, the first-order optimality condition gives 
+
+0 ∈ ∇L k( b∆k) + λ∂ ∥ b∆k − ∆anc ∥1. (16) 13 Therefore, there exists a subgradient gk ∈ ∂∥ b∆k −
+
+∆anc ∥1 such that ∇L k( b∆k) = −λg k. Since each coordinate of an L1 subgradient has magnitude at most one, ∥gk∥22 ≤ p, where p is the number of trainable LoRA parameters. Combining this with the PL condition yields 
+
+Lk( b∆k) − L k(∆ ∗
+
+> k
+
+) ≤ λ2∥gk∥22
+
+2μk
+
+≤ λ2p
+
+2μk
+
+. (17) This is a conservative upper bound. In practice, the effective support of gk is often much smaller than 
+
+p because many coordinates either remain close to the Anchor or are trimmed during aggregation. The bound therefore supports a qualitative conclusion rather than a tight prediction: moderate λ controls Branch drift with a bounded local cost, while overly large λ can suppress specialization. 
+
+C.4 Why Periodic Consensus Helps 
+
+The aggregation interval T ∗ determines how long Branches can specialize before returning to con-sensus. If T ∗ is too small, Branches are repeat-edly pulled back before learning useful paradigm-specific behavior. If T ∗ is too large, Branch updates may become less merge-compatible, analogous to client drift under heterogeneous federated optimiza-tion (Karimireddy et al., 2020), making post-hoc aggregation unstable. PACT alternates between lo-cal exploration and Anchor aggregation, aiming to keep Branches within a merge-compatible neigh-borhood while still allowing each paradigm to con-tribute specialized information. This explains the empirical sensitivity to λ and T ∗ observed in Sec-tion 4. 
+
+D PACT Implementation Details 
+
+Materialized LoRA deltas. For each LoRA module, we compute the effective update as the materialized product ∆ = BA . The Anchor regu-larization in Eq. 7 is applied to these materialized deltas, and gradients are back-propagated to the low-rank factors B and A.
+
+Rank projection. Sign-consensus aggregation is performed on materialized Branch deltas. Because the coordinate-wise aggregated matrix is generally full-rank, the result is projected back to the original LoRA rank r through truncated SVD before it is stored as the updated Anchor. 
+
+Memory-efficient regularization. Computing the L1 Anchor penalty over all LoRA modules Comparison Metric Delta 95% CI p-value PACT–Mixed-SFT Strict DA +3.82 [1.31, 6.28] 0.003 PACT–Mixed-SFT Soft Score +1.28 [-0.65, 3.21] 0.198 PACT–Mixed-SFT Exam F1 +1.50 [-0.25, 3.26] 0.093 PACT–Sequential Strict DA +5.14 [2.71, 7.56] < 0.001                        
+
+> PACT–Sequential Exam F1 +3.47 [1.68, 5.27] 0.001 PACT–GPT-4.1 Strict DA +18.61 [15.24, 22.03] <0.0001
+> PACT–GPT-4.1 Soft Score +11.30 [8.68, 13.94] <0.0001
+> PACT–GPT-4.1 Exam F1 +44.06 [41.26, 46.77] <0.0001
+> PACT–GPT-4.1 Symp Cov -0.64 [-1.31, 0.03] 0.061
+
+Table 11: Paired bootstrap significance tests over EMR cases. Delta denotes PACT minus the comparison method. 
+
+in one graph can increase peak memory. We there-fore compute and back-propagate the regularization term module by module, freeing each intermediate graph immediately after its backward pass. This preserves the same objective while reducing peak memory in implementation. 
+
+Computational overhead. PACT introduces training-time overhead from maintaining four Branch adapters, computing the L1 Anchor penalty, and running periodic sign-consensus aggregation. The aggregation is performed only every T ∗ epochs and operates on low-rank LoRA deltas rather than full model weights, so it is not the dominant cost compared with forward and backward passes. At in-ference time, only the Anchor is deployed, making PACT identical to a standard single-LoRA model in parameter count and latency. 
+
+E Statistical Significance Tests 
+
+We conduct paired bootstrap significance tests over EMR cases rather than over individual dialogue episodes. For each model and metric, we first average the four independent episodes belonging to the same held-out EMR, yielding 438 paired case-level scores. We then draw 20,000 bootstrap samples over EMR cases and compute two-sided 
+
+p-values from the bootstrap distribution of paired differences. Table 11 reports the main compar-isons; Delta denotes PACT minus the comparison method. 
+
+F Post-hoc Merge Details 
+
+Table 12 reports the detailed post-hoc merging re-sults used to summarize the independent-branch baseline in Table 4. Different merge operators favor different metrics, indicating that post-hoc merging is sensitive to the aggregation rule. 14 Method Strict DA Exam F1 Symp Cov Indep. + Linear 52.91 56.27 93.92 Indep. + TIES 40.41 59.03 89.81 Indep. + DARE-TIES 52.45 57.16 93.66 
+
+Table 12: Post-hoc merge details for independently trained Qwen3-8B Branches. 10 100 200 400 600                   
+
+> Synchronization strength λ
+> 30
+> 40
+> 50
+> 60
+> Score (%)
+> 56.3
+> (a) λSensitivity (T*= 0.25 )
+> Strict DA (%)
+> Exam F1 (%)
+> 0.1 0.25 1/3 0.5 1.0
+> Aggregation interval T*(epochs)
+> 0
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> Score (%)
+> 54.3
+> (b) T*Sensitivity (λ= 200 )
+> Strict DA (%)
+> Exam F1 (%)
+
+Figure 4: Hyperparameter sensitivity analysis. (a) Effect of synchronization strength λ. (b) Effect of aggregation interval T ∗.
+
+G Qualitative Failure Modes 
+
+Although PACT improves diagnosis, examination recommendation, and symptom coverage, dynamic evaluation still reveals several recurring failure modes. Premature closure occurs when the agent provides a diagnosis before collecting enough dis-criminative evidence. Examination omission oc-curs when the final response contains a plausible diagnosis but misses key auxiliary examinations. 
+
+Over-broad differential diagnosis occurs when the agent lists many possible diseases without com-mitting to the most supported diagnosis. Simulator and judge dependence remains a limitation be-cause both the patient simulator and outcome judge are LLM-based. These failure categories motivate future work on clinician review and safer clinical evaluation protocols. 
+
+H Analysis and Additional Experimental Results 
+
+H.1 DPS Data Quality Analysis 
+
+DPS substantially reduces information leakage and invalid dialogue behaviors while improving diag-nosis and examination alignment. The Supervisor Rewrite Rate remains moderate under the full set-ting, supporting the minimal-intervention design: privileged supervision corrects clear process fail-ures without fully overriding the natural doctor-patient simulation. 500 1000 1500 2000 2500     
+
+> Training checkpoint
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> 1.1
+> Mean pairwise expert distance
+> 71.5% lower
+> spread
+> (a) Inter-expert parameter drift
+> Independent (Qwen3-8B)
+> PACE (Qwen3-8B)
+> 500 1000 1500 2000 2500
+> Training checkpoint
+> 1.75
+> 2.00
+> 2.25
+> 2.50
+> 2.75
+> 3.00
+> 3.25
+> 3.50
+> Mean distance to PACE Anchor
+> 51.6% closer
+> to Anchor
+> (b) Alignment to shared Anchor
+> Qwen3-8B
+> Qwen3.5-9B
+> 0
+> 20
+> 40
+> 60
+> Final reduction (%)
+> spread
+> anchor
+> Independent → Anchor
+> PACE → Anchor
+
+Figure 5: Parameter drift analysis across training check-points. (a) PACT substantially reduces the mean pair-wise distance among paradigm-specific Branches com-pared with independent training. (b) PACT Branches remain closer to the shared Anchor, indicating that pe-riodic aggregation and L1 Anchor Regularization align local paradigm updates to a common consensus. The inset reports final-checkpoint reductions on Qwen3-8B and Qwen3.5-9B. 
+
+H.2 Hyperparameter Sensitivity 
+
+We vary the synchronization strength λ ∈{10 , 100 , 200 , 400 , 600 } and aggregation interval 
+
+T ∗ ∈ { 0.1, 0.25 , 0.5, 1.0} epochs. Small λ val-ues make PACT approach independent training, while overly large values suppress specialization; performance peaks around λ = 200 . Similarly, overly frequent aggregation constrains Branch ex-ploration too early, whereas infrequent aggregation allows excessive drift before merging. The default 
+
+T ∗ = 0 .25 epochs provides the best overall bal-ance. Table 15 shows that moderate trimming works best. A small density removes useful Branch-specific signal, while no trimming retains low-magnitude noisy coordinates and weakens sign-consensus aggregation. We therefore use ρ = 0 .5
+
+as the default. 
+
+H.3 Parameter Drift Analysis 
+
+We measure Branch drift directly in LoRA param-eter space rather than relying only on qualitative PCA projections. Under independent training, the mean pairwise Branch distance grows from 0.619 to 1.075 on Qwen3-8B, a 73.7% increase. In con-trast, PACT keeps the corresponding spread nearly flat, ending at 0.307. At the final checkpoint, PACT reduces inter-Branch spread by 71.5% and Branch– Anchor distance by 51.6% compared with indepen-dent training. The same trend appears on Qwen3.5-9B, where PACT reduces final Branch spread and Anchor distance by 54.0% and 59.1%, respectively. 15 Base Model Config Size Diagnosis Examination Process Strict DA Relaxed DA Soft Score Exam F1 Exam P Exam R Avg Rnd Symp Cov Qwen3.5-9B Base 9B 35.90 71.06 59.24 15.00 16.79 16.70 5.78 78.15 Mixed-SFT 9B 48.29 83.33 72.96 62.45 69.62 61.97 4.24 93.52 PACT 9B 49.76 82.23 71.73 63.11 64.58 68.53 2.06 79.52 Qwen3-8B Base 8B 32.53 73.97 59.03 21.53 23.86 23.95 4.70 77.11 Mixed-SFT 8B 51.48 86.02 74.88 59.83 60.42 63.17 4.17 93.72 PACT 8B 55.31 85.79 76.16 61.33 57.50 74.27 4.02 93.39 Llama3.1-8B Base 8B 16.89 70.03 50.94 16.68 18.40 17.46 3.77 75.04 Mixed-SFT 8B 51.37 86.74 77.81 45.87 49.64 47.48 2.56 74.79 PACT 8B 53.03 84.19 74.54 60.92 66.82 61.15 4.27 93.14 Ministral-3-8B Base 8B 20.94 52.34 41.83 5.08 6.43 5.16 2.71 43.28 Mixed-SFT 8B 36.44 78.53 64.35 28.61 32.90 30.93 3.69 88.54 PACT 8B 50.26 78.39 69.51 45.71 49.03 48.33 2.00 75.38 
+
+Table 13: Full cross-architecture generalization results. Each model shows three configurations: zero-shot Base, Mixed-SFT (standard training on DPS data), and PACT.                                   
+
+> Setting Leak. ↓Invalid ↓Diag. ↑Exam ↑Rewrite Single-model 18.7 24.5 71.2 62.8 –Doctor-Patient 6.8 17.9 78.4 68.5 –w/o Patient-S 4.9 11.8 84.6 74.3 13.2 w/o Doctor-S 7.6 9.4 81.5 70.9 9.7 DPS full 2.1 5.8 91.3 82.6 16.4
+
+Table 14: DPS data quality and Supervisor ablation. Leakage and invalid rates are lower-is-better; diagnosis and examination match are higher-is-better. 
+
+TIES density ρ Strict DA Exam F1 Symp Cov 0.25 53.94 59.72 92.88 0.50 55.31 61.33 93.39 
+
+0.75 54.62 60.41 93.18 1.00 53.78 58.96 92.74 
+
+Table 15: Sensitivity to TIES density ρ on Qwen3-8B, with λ=200 and T ∗=0 .25 fixed. 
+
+H.4 Sign Conflict Analysis 
+
+To directly quantify information loss during TIES merging, we simulate the Trim →Elect Sign pipeline offline at each checkpoint: we expand each Branch’s LoRA delta ∆(k) = B(k)A(k), apply magnitude trimming at density ρ=0 .5, and measure the fraction of surviving positions where at least one Branch’s sign disagrees with the elected major-ity ( sign conflict ratio ). We also report the mean flip rate : the average fraction of each Branch’s active positions overridden by the majority sign. Under independent training, sign conflict rises from 19.8% to 38.0% and saturates, confirming that Branches develop structurally incompatible pa-rameter updates. The corresponding mean pairwise cosine between Branch task vectors drops from 0.61 to 0.18 (Figure 1). PACT reduces both met-Setting Strict DA Exam F1 Avg Rnd Symp Cov English Base 33.39 20.13 3.73 77.05     
+
+> English PACT 47.83 38.78 1.27 62.79
+
+Table 16: English-translated dynamic evaluation on Qwen3-8B. DPS training data and held-out evaluation records are translated into English. 
+
+rics by over 99%: final sign conflict falls to 0.38% and mean flip rate to 0.11%, with Branch cosine maintained at ≈1.0. This explains why PACT’s periodic consensus yields higher merged-model quality (Table 1): near-zero conflict means TIES merging preserves virtually all paradigm-specific information. 
+
+H.5 English-Translated Training and Evaluation 
+
+Table 16 evaluates whether PACT transfers under an English-translated diagnostic setting. Compared with the English Base model, English PACT im-proves Strict DA by +12.45 points, Soft Score by +7.78 points, and Exam F1 by +18.65 points, while reducing the average dialogue length from 3.73 to 1.27 rounds. 16
