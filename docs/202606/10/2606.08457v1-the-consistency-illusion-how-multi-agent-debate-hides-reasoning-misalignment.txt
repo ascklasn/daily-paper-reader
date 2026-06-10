@@ -1,0 +1,966 @@
+Title: The Consistency Illusion: How Multi-Agent Debate Hides Reasoning Misalignment
+
+URL Source: https://arxiv.org/pdf/2606.08457v1
+
+Published Time: Tue, 09 Jun 2026 01:16:00 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# The Consistency Illusion: How Multi-Agent Debate Hides Reasoning Misalignment 
+
+Xiaoyang Wang 1, Christopher C. Yang 1
+
+> 1
+
+Drexel University 
+
+xw388@drexel.edu , chris.yang@drexel.edu 
+
+Abstract 
+
+Multi-agent LLM systems for medical question answering treat consensus as a reliability sig-nal: if multiple agents agree on an answer, it is presumed trustworthy. However, answer-level consensus does not entail reasoning-level align-ment. We introduce CARA (Cross-Agent Rea-soning Alignment), a family of automated met-rics that measure whether agents who agree on an answer also agree on the reasoning. Apply-ing CARA to a standard debate system on two medical QA benchmarks (MedQA-USMLE and MedThink-Bench), we identify the consis-tency illusion : a failure mode where debate re-duces detectable contradictions between agents while simultaneously decreasing the seman-tic similarity of their reasoning chains; agents appear to agree more but reason less consis-tently. To improve this misalignment, we pro-pose the Grounded Debate Protocol (GDP ), a prompt-level intervention that requires agents to commit to named medical facts and take explicit stances on other agents’ claims. GDP 
+
+produces large, consistent alignment improve-ments (Cohen’s d = +1 .43 to +1 .99 ) across two datasets and two backbone models, without adding LLM calls or modifying system archi-tecture. Our results motivate cross-agent rea-soning alignment as a quantity to audit along-side accuracy in safety-critical domains. 
+
+1 Introduction 
+
+Multi-agent LLM systems are increasingly used for medical question answering. Frameworks such as MedAgents (Tang et al., 2024), MDAgents (Kim et al., 2024), and MCC (Sun et al., 2026) deploy several LLM instances that debate, consult, and vote to answer clinical questions, and report accu-racy gains over single-agent baselines on bench-marks such as MedQA. Because the dominant eval-uation pipeline primarily reports macroscopic an-swer accuracy under majority vote, the underly-ing trust assumption is straightforward: if multiple 
+
+Figure 1: The consistency illusion : three agents in-dependently agree on the clinically correct answer (at-ropine for symptomatic bradycardia), yet their rationales invoke three mutually exclusive pharmacological targets. Empirical 2D visualization on D2 (MedThink-Bench) appears in Appendix N. 
+
+agents independently converge on the same answer, that answer is reliable. We argue this trust assumption is incomplete: answer-level consensus does not entail reasoning-level alignment. Figure 1 illustrates the gap on a high-stakes case: three agents independently agree that atropine is the first-line treatment for symp-tomatic bradycardia, yet their underlying rationales invoke three mutually exclusive pharmacological targets ( β1-adrenergic agonism, M2-muscarinic blockade, and acetylcholinesterase inhibition). The agents reach the correct answer through medically incompatible reasoning; we term this pattern the 
+
+consistency illusion . This paper therefore mea-sures cross-agent reasoning alignment : whether agents that converge on an answer also align in the reasoning that produced it. This question is orthogonal to both macroscopic answer accuracy and individual, single-agent reasoning faithfulness. 1
+
+> arXiv:2606.08457v1 [cs.MA] 7 Jun 2026
+
+This phenomenon has gone undetected because existing evaluations measure something else. Med-ical multi-agent systems report accuracy and an-swer agreement, while reasoning-faithfulness meth-ods were built to audit a single agent’s trace rather than alignment across agents; to our knowledge, no prior method measures whether agents that agree on an answer also agree on the reasoning behind it. Recent theoretical critiques of multi-agent deliber-ation (Choi et al., 2025; Zhu et al., 2025) character-ize debate dynamics as a voting-driven martingale rather than genuine synthesis. They leave open a complementary question central to safety-critical settings: when agents do agree, does the reasoning behind that agreement hold up? To answer this question, we introduce CARA 
+
+(Cross-Agent Reasoning Alignment), a family of automated metrics that decompose each agent’s response into reasoning steps and score pairwise alignment among agents that share an answer, us-ing a hybrid of NLI-based contradiction detection and embedding similarity. CARA introduces no ad-ditional LLM calls and operates post hoc on traces produced by ordinary system inference. Applying  
+
+> CARA
+
+to a standard three-agent debate system on MedQA-USMLE ( N =500 ) and MedThink-Bench (N =499 ), we find that debate reduces explicit con-tradictions between agents (CR ↓) while simulta-neously reducing the semantic similarity of their reasoning chains (SIM ↓). Debate produces sur-face harmony while reasoning diverges further: the empirical signature of the consistency illusion. The effect is pronounced in open-ended reasoning, where the unconstrained reasoning space gives di-vergence room to surface: on MedThink-Bench it is large and replicates across both backbones (Cohen’s d=−0.30 for Qwen, −1.32 for Llama-3), and it is muted on closed-form multiple-choice (MedQA), consistent with the narrower reasoning surface. To test whether this failure is fundamental to multi-agent debate or merely a protocol-level de-ficiency, we propose the Grounded Debate Pro-tocol (GDP ), a prompt-level intervention requir-ing each reasoning step to pair a C LAIM with a named G ROUND and forcing explicit S TANCE 
+
+statements toward other agents’ claims. GDP pro-duces large, consistent alignment gains across all three conditions tested (Cohen’s d=+1 .43 on D1 Qwen, +1 .62 on D2 Qwen, and +1 .99 on D2 Llama-3). Together, our results identify a previ-ously unmeasured failure mode in multi-agent med-ical QA, name and quantify it, and demonstrate that lightweight prompt-level grounding substan-tially improves cross-agent reasoning alignment. We release the code and computed CARA scores publicly 1.
+
+2 Related Work 
+
+Multi-agent systems for medical QA. A grow-ing family of medical MAS—MedAgents (Tang et al., 2024), MDAgents (Kim et al., 2024), MCC (Sun et al., 2026), TeamMedAgents (Mishra et al., 2025), the foundational debate framework of Du et al. (2024), and clinical-simulation systems like Agent Hospital (Li et al., 2025) and Agent-Clinic (Schmidgall et al., 2026)—deploy multiple LLM instances that debate, consult, or vote on med-ical questions, reporting accuracy gains over single-agent baselines on benchmarks such as MedQA. A common thread unites these architectures: they treat multi-agent answer-level consensus as a proxy for reliable clinical reasoning. None, however, au-dits whether agents that converge on the same op-tion actually share consistent underlying rationales. 
+
+Critiques of multi-agent deliberation. A grow-ing body of work questions whether multi-agent debate improves reasoning beyond what voting or repeated sampling already provides. Choi et al. (2025) prove formally that debate dynamics form a martingale—gains are attributable to majority voting, not deliberation—a conclusion reinforced empirically by Zhu et al. (2025), Li et al. (2024), Wang et al. (2024), Tran and Kiela (2026), and Zhang et al. (2025b). Behavioral studies document specific failure modes: agents may reach consen-sus by copying explanations (Pitre et al., 2025), switch answers under sycophantic pressure (Yao et al., 2025), or degrade in multi-turn dialogue (La-ban et al., 2026). Most closely related, the problem drift literature (Becker et al., 2026) measures how debate performance degrades over turns; CARA 
+
+asks a complementary question: when agreement does emerge, is the underlying reasoning aligned? Prior critiques attack the debate process ; our work attacks an assumption about the debate outcome —that surface consensus implies reasoning align-ment. 
+
+Evaluation of multi-agent reasoning. A dis-tinct evaluation lineage measures whether reported  
+
+> 1Code and data: https://anonymous.4open.science/ r/consistency-illusion-code-3629/
+
+2rationales support or reflect a single agent’s an-swer. Lanham et al. (2023) introduced CoT trun-cation and mistake-injection probes; Matton et al. (2025) extended these to medical QA, and Afolabi et al. (2025) show that reasoning steps often do not causally drive predictions. Automated metrics include ROSCOE (Golovneva et al., 2023), NLI-based faithfulness checking (Falke et al., 2019), and CC-SHAP (Parcalabescu and Frank, 2024), but these are designed for single-trace verification of individual model outputs. Even the methods that do apply to multi-agent settings verify each trace in isolation; to our knowledge, none measures cross-agent reasoning alignment among agents that share an answer. How multi-agent aggregation af-fects collective reasoning coherence has therefore remained uncharacterized. 
+
+3 CARA: Measuring Reasoning Alignment  
+
+> CARA
+
+measures whether agents that agree on an an-swer also agree on the reasoning behind it—a quan-tity that answer accuracy and single-agent faithful-ness leave unmeasured. It is orthogonal to correct-ness: rather than checking whether a rationale is medically right, it asks whether agents who reach the same answer reach it for compatible reasons. 
+
+3.1 Agreement Set 
+
+We run N agents on a clinical question q. Each agent Ai produces an answer ai and a reasoning chain Ri = ( r1 
+
+> i
+
+, . . . , r Ki 
+
+> i
+
+) of Ki steps. The system answer ˆa is the majority vote over {ai}. We define the agreement set as the agents who voted for ˆa:
+
+S(q) = {i : ai = ˆ a}. (1) We compute CARA only when |S (q)| ≥ 2. This restriction is the point: it isolates the safety-critical case where surface agreement may hide divergent reasoning. 
+
+3.2 Step-Level Alignment 
+
+We split each rationale Ri into steps using a deter-ministic text-segmentation pipeline. For each or-dered pair (Ai, A j ) in the agreement set with i̸ = j,we build an alignment matrix Mij ∈ RKi×Kj with entries Mij [k, l ] = align( rki , r lj ).Our metric is CARA -HYB ; CARA -NLI and CARA - 
+
+> SIM
+
+are its two components, reported separately in Table 9 to expose what drives alignment. CARA - 
+
+> NLI
+
+returns an NLI label in {− 1, 0, +1 } for contra-diction, neutral, or entailment. CARA -SIM returns the cosine similarity of step embeddings. CARA - 
+
+> HYB
+
+combines both, letting contradictions override similarity: 
+
+align hyb (rki , r lj ) = 
+
+(
+
+−1 if PNLI > τ, 
+
+cos( eki , elj ) otherwise, (2) where PNLI is the NLI contradiction probability for (rki , r lj ), eki is the L2-normalized embedding of rki , and τ is the contradiction threshold. This hybrid addresses the known insensitivity of embed-dings to negation (Marelli et al., 2014). For valida-tion, CARA -LLM uses GPT-4o as an LLM judge to calibrate CARA -HYB against holistic human-style judgments, reported in Section 5.3. 
+
+3.3 Question-Level Aggregation and Diagnostics Best-match alignment. Because agents produce different numbers of steps ( Ki̸ = Kj ), alignment is asymmetric. We define best-match alignment by matching each step in Ai to its best match in 
+
+Aj :
+
+match j (rki ) = max   
+
+> l∈{ 1,...,K j}
+
+align( rki , r lj ). (3) 
+
+Symmetrized pairwise score. The pairwise  
+
+> CARA
+
+score symmetrizes by averaging both direc-tions: 
+
+CARA( i, j ) = 12
+
+h 1
+
+> Ki
+
+PKi 
+
+> k=1
+
+match j (rki )+ 1
+
+> Kj
+
+PKj 
+
+> l=1
+
+match i(rlj )
+
+i
+
+. (4) 
+
+Question-level aggregation. The question-level score averages over all pairs in the agreement set: 
+
+CARA( q) = 2
+
+|S (q)| (|S (q)|− 1) 
+
+× X
+
+> i<j i,j ∈S (q)
+
+CARA( i, j ). (5) Variants with negative range ( CARA -NLI , CARA -
+
+> HYB
+
+) are rescaled to [0 , 1] via (CARA+1) /2.Corpus-level scores are the mean of CARA( q)
+
+over questions with |S (q)| ≥ 2.
+
+Contradiction Rate (CR). We also report the 
+
+Contradiction Rate : the fraction of best-matched step pairs in the agreement set flagged as contradic-tions by the NLI filter. 
+
+CR( q) = 
+
+(i, j, k ) : i̸ = j, match j (rki ) = −1
+
+P
+
+> i∈S (q)
+
+(|S (q)| − 1) Ki
+
+.
+
+(6) 3True alignment shows up as semantic similarity rising ( CARA -SIM ↑) with contradictions falling (CR ↓). When the two diverge—contradictions fall but similarity also falls—we see the consistency illusion. 
+
+4 Grounded Debate Protocol: A Protocol-Level Intervention 
+
+4.1 Motivation and Protocol Design  
+
+> CARA
+
+shows that free-form debate can produce answer agreement without aligned reasoning, a re-sult we establish in Section 6. GDP tests whether this failure is an unresolvable feature of language-model interaction or merely a protocol-level defi-ciency. Standard debate prompts allow three failure modes: vague clinical claims; sycophantic answer adoption without engaging with peer evidence (Yao et al., 2025); and explanation copying with topic drift (Pitre et al., 2025; Becker et al., 2026). The common root is that nothing in standard prompts re-quires agents to commit to specific reasoning steps or substantively engage with other agents’ claims. To address this, GDP enforces a structured, prompt-level communication protocol. It requires each agent to structure its output into up to three machine-parseable fields: • CLAIM : A singular, atomic, and falsifiable clini-cal assertion. • GROUND : a named medical fact, mechanism, or guideline that supports the claim (e.g., disease, drug target, receptor pathway). • STANCE (debate rounds only ): one of {A GREE ,DISAGREE , E XTEND } toward a specific claim from another agent, with a one-sentence justifica-tion; a D ISAGREE requires a counter-G ROUND .Agents emit C LAIM +G ROUND pairs in the inde-pendent round ( r0) and add S TANCE in the debate round ( r1). An anti-sycophancy rule instructs each agent to switch answers between r0 and r1 only after seeing a more compelling G ROUND from an-other agent or finding a factual error in its own reasoning. A worked clinical example contrasting an unstructured debate log with a synchronized  
+
+> GDP
+
+trace is provided in Appendix K. 
+
+4.2 Integration Properties  
+
+> GDP
+
+is a prompt-level change: the CLAIM /G ROUND /S TANCE format is added through the system message, with agent routing and the number of LLM calls unchanged. The only overhead is output length: tokens grow by ∼9% 
+
+from the explicit field markers. Applied to the symmetric debate of Du et al. (2024), this gives M3-GDP, which we evaluate in Section 5.1. Traces are parsed post-hoc by regex on the field markers; this parsing supports logging and analysis only, as  
+
+> CARA
+
+operates on the raw response text regardless of parse outcome. 
+
+5 Experimental Setup 
+
+5.1 Study Design 
+
+We evaluate whether debate-induced answer con-sensus is accompanied by reasoning alignment among agents that converge on the same answer. Table 10 summarizes our experimental matrix of three systems, each with three agents under major-ity voting: M3 is symmetric one-round debate (Du et al., 2024), producing pre-debate ( r0) and post-debate ( r1) traces; M4 is an independent-vote con-trol with no cross-agent communication, specifi-cally isolating the sampling-and-voting contribu-tion from debate (Choi et al., 2025); M3-GDP 
+
+keeps the M3 architecture and the same LLM-call budget but rewrites all prompts to require the GDP 
+
+CLAIM +G ROUND +S TANCE format (Section 4). Full configurations and prompts are in Appendix J. 
+
+5.2 Datasets and Backbones D1: MedQA-USMLE (Jin et al., 2021) provides closed-form four-option USMLE-style multiple-choice questions; we sample N =500 stratified by exam stage with a fixed seed. D2: MedThink-Bench (Zhou et al., 2025) spans ten medical domains with 3–10 answer options and expert-annotated reasoning trajectories (“Scoring Points”); we use N =499 of 500 available items (one ex-cluded for incompatible option format). D2’s wider option space gives reasoning more room to diverge than D1. Primary trials use Qwen 2.5 72B In-struct (Qwen et al., 2025); we replicate on D2 (N =100 ) with Llama 3.3 70B Instruct (Grattafiori et al., 2024) to test the effect-direction consistency rather than cross-backbone statistical significance. 
+
+5.3 CARA Computation and Validation 
+
+> CARA
+
+-HYB implementation. CARA -HYB de-composes each agent response into reasoning steps and computes pairwise alignment via two comple-mentary signals: an NLI hard-filter on contradic-tions (DeBERTa-v3 (Laurer et al., 2024)) and a sentence-embedding cosine on non-contradictory step pairs (Stella (Zhang et al., 2025a)). The 4pipeline runs post hoc with no additional LLM calls; model versions, threshold, decomposition rules, and runtime are in Appendix E. 
+
+Agent–expert validation ( CARA -GT). For D2 only, CARA -GT applies the same pipeline with one agent replaced by the expert Scoring-Points ref-erence, measuring agent-to-expert alignment and 
+
+expert coverage , detailed in Appendix C. 
+
+LLM-judge calibration ( CARA -LLM ). CARA - 
+
+> LLM
+
+validates CARA -HYB against GPT-4o-as-judge (OpenAI, 2024) on a sample of agent pairs: the scores show strict tercile monotonicity (and a moderate linear correlation), capturing comple-mentary aspects of alignment—step-level semantic overlap ( CARA -HYB ) vs. holistic logical coherence (GPT-4o judge). Sample design, correlation values, and tercile statistics are in Appendix F. 
+
+Human-expert validation. Because reliable an-notation of medical reasoning requires medically-trained experts, we validate on a deliberately fo-cused set of 50 agreement-set pairs rated by three independent annotators, with the full setup in Appendix H. Inter-annotator agreement is high (Spearman ρ ∈ [0 .93 , 0.99] ; 100% within-1 agree-ment), and aggregate ratings correlate positively with CARA -HYB (Spearman ρ=0 .26 ) and CARA - 
+
+> SIM
+
+(ρ=0 .31 ), with tercile means rising mono-tonically ( 4.00 /4.65 /4.71 for low/mid/high CARA - 
+
+> HYB
+
+strata). The bounded magnitude reflects range restriction within the agreement set ( CARA -HYB ∈
+
+[0 .76 , 0.98] ), paralleling the CARA -LLM pattern. 
+
+5.4 Statistical Analysis 
+
+We report Cohen’s d with 95% percentile boot-strap CIs ( B=10 ,000 , seed 42 ); |d|>0.8 is Tier A, 
+
+0.5<|d|≤ 0.8 Tier B, and 0.2<|d|≤ 0.5 Tier C. Ac-curacy comparisons use continuity-corrected Mc-Nemar tests. Questions with fewer than two agents choosing the same answer are undefined; we report this undefined rate per system and check survivor-ship bias by imputing the undefined cases. Per-cell counts are in Appendix M, and the full imputation in Appendix B and Section 6.2. 
+
+6 Results 
+
+We report CARA -HYB , CARA -SIM , and CR for all three systems on D1 and D2 with Qwen 2.5 72B, plus a cross-backbone replication on D2 ( N =100 )with Llama 3.3 70B. All comparisons are within-dataset and within-backbone; we do not compare absolute CARA values across datasets. 
+
+6.1 Main Results and Dual-Layer Decomposition 
+
+The rank ordering is identical on D1 and D2: M3-GDP r1 is the highest cell ( 0.952 /0.953 ), and M3 r1 is the lowest (0.892 /0.881 )—standard debate align-ment falls below independent voting. For M3 from r0 to r1, both CR and SIM de-crease (CR 0.104 →0.035 on D1, 0.144 →0.054 on D2; SIM 0.801 →0.787 on D1, 0.801 →0.769 on D2); fewer contradictions with less semantic align-ment is the consistency illusion (mechanism in Sec-tion 7). In contrast, GDP debate produces the genuine-alignment signature.From r0 to r1, SIM rises 
+
+(0.835 →0.912 on D1; 0.836 →0.914 on D2) while CR falls (0.117 →0.098 on D1; 0.137 →0.127 
+
+on D2). Both protocols reduce contradictions, but only GDP simultaneously increases reasoning similarity—CR ↓ with SIM ↑, the true-alignment pattern defined in Section 3 and the mirror image of the illusion. A D1 bootstrap test underscores that M3’s low CR is anomalous : GDP r1 CR ex-ceeds M3 r1 ( ∆=+0 .063 , CI [+0 .042 , +0 .087] ), and M3 r1 CR falls even below independent vot-ing ( ∆= −0.072 vs. M4, CI [−0.089 , −0.056] )— standard debate suppresses visible contradictions without aligning reasoning. 
+
+6.2 GDP Effect and the Consistency Illusion 
+
+Figure 2 shows the three key pairwise comparisons as a forest plot of Cohen’s d across all three dataset– backbone combinations.  
+
+> GDP
+
+delivers a large alignment gain on both datasets: d=+1 .43 on D1 and d=+1 .62 on D2 against M3 r1 , rising to d=+2 .26 and d=+2 .22 
+
+against independent voting (all four CIs above zero). Standard debate, in contrast, is alignment-neutral on D1 (d=−0.08 , CI contains zero) and alignment-degrading on D2 ( d=−0.30 , CI 
+
+[−0.43 , −0.17] ). The D1–D2 gap tracks both question complexity and undefined-question se-lection bias. The GDP effect splits in two: CLAIM +G ROUND format alone (GDP r0 vs. M4 r0 )yields d=+0 .62 on D1; adding S TANCE -mediated debate (GDP r1 vs. GDP r0 ) yields d=+1 .51 , 2.4×
+
+the format component but only meaningful when there are structured claims to reference. On survivorship-bias sensitivity, M3 r1 excludes 
+
+15 .2% (D1) and 14 .2% (D2) of questions where no majority emerged. These exclusions are non-random—harder questions survive less often—so 5D1 (MedQA, N =500 ) D2 (MedThink, N =499 )System Round HYB SIM CR HYB SIM CR 
+
+M3-GDP r1 (debate) 0.952 0.912 0.098 0.953 0.914 0.127 M3-GDP r0 (indep.) 0.912 0.835 0.117 0.912 0.836 0.137 M4 r0 (indep.) 0.895 0.801 0.108 0.895 0.801 0.161 M3 r0 (indep.) 0.895 0.801 0.104 0.896 0.801 0.144 M3 r1 (debate) 0.892 0.787 0.035 † 0.881 0.769 0.054 †
+
+Table 1: CARA -HYB , CARA -SIM , and CR per cell on D1 and D2. Higher HYB and SIM, and lower CR, indicate better alignment. Green row = M3-GDP r1 (highest alignment); Red row = M3 r1 (lowest, consistency illusion). Per-cell HYB SDs are 0.021 –0.059 . N ranges 424 –500 (D1) and 428 –499 (D2) due to undefined questions. †M3 r1 CR is deflated by survivorship bias (Section 6.2). M3 r1 vs M4 r0                         
+
+> GDP r1vs M4 r0
+> GDP r1vs M3 r1
+> d= − 0.08
+> d= + 2.25
+> d= + 1.43
+> D1 Qwen ( N= 500 )
+> M3 r1vs M4 r0
+> GDP r1vs M4 r0
+> GDP r1vs M3 r1
+> d= − 0.30
+> d= + 2.22
+> d= + 1.62
+> D2 Qwen ( N= 499 )
+> −1 012
+> Cohen's d(95% bootstrap CI)
+> M3 r1vs M4 r0
+> GDP r1vs M4 r0
+> GDP r1vs M3 r1
+> d= − 1.32
+> d= + 0.70
+> d= + 1.99
+> D2 Llama ( N= 100 )
+
+Figure 2: Cohen’s d for three key pairwise compar-isons, one panel per dataset–backbone. Error bars: 
+
+95% bootstrap CIs ( B=10 ,000 ); filled markers exclude zero; shading marks Tier A ( |d|>0.8). GDP compar-isons (top two rows) reach Tier A across all conditions; the consistency-illusion comparison (bottom) is signifi-cantly negative on D2 (both backbones). 
+
+the sample skews toward easier cases. Under worst-case imputation ( CARA -HYB =0 .50 , CR =1 .0 for every undefined question, both far beyond any ob-served value), M3 r1’s adjusted CARA -HYB stays 
+
+below M4 r0 ( 0.832 vs. 0.895 on D1; 0.827 vs. 
+
+0.895 on D2): the consistency-illusion conclu-sion is robust. The CR finding, however, reverses (0.182 >0.108 on D1; 0.188 >0.161 on D2), so we interpret CR alongside the undefined rate. 
+
+6.3 Cross-Backbone Validation 
+
+We replicate all three systems on D2 ( N =100 )with Llama 3.3 70B Instruct. All five key com-parisons agree in sign across both backbones (Ta-ble 13): GDP is Tier A positive (Llama d=+1 .99 ,Qwen d=+1 .62 ), the illusion is negative (Llama 
+
+d=−1.32 , Tier A; Qwen d=−0.30 , Tier C), stan-dard debate degrades alignment r0 →r1 while GDP M4   
+
+> (Independent)
+> M3 r1
+> (Standard Debate)
+> M3-GDP r1
+> (Grounded Debate)
+> 76
+> 80
+> 84
+> 88
+> 92
+> Expert Scoring-Point Coverage (%)
+> 88.8%
+> 80.2%
+> 85.6%
+> -8.6 pp
+> +5.4 pp
+
+Figure 3: Expert scoring-point coverage on D2: stan-dard debate (M3 r1) drops 8.6pp from the independent-voting baseline; GDP (M3-GDP r1) recovers 5.4pp. 
+
+debate improves it, and the format effect is positive. The illusion is stronger on Llama partly because Llama’s M3 r1 undefined rate ( 2% ) is far lower than Qwen’s ( 14% ), so more hard cases survive into the measured sample. 
+
+6.4 Agent–Expert Alignment ( CARA -GT) 
+
+CARA -GT replaces one agent with the expert Scoring-Points reference (D2 only; Section 5.3). It mirrors the inter-agent finding: GDP moves agents toward expert reasoning ( d=+0 .32 , CI 
+
+[+0 .20 , +0 .45] ), and standard debate moves them 
+
+away (d=−0.21 , CI [−0.34 , −0.08] ). Expert-coverage tells a sharper story (Figure 3): standard debate loses 8.6pp of expert scoring-point cover-age; GDP recovers 5.4pp. 
+
+6.5 Accuracy 
+
+CARA measures reasoning alignment, not answer correctness; majority-vote accuracy is reported sep-arately. Standard debate does not change accuracy on either dataset (D1 ∆=+0 .4pp, D2 ∆=0 .0pp; both p> 0.85 ), consistent with the martingale char-acterization (Choi et al., 2025). GDP shifts accuracy 6by −2.4pp on Qwen (both D1 and D2) and −6.0pp on Llama D2; none reaches significance at α=0 .05 .D2’s lower absolute accuracy ( ∼ 41% baseline) reflects its ∼ 7.5 average answer options versus D1’s 4, giving an ≈3× random-performance ratio. 
+
+7 Analysis 
+
+We answer four research questions about the con-sistency illusion, the mechanism by which GDP 
+
+improves it, and the generality of the findings. 
+
+RQ1: What mechanism produces the consis-tency illusion, and how does GDP improve it? Answer : Standard debate creates the illu-sion via two failures—contradiction smoothing without reasoning convergence, and sycophantic convergence—and GDP reverses both via a format effect ( d=+0 .62 ) amplified by a STANCE -mediated debate interaction effect ( d=+1 .51 , 2.4× the format component; extended derivation in Ap-pendix O). 
+
+Standard debate drives CR ↓+SIM ↓ (Sec-tion 6.1) via two mechanisms. First, revision pres-sure removes contradictory steps without replacing them with shared reasoning— subtraction without alignment —so CR drops while SIM also drops. Second, agents adopt each other’s answers with-out adopting the underlying reasoning, sometimes severely: M3 r1 fails consensus on 14 –15% of questions on both datasets. GDP reverses both via two complementary effects. The format effect 
+
+alone, before any debate (GDP r0 vs. M4 r0 on D1: SIM +0 .034 , d=+0 .62 ), shows that much of the apparent misalignment originates from underspec-ified output format rather than genuine reasoning disagreement. The dominant debate interaction effect (d=+1 .51 on D1) operates because S TANCE 
+
+statements force agents to share reasoning vocabu-lary and logical structure with their interlocutors, driving SIM up by +0 .077 on D1 and +0 .078 on D2 from r0 to r1. Format is a precondition: without structured claims, S TANCE has no targets. 
+
+RQ2: Beyond CARA, what behavioral indi-cators support the illusion finding? Answer :
+
+Standard debate destabilizes consensus ∼38 ×
+
+more than independent voting on D1 and produces 
+
+5% “reasoning collapse” zero-step agents on D2;  
+
+> GDP
+
+eliminates both. 
+
+Two independent behavioral indicators sup-port the illusion finding without depending on agreement-set selection. First, the undefined rate 
+
+(no majority emerges) jumps from 0.4% before debate (M3 r0) to 15 .2% after (M3 r1) on D1 (38 ×) and 5.6% →14 .2% on D2: debate itself manufactures disagreement; grounding removes it (M3-GDP r1: 0.4% ). Second, reasoning col-lapse —agents emitting zero extractable steps af-ter debate, the behavioral signature of sycophantic convergence—affects 5.0% of M3 r1 agreement-set memberships on D2 ( N =100 ) vs. 0.3% for M3-GDP r1. GDP ’s C LAIM +G ROUND requirement pre-vents both failure modes. 
+
+RQ3: Which failure modes does GDP struc-turally eliminate? Answer : GDP eliminates FM1 (complementary reasoning) and FM4 (syco-phantic convergence) on both datasets, shifting residual misalignment toward the low-severity baseline FM6 (partial overlap, 62 –64% of remain-ing low-CARA -HYB cases). 
+
+We examine the 50 lowest-CARA -HYB cases per system where each still reaches the correct answer, classifying by deterministic rules over CARA sub-metrics; the full classification rules are in Appendix L. Table 2 groups the six modes into SEVERE (FM1, FM4), M ODERATE (FM2, FM3, FM5), and M ILD (FM6) tiers. Four findings replicate across the two datasets. First, GDP eliminates sycophantic convergence (FM4) : 11 →0 on D1, 15 →0 on D2; the CLAIM +G ROUND requirement structurally pre-vents empty answer adoption. Second, GDP elimi-nates complementary reasoning (FM1) : 23 →0
+
+on D1, 18 →0 on D2; structured grounding forces convergence on shared medical facts. Third, resid-ual misalignment under GDP shifts to FM6 (par-tial overlap) : 31 /50 on D1, 32 /50 on D2 ( 62 –
+
+64% )—a low-severity baseline remaining after se-vere modes are removed. Fourth, FM3 contra-dictory premises rises under GDP (2→12 on D1, 
+
+1→15 on D2), consistent with the CR analysis in Section 6.1: the structured format surfaces contra-dictions that vague free text would hide. A qualitative case study (MQA_0447 hypov-olemic shock, where agents misstate SVR direction before self-correcting) is in Appendix L. 
+
+RQ4: Do the findings generalize across datasets and backbones? Answer : Yes—the GDP ef-fect replicates with Tier-A magnitudes across all three conditions (D1 Qwen d=+1 .43 ; D2 Qwen 
+
+d=+1 .62 ; D2 Llama d=+1 .99 ), with the system rank ordering identical across the two datasets and two independent backbones. 
+
+7M3 r1 GDP r1 Severity Mode Definition D1 D2 D1 D2                                      
+
+> SEVERE FM1 Complementary reasoning : different, non-contradictory reasoning paths. 23 18 00
+> FM4 Sycophantic convergence : agent adopts the majority answer with zero reasoning steps. 11 15 00
+> MODERATE FM2 Granularity mismatch : step-count ratio >2(depth difference, not factual clash). 12 15 52FM3 Contradictory premises : agents cite conflicting facts but converge on the correct answer. 2112 15 FM5 Terminology divergence : different medical terms used for the same concept. 2100MILD FM6 Partial overlap : residual baseline misalignment without extreme signals. 0031 32
+> Severe modes eliminated by GDP (FM1 + FM4): 34 33 00
+
+Table 2: Failure mode taxonomy on the 50 lowest-CARA -HYB correct-answer cases per system, with definitions and counts on both datasets. GDP eliminates both severe modes (FM1 + FM4: 34 /50 and 33 /50 under M3 → 0/50 
+
+under GDP on D1 and D2 respectively), shifting residual misalignment toward the mild baseline FM6. FM3’s rise under GDP is consistent with the CR analysis in §6.1: the structured format surfaces contradictions that vague free text would hide. 
+
+The rank ordering M3-GDP r1 ≻ M3-GDP r0 ≻
+
+M4 r0 ≈ M3 r0 ≻ M3 r1 is identical across all three dataset–backbone combinations. The illusion magnitude varies across conditions (d=−0.08 , −0.30 , −1.32 ) for two reasons. First, D1’s fixed 4-option format leaves less room for reasoning to diverge. Second, M3 r1 undefined rates differ ( 15 .2% , 14 .2% , 2.0% ): a lower unde-fined rate leaves more hard cases in the sample, strengthening the measured illusion. 
+
+Is the gain just structural? Because CARA - 
+
+> HYB
+
+scores step-pair similarity, GDP ’s structured CLAIM /G ROUND /S TANCE format could in prin-ciple inflate scores mechanically—through shared template vocabulary or cleaner step parsing—rather than through better reasoning alignment. First, the format-only effect ( d=+0 .62 ) is less than half the full GDP gain; the dominant component ( d=+1 .51 )is the S TANCE -mediated debate interaction over content, not template. Second, CARA -GT (Sec-tion 6.4) shows GDP also aligns agents with the expert Scoring-Points reference ( d=+0 .32 ), which is not in GDP format. Third, GPT-4o judges M3-GDP r1 reasoning as more aligned than M3 r1 on the same 50 agreement-set pairs ( 4.86 vs. 4.50 on a 5-point scale, Cohen’s d=+0 .75 , 95% bootstrap CI on ∆ [+0 .08 , +0 .65] ); since the LLM judge evaluates holistic logical coherence rather than tem-plate structure, this is direct evidence against pure structural confound. Fourth, stripping the literal CLAIM /G ROUND /S TANCE tokens from GDP traces and recomputing CARA -HYB attenuates paired Co-hen’s dz by only 6–10% across all three conditions (Appendix G). 
+
+8 Conclusion 
+
+We identified the consistency illusion in multi-agent medical QA: standard debate reduces de-tectable contradictions between agents while si-multaneously decreasing the semantic similarity of their reasoning—agents appear to agree more but actually reason less consistently. We in-troduced CARA , a family of metrics for cross-agent reasoning alignment, and applied it on MedQA-USMLE and MedThink-Bench: the illu-sion is negligible on D1 ( d=−0.08 ) but signifi-cantly negative on D2 (Qwen d=−0.30 ; Llama-3 
+
+d=−1.32 ). We proposed the Grounded Debate Pro-tocol ( GDP ), a prompt-level intervention requiring CLAIM +G ROUND +S TANCE , which delivers Tier-A alignment gains across all conditions ( d=+1 .43 to 
+
++1 .99 ), eliminates two failure modes (complemen-tary reasoning and sycophantic convergence) on both datasets and adds no LLM calls. Together, our results challenge the assumption that multi-agent consensus indicates reasoning reliability, and show that protocol-level grounding can close this gap, positioning GDP as a diagnostic and auditing inter-vention. The structural sensitivity we observe— larger illusion where reasoning has more room to diverge—suggests grounding is most valuable on open-ended clinical tasks and proprietary back-bones. 8Limitations 
+
+While we evaluate CARA and GDP across two medi-cal QA benchmarks (D1 MedQA-USMLE N =500 
+
+and D2 MedThink-Bench N =499 ) and two open-weight backbones (Qwen 2.5 72B and Llama 3.3 70B), with Tier-A effect sizes ( d=+1 .43 to +1 .99 )replicated across all conditions, our analysis has several limitations. 
+
+> CARA
+
+’s agreement-set definition relies on dis-crete answer matching, which is well-defined for multiple-choice benchmarks but would require adaptation for free-form clinical generation tasks such as differential diagnosis or treatment-plan drafting; extending the metric to such settings is a natural next step. Our cross-backbone valida-tion covers two open-weight 70B-class models at comparable scales; proprietary models (e.g., GPT-4o, Claude, Gemini) would require an identical-instance experimental setup that is outside the scope of this work. 
+
+> CARA
+
+-HYB is a step-level semantic-alignment measure designed to operate within the agree-ment set; the complementary GPT-4o oracle (Appendix F) and human-expert validation (Ap-pendix H) anchor its interpretation, with both show-ing the predicted monotonicity across CARA -HYB 
+
+terciles. Extending the metric to non-agreement-set settings (e.g., disagreement-pair audit) and to domains beyond clinical reasoning is left for future work.  
+
+> CARA
+
+and GDP target cross-agent reasoning alignment, a property orthogonal to answer accu-racy; GDP is accordingly intended as an alignment-auditing and -improving intervention, and we make no claim that it improves accuracy. Across both backbones and datasets, majority-vote accuracy un-der GDP does not differ significantly from the stan-dard debate baseline (McNemar tests; Table 6)— consistent with prior evidence that multi-agent de-bate itself does not reliably improve accuracy (Choi et al., 2025). The Llama 3.3 comparison is based on N =100 and is underpowered to detect small accuracy effects; an adequately powered analysis of the alignment–accuracy relationship is left for future work. We study a single, widely-used debate protocol— the symmetric, single-round design of Du et al. (2024), the canonical multi-agent debate baseline. Whether the consistency illusion and GDP ’s cor-rection generalize to other topologies (asymmetric roles, additional rounds, larger agent sets) is an important direction for future work. 
+
+Ethics Statement 
+
+This study uses publicly available medical QA benchmarks (MedQA-USMLE and MedThink-Bench) that contain no patient-identifiable informa-tion. All LLM inference uses open-weight models (Qwen 2.5 72B, Llama 3.3 70B) running on insti-tutional compute infrastructure. CARA -LLM vali-dation uses the OpenAI API (GPT-4o) for 80 eval-uation pairs. No clinical participants are involved. Three medically-trained annotators rated 50 agent-pair outputs from the agreement set for metric vali-dation; this is an annotation task on model outputs and does not constitute human-subjects research. We emphasize that CARA measures reasoning 
+
+alignment , not reasoning correctness . High CARA 
+
+scores indicate that agents reason consistently, not that they reason correctly. CARA should be used as a diagnostic tool alongside accuracy metrics, not as a replacement for clinical validation. Multi-agent medical QA systems evaluated in this work are research prototypes and are not intended for clinical deployment. 
+
+References              
+
+> Halimat Afolabi, Zainab Afolabi, Elizabeth Friel, Jude Roberts, Antonio Ji-Xu, Lloyd Chen, Egheosa Og-bomo, Emiliomo Imevbore, Phil Eneje, Wissal El Ouahidi, Aaron Sohal, Alisa Kennan, Shreya Sri-vastava, Anirudh Vairavan, Laura Napitu, and Katie McClure. 2025. Faithful or just plausible? evaluating faithfulness for medical reasoning in closed-source LLMs. In NeurIPS 2025 Workshop on Generative AI for Health .Jonas Becker, Lars Benedikt Kaesberg, Andreas Stephan, Jan Philip Wahle, Terry Ruas, and Bela Gipp. 2026. Stay focused: Problem drift in multi-agent debate. In Findings of the Association for Computational Linguistics: EACL 2026 , pages 5068– 5102, Rabat, Morocco. Association for Computa-tional Linguistics. Hyeong Kyu Choi, Jerry Zhu, and Sharon Li. 2025. Debate or vote: Which yields better decisions in multi-agent large language models? In Advances in Neural Information Processing Systems 38 (NeurIPS) .Spotlight. Yilun Du, Shuang Li, Antonio Torralba, Joshua B. Tenenbaum, and Igor Mordatch. 2024. Improving factuality and reasoning in language models through multiagent debate. In Proceedings of the 41st Inter-national Conference on Machine Learning (ICML) .
+
+9Tobias Falke, Leonardo F. R. Ribeiro, Prasetya Ajie Utama, Ido Dagan, and Iryna Gurevych. 2019. Rank-ing generated summaries by correctness: An interest-ing but challenging application for natural language inference. In Proceedings of the 57th Annual Meet-ing of the Association for Computational Linguistics ,pages 2214–2220, Florence, Italy. Association for Computational Linguistics. Olga Golovneva, Moya Chen, Spencer Poff, Martin Corredor, Luke Zettlemoyer, Michel Galley, and Asli Celikyilmaz. 2023. ROSCOE: A suite of metrics for scoring step-by-step reasoning. In The Eleventh In-ternational Conference on Learning Representations (ICLR) .Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schel-ten, Alex Vaughan, Amy Yang, Angela Fan, Anirudh Goyal, Anthony Hartshorn, Aobo Yang, Archi Mi-tra, Archie Sravankumar, Artem Korenev, Arthur Hinsvark, and 542 others. 2024. The Llama 3 herd of models. arXiv preprint arXiv:2407.21783 .Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. 2021. What dis-ease does this patient have? A large-scale open do-main question answering dataset from medical ex-ams. Applied Sciences , 11(14):6421. Originally arXiv:2009.13081 (2020). Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik Siu Chan, Xuhai Xu, Daniel McDuff, Cynthia Breazeal, and Hae Won Park. 2024. MDAgents: An adaptive collaboration of LLMs for medical decision-making. In Advances in Neural Information Processing Sys-tems 37 (NeurIPS) .Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gon-zalez, Hao Zhang, and Ion Stoica. 2023. Efficient memory management for large language model serv-ing with PagedAttention. In Proceedings of the 29th Symposium on Operating Systems Principles (SOSP) .Philippe Laban, Hiroaki Hayashi, Yingbo Zhou, and Jennifer Neville. 2026. LLMs get lost in multi-turn conversation. In The Fourteenth International Con-ference on Learning Representations (ICLR) . Oral. Tamera Lanham, Anna Chen, Ansh Radhakrishnan, Benoit Steiner, Carson Denison, Danny Hernandez, Dustin Li, Esin Durmus, Evan Hubinger, Jackson Kernion, Kamil ˙e Luki´ c, Karina Nguyen, Newton Schiefer, Tim Rauber, Nicholas Larson, Sam Mc-Candlish, Catherine Olsson, Tom Henighan, Ethan Perez, and Samuel R. Bowman. 2023. Measuring faithfulness in chain-of-thought reasoning. arXiv preprint arXiv:2307.13702 . Anthropic. Moritz Laurer, Wouter van Atteveldt, Andreu Casas, and Kasper Welbers. 2024. Building efficient universal classifiers with natural language inference. arXiv preprint arXiv:2312.17543 .Junkai Li, Yunghwei Lai, Weitao Li, Jingyi Ren, Meng Zhang, Xinhui Kang, Siyu Wang, Peng Li, Ya-Qin Zhang, Weizhi Ma, and Yang Liu. 2025. Agent hospi-tal: A simulacrum of hospital with evolvable medical agents. Preprint , arXiv:2405.02957. Junyou Li, Qin Zhang, Yangbin Yu, Qiang Fu, and De-heng Ye. 2024. More agents is all you need. Trans-actions on Machine Learning Research .Marco Marelli, Luisa Bentivogli, Marco Baroni, Raf-faella Bernardi, Stefano Menini, and Roberto Zam-parelli. 2014. SemEval-2014 task 1: Evaluation of compositional distributional semantic models on full sentences through semantic relatedness and textual entailment. In Proceedings of the 8th International Workshop on Semantic Evaluation (SemEval 2014) ,pages 1–8, Dublin, Ireland. Association for Compu-tational Linguistics. Katie Matton, Robert Ness, John Guttag, and Emre Kiciman. 2025. Walk the talk? measuring the faith-fulness of large language model explanations. In 
+
+The Thirteenth International Conference on Learn-ing Representations (ICLR) .Pranav Pushkar Mishra, Mohammad Arvan, and Mohan Zalake. 2025. TeamMedAgents: Enhancing medical decision-making of LLMs through structured team-work. arXiv preprint arXiv:2508.08115 .OpenAI. 2024. GPT-4o system card. arXiv preprint arXiv:2410.21276 .Letitia Parcalabescu and Anette Frank. 2024. On mea-suring faithfulness or self-consistency of natural lan-guage explanations. In Proceedings of the 62nd An-nual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 6048– 6089, Bangkok, Thailand. Association for Computa-tional Linguistics. Priya Pitre, Naren Ramakrishnan, and Xuan Wang. 2025. CONSENSAGENT: Towards efficient and effective consensus in multi-agent LLM interactions through sycophancy mitigation. In Findings of the Associa-tion for Computational Linguistics: ACL 2025 , pages 22112–22133, Vienna, Austria. Association for Com-putational Linguistics. Qwen, An Yang Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang Lin, and 24 others. 2025. Qwen2.5 technical report. arXiv preprint arXiv:2412.15115 .Samuel Schmidgall, Rojin Ziaei, Carl Harris, Ji Woong Kim, Eduardo Reis, Jeffrey Jopling, and Michael Moor. 2026. AgentClinic: A multimodal agent benchmark to evaluate AI in simulated clinical envi-ronments. npj Digital Medicine .Xinti Sun, Qiyang Hong, Mengyan Zhang, Yuyan Li, Tingwei Chen, Zigeng Huang, Guihan Liang, Wenjun 
+
+10 Tang, Sulin Xu, Xiaolin Ni, Junling Pang, Peixing Wan, and Erping Long. 2026. Model confrontation and collaboration: A debate intelligence framework for enhancing medical reasoning in large language models. Cell Reports Medicine , 7(1). Xiangru Tang, Anni Zou, Zhuosheng Zhang, Yilun Zhao, Xingyao Zhang, Arman Cohan, and Mark Ger-stein. 2024. MedAgents: Large language models as collaborators for zero-shot medical reasoning. In 
+
+Findings of the Association for Computational Lin-guistics: ACL 2024 , Bangkok, Thailand. Association for Computational Linguistics. Dat Tran and Douwe Kiela. 2026. Single-agent LLMs outperform multi-agent systems on multi-hop rea-soning under equal thinking token budgets. arXiv preprint arXiv:2604.02460 .Qineng Wang, Zihao Wang, Ying Su, Hanghang Tong, and Yangqiu Song. 2024. Rethinking the bounds of LLM reasoning: Are multi-agent discussions the key? In Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) , pages 6106–6131, Bangkok, Thailand. Association for Computational Linguistics. Binwei Yao, Chao Shang, Wanyu Du, Jianfeng He, Ruixue Lian, Yi Zhang, Hang Su, Sandesh Swamy, and Yanjun Qi. 2025. Peacemaker or trouble-maker: How sycophancy shapes multi-agent debate. 
+
+Preprint , arXiv:2509.23055. Dun Zhang, Jiacheng Li, Ziyang Zeng, and Fulong Wang. 2025a. Jasper and stella: distillation of sota embedding models. Preprint , arXiv:2412.19048. Hangfan Zhang, Zhiyao Cui, Jianhao Chen, Xinrun Wang, Qiaosheng Zhang, Zhen Wang, Dinghao Wu, and Shuyue Hu. 2025b. Stop overvaluing multi-agent debate – we must rethink evaluation and embrace model heterogeneity. Preprint , arXiv:2502.08788. Shuang Zhou, Wenya Xie, Jiaxi Li, Zaifu Zhan, Mei-jia Song, Han Yang, Cheyenna Espinoza, Lindsay Welton, Xinnie Mai, Yanwei Jin, Zidu Xu, Yuen-Hei Chung, Yiyun Xing, Meng-Han Tsai, Emma Schaffer, Yucheng Shi, Ninghao Liu, Zirui Liu, and Rui Zhang. 2025. Automating expert-level medical reasoning evaluation of large language models. npj Digital Medicine .Yinghao Zhu, Ziyi He, Haoran Hu, Xiaochen Zheng, Xichen Zhang, Zixiang Wang, Junyi Gao, Liantao Ma, and Lequan Yu. 2025. MedAgentBoard: Bench-marking multi-agent collaboration with conventional methods for diverse medical tasks. arXiv preprint arXiv:2505.12371 . Accepted at NeurIPS 2025, Datasets & Benchmarks Track. 
+
+A Sample-Size Stability 
+
+A practical concern for any automated metric is whether scores are stable as the sample grows. Ta-ble 3 compares earlier pilot CARA -HYB estimates (D1 N =200 , D2 pooled N =100 ) against the full sample (D1 N =500 , D2 N =499 ). All ten cell– round–dataset combinations show deltas within 
+
+±0.005 (maximum: 0.005 for M3 r0 on D2), with five of ten cells unchanged at the third decimal place. This stability has two implications. First, the metric is well-conditioned at the operational sam-ple sizes used in the paper—further scaling would not change the qualitative conclusions. Second, the pilot estimates were already reliable point estimates rather than artifacts of small-sample noise; the de-cision to scale up at N =200 accurately anticipated the final N =500 effect sizes.                                
+
+> D1 D2 System Round Pilot ∆Pilot ∆
+> M4 r0 0.895 +0 .000 0.894 +0 .001
+> M3 r0 0.896 −0.001 0.891 +0 .005
+> M3 r1 0.891 +0 .000 0.878 +0 .003
+> M3-GDP r0 0.914 −0.002 0.913 −0.001
+> M3-GDP r1 0.951 +0 .001 0.951 +0 .001
+
+Table 3: Pilot → full-sample CARA -HYB stability. All deltas are within ±0.005 on both datasets, confirming that CARA -HYB is not sensitive to sample fluctuations at this scale. 
+
+B Survivorship-Bias Sensitivity 
+
+M3 r1 excludes the 76/500 (15.2%) of D1 and 71/499 (14.2%) of D2 questions where no major-ity answer emerged after debate. These exclusions are non-random: harder questions are more likely to produce post-debate disagreement, so the sur-viving sample is biased toward inherently easier cases with higher baseline agreement. The ex-clusion mechanism differs by system—M3-GDP retains 99 .6% of questions on both datasets—so direct comparison of M3 r1 against M3-GDP r1 (or against M4 r0, where M4 retains all D1 ques-tions) involves comparing differently-selected pop-ulations. We assess sensitivity through imputation: for the undefined questions, we impute plausible 
+
+> CARA
+
+-HYB and CR values and recompute the cell mean. Three scenarios are reported in Table 4: 
+
+observed (current measurement, excluding unde-fined), neutral (impute the M4 baseline value of that metric), and worst-case (impute CARA -HYB 
+
+=0 .50 and CR =1 .0—both far beyond any value observed in any cell on either dataset). Two conclusions are robust across both datasets. First, the CARA -HYB finding is robust: under all imputation scenarios—including the worst case, 11 D1 ( N =500 ) D2 ( N =499 )Scenario HYB CR HYB CR                       
+
+> M4 baseline 0.895 0.108 0.895 0.161 Observed (M3 r1) 0.892 0.035 0.881 0.054 Neutral impute 0.892 0.046 0.883 0.069 Worst-case 0.832 0.182 0.827 0.188
+> Table 4: Sensitivity of M3 r1 to imputation of unde-fined questions. Neutral imputes the M4 baseline value;
+> Worst-case imputes HYB =0 .50 and CR =1 .0. The HYB conclusion (M3 r1 ≤M4) is robust on both datasets; the CR direction reverses under worst-case on both datasets.
+
+which assigns CARA -HYB =0 .50 (lower than any observed sample), M3 r1’s adjusted score remains at or below M4 r0. The consistency-illusion conclu-sion (M3 debate does not improve, and on D2 sig-nificantly degrades, alignment) therefore does not depend on the survivorship-biased sample. Second, the CR finding is fragile in the opposite direction: under worst-case imputation, M3 r1’s adjusted CR 
+
+exceeds M4 r0’s on both datasets ( 0.182 >0.108 on D1; 0.188 >0.161 on D2), so M3 r1’s apparently low observed CR is at least partly an artifact of survivorship. Practically, this means CR should be interpreted alongside the undefined rate, not in isolation, and the consistency-illusion claim rests primarily on the joint movement of CR and SIM in the main CARA -HYB result (Section 6.1) rather than on CR alone. 
+
+C CARA -GT Per-Cell Results 
+
+D2 includes expert-annotated reasoning steps (Scoring Points ) of 2–6 steps per question (mean 
+
+3.1), authored by clinical experts. CARA -GT mea-sures alignment between each agent’s reasoning and the expert reference, computed via the same NLI +embedding pipeline used for CARA -HYB 
+
+but with one agent replaced by the expert ref-erence. Where CARA -HYB asks whether agents reason consistently with each other , CARA -GT asks whether they reason consistently with experts .
+
+> CARA
+
+-GT is undefined when an agent produces zero extractable steps; this affects 35 /2,495 pair-wise records ( 1.4% ), much cleaner than CARA -
+
+> HYB
+
+’s 156 /2,495 error rate (which additionally ex-cludes agents who disagree on the final answer). Table 5 reports per-cell CARA -GT-HYB scores and expert-coverage rates on D2 ( N =499 ).  
+
+> GDP
+
+improves expert alignment; standard debate degrades it. The pairwise compar-                           
+
+> System Round GT-HYB Coverage N
+> M3-GDP r1 0.813 85.6% 499 M3 r0 0.810 87.4% 499 M4 r0 0.809 88.8% 499 M3-GDP r0 0.807 88.2% 499 M3 r1 0.802 80.2% 464
+> Table 5: CARA -GT on D2 ( N=499 ): alignment between agent reasoning and expert Scoring Points . Coverage is the fraction of expert scoring points that match at least one agent step.
+
+isons mirror the inter-agent CARA -HYB pattern. GDP r1 vs. M3 r1 : ∆GT -HYB=+0 .011 , d=+0 .32 ,
+
+95% CI=[+0 .20 , +0 .45] (excludes zero). M3 r1 vs. M4 r0 : ∆= −0.007 , d=−0.21 , CI=[ −0.34 , −0.08] 
+
+(excludes zero). The dual evidence—GDP im-proves alignment with respect to experts, and stan-dard debate degrades it—supports the interpreta-tion that the inter-agent illusion has a substantive di-rectional component: under standard debate, agents drift not merely apart from each other but away 
+
+from the expert reasoning standard. 
+
+Expert coverage tells a sharper story. Coverage is the fraction of expert scoring points matched by at least one agent step at the contradiction-filtered alignment threshold. Standard debate loses 8.6
+
+percentage points of expert coverage relative to in-dependent voting (M4: 88 .8% → M3 r1: 80 .2% ,
+
+CI=[ −11 .2, −6.1] ): roughly one in eleven expert steps is dropped during debate. GDP debate re-covers 5.4pp of that loss (M3 r1: 80 .2% → M3-GDP r1: 85 .6% , CI=[+2 .7, +8 .1] ). Standard de-bate drops expert scoring points; GDP debate keeps 
+
+them. This coverage gap is independent of the inter-agent CARA -HYB measurement and provides a second, expert-grounded line of evidence for the same conclusion: GDP produces reasoning that is more consistent with both other agents and external standards. 
+
+D Accuracy and McNemar Tests  
+
+> CARA
+
+measures reasoning alignment, not answer correctness, but we separately report majority-vote accuracy for context. Accuracy is computed by extracting the majority answer per agent at each round, then comparing to the gold answer with continuity-corrected McNemar tests on paired bi-nary outcomes (correct/incorrect per question) and paired percentile bootstrap CIs ( B=10 ,000 , seed 
+
+42 ) on the accuracy delta. Table 6 reports majority-vote accuracy for all dataset–backbone combina-12 tions. 
+
+Findings. Standard debate (M3 r1) does not significantly change accuracy on either Qwen dataset (D1: ∆=+0 .4pp, p=0 .86 ; D2: ∆=0 .0pp, 
+
+p=0 .90 ), consistent with the martingale character-ization of debate dynamics: gains from sampling and voting are already realized by the independent baseline. D2 baseline accuracy ( ∼ 41% ) is much lower than D1 ( ∼ 84% ) because D2 questions have a mean of ∼ 7.5 answer options (random base-line ∼ 13% ), making ∼ 41% approximately 3×
+
+random on this benchmark—i.e., the model is per-forming non-trivially despite the lower headline number. Llama D2 accuracy ( N =100 , 49 .0% ) and Qwen D2 ( N =499 , 41 .5% ) are computed on differ-ent sample sizes of the same dataset, so we do not draw cross-backbone accuracy conclusions from this comparison. 
+
+E CARA -HYB Implementation 
+
+NLI component. DeBERTa-v3-large fine-tuned on MNLI, FEVER, ANLI, LingNLI, and WANLI (Laurer et al., 2024) (304M parameters). We threshold the contradiction probability at 
+
+τ =0 .7 for the hybrid filter. 
+
+Embedding component. Stella-EN-1.5B-v5 (Zhang et al., 2025a) (1.5B parameters), L2-normalized 1024 -dimensional vectors; cosine similarity reduces to dot product. 
+
+Step decomposition. Deterministic regex pipeline: primary extraction of numbered lists (e.g., 
+
+1. , 2) ) and bullet points ( -, *); sentence-level splitting as fallback for unstructured paragraph responses. The final answer line (e.g., ANSWER: X )is stripped before decomposition; resulting steps shorter than 20 characters are filtered. 
+
+Runtime. On a single NVIDIA RTX 4090 (24 GB), CARA processes ∼9,000 traces per hour. The full D1 pipeline ( N =500 , 2,500 pairwise records) completes in ∼8 minutes; D2 ( N =499 ,
+
+2,495 records) in ∼8 minutes. 
+
+F CARA -LLM Oracle Validation 
+
+Design. To validate CARA -HYB against human-like judgment, we conduct a three-dimensional validation using GPT-4o (OpenAI, 2024) as an alignment judge. We evaluate 80 agent pairs: 50 
+
+agreement-set pairs (both agents selected the ma-jority answer) and 30 disagreement pairs (agents selected different answers). The inclusion of dis-agreement pairs is critical: agreement-set pairs pro-duce a ceiling effect in GPT-4o scores (skewed toward 4–5), and disagreement pairs break this ceil-ing by introducing genuinely misaligned reason-ing (scores 2–3), expanding the effective scoring range. For each pair, GPT-4o assigns a 1–5 align-ment score at temperature 0.0, repeated three times per pair. We report CARA -LLM as this rating nor-malized to [0 , 1] via (score −1) /4; the per-system head-to-head below is given on the raw 1–5 scale for interpretability. 
+
+Three-dimensional validation results. 
+
+1. Moderate pair-level correlation (Spearman 
+
+ρ=0 .55 , n=80 ): CARA -HYB and GPT-4o cap-ture overlapping but non-identical dimensions of alignment. The correlation is moderate rather than high because the two metrics operational-ize alignment differently: CARA -HYB measures step-level semantic overlap via embeddings, while GPT-4o evaluates holistic logical coher-ence. 2. Strict stratum monotonicity : when pairs are binned by CARA -HYB terciles, mean CARA - 
+
+> LLM
+
+scores are 0.67 (low), 0.77 (mid), 0.82 
+
+(high). CARA -HYB reliably distinguishes align-ment levels even where it does not predict indi-vidual GPT-4o scores precisely. 3. Perfect inter-run reliability : all 80 pairs re-ceive identical GPT-4o scores across three inde-pendent runs (inter-run SD = 0 .00 ), confirming deterministic evaluation at temperature 0.
+
+Per-system head-to-head. Within the 50 
+
+agreement-set pairs, M3-GDP r1 receives a mean GPT-4o score of 4.86 (n=28 , SD 0.35 ), vs. 4.50 
+
+for M3 r1 ( n=22 , SD 0.58 ); Cohen’s d=+0 .75 ,
+
+95% bootstrap CI on ∆ [+0 .08 , +0 .65] excludes zero ( B=10 ,000 , seed 42 ). This direct head-to-head corroborates the inter-agent CARA -HYB 
+
+ranking and complements the tercile monotonicity reported above. 
+
+Disagreement-pair divergence. On disagree-ment pairs (agents with different final answers), 
+
+> CARA
+
+-HYB assigns scores of 0.83 –0.95 because medical reasoning steps have high embedding sim-ilarity even when conclusions differ, while GPT-4o assigns 2–3 out of 5 because it detects the logi-cal incoherence of conflicting conclusions. This divergence is by design: CARA -HYB measures reasoning-step alignment within the agreement set ,13 Dataset Backbone M4 M3 r1 GDP r1 ∆GDP                                
+
+> D1 MedQA ( N=500 )Qwen 83.8% 84.2% 81.4% −2.4pp ns
+> D2 MedThink ( N=499 )Qwen 41.5% 41.5% 39.1% −2.4pp ns
+> D2 MedThink ( N=100 )Llama 49.0% 47.0% 43.0% −6.0pp ns
+> Table 6: Majority-vote accuracy. ∆GDP =GDP r1 −M4 r0 . “ns” = not significant at α=0 .05 . On D1, GDP vs. M3: McNemar p=0 .061 ; GDP vs. M4: p=0 .097 ; M3 vs. M4: p=0 .86 . On D2 (Qwen), all pairwise McNemar tests yield p> 0.15 . On D2 (Llama, N=100 ), all pairwise tests yield p> 0.28 .
+
+so its high scores on disagreement pairs reflect gen-uine semantic overlap in medical reasoning vocab-ulary rather than a metric failure. The complemen-tary roles ground the joint use of CARA -HYB (scal-able, surface alignment) and CARA -LLM (oracle, logical coherence) we recommend in deployment. 
+
+G Label-Stripped CARA -HYB : Structural Confound Check 
+
+Motivation. CARA -HYB computes step-pair embedding cosine and NLI contradictions over reasoning steps extracted from agent re-sponses. GDP requires each step to carry literal CLAIM /G ROUND /S TANCE label tokens, so areasonable concern is that these template tokens themselves inflate the embedding component of CARA -HYB , making part of the GDP -vs-M3 gap a metric artifact of template self-similarity rather than substantive reasoning convergence. The format/debate decomposition (Section 7) and the CARA -GT result (Section 6.4) already weigh against this concern; this appendix reports the direct check. 
+
+Procedure. For each GDP trace (D1 Qwen, D2 Qwen, D2 Llama; both r0 and r1) we remove the literal label tokens CLAIM: , GROUND: , and STANCE: 
+
+together with their Markdown bold variants (e.g., 
+
+**CLAIM** ), preserving (i) the numbered-step markers ( 1. , 2. , . . . ) that M3 traces also use, (ii) the A GREE /D ISAGREE /E XTEND content tokens that constitute the agent’s actual stance decision, and (iii) all free-text claim, ground, and stance con-tent. We then re-run the unchanged CARA -HYB 
+
+pipeline (DeBERTa-v3 NLI + Stella embeddings, 
+
+τ =0 .7, seed 42 ) on the stripped traces; M3 and M4 cells are unchanged. Paired Cohen’s dz is com-puted at the question level for GDP r1 vs. M3 r1, using the same script for both the original and the stripped condition. 
+
+Results. Table 7 reports the paired comparison across all three dataset-backbone conditions. Re-moving the literal label tokens attenuates Cohen’s 
+
+dz by only 6–10% . All three 95% bootstrap CI lower bounds remain above +0 .76 , and mean 
+
+> CARA
+
+-HYB itself drops by only ∼0.005 across con-figurations. Approximately 90% of the alignment effect survives label removal, indicating that the literal template tokens are not the principal source of GDP ’s gain on CARA -HYB .
+
+Interpretation and limitations. The label-stripping experiment isolates one specific structural-confound mechanism—that the literal template tokens themselves drive embedding similarity. The data do not support this mechanism: 
+
+∼90% of the effect persists after token removal. 
+
+Robustness to the NLI model. CARA -HYB 
+
+is also robust to the choice of contradiction detector: substituting a cross-encoder NLI model (cross-encoder/nli-deberta-v3-large ) for the default DeBERTa-MNLI on the D2 N =100 set leaves the illusion direction unchanged (M3 r1 <
+
+M4 r0) and Cohen’s d nearly identical ( −0.36 vs. 
+
+−0.38 ). 
+
+H Human-Expert Validation 
+
+Setup. Three independent annotators with med-ical training each rated 50 agent pairs drawn from the agreement set on the MedThink-Bench (D2) benchmark. The 50 pairs are stratified by 
+
+> CARA
+
+-HYB tercile (low/mid/high, ∼ 17 pairs each). Each pair was rated on a 5-point alignment scale ( 5= near-identical reasoning, 4= substantially aligned, 3= partially aligned, 2= weakly aligned, 
+
+1= misaligned reasoning with the same final an-swer) and a 3-point confidence scale, following the annotation guidelines released with the code reposi-tory. Annotators saw only the question and the two agents’ reasoning steps; system identity (M3 vs. M3-GDP) and CARA -HYB scores were withheld to prevent bias. 
+
+Inter-annotator agreement. Pairwise Spearman correlation between annotators is consistently high (Table 8); 100% of pair-level disagreements are 14 Config Original dz Stripped dz Stripped 95% CI 
+
+D1 MedQA (Qwen, n=422 ) +0 .97 +0 .87 [+0 .76 , +0 .99] 
+
+D2 MedThink (Qwen, n=427 ) +1 .16 +1 .09 [+0 .98 , +1 .21] 
+
+D2 MedThink (Llama, n=98 ) +1 .39 +1 .29 [+0 .96 , +1 .74] 
+
+Table 7: Label-stripped CARA -HYB confound check. Paired Cohen’s dz between GDP r1 and M3 r1 on the agreement set, before and after removing literal C LAIM /G ROUND /S TANCE tokens from GDP traces. The effect attenuates by 
+
+6–10% but remains Tier B–A in all three conditions, with all CI lower bounds above +0 .76 .
+
+bounded to ≤ 1 scale point, confirming task relia-bility. 
+
+Annotator pair Spearman 
+
+ρ
+
+Exact agreement Within-1 
+
+A1 vs. A2 0.934 76% 100% A1 vs. A3 0.987 98% 100% A2 vs. A3 0.927 74% 100% 
+
+Table 8: Inter-annotator agreement on the 50-pair hu-man annotation. 
+
+Correlation with CARA metrics. Aggregate hu-man ratings (mean of three annotators) correlate positively with CARA -HYB (Spearman ρ=0 .263 ), 
+
+CARA -SIM (ρ=0 .312 ), and weakly with the con-tradiction rate ( ρ=0 .137 ). Each individual anno-tator shows a similar correlation with CARA -HYB 
+
+(ρ=0 .21 –0.26 ), confirming the signal is not driven by any single annotator. 
+
+Tercile monotonicity. Aggregate ratings in-crease monotonically across CARA -HYB strata: 
+
+4.00 (low, n=17 ), 4.65 (mid, n=17 ), 4.71 (high, 
+
+n=16 ). The same monotonic pattern is observed in the CARA -LLM GPT-4o oracle terciles (Figure 4), supporting a consistent ordering of CARA -HYB -graded alignment across two independent external judges. The low-to-mid gap is larger than the mid-to-high gap, reflecting a real shift in alignment qual-ity at the lower end combined with a ceiling effect at the upper end (more than half of high-stratum pairs receive the maximum rating of 5). 
+
+Range restriction. All 50 pairs have 
+
+CARA -HYB ∈ [0 .76 , 0.98] because the metric is conditioned on the agreement set (Section 3.1); the “low” stratum mean is 0.864 , far above the corpus-level low end. This narrow range bounds the achievable Spearman correlation against any external judge, paralleling the bounded correlation observed in the CARA -LLM GPT-4o oracle validation when restricted to the same agreement set. Low Mid High    
+
+> CARA-HYB tercile
+> 0.60
+> 0.65
+> 0.70
+> 0.75
+> 0.80
+> 0.85
+> Mean alignment score
+> 0.67
+> 0.77
+> 0.82
+> CARA-LLM (GPT-4o)
+> Low Mid High
+> CARA-HYB tercile
+> 3.50
+> 3.75
+> 4.00
+> 4.25
+> 4.50
+> 4.75
+> 5.00
+> Mean rating (1--5)
+> 4.00
+> 4.65 4.71
+> Human (3 annotators)
+
+Figure 4: Tercile monotonicity across two external val-idators on the same 50-pair sample stratified by CARA -
+
+> HYB
+
+. Both the GPT-4o oracle ( CARA -LLM ; Appendix F) and the mean of three medically-trained annotators show monotonic increase from low to mid to high CARA -HYB 
+
+strata. 
+
+Annotation instructions. Annotators received the following written guidelines before the task (verbatim text is released with our anonymized code repository): 
+
+Task overview. You will see pairs of AI-generated medi-cal reasoning traces. Both agents chose the same final an-swer; judge how aligned their reasoning is—not whether the answer is correct. 
+
+Rating 1 — Reasoning Alignment (1–5): 
+
+• 5 (Near-identical): same claims, same facts, same logi-cal sequence; minor wording differences only. • 4 (Substantially aligned): same core reasoning and key facts; one may add detail or reorganize. • 3 (Partially aligned): share key steps but diverge on intermediate justifications. • 2 (Weakly aligned): same answer through largely dif-ferent reasoning; few overlapping steps. • 1 (Misaligned): same answer through fundamentally different or contradictory reasoning. 
+
+Rating 2 — Confidence (1–3): 3 confident, 2 some-what confident, 1 low confidence (reasoning too vague to judge). 
+
+What NOT to judge. Do not evaluate answer cor-rectness, writing quality, response format (structured vs. free text), or step count. Some responses use a CLAIM /G ROUND /S TANCE format; others use free text— judge reasoning content regardless of format. System identity and automated CARA scores are withheld to pre-vent bias. 
+
+15 Annotator background and procedure. The three annotators are medically-trained profession-als aged 30 –35 (two female resident physicians and one male postdoctoral fellow), recruited through direct personal contact by the authors and partic-ipating as volunteers without compensation. All three annotators rated all 50 pairs, enabling the pairwise Spearman inter-annotator agreement re-ported above. Pairs were presented in random-ized order, and system identity (M3 vs. M3-GDP), agent round, and CARA -HYB /CARA -SIM scores were withheld throughout. The task does not con-stitute human-subjects research—annotators rated machine-generated outputs only—and required no institutional review. The verbatim annotation guide-lines, blank annotation sheet, and three completed per-annotator scored sheets are released with our anonymized code repository. 
+
+I CARA Variants and Aggregation Formulas 
+
+Variant table. The four CARA alignment variants used in the paper are summarized below. 
+
+Rescaling. For variants whose range includes negative values ( CARA -NLI , CARA -HYB ), we de-fine a unit-interval rescaling: 
+
+CARA [0 ,1] = CARA + 1 2 . (7) 
+
+Contradiction Rate. The Contradiction Rate diagnostic is defined in Eq. (6) of Section 3.3. The denominator P
+
+> i∈S (q)
+
+(|S (q)|− 1) Ki equals P 
+
+> i<j
+
+(Ki + Kj ), the total number of best-match operations across all directed agent pairs in the agreement set. CR captures the rate at which best-aligned step pairs across agreeing agents are nonetheless contradictory: a direct indicator of the consistency illusion. 
+
+J System Configurations 
+
+Configuration overview. We evaluate three sys-tem configurations under identical compute bud-gets. Each system uses three agents and aggregates their final answers by majority vote. “Round 0” refers to the independent step in which each agent answers without seeing the others’ responses; “Round 1” refers to the post-debate step in which each agent revises its answer after seeing all other agents’ Round 0 outputs. M4 has only Round 0 (the control condition with no debate); M3 and M3-GDP have both rounds. Majority voting is applied to Round 1 answers for M3 and M3-GDP, and to Round 0 answers for M4. 
+
+Backbone serving environment. Primary trials use Qwen 2.5 72B Instruct AWQ (4-bit quan-tized) served via vLLM (Kwon et al., 2023) on 
+
+2×NVIDIA A40 GPUs (48 GB each). The cross-backbone replication uses Llama 3.3 70B Instruct AWQ on a separate pair of A40 GPUs with the same vLLM serving configuration. All experiments use the same decoding hyperparameters: tempera-ture 0.7, top-p 0.9, and a maximum of 2,048 output tokens per agent response. 
+
+Standard M3 and M4 prompts. M3 and M4 share a 2-message Round 0 prompt. The system message is verbatim:         
+
+> You are amedical specialist. Answer medical questions with step-by-step reasoning.
+
+The user message contains the question text with inline answer options, followed by the suffix:       
+
+> Think step by step and provide your answer in the format: ANSWER: X
+
+M3 Round 1 extends this to a 4-message asymmet-ric prompt: the original system and user messages, the agent’s own Round 0 response as the assis-tant turn, and a final user turn presenting the other agents’ Round 0 responses with the instruction “Us-ing these as additional information, provide your answer in the format: ANSWER: X.” Each agent sees only the other two agents’ responses in the debate user turn (never its own), preventing self-conditioning artifacts. 
+
+M3-GDP prompts. M3-GDP preserves the 2-message (Round 0) and 4-message (Round 1) prompt structure of M3 but replaces the system message with format requirements that enforce structured reasoning. The Round 0 system mes-sage requires C LAIM +G ROUND for each reason-ing step, where G ROUND must name a specific medical fact, mechanism, or guideline supporting the claim. The Round 1 system message adds STANCE (A GREE /D ISAGREE /E XTEND ) with re-spect to each other agent’s claims, with the rule that any D ISAGREE must be accompanied by a counter-G ROUND . Round 1 also includes an ex-plicit anti-sycophancy clause:           
+
+> Do NOT change your answer simply because other agents disagree. Only change if you identify aspecific factual error
+
+16 Variant Range Definition 
+
+> CARA
+
+-NLI {− 1, 0, +1 } NLI label: +1 entailment, 0 neutral, −1 contradiction. 
+
+> CARA
+
+-SIM [−1, +1] Cosine similarity: cos(emb( rki ), emb( rlj )) .
+
+> CARA
+
+-HYB [−1, +1] Hybrid: if P (contradiction )>τ then −1, else cosine similarity. 
+
+> CARA
+
+-LLM [0 , 1] GPT-4o 1–5 alignment rating, normalized to [0 , 1] via (score −1) /4.
+
+Table 9: CARA alignment variants. CARA -HYB is the default metric used throughout; CARA -LLM serves as a validation oracle. 
+
+ID System Agents Rounds GDP 
+
+M3 Du et al. (2024) Debate 3 1 no M4 Independent Vote 3 0 no M3-GDP Debate + GDP 3 1 yes 
+
+Table 10: System configurations. All systems use ma-jority voting for answer aggregation. “Rounds” counts debate rounds; Round 0 (independent) is always present. M4 serves as a no-communication control. 
+
+in your own reasoning or receive a more compelling medical ground from another agent. 
+
+The full GDP Round 0 and Round 1 system mes-sages, along with the debate user template, are released with the code repository. 
+
+K GDP Worked Example 
+
+We compare a standard debate (M3) trace and a 
+
+GDP (M3-GDP) trace on the same clinical question. Both systems converge on the same correct answer; the contrast is in how the agents arrive there. 
+
+Clinical question. A patient presents with fasting plasma glucose of 140 mg/dL on two consecutive measurements. What is the most appropriate first-line management? A. Insulin B. Metformin C. Lifestyle modification only D. Sulfonylurea Gold answer: B.
+
+M3 (Standard Debate) — Round 1 
+
+Agent A 
+
+The elevated fasting glucose is consistent with a diagnosis of diabetes. Considering the clinical picture, metformin would be appropriate. I agree with Agent B’s reasoning. 
+
+Answer: B. 
+
+Agent B 
+
+The patient’s clinical picture supports metformin therapy. Given the lab values and the analysis Agent A provided, I support this approach. Answer: B. 
+
+Voted solution: B ✓ | Both agents converge with no medical citations; agreement is vague. 
+
+M3-GDP — Round 1 
+
+Agent A 
+
+CLAIM: The fasting glucose of 140 mg/dL meets ADA diagnostic criteria for T2DM. 
+
+GROUND: Fasting plasma glucose ≥126 mg/dL on two oc-casions confirms diabetes (ADA Standards of Care). 
+
+STANCE: DISAGREE with Agent B (insulin)—insulin is not first-line for uncomplicated T2DM without DKA. An-swer: B. 
+
+Agent B 
+
+CLAIM: Metformin is the appropriate first-line agent for newly diagnosed T2DM. 
+
+GROUND: ADA Standards of Care recommend metformin first-line for adults with T2DM without contraindications, given its efficacy in reducing hepatic glucose production and favorable safety profile. 
+
+STANCE: AGREE with Agent A’s diagnostic claim; reaf-firm metformin over insulin given absence of DKA or severe hyperglycemia. Answer: B. 
+
+Voted solution: B ✓ | Both agents cite ADA criteria and take explicit stances on each other’s claims; agreement is grounded. 
+
+The contrast is structural: M3 agents agree on the answer without committing to specific medical ev-idence or explicitly engaging with each other’s claims, whereas M3-GDP agents reach the same answer through named criteria (ADA guidelines) and explicit S TANCE declarations. This pattern re-curs at the dataset scale, producing the CARA -HYB 
+
+and CARA -GT gaps reported in Section 6.1 and Appendix C. 
+
+L Failure Mode Taxonomy and Case Study 
+
+Failure-mode codebook. The 50 lowest-CARA -
+
+HYB correct-answer cases per system are classified using deterministic rules over CARA sub-metrics (CR >0.3, step-count ratio >2, zero-step agents, SIM <0.80 ). 
+
+Case study: MQA_0447 (hypovolemic shock). 
+
+We illustrate FM3 (contradictory premises) with a D1 case in which the correct answer is reached through partially incorrect reasoning. The question 17 Code Failure mode                   
+
+> FM1 COMPLEMENTARY REASONING : dif-ferent but non-contradictory reasoning paths. Low SIM, low CR. FM2 GRANULARITY MISMATCH :step-count ratio >2. Depth difference, not substantive disagreement. FM3 CONTRADICTORY PREMISES : agents cite contradictory facts but converge on the correct answer. FM4 SYCOPHANTIC CONVERGENCE :agent adopts the majority answer without substantive reasoning (zero steps). FM5 TERMINOLOGY DIVERGENCE : dif-ferent medical terms for the same con-cept. FM6 PARTIAL OVERLAP : residual baseline misalignment without extreme signals.
+
+Table 11: Six failure modes identified by classifying the 50 lowest-CARA -HYB correct-answer cases per system. 
+
+describes a 52 -year-old man with variceal bleeding and hypovolemic shock. Two of three GDP agents in the agreement set initially state that systemic vas-cular resistance (SVR) decreases in hypovolemic shock—a clinically incorrect claim, since SVR in-creases as a compensatory response to maintain perfusion. Both agents then self-correct within the same response and select the correct treatment (volume resuscitation followed by endoscopic in-tervention). This case exemplifies the consistency illusion at the individual-fact level: the answer is correct, but the underlying reasoning contains ex-plicit factual contradictions that the metric correctly surfaces. GDP ’s structured format makes these con-tradictions detectable ; under standard debate, the same misstatement would more likely be smoothed away in vague free text. 
+
+M Undefined Rate 
+
+The undefined rate—questions where no majority answer emerges—is an independent behavioral in-dicator that does not depend on agreement-set se-lection. Table 12 reports per-system rates on both datasets. 
+
+Standard debate destabilizes consensus. On D1, M4 (independent voting) achieves 100% con-sensus because agents sample independently from the same distribution: the probability of three-way disagreement among i.i.d. samples is low. Standard debate (M3 r1) drives the undefined rate to 15 .2% 
+
+on D1—a 38 × increase over the pre-debate round (M3 r0, 0.4% ). On D2, where the harder question               
+
+> System / Round D1 ( N=500 )D2 ( N=499 )
+> M3 r1 76 (15.2%) 71 (14.2%) M3-GDP r0 3 (0.6%) 26 (5.2%) M3 r0 2 (0.4%) 28 (5.6%) M3-GDP r1 2 (0.4%) 2 (0.4%) M4 r0 0 (0.0%) 29 (5.8%)
+
+Table 12: Undefined rate per system–round–dataset. M3 r1 destabilizes consensus on ∼14 –15% of questions on both datasets; M3-GDP r1 retains essentially all of them. 
+
+distribution gives even M4 a 5.8% undefined rate, M3 r1 still pushes this up to 14 .2% (2.5× relative).  
+
+> GDP
+
+debate maintains consensus at near-M4 levels (0.4% on both datasets) while substantially improv-ing reasoning alignment. 
+
+Reasoning collapse. A related phenomenon is reasoning collapse: agents that produce zero ex-tractable reasoning steps after debate (a behavioral signature of sycophantic convergence). On D2 N=100, M3 r1 yields zero-step agents in 5.0% of agreement-set memberships; M3-GDP r1 in only 
+
+0.3% . GDP ’s C LAIM +G ROUND requirement pre-vents this collapse because an agent cannot adopt an answer without producing a named ground sup-porting it. 
+
+N Consistency-Illusion Visualization 
+
+Figure 5 visualizes the (CR, SIM) trajectory of each system on D2 ( N =499 , Qwen 2.5 72B), mak-ing the dual movement of standard debate (CR ↓ +SIM ↓) and the repair pattern under GDP (SIM ↑)directly observable. The two arrows correspond to the r0 → r1 transitions under M3 (red) and M3-GDP (green); M4 is shown as a single point for reference. The figure complements the conceptual schematic of Figure 1 with the actual measured coordinates that anchor every claim made in Sec-tion 6.1. 
+
+O Mechanism Discussion 
+
+The condensed mechanism account in RQ1 (Sec-tion 7) merges two effects under one heading. Here we elaborate each with the original four-component analysis. 
+
+Contradiction smoothing without reasoning con-vergence (M3). During debate, agents see each other’s responses and revise their own. When agents disagree on factual claims, revision pres-sure causes them to soften or remove the conflict-18 0.00 0.05 0.10 0.15 0.20    
+
+> Contradiction Rate (CR) →
+> 0.75
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Semantic Similarity (SIM)  →
+> consistency
+> illusion
+> alignment
+> baseline
+> D2 MedThink-Bench, N= 499 , Qwen 2.5 72B
+> Standard debate creates an illusion; GDP repairs it
+> M4 (no debate)
+> M3 r0/r1
+> GDP r0/r1
+
+Figure 5: Empirical (CR, SIM) trajectory on D2 (N =499 , Qwen 2.5 72B). M3 (red arrow) moves r0 →
+
+r1 both CR ↓ and SIM ↓ (consistency illusion). GDP 
+
+(green arrow) moves r0 → r1 SIM ↑ while keeping CR informative. 
+
+ing statements, which reduces CR. However, this removal is subtraction without alignment : agents delete contradictory steps without replacing them with shared reasoning anchors that other agents have also committed to. The result is fewer contra-dictions but also less overlapping reasoning content, so SIM decreases. This pattern is stronger on D2 because the more open answer space (3–10 options, mean ∼7.5) gives agents more room to diverge in reasoning while still landing on the same final answer. 
+
+Sycophantic convergence (M3). Agents may adopt each other’s answers without adopting the un-derlying reasoning—a form of answer-level syco-phancy (Yao et al., 2025). This produces answer convergence (the system reports consensus) while reasoning chains remain divergent or become va-guer. The high M3 r1 undefined rate— 15 .2% on D1 and 14 .2% on D2—shows that for a substantial minority of questions, agents’ positions are suffi-ciently incoherent that no majority emerges even after revision. The zero-step phenomenon (Ap-pendix M) is the limiting case: an agent produces an answer with no extractable reasoning, indicating that revision has degenerated into pure imitation. 
+
+Format effect (GDP , pre-debate). The CLAIM +G ROUND structure forces agents to decompose reasoning into named, verifiable steps. This produces more comparable reasoning units across agents even before any debate interaction: on D1, GDP r0 vs. M4 r0 alone yields a format-effect 
+
+d=+0 .62 with SIM increase of +0 .034 . This isolates a structural cause for misalignment in standard debate: a substantial portion of apparent misalignment originates from underspecified output format rather than from genuine reasoning disagreement. 
+
+Debate interaction effect ( GDP , r0 →r1). The STANCE mechanism in Round 1 requires each agent to explicitly address every claim made by the other agents. When an agent must state “I AGREE with Agent B’s claim that renal function is preserved, because. . . ” or “I D ISAGREE be-cause. . . ,” the resulting response necessarily shares reasoning vocabulary and logical structure with the other agents. This drives SIM upward ( +0 .077 on D1, +0 .078 on D2 from r0 to r1 under GDP ) at a magnitude 2.4× larger than the format effect alone (d=+1 .51 vs. d=+0 .62 ), indicating that S TANCE -mediated engagement is the primary mechanism. The format effect is a necessary precondition, how-ever: without structured claims to reference, the STANCE mechanism has no well-defined targets. 
+
+P Cross-Dataset and Cross-Backbone Discussion                               
+
+> Comparison Llama D2 Qwen D2 Dir. (N=100 )(N=499 )
+> GDP r1 vs. M3 r1 +1 .99 +1 .62 ✓
+> M3 r1 vs. M4 r0 (illusion) −1.32 −0.30 ✓
+> M3 debate ∆HYB (r0 →r1) −0.038 −0.014 ✓
+> GDP debate ∆HYB (r0 →r1) +0 .014 +0 .040 ✓
+> Format effect ∆HYB +0 .006 +0 .017 ✓
+
+Table 13: Cross-backbone validation on D2 (referenced from Section 6.3). First two rows give Cohen’s d; re-maining rows give ∆ CARA -HYB . All five comparisons are direction-consistent (“Dir.” ✓).  
+
+> GDP
+
+effect generalization. The GDP effect replicates across all tested conditions with Tier A effect sizes: D1 Qwen ( N =500 ): d=+1 .43 ,
+
+CI=[+1 .29 , +1 .60] ; D2 Qwen (N =499 ): 
+
+d=+1 .62 , CI=[+1 .48 , +1 .78] ; D2 Llama (N =100 ): d=+1 .99 , CI=[+1 .65 , +2 .44] . The rank ordering of systems is identical across all three conditions: M3-GDP r1 ≻ M3-GDP r0 ≻
+
+M4 r0 ≈ M3 r0 ≻ M3 r1 This consistency across two structurally different datasets (fixed 4-option MCQ vs. variable 3–10-option clinical reasoning) and two independent backbone models supports the generalizability of both the consistency-illusion finding and the GDP repair effect. 19 Consistency-illusion magnitude variation. The consistency illusion magnitude varies more across conditions: d=−0.08 (D1, Qwen), d=−0.30 (D2, Qwen), d=−1.32 (D2, Llama). Two factors plausi-bly drive this variation. First, D1’s fixed 4-option format constrains the space in which reasoning can diverge while answers remain matched, weak-ening the measurable illusion compared to D2’s mean ∼7.5-option open answer space. Second, M3 r1 undefined rates differ markedly across con-ditions ( 15 .2% , 14 .2% , 2.0% ), and a lower unde-fined rate preserves more of the worst-alignment cases in the measured sample, strengthening the apparent illusion magnitude. The third dataset (Llama D2) has the lowest undefined rate and the strongest illusion—an interpretive asymmetry we surface honestly via the sensitivity analysis in Ap-pendix B rather than treating the Llama magnitude as a backbone-effect comparison. 
+
+Implications for deployment. Where the un-derlying multi-agent question allows substantial reasoning-space variation (open-ended diagnosis, differential reasoning, treatment selection with mul-tiple acceptable plans), the consistency illusion is likely to be larger than on constrained MCQ bench-marks, and the GDP benefit correspondingly more valuable. The D1 vs. D2 magnitude difference is therefore not a defect of the metric or the interven-tion but a direct reflection of how much room the task gives reasoning to diverge. 20
