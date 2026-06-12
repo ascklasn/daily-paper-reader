@@ -1,0 +1,244 @@
+Title: SkillHone: A Harness for Continual Agent Skill Evolution Through Persistent Decision History
+
+URL Source: https://arxiv.org/pdf/2606.08671v1
+
+Published Time: Tue, 09 Jun 2026 01:18:20 GMT
+
+Number of Pages: 9
+
+Markdown Content:
+# SkillHone: A Harness for Continual Agent Skill Evolution Through Persistent Decision History 
+
+Zhiwei Li * Yong Hu 
+
+WeChat, Tencent Inc., China 
+
+zhiweili.jay@foxmail.com rightyonghu@tencent.com 
+
+Abstract 
+
+Agent skills extend language-model agents with task-specific procedures, scripts, and ref-erences, but the tasks and environments they target continually change. Existing methods improve skills in bounded runs and retain only the final artifact, discarding the decision his-tory that later agents need to interpret prior revisions, evaluations, and rejected alternatives. We introduce SkillHone, a harness for contin-ual agent skill evolution grounded in persis-tent decision history. SkillHone pairs skill re-visions with evaluation-side evidence that sup-plies practice feedback, recording structured histories of diagnoses, revisions, evidence, and outcomes. Role-separated subagents run candi-date skills on practice probes with redacted re-porting and propose revisions informed by prior decisions, enabling cross-session refinement without rediscovering past rationale. We evalu-ate SkillHone on deep-research benchmarks in a raw open-web setting, where agents are not given an integrated search stack and must orga-nize retrieval through portable skills. We com-pare against a deep-research agent backed by commercial retrieval services. With Qwen3.6-35B-A3B as the evaluation-time backbone, the resulting skills outperform the deep-research agent by 15.8 points on GAIA and 3.2 points on WebWalkerQA-EN, while also exceeding prior skill-evolution methods. 
+
+1 Introduction 
+
+Skills have emerged as a central mechanism for extending LLM-based agents. A skill is a named, loadable bundle of task-specific procedures, scripts, references, and output conventions that an agent can invoke for a particular class of work (Xu and Yan, 2026; Ling et al., 2026). In deployed agent systems such as Claude Code, Codex, and Her-mes, skills serve as a primary unit of specialization. 
+
+> *Work was done when the author was interning at WeChat AI, Tencent Inc., China.
+
+Figure 1: An example motivating SkillHone. Without persistent decision history, later skill optimization may repeat old fixes or regress as environments change. Skill-Hone links diagnoses, revisions, evaluation evidence, and outcomes into a continuing evolution loop. 
+
+However, a useful skill is not a static artifact. APIs change, task distributions shift, and new failure modes appear, so both the skill and the evidence used to diagnose its failures must remain main-tainable. The central methodological question is therefore how later agents can continue improving a skill across many development sessions without losing the rationale behind earlier changes. Existing methods for improving agent skills can be viewed as two representative routes. Synthesis-style construction methods such as Skill-Creator 1
+
+turn a task description, examples, or supporting documents into a loadable skill and then hand the generated artifact to later sessions. GEPA-style reflective optimization methods, including Hermes-Agent-Self-Evolution (Hermes-SE) 2, run 
+
+> 1https://github.com/anthropics/skills/blob/ main/skills/skill-creator
+> 2https://github.com/NousResearch/ hermes-agent-self-evolution
+
+1
+
+> arXiv:2606.08671v1 [cs.LG] 7 Jun 2026
+
+iterative mutation, evaluation, and selection over skills, prompts, tool descriptions, and code using GEPA (Agrawal et al., 2026). These routes are useful for producing or improving a skill, but they largely treat improvement as a bounded run whose main output is a better artifact. This artifact-centered view loses the decision context needed for continual maintenance. A later agent may inherit the latest skill, but not the struc-tured history explaining which diagnosis motivated a revision, which alternatives were rejected, what evaluation evidence was observed, and why an out-come was accepted. The same problem applies to the evaluation evidence that supports skill improve-ment: when later agents rely on probes, validators, traces, or redacted reports, they also need to know which failure mode the evidence reflects and how it shaped prior decisions. As illustrated in Figure 1, optimization based only on the latest skill snapshot may repeat old fixes, undo useful changes, or keep optimizing against feedback whose rationale has been lost. We introduce SkillHone, an agent-facing harness for continual skill evolution in skill-enabled agent frameworks. SkillHone maintains the evolving skill together with evaluation assets that support its im-provement, and treats skill revisions and evaluation evidence as decision-bearing. For skill revisions, the history records the diagnosis, proposed revision, evaluation evidence, and outcome. For evaluation evidence, it records which probes or reports were used, which failure mode they exposed, and how the evidence justified the outcome. Thus, later agents inherit not only the current skill and current evaluation assets, but also the decisions that shaped both. This history is accumulated from many local de-cisions made during diagnosis, revision, and evalu-ation. SkillHone therefore uses role-bounded sub-agent dispatches, rather than a fixed multi-agent system, to generate these records as the loop runs: it only assumes an agent runtime that can launch scoped dispatches with separated permissions. This makes the harness portable across skill-enabled runtimes such as Claude Code, Codex, and Her-mes, while keeping optimization separated from unredacted evaluation assets. Evaluation subagents can inspect probes and traces and run candidate skills, but return only redacted evidence to the op-timization side. Optimization subagents use this evidence and prior decision records to form diag-noses and draft skill revisions, without accessing hidden probe targets or validators. Across sessions, the linked history of diagnoses, revisions, evidence, and outcomes allows later agents to continue skill evolution without re-deriving prior decisions. We evaluate SkillHone on deep-research bench-marks in the raw open-web setting, where agents must organize retrieval without a pre-integrated search stack. Against skill-evolution baselines and a deep-research agent with commercial retrieval, SkillHone obtains the strongest average results on GAIA and WebWalkerQA-EN under a fixed evaluation-time backbone. 
+
+Contributions. 
+
+1. We identify a gap between artifact-centered skill improvement and continual skill mainte-nance. Long-lived skills require persistent de-cision history, rather than a single optimized artifact, so later agents can understand skill re-visions together with the evaluation evidence that supported them. 2. We introduce SkillHone, a general agent-facing harness for continual agent skill evolution. It records diagnoses, revisions, evaluation evi-dence, and outcomes across sessions while keeping optimization and evaluation roles sepa-rated. 3. We show that persistent decision history im-proves deep-research skill development, with SkillHone outperforming prior skill-evolution baselines and a deep-research agent on average benchmark accuracy. 
+
+2 Method 
+
+2.1 Problem Setup 
+
+In this paper, a skill is a loadable artifact that pack-ages the instructions, procedures, references, and output conventions an agent uses for a class of tasks. SkillHone keeps the model backend and external tools fixed; its goal is to help agents maintain and improve this skill artifact across repeated develop-ment sessions. SkillHone maintains two linked repositories. The skill repository stores the skill bundle be-ing revised. The skill-evaluation repository stores practice probes, oracle targets, validators, traces, redacted reports, and other evaluation assets that provide feedback for skill improvement. The opti-mization side observes only redacted reports, not unredacted targets, validators, or traces. Accepted revisions produce a sequence of skills S0, . . . , S T ,2Figure 2: SkillHone architecture. At each development step, an agent runtime dynamically dispatches fresh, role-bounded optimization and evaluation subagents on demand. Optimization dispatches maintain the skill repository and propose diagnosis-guided revisions. Evaluation dispatches run candidate skills against the skill-evaluation repository and export redacted problem reports, without exposing probe targets, validators, or traces. Routed evidence, repository operations, and recorded outcomes form a persistent decision history that later agents reuse for continual skill evolution. 
+
+guided by practice feedback and the persistent de-cision history that links diagnoses, candidate revi-sions, evaluations, and outcomes. 
+
+2.2 SkillHone Harness 
+
+As shown in Figure 2, SkillHone runs on an agent runtime that dispatches fresh subagents into two permission-bounded sides. These are dispatch roles rather than fixed staffs of named workers: the run-time assigns each dispatch to an optimization or evaluation role, routes evidence between the two sides, and writes the resulting records into the per-sistent decision history. Appendix D (Table 2) lists the recurring dispatch patterns and their permission boundaries. We formalize the harness as 
+
+M = ( Topt , Teval , D),
+
+where Topt is the Optimization Subagent Team, 
+
+Teval is the Evaluation Subagent Team, and D is the runtime dispatcher. The optimization side maintains the skill reposi-tory, which contains the current SKILL.md , scripts, references, templates, and other skill assets. Op-timization dispatches can inspect the current skill, read prior decision records and failure summaries, form diagnoses, propose typed revisions, review candidate changes, and record accepted outcomes. Typical dispatches include diagnosing failures from redacted reports, integrating prior resources, proposing scoped revisions, and drafting patches to St.The evaluation side operates on the skill-evaluation repository, which contains probes, vali-dation suites, regression sets, traces, and evaluation reports. Evaluation dispatches can inspect oracle targets and traces, run the current skill on probe items, analyze failures, and produce redacted re-ports. They cannot write to the skill repository. Conversely, the optimization side can change the skill but cannot access unredacted probe targets, validators, or execution traces. This separation pre-vents practice feedback from becoming a direct memorization target. The runtime-level dispatcher is a message router rather than a decision authority. At each step, it ob-serves the public state of the skill, the failure sum-maries, and the two repositories; dispatches role-specific subagents; routes redacted evidence and review requests; and records accepted outcomes. Acceptance decisions are made using the evidence available to the appropriate side. This keeps opti-3mization and evaluation separated while allowing both the skill and the practice feedback to evolve. 
+
+2.3 Persistent Decision History 
+
+A central design goal of SkillHone is to make skill evolution persistent across sessions. A later agent should not receive only the latest skill snapshot. It should also inherit the structured record of why the skill changed, which alternatives were consid-ered, how candidates were evaluated, and which outcomes were accepted or rejected. SkillHone represents each development step as a decision record 
+
+ht = ( qt, r t, e t, o t),
+
+where qt is the diagnosis, rt is the candidate revi-sion, et is the redacted evaluation evidence, and 
+
+ot is the outcome. The outcome may accept the revision, reject it, request further changes, or defer the diagnosis. The decision history up to iteration 
+
+t is 
+
+Ht = {h1, . . . , h t}.
+
+The decision record is more than a version diff. A diff shows how files changed; a decision record links that change to the problem it targeted, the evidence used to evaluate it, and the final decision. This distinction is important for continual evolution. When the environment changes, later subagents can inspect Ht to determine whether a failure is new, whether a similar fix was already attempted, and why a previous alternative was rejected. Given a new redacted report ˜Et, optimization subagents retrieve relevant prior records from H<t .They may revisit an old diagnosis, revise a rejected patch under new evidence, or avoid a redundant edit that has already failed. Thus the decision history acts as a persistent memory for the evolution pro-cess itself. It enables agents to audit prior changes and continue skill improvement without re-deriving the same diagnoses. 
+
+3 Experiments 
+
+We evaluate whether SkillHone improves reusable agent skills by comparing the resulting skills against existing skill construction and optimiza-tion methods under a fixed execution-time agent backbone. Our experiments are organized around three natural questions: • RQ1: Can skills developed by SkillHone achieve competitive task performance against 
+
+Algorithm 1 SkillHone                                              
+
+> Require: Initial skill S0, skill repo Rs, eval repo Re
+> 1: H0← ∅
+> 2: for t= 0 , . . . , T −1do
+> 3: Eval dispatches run A(·;St)on Reand export ˜Et
+> 4: Opt dispatches retrieve Ht, then propose (qt, r t)
+> 5: Eval dispatches return redacted evidence etfor rt
+> 6: Decide ot∈ { ACCEPT ,REVISE ,REJECT ,DEFER }
+> 7: St+1 ←APPLY (St, r t)if accepted, else St
+> 8: Ht+1 ← H t∪ { (qt, r t, e t, o t)}
+> 9: end for
+> 10: return ST,HT
+
+a strong deep-research agent with curated ex-ternal support? • RQ2: Does SkillHone improve performance beyond what agents obtain by directly reusing existing relevant skills? • RQ3: How does SkillHone compare with built-in iterative and reflective skill optimiza-tion when all methods start from the same existing skills? 
+
+3.1 Benchmarks and Evaluation Settings 
+
+We first instantiate this comparison in deep research because information seeking is one of the most broadly used agent workloads and naturally bene-fits from reusable skills. Unlike closed skill bench-marks that test isolated tool routines, deep-research tasks require agents to combine search, navigation, extraction, verification, and recovery across chang-ing web sources. This makes the setting a useful stress test for continual skill evolution: external resources are rate-limited, fail intermittently, and change format, so agents must diagnose failures, revise skills, and preserve the evaluation evidence behind those revisions rather than rely on a one-shot artifact. We use two open-domain benchmarks: GAIA (Mialon et al., 2024) and the English split of WebWalkerQA (Wu et al., 2025). GAIA empha-sizes multi-step information seeking and factual grounding across heterogeneous sources, while WebWalkerQA-EN focuses on web navigation and information extraction. We compare two evaluation settings: • Curated search : a deep-research agent uses commercial retrieval services and does not maintain its own search stack. • Raw open-web : agents receive no pre-integrated search tools. They operate through a general agent runtime, public web access, 4GAIA WebWalkerQA-EN System L1 L2 L3 Avg. Easy Med. Hard Avg.                                           
+
+> curated search setting (commercial retrieval services) deep-research agent 61.9 47.0 26.3 48.8 58.5 62.3 67.1 63.2
+> raw open-web setting (no pre-integrated search tools) Existing-Skills 64.3 33.3 21.1 41.7 51.2 48.5 52.6 50.2 Skill-Creator 64.3 37.9 21.1 44.1 36.6 36.9 40.8 38.1 Hermes-SE 73.8 40.9 31.6 50.4 53.7 51.5 55.3 53.0 SkillHone (Ours) 76.2 66.7 31.6 64.6 53.7 69.2 68.4 66.4
+> Table 1: Main results on GAIA and WebWalkerQA-EN. Bold marks the best score in each column.
+
+and portable skill bundles that organize search, parsing, extraction, and recovery procedures. Because these skills rely on public pages and free or community search interfaces, they must handle rate limits, unavailable endpoints, and changing page formats without a managed re-trieval service. 
+
+3.2 Baselines 
+
+The raw open-web comparison starts from a shared existing-skill pool. We construct this pool from search-related community skills selected by an agent from ClawHub and SkillHub; Appendix A lists the selected skills. The pool is provided to all comparable raw open-web systems for a fair comparison; the systems differ in whether and how they adapt these starting skills. The raw open-web comparison contains one direct-use setting and three skill-development sys-tems: • Existing-Skills : directly loads the skills as a portable skill bundle, without further opti-mization. • Skill-Creator : applies built-in iterative skill optimization. • Hermes-SE : applies reflective skill optimiza-tion. • SkillHone : runs the full harness with role-separated subagents, redacted evaluation feed-back, and persistent decision history. All raw open-web systems produce the same portable skill-bundle interface: a SKILL.md entry file with optional scripts, references, templates, and supporting resources. They differ only in how the bundle is developed. We separate the controller that optimizes skills from the backbone that executes and evaluates them. Claude Opus 4.6 3 serves as the development-time controller that reads feedback, forms diag-noses, and revises skill bundles. Qwen3.6-35B-A3B (Qwen Team, 2026) serves as the execution and evaluation backbone for running skills during development and for producing the final benchmark scores. 
+
+3.3 Main Results 
+
+Table 1 reports the final benchmark results. Skill-Hone achieves the best average score on both benchmarks. On GAIA, it reaches 64 .6% , outper-forming the deep-research agent by 15 .8 points without pre-integrated search tools at evaluation time. On WebWalkerQA-EN, it reaches 66 .4% , im-proving over the same agent by 3.2 points. The gains are most visible on harder splits, where the agent must decide how to search, extract ev-idence, verify intermediate findings, and recover from failed attempts. This suggests that the evolved skill improves the agent’s problem-solving proce-dure, not merely its access to search routines. Within the raw open-web setting, SkillHone also outperforms the skill-development baselines un-der the shared-pool comparison. Compared with Skill-Creator, it improves average accuracy by 20 .5
+
+points on GAIA and 28 .3 points on WebWalkerQA-EN. Compared with Hermes-SE, it improves by 
+
+14 .2 and 13 .4 points, respectively. The gap be-tween Existing-Skills and SkillHone shows that directly exposing the agent to relevant skills is not sufficient. SkillHone turns these skills into a task procedure: when to search broadly, when to follow a source, when to verify an answer, and when to recover from a failed path. Thus, the main gains come from optimizing how existing components are organized and used, rather than from the compo-nents alone. Appendix C (Figure 3) compares the 
+
+> 3https://www.anthropic.com/news/ claude-opus-4-6
+
+5SkillHone and Hermes-SE optimization trajectories on the same probe split, illustrating how scoped re-verts under persistent decision history differ from whole-candidate acceptance under a scalar signal. 
+
+4 Related Work 
+
+Agent skills and skill acquisition. Agent skills have recently emerged as a practical abstrac-tion for extending LLM-based agents with task-specific procedures, scripts, references, and conven-tions (Xu and Yan, 2026; Ling et al., 2026). Recent benchmarks further study when skills help agents across general tasks and software-engineering set-tings (Li et al., 2026; Han et al., 2026). A re-lated line of work focuses on acquiring new skills, including automated discovery from exploration and feedback (Yang et al., 2025), reinforcement-learning-based evolution (Vishe et al., 2026; Xia et al., 2026), and domain-specific skill construc-tion (Liu et al., 2026). These studies primarily ask how agents can obtain useful skills or measure whether skills improve task performance. Skill-Hone addresses a complementary question: once a skill exists and becomes part of an agent’s work-ing environment, how should later agents continue maintaining it as tasks, tools, APIs, and failure modes change? Our focus is therefore not only on producing an improved skill, but also on pre-serving the optimization context that makes future improvement possible. 
+
+Optimization of prompts, systems, and skills. 
+
+A second line of work optimizes language-system components through reflection, search, or program-matic compilation. Prompt optimization methods use LLMs to propose and select improved instruc-tions (Zhou et al., 2022; Yang et al., 2024a), while Reflexion-style agents use verbal feedback to im-prove behavior across attempts (Shinn et al., 2023). DSPy frames LM pipelines as declarative programs that can be compiled and optimized (Khattab et al., 2023). More closely related, GEPA performs reflec-tive evolution over components of a language sys-tem by generating variants, evaluating them, and se-lecting improved candidates (Agrawal et al., 2026). Hermes-SE applies this style of optimization to skills, prompts, tool descriptions, and code. These methods provide strong mechanisms for improving artifacts within an optimization run. SkillHone is designed for a different axis of improvement: it treats skill evolution as an ongoing maintenance process in which later agents inherit not only the lat-est artifact, but also a structured history of failures, candidate revisions, evaluations, and outcomes. 
+
+Multi-agent collaboration and agent develop-ment workflows. Multi-agent LLM systems show that role specialization can improve com-plex collaborative problem solving (Talebirad and Nadiri, 2023; Guo et al., 2024; Wang et al., 2024; Tran et al., 2025). Frameworks such as MetaGPT organize agents into specialized roles for produc-ing software-like artifacts (Hong et al., 2024), and recent work studies LLM agents in software-engineering environments where tasks are naturally expressed through problem diagnosis, code mod-ification, and testing (Jimenez et al., 2024; Yang et al., 2024b; Xia et al., 2025). SkillHone shares the broad principle of role separation, but uses it for continual skill maintenance rather than one-shot artifact production. Its subagents are created on demand by a lightweight dispatcher and are separated by permission: optimization subagents propose skill revisions, while evaluation subagents test candidates and return redacted evidence. This separation allows the harness to accumulate agent-readable decision history while reducing leakage from evaluation assets to the optimization side. 
+
+5 Conclusion 
+
+We introduced SkillHone, an agent-facing harness for continual agent skill evolution. SkillHone main-tains skills as evolving bundles rather than one-shot artifacts. It dispatches role-specific optimization and evaluation subagent teams, uses redacted prac-tice feedback, and records persistent decision his-tories that link problems, revisions, evidence, and outcomes. Later agents can reuse this history to audit prior changes, avoid redundant edits, and con-tinue development across sessions. In deep research under the raw open-web setting, SkillHone develops skills without pre-integrated search tools that outperform iterative and reflective skill-development baselines. It also exceeds the deep-research agent on GAIA and WebWalkerQA-EN under a fixed evaluation-time agent back-bone. These results suggest that persistent decision history helps agents turn practice feedback into stronger skill bundles. 
+
+Limitations 
+
+Our experiments are conducted on English-language benchmarks. Extending evaluation to other languages remains future work. Additionally, 6SkillHone currently evolves a single skill in isola-tion; jointly evolving multiple interdependent skills is not addressed in this work. 
+
+References 
+
+Lakshya A Agrawal, Shangyin Tan, Dilara Soylu, Noah Ziems, Rishi Khare, Krista Opsahl-Ong, Ar-nav Singhvi, Herumb Shandilya, Michael J Ryan, Meng Jiang, Christopher Potts, Koushik Sen, Alex Dimakis, Ion Stoica, Dan Klein, Matei Zaharia, and Omar Khattab. 2026. GEPA: Reflective prompt evo-lution can outperform reinforcement learning. In 
+
+The Fourteenth International Conference on Learn-ing Representations .Taicheng Guo, Xiuying Chen, Yaqi Wang, Ruidi Chang, Shichao Pei, Nitesh V Chawla, Olaf Wiest, and Xi-angliang Zhang. 2024. Large language model based multi-agents: A survey of progress and challenges. 
+
+arXiv preprint arXiv:2402.01680 .Tingxu Han, Yi Zhang, Wei Song, Chunrong Fang, Zhenyu Chen, Youcheng Sun, and Lijie Hu. 2026. Swe-skills-bench: Do agent skills actually help in real-world software engineering? arXiv preprint arXiv:2603.15401 .Sirui Hong, Mingchen Zhuge, Jonathan Chen, Xiawu Zheng, Yuheng Cheng, Jinlin Wang, Ceyao Zhang, Steven Yau, Zijuan Lin, Liyang Zhou, and 1 oth-ers. 2024. Metagpt: Meta programming for a multi-agent collaborative framework. In International Con-ference on Learning Representations , volume 2024, pages 23247–23275. Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao, Kexin Pei, Ofir Press, and Karthik Narasimhan. 2024. Swe-bench: Can language mod-els resolve real-world github issues? In International Conference on Learning Representations , volume 2024, pages 54107–54157. Omar Khattab, Arnav Singhvi, Paridhi Maheshwari, Zhiyuan Zhang, Keshav Santhanam, Sri Vard-hamanan, Saiful Haq, Ashutosh Sharma, Thomas T Joshi, Hanna Moazam, and 1 others. 2023. Dspy: Compiling declarative language model calls into self-improving pipelines. arXiv preprint arXiv:2310.03714 .Xiangyi Li, Wenbo Chen, Yimin Liu, Shenghan Zheng, Xiaokun Chen, Yifeng He, Yubo Li, Bin-gran You, Haotian Shen, Jiankai Sun, and 1 oth-ers. 2026. Skillsbench: Benchmarking how well agent skills work across diverse tasks. arXiv preprint arXiv:2602.12670 .George Ling, Shanshan Zhong, and Richard Huang. 2026. Agent skills: A data-driven analysis of claude skills for extending large language model functional-ity. arXiv preprint arXiv:2602.08004 .Xingyan Liu, Xiyue Luo, Linyu Li, Ganghong Huang, Jianfeng Liu, and Honglin Qiao. 2026. Skill-forge: Forging domain-specific, self-evolving agent skills in cloud technical support. arXiv preprint arXiv:2604.08618 .Grégoire Mialon, Clémentine Fourrier, Thomas Wolf, Yann LeCun, and Thomas Scialom. 2024. Gaia: a benchmark for general ai assistants. In International Conference on Learning Representations , volume 2024, pages 9025–9049. Qwen Team. 2026. Qwen3.6-35B-A3B: Agentic coding power, now open to all. Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. 2023. Re-flexion: Language agents with verbal reinforcement learning. Advances in neural information processing systems , 36:8634–8652. Yashar Talebirad and Amirhossein Nadiri. 2023. Multi-agent collaboration: Harnessing the power of intelli-gent llm agents. arXiv preprint arXiv:2306.03314 .Khanh-Tung Tran, Dung Dao, Minh-Duong Nguyen, Quoc-Viet Pham, Barry O’Sullivan, and Hoang D Nguyen. 2025. Multi-agent collaboration mech-anisms: A survey of llms. arXiv preprint arXiv:2501.06322 .Yash Vishe, Rohan Surana, Xunyi Jiang, Zihan Huang, Xintong Li, Nikki Lijing Kuang, Tong Yu, Ryan A Rossi, Jingbo Shang, Julian McAuley, and 1 others. 2026. Skill-r1: Agent skill evolution via reinforce-ment learning. arXiv preprint arXiv:2605.09359 .Lei Wang, Chen Ma, Xueyang Feng, Zeyu Zhang, Hao Yang, Jingsen Zhang, Zhiyuan Chen, Jiakai Tang, Xu Chen, Yankai Lin, and 1 others. 2024. A survey on large language model based autonomous agents. 
+
+Frontiers of Computer Science , 18(6):186345. Jialong Wu, Wenbiao Yin, Yong Jiang, Zhenglin Wang, Zekun Xi, Runnan Fang, Linhai Zhang, Yulan He, Deyu Zhou, Pengjun Xie, and 1 others. 2025. Web-walker: Benchmarking llms in web traversal. In 
+
+Proceedings of the 63rd Annual Meeting of the As-sociation for Computational Linguistics (Volume 1: Long Papers) , pages 10290–10305. Chunqiu Steven Xia, Zhe Wang, Yan Yang, Yuxiang Wei, and Lingming Zhang. 2025. Live-swe-agent: Can software engineering agents self-evolve on the fly? arXiv preprint arXiv:2511.13646 .Peng Xia, Jianwen Chen, Hanyang Wang, Jiaqi Liu, Kaide Zeng, Yu Wang, Siwei Han, Yiyang Zhou, Xu-jiang Zhao, Haifeng Chen, and 1 others. 2026. Skillrl: Evolving agents via recursive skill-augmented rein-forcement learning. In ICLR 2026 Workshop on Life-long Agents: Learning, Aligning, Evolving .Renjun Xu and Yang Yan. 2026. Agent skills for large language models: Architecture, acquisition, security, and the path forward. arXiv preprint arXiv:2602.12430 .
+
+7Chengrun Yang, Xuezhi Wang, Yifeng Lu, Hanxiao Liu, Quoc V Le, Denny Zhou, and Xinyun Chen. 2024a. Large language models as optimizers. In In-ternational Conference on Learning Representations ,volume 2024, pages 12028–12068. John Yang, Carlos E Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao, Karthik Narasimhan, and Ofir Press. 2024b. Swe-agent: Agent-computer interfaces enable automated software engineering. Advances in Neural Information Processing Systems , 37:50528– 50652. Yongjin Yang, Sinjae Kang, Juyong Lee, Dongjun Lee, Se-Young Yun, and Kimin Lee. 2025. Auto-mated skill discovery for language agents through exploration and iterative feedback. arXiv preprint arXiv:2506.04287 .Yongchao Zhou, Andrei Ioan Muresanu, Ziwen Han, Keiran Paster, Silviu Pitis, Harris Chan, and Jimmy Ba. 2022. Large language models are human-level prompt engineers. In The eleventh international con-ference on learning representations .
+
+A Existing Community Skills 
+
+The shared existing-skill pool is selected by an agent from search-related community skills on ClawHub and SkillHub: • web-pilot 
+
+• web-content-fetcher 
+
+• scholar-search 
+
+• query-dbpedia 
+
+• multi-search-engine 
+
+• literature-review 
+
+• geepers-data 
+
+• duckduckgo-websearch 
+
+• deep-research-pro 
+
+• ddgs-search 
+
+B Evaluation Repository and Redaction 
+
+SkillHone uses a skill-evaluation repository for practice feedback during skill development. The repository stores probe task instances, oracle tar-gets, validators, provenance metadata, and execu-tion traces. Probe items may come from existing sources such as human-written cases, historical failures, or environment-derived checks. It only assumes that evaluation subagents can run the cur-rent skill against available probe items and export redacted reports to the optimization side. For each probe item, we denote the task instance by xk, the oracle target by yk, the validator by ϕk,and the provenance metadata by πk. Running the current skill produces 
+
+mk = ϕk(A(xk; St), y k),
+
+where mk is the validation outcome. The optimiza-tion side receives only a redacted problem report 
+
+˜Et = Redact( {xk, y k, ϕ k, π k, m k}Kk=1 ),
+
+which summarizes failure modes, aggregate out-comes, and diagnostic hypotheses without expos-ing unredacted targets, validators, or traces. Fi-nal benchmark evaluation remains outside the opti-mization loop. 
+
+C Optimization Trajectory 
+
+Figure 3 compares one SkillHone run with one Hermes-SE run on the same practice probe split. Both runs start from the same seed skill. SkillHone improves from 30% to 70% while recovering from two regressed revisions through targeted follow-up edits. Hermes-SE instead accepts or skips whole prompt candidates under a scalar validation signal. This illustrates the operational value of persistent decision history: later revisions can target the of-fending part of a change while retaining useful edits. 
+
+D Subagent Dispatch Patterns and Permissions 
+
+The roles in Table 2 are not fixed identities that SkillHone preconfigures in advance. They are re-curring dispatch patterns observed when the run-time dispatcher runs the development loop. Each subagent is created on demand, assigned to a permission-bounded team, and granted only the actions needed for that dispatch. The team boundary is the structural mechanism. Optimization subagents can write to the skill repos-itory but cannot access unredacted probe targets, validators, or traces. Evaluation subagents can in-spect probes and traces but cannot write to the skill repository. The runtime dispatcher creates sub-agents and routes artifacts, but it does not directly edit either repository. 80 1 2 3 4 5
+
+> Iteration
+> 10
+> 20
+> 30
+> 40
+> 50
+> 60
+> 70
+> 80
+> Probe accuracy on  probe  (\%)
+> +30 pp over Hermes-SE
+> +30pp
+> 10pp
+> +15pp
+> 5pp
+> +10pp
+> SkillHone (kept iteration)
+> SkillHone (regression rolled back)
+> Hermes-SE (accepted)
+> Hermes-SE (skipped on subsample)
+> seed
+> default-style instructions (multi-hop + tool use + format)
+> minimalist header (skipped)
+> header variant (skipped)
+> shorter variant (skipped)
+> anti-pattern rules + multi-hop strategy [accepted final]
+> seed baseline (wiki search only) [seed]
+> DuckDuckGo fallback + error handling [PR #2]
+> write-early + over-strict budget [PR #4]
+> merge: revert budget, light verify + retain bias [PR #12]
+> tighter budget + SPARQL + name rules [PR #16]
+> revert budget, keep SPARQL + name rules [PR #21]
+
+Figure 3: Probe-split trajectories for SkillHone and Hermes-SE across six optimization iterations. SkillHone points are labeled with the accepted revision that introduced each change. When a change regresses performance, the following iteration can target the offending part while preserving useful edits. Hermes-SE optimizes a single 
+
+SKILL.md body and accepts or rejects whole candidates under a scalar validation signal. The final benchmarks are not available to either system during optimization. 
+
+Team Dispatch pattern Permission boundary 
+
+Optimization Proposer Reads redacted reports ˜E<t and decision history H<t ; writes diag-noses; no access to probe targets or validators. Optimization Explorer Searches external resources for reusable patterns when a revision needs them; no access to probe targets or validators. Optimization Developer Edits St and proposes typed revisions; no access to unredacted evaluation assets. Optimization Reviewer Reviews pending skill changes using redacted evidence and prior decision records; no access to probe targets or validators. Optimization Decider Accepts or rejects candidate revisions according to recorded evi-dence; no access to unredacted evaluation assets. Evaluation Executor Runs A(·; St) on probe items; may inspect oracle targets, validators, and traces; no skill-repository write access. Evaluation Diagnoser Analyzes outcomes and traces; updates evaluation diagnostics; no skill-repository write access. Evaluation Reporter Produces redacted problem reports ˜Et for the optimization side; no revision-decision authority. Evaluation Auditor Checks probe metadata, traces, and redacted reports for evaluation-side consistency; no skill-repository write access. Runtime Dispatcher Creates subagents and routes artifacts between repositories; no direct skill edits and no access to unredacted probe targets. 
+
+Table 2: Recurring subagent dispatch patterns in SkillHone. The role column describes the function performed by a dispatched subagent, while the team column defines its permission boundary. This separation makes the optimizer and evaluator split structural rather than prompt-imposed. 
+
+9
