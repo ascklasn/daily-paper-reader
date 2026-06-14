@@ -1,0 +1,909 @@
+Title: Querying Counterfactuals on Tissue Graphs with Supervised Disentanglement
+
+URL Source: https://arxiv.org/pdf/2606.08493v1
+
+Published Time: Tue, 09 Jun 2026 01:21:48 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# Querying Counterfactuals on Tissue Graphs with Supervised Disentanglement 
+
+Abdul Moeed 1, 2 Stefan Schrod 1,3 Martin Rohbeck 1 Marc Jan Bonder 4,5 
+
+Pavlo Lutsik 6 Oliver Stegle 1,3,7,† Daniel Dimitrov 1,3,† 
+
+> 1
+
+Division of Computational Genomics and Systems Genetics, German Cancer Research Center (DKFZ), Heidelberg, Germany 
+
+> 2
+
+Helmholtz Information & Data Science School for Health, Germany 
+
+> 3
+
+Genome Biology Unit, European Molecular Biology Laboratory, Heidelberg, Germany 
+
+> 4
+
+Department of Genetics, University Medical Center Groningen, University of Groningen, Groningen, The Netherlands 
+
+> 5
+
+Oncode Institute, Utrecht, The Netherlands 
+
+> 6
+
+KU Leuven, Leuven, Belgium 
+
+> 7
+
+Wellcome Sanger Institute, Wellcome Genome Campus, Hinxton, UK 
+
+> †
+
+Corresponding: daniel.dimitrov@embl.de , o.stegle@dkfz-heidelberg.de 
+
+# Abstract 
+
+Tissue graph counterfactuals ask how a cell’s expression would change under al-tered spatial neighbor contexts. Such queries are central to predicting cell behavior in tissues, but lack a unified definition, with existing methods targeting specific intervention types or treating cells as i.i.d. In this work, we first formalize tissue graph counterfactuals as a class of spatial interventions that either rewire connec-tions between cells ( edge perturbation ) or modify the expression of their neighbors (node perturbation ). We then introduce Cellina ‡, a framework that uses supervised disentanglement to decompose a cell’s intrinsic state from its spatial context, using the latter as a conditioning input for counterfactual predictions. Across benchmarks spanning over 2.5 million spatially-resolved cells in colorectal cancer and mouse brain, Cellina outperforms spatially-informed and non-spatial competitors in in-silico graph perturbations, disentanglement, and scalability. Additionally, we show that Cellina reveals biologically distinct cancer subdomains in an unsupervised manner and enables targeted neighbor perturbation simulations. 
+
+# 1 Introduction 
+
+A central goal of single-cell biology is to predict how cells respond to perturbations and how these responses transfer to conditions that have not been directly measured [Bunne et al., 2024, Roohani et al., 2025, Dimitrov et al., 2026]. Existing methods typically rely on at least one of two assumptions: (i) that perturbations act as shared stimuli applied uniformly across cells, and (ii) that cells are conditionally independent, giving rise to an effectively i.i.d. learning problem. Tissues violate both assumptions. In living organisms, a cell’s transcriptional state is shaped by its local neighborhood: the composition of nearby cells and the signals they emit [Armingol et al., 2021]. Consequently, modeling tissues requires methods that reason about neighbor-driven stimuli, which are unique to every cell. This motivates two natural prediction tasks: what would a cell express if placed in a different neighborhood, or if its neighbors expressed different genes or pathways? We formalize these as tissue graph counterfactuals : interventions on either the edges of a cell’s neighborhood ( edge perturbation )
+
+> ‡https://cellina.readthedocs.io
+> Preprint.
+> arXiv:2606.08493v1 [q-bio.GN] 7 Jun 2026
+
+or the expression of its neighbors ( node perturbation ), corresponding to the two mutable components of the tissue graph (see Section 3.3). We present Cellina , a (graph) variational autoencoder (VAE) that renders tissue graph counterfactuals tractable by separating each cell’s gene expression into two latent components: an intrinsic repre-sentation z encoding cell identity, and an extrinsic (spatial) representation s encoding the effect of its microenvironment. Purely unsupervised factorization is not identifiable without inductive biases or supervision [Locatello et al., 2019]; we therefore inject biological supervision (cell-type and spatial-domain labels) as an explicit inductive bias. By doing so, we anchor z to cell-type identity and adversarially remove spatial-domain information, routing microenvironmental variation to s by removing it from z. Unlike conditional-prior approaches with formal identifiability guarantees [Khe-makhem et al., 2020], this supervision is a biologically motivated soft inductive bias, which we show measurably improves both disentanglement and generalization. We validate this separation under out-of-distribution regimes via in silico neighborhood alterations. A model that conflates intrinsic and extrinsic variation cannot succeed at this task, making it a principled test of whether the representations separate intrinsic from microenvironmental variation [Schölkopf et al., 2021]. 
+
+Contributions: 
+
+1. We formalize tissue graph counterfactuals as a class of spatial interventions encompass-ing edge and node perturbations; thereby we provide a unified framework for studying neighborhood-driven cell responses. 2. We introduce Cellina , a dual-encoder graph VAE with supervised disentanglement, and show that it outperforms spatially informed and uninformed baselines on counterfactual prediction. On colorectal cancer data, our best Cellina variant leads the strongest baseline by 
+
++0 .17 on both Pearson and Signed Precision; on the whole-mouse-brain cohort, it remains top-ranked across two held-out spatial domains. 3. We use Cellina ’s disentangled spatial representation to identify biologically distinct cancer subdomains without supervision, and to simulate pathway-targeted neighbor perturbations using existing priors. 
+
+# 2 Related Work 
+
+Perturbations and context transfer. scGen [Lotfollahi et al., 2019] and CPA [Hetzel et al., 2022, Lotfollahi et al., 2023] are standard methods for predicting cellular responses to perturbations. Both models assume i.i.d. data, and neither represents continuous neighbor composition or cell-specific spatial contexts. More recent methods based on optimal transport [Bunne et al., 2023] and flow matching [Klein et al., 2025] model individual cell trajectories, yet still work on the same shared-stimulus intervention assumption. Extending this paradigm to tissue perturbations requires disentangling intrinsic cellular state from extrinsic influence, and reasoning about continuous variation in individual neighborhoods rather than shared or discretized stimuli. 
+
+Spatially-informed disentanglement. A related line of work leverages spatial information to sepa-rate intrinsic cell states from extrinsic tissue influences. For example, MISTy [Tanevski et al., 2022] and NCEM [Fischer et al., 2023] model neighborhood effects through multi-view regression and graph neural networks, respectively, while SIMVI [Dong et al., 2025] uses a graph VAE with unsu-pervised disentanglement to isolate spatially-induced variation. These approaches yield interpretable decompositions of spatial scales, but do not support counterfactual queries. 
+
+Tissue graph perturbations. The state-of-the-art methods most directly related to modeling tissue graph counterfactuals in spatial omics are MintFlow [Akbarnejad et al., 2025], Concert [Lin et al., 2025], Celcomen [Megas et al., 2025], and SpatialProp [Sun et al., 2025]. Celcomen models spatial in silico perturbations through learned gene-gene interactions, but learns a global interaction matrix shared across the tissue, perturbing gene values rather than nodes or edges. SpatialProp recently proposed modeling the downstream effects of neighbor perturbations, making it directly related to our node perturbation task. MintFlow and Concert both perform in silico perturbations via label conditioning, but MintFlow approaches it via graph operations, enabling adaptation to our edge perturbation task. Critically, none of these methods jointly define edge and node perturbations as distinct instances of tissue graph counterfactuals. 2Tissue Graph Counterfactuals Cellina Edge perturbation    
+
+> (Swapping neighbors) extrinsic intrinsic
+> q(z|x)
+
+# z    
+
+> neighbourhood
+> perturb
+> q(s|𝒩 (v))
+
+# s   
+
+> p(x|z,s)
+
+## C D
+
+X v
+
+X̂ v
+
+# +
+
+# −
+
+> Positive (neighbor) (other domains) (self) Negative Anchor
+
+# 𝒫 
+
+# vu2
+
+u3
+
+u1
+
+vvu2
+
+u3u1
+
+> Node perturbation
+> (Modify neighbor features)
+
+# δ
+
+# vvu2
+
+u3
+
+u1
+
+u2
+
+u3
+
+u1***
+
+> perturb
+
+Figure 1: Tissue graph counterfactuals and Cellina overview. (Left ) Two interventions on a focal cell v with neighbors u: edge perturbation rewires v’s neighborhood N (v) to a counterfactual neighbor pool P, and node perturbation alters neighbor expression on a feature (gene) subset S.(Right ) Cellina encodes intrinsic identity z ∼ q(z | xv ) and spatial representation s from v’s local neighborhood, and decodes p(x | z, s ). Supervision anchors z to cell type and removes spatial-domain information adversarially; Cellina-GAT additionally applies a contrastive loss on s.
+
+Graph counterfactuals. The broader graph ML literature offers a complementary perspective: counterfactual reasoning over graphs has been explored via instance-level adjacency perturbations for explainability [Lucic et al., 2022, Bajaj et al., 2021], and in generative graph VAEs with input-conditioned priors [Ma et al., 2022]. Cellina draws on this line of work but reorients it from model explanation to biological intervention, replacing label-swap objectives with counterfactual neighborhood queries over tissue graphs. See Appendix F for full descriptions of the competitor methods. 
+
+# 3 Method 
+
+3.1 Notation and Problem Definition 
+
+Let V = {v1, . . . , v N } denote N cells on a spatial tissue slide. Each cell v ∈ V is associated with: • xv ∈ ZG
+
+> ≥0
+
+: gene expression counts across G genes • yv ∈ { 1, . . . , C }: cell-type label (e.g., T cell, epithelial, fibroblast) • dv ∈ { 1, . . . , D }: spatial domain label – a discrete partition of a tissue according to pre-defined regions or niches (e.g., tumor vs. healthy regions) Spatial domain and cell-type labels capture complementary aspects of a cell’s identity: cell-type label 
+
+yv encodes intrinsic cell identity ( what kind of cell it is), while spatial domain dv encodes which tissue region it inhabits ( where it is located). The spatial proximity between cells is encoded by a weighted graph G = ( V, E, W ) where nodes V
+
+correspond to cells, and E are edges between nodes with edge weights Wuv ≥ 0 to each neighbor u.
+
+W is computed from the two-dimensional spatial coordinates of each cell v relative to all others using a Gaussian proximity kernel (Appendix B). For each cell v, we denote the spatial neighborhood as: 
+
+N (v) = {u ∈ V | { v, u } ∈ E} 
+
+33.2 Model Architecture Generative model. Cellina is a (graph) variational autoencoder (VAE) [Kingma and Welling, 2013, Kipf and Welling, 2016] that decomposes each cell’s expression into two latent variables: an intrinsic representation z encoding cell identity and an extrinsic representation s encoding spatial influence. Both have standard normal priors, Normal (0 , I ). The likelihood p(x | z, s ) is a Negative Binomial distribution, which is common practice in single-cell modeling [Lopez et al., 2018, Gayoso et al., 2022], parametrized by a decoder Dec ([ z; s]) (where [· ; ·] denotes concatenation; details in Appendix D.1). The approximate posteriors of both latent variables are diagonal Gaussians and sampled via the reparameterization trick [Kingma and Welling, 2013]. 
+
+Inference. We propose two variants of the model, both of which use an MLP encoder Enc z (x) to estimate the variational posterior q(z | x) = Normal (μz (x), σ 2 
+
+> z
+
+(x)) , and differ in how s is encoded: • Cellina uses a degree-normalized aggregation of neighbor expression φ(v) = P   
+
+> u∈N (v)
+
+Wuv ˜xu
+
+ P   
+
+> u∈N (v)
+
+Wuv 
+
+ where ˜xu ∈ RG denotes log-normalized xu; en-coded via an MLP encoder Enc s(φ) that outputs μs, σ s.• Cellina-GAT replaces the fixed aggregator with a multi-layer GATv2 [Brody et al., 2021] operating on v’s local subgraph (xv , {xu}u∈N (v), Ev , W uv ) (where Ev ⊆ E is an edge set of N (v)); self-loops are excluded so v’s own expression is captured by z alone, and μs, σ s
+
+are linear heads on the focal-node representation. For this variant, we additionally add a modified contrastive loss Lspatial (Appendix D). These two variants trade off efficiency and expressivity: Cellina ’s linear aggregator decouples neighborhood construction from training and exhibits training-time scaling similar to non-spatial baselines (Figure A6), whereas Cellina-GAT learns attention over each subgraph at additional computational cost per step (Appendix D.2). 
+
+Supervised disentanglement. Because optimizing the ELBO of the VAE alone does not prevent z
+
+from absorbing spatially-driven variation, we introduce two auxiliary objectives that route spatial signal to s by removing it from z. Specifically, (i) we anchor z to cell-type identity using a cell type classifier with loss Lclf , and (ii) adversarially strip spatial-domain information from z through a two-part adversarial objective. First, Ldisc is optimized to train the discriminator to predict the domain label from z; second, Ladv is optimized to encourage the encoder to render z domain-invariant. For Cellina-GAT , we also add a custom graph-supervised contrastive loss Lspatial to s, as a biologically grounded inductive bias that promotes similarity within local neighborhoods, while separating distinct region domains. We show that its addition improves latent informativeness and fit quality (Appendix E). The combined training objective (minimized in step 2 over encoder and decoder parameters) follows as: 
+
+L = LVAE + αclf Lclf + αspatial Lspatial − αadv Ladv ,
+
+where α are data-adaptive normalization scales fixed after the first training epoch. 
+
+Training procedure. We optimize this objective via alternating updates: (1) a discriminator step that updates the discriminator on detached z (encoder parameters frozen), and (2) a VAE step that updates encoder and decoder with the discriminator frozen, using the combined objective above. Alternating updates ensure the discriminator provides informative gradients to the encoder [Goodfellow et al., 2014]; For more details see Appendix D. 
+
+3.3 Tissue Graph Counterfactuals 
+
+A tissue graph counterfactual asks: what would cell v express if its neighborhood context were altered, while its intrinsic identity remained fixed? The tissue graph G has two mutable components: its edges 
+
+E with associated weights W , encoding neighborhood topology, and the neighbor node feature matrix 
+
+X, encoding cell expression. This naturally gives rise to two counterfactual queries: 
+
+Definition 1 (Edge Perturbation). An edge perturbation intervenes on a cell’s local neighborhood 
+
+N (v), replacing the neighborhood with an alternative N ′:
+
+N (v) := N ′.
+
+This admits arbitrary modifications to neighborhood topology, including the addition, removal, or substitution of neighbors. In this work, we evaluate edge perturbation as an in-silico domain 4edge rewiring. Let Iy ⊂ V denote the set of focal cells from the source domain d with cell type y,whose counterfactual expression we wish to predict (here, counterfactual refers to in silico graph perturbations). Let P\y ⊂ V be the set of cells in target domain d′ that are observed as spatial neighbors of cell type y in d′, excluding cells of type y themselves. For a focal cell v ∈ I y , we sample new neighbors N ′ ∼ P \y and set N (v) := N ′. This exclusion of type y ensures a conservative evaluation setting; cells of type y in the target domain are likewise excluded from the neighborhood graph W during training. 
+
+Definition 2 (Node Perturbation). A node perturbation modifies the feature vectors of v’s neighbors while preserving the graph topology. Let S denote the set of intervened genes. For each neighbor 
+
+u ∈ N (v), the perturbed gene feature vector is defined as: 
+
+xcf  
+
+> u,g
+
+=
+
+Tg (xu,g ) g ∈ S 
+
+xu,g g / ∈ S 
+
+where Tg : R≥0 → R≥0 is a gene-specific transformation encoding the counterfactual expression under the intervention. The approach is agnostic to the choice of Tg , which may correspond to additive shifts, knockouts, overexpression, or learned counterfactual values. In our setting, we instantiate Tg as an in-silico perturbation, specifically a multiplicative scaling Tg (xu,g ) = xu,g · δg ,where δg ∈ R is a gene-specific factor applied to each cell xu. Operating on a subset S rather than the full feature vector is biologically motivated: genes act in co-regulated programs, so S can be chosen to target a coherent biological process such as a pathway or regulon. In sum, edge perturbation modifies N (v) while node perturbation modifies {xu : u ∈ N (v)}.
+
+# 4 Experiments 
+
+4.1 Evaluation Setting 
+
+Figure 2: Counterfactual expression prediction with Cellina . Observed IGF2 expression in Fibroblasts with pre-annotated spatial domains in a tissue sec-tion. Rewiring Fibroblasts REF neighbor-hoods to those of Fibroblasts CRC yields predicted IGF2 expression recapitulating CRC Fibroblasts. True spatial perturbations remain experimentally diffi-cult to obtain at scale, with emerging spatial perturba-tion screens currently lacking the cell-type resolution, transcriptome-wide readouts, and/or matched control re-gions needed for neighborhood counterfactuals [Dhainaut et al., 2022, Breinig et al., 2026]. We therefore evaluate the models using context transfer : a held-out prediction protocol that is the established standard for single-cell per-turbation benchmarking [Szałata et al., 2024, Wu et al., 2024, Roohani et al., 2025]. In context transfer, perturba-tion responses observed in some biological contexts are used to predict responses in other unseen contexts. We adapt this to the spatial setting: cell types serve as con-texts, and a rewiring of spatial domains d → d′ (e.g., inter-changing healthy colon regions with pathologist-annotated cancer areas) serves as a perturbation. During training, we hold out one cell type in the target domain d′, e.g., the tumor region, while keeping its counterparts in the source domain d visible; held-out cells are also excluded from the neighborhood graph W during training and inference. At test time, the model predicts the expression of held-out cells and we evaluate them against the true measurements from d′ (Figure 2). This approach allows for assessing both tissue graph counterfactuals as defined in Section 3.3. In 
+
+edge perturbation , the neighbors of seed cells from the source domain are swapped with cells from the target domain; in node perturbation , seed cells retain their original neighbors; their neighbors’ feature vectors are then altered using a cell-type-specific factor δy,g .54.2 Benchmarking Approach Metrics. Following recent benchmarking practices [Wu et al., 2024, Roohani et al., 2025, Heidari et al., 2026], we evaluate counterfactual predictions along four complementary axes: (i) whether methods recover the correct magnitude and direction pattern of gene-level effects (Pearson r on log fold-changes of top differentially expressed genes), (ii) whether they correctly identify the top most differentially-expressed genes (Signed Precision), (iii) whether predicted and observed expression shifts agree in absolute magnitude (RMSE of log fold-change vectors), and (iv) overall distributional fit (E-distance). All metrics are assessed for each held-out cell type; formal definitions and an expanded metrics set with per-cell-type breakdown appear in Appendices A and G. 
+
+Competitor methods. We consider the following methods (see Appendix F for full descriptions): • Mean shift : an average expression shift between domains, applied to each cell type, and motivated by similar baselines [Ahlmann-Eltze et al., 2025, Viñas Torné et al., 2025] • scGen, CPA : spatially-uninformed perturbation latent-shift and compositional autoencoders, which treat the spatial domain as a label embedding or shift [Lotfollahi et al., 2019, 2023] • SpatialProp : an efficient GNN-based method tailored for in-domain prediction of neighbor perturbations [Sun et al., 2025] • MintFlow : a spatially-informed flow-matching model for in-domain tissue perturbations via neighbor cell-type label swapping, adapted to our edge perturbation task [Akbarnejad et al., 2025]. MintFlow is trained on all cells, including held-out cell types. SIMVI [Dong et al., 2025] was excluded from our counterfactual evaluations due to a lack of native support for such queries and prohibitive GPU memory requirements (Figure A6); a disentanglement comparison shows Cellina outperforms it (Appendix H). We evaluate three variants of Cellina: (1) Cellina is the base model, combining a spatial encoder over pre-aggregated neighborhoods with auxiliary supervision on z: a cell-type classifier and an adversarial domain discriminator, which together encourage the intended factorization of z and s. (2) Cellina (ablated) is a reduced variant of Cellina that does not consider the supervision components, retaining only the dual-encoder architecture and continuous neighborhood encoding in s. (3) Cellina-GAT 
+
+replaces the pre-aggregated spatial encoder with a graph attention network that models neighborhoods via explicit message passing and a custom contrastive loss on s, yielding a more expressive but computationally expensive variant; see Section 3. 
+
+4.3 Results Cellina accurately predicts in-silico perturbations in colorectal cancer data. 
+
+To evaluate counterfactual predictions in a clinically relevant setting, we consider a spatial tran-scriptomics dataset of approximately 2.4 million cells across six colorectal cancer tissue slides (an 18,000-gene panel, see Appendix B) [Crowell et al., 2025]. We use pathologist-annotated tissue regions, specifically healthy colonic mucosa (REF) and colorectal cancer (CRC), to define the coun-terfactual task: predict how a REF cell of type y would look under the CRC domain. Concretely, we pair each REF y cell with counterfactual neighbors sampled from CRC cells that neighbor cell type y
+
+in the CRC domain. We then evaluate the predicted expression against held-out CRC cells of the same cell type y. Details of dataset pre-processing and splits are provided in Appendix B. All three Cellina variants outperform every baseline method with clear margins that hold across individual patient slides and cell types; Cellina-GAT edges ahead on Pearson ( 0.85 ) and RMSE LFC 
+
+(1.14 ) while base Cellina matches it on Signed Precision ( 0.40 ) (Table 1). Base Cellina outperforms the strongest non-Cellina baseline by substantial margins ( +0 .14 Pearson, +0 .17 Signed Precision, 
+
+−0.21 RMSE). Even Cellina (ablated) , trained without cell-type or domain supervision, leads all non-Cellina methods on correlation and precision, a result we attribute to encoding continuous, cell-resolved neighborhoods. Supervised disentanglement adds a further +0 .12 Pearson in the full model, which more effectively disentangles spatial-domain-related variation in s (Appendix H). MintFlow, which also leverages neighbor information, remains competitive among baselines but still falls short of Cellina .The mean shift baseline, which applies a group-average expression change without knowledge of individual neighborhoods is competitive with other methods and slightly outperforms scGen on 6Pearson r. This is consistent with recent work showing that tailored perturbation models often fail to improve on population averages [Viñas Torné et al., 2025, Ahlmann-Eltze et al., 2025, Wu et al., 2024]. scGen achieves the best E-distance (4.65), followed by Cellina (ablated) , as models that encode variation into unconstrained latents can achieve better sample-level distribution. This points to a potential trade-off between distributional fidelity (E-distance) and gene-level recovery: Pearson r
+
+and Signed Precision more directly capture whether the magnitude and direction of the response are preserved – a key property when predictions are used to guide downstream biological interpretation and follow-up experiments. 
+
+Node perturbation evaluation. Next, we evaluate Cellina in the same (REF → CRC) regime, but under a node-perturbation setting: rather than changing the neighborhood context entirely, we retain each focal cell’s original neighbors and shift their expression by cell-type-specific log-fold vectors 
+
+δy,g (top 200 genes) that reflects the expression difference between REF and CRC (Appendix J). By design, SpatialProp is the direct alternative to predict the effect of node perturbations; in this evaluation, Cellina outperforms it by a considerable margin across all four metrics. Across variants, Cellina under edge perturbation performs on par with node perturbation on most metrics. We also see that the number of perturbed genes k controls the extent of the feature shift, with performance largely converging at k ≈ 200 before declining as noisy gene shifts are applied (Appendix J). Nevertheless, node perturbations are more targeted, enabling modeling of scenarios where only specific gene programs in the microenvironment are modified – an in silico intervention we explore in Experiments 4.4. Table 1: Leave-one-celltype-out performance (top 50 DEGs) for predicting the counterfactual state of healthy colon cells placed in tumor region (REF → CRC). Mean ± std across cell types and patient samples. node-pert refers to node perturbation task. Best per metric within each block (edge-vs. node-perturbation) in bold ; Cellina in gray. Cellina ranks first on Pearson, Signed Precision, and RMSE LFC ; margins over the best baseline are consistent across slides though within the (high) cross-cell-type standard deviation. Method Pearson ↑ Precision signed ↑ E-distance ↓ RMSE LFC ↓
+
+Mean shift 0.51 ± 0.26 0.18 ± 0.15 29.89 ± 10.49 5.08 ± 2.51 CPA 0.68 ± 0.19 0.22 ± 0.19 6.44 ± 2.27 1.50 ± 0.56 scGen 0.50 ± 0.37 0.19 ± 0.20 4.65 ± 3.49 1.99 ± 0.84 MintFlow 0.65 ± 0.31 0.23 ± 0.21 13.01 ± 1.76 1.51 ± 0.43 Cellina (ablated) 0.70 ± 0.26 0.30 ± 0.22 5.07 ± 1.71 1.50 ± 0.91 Cellina 0.82 ± 0.18 0.40 ± 0.19 7.55 ± 1.14 1.29 ± 0.64 Cellina-GAT 0.85 ± 0.15 0.40 ± 0.18 9.35 ± 1.75 1.14 ± 0.62 
+
+Cellina node-pert 0.85 ± 0.16 0.41 ± 0.18 7.82 ± 1.23 1.23 ± 0.70 
+
+Cellina-GAT node-pert 0.73 ± 0.21 0.32 ± 0.20 8.32 ± 1.80 1.47 ± 0.71 SpatialProp node-pert 0.40 ± 0.32 0.07 ± 0.16 33.07 ± 10.46 6.44 ± 1.03 
+
+Cellina performs competitively across tissue and species in the mouse brain. 
+
+To further assess multi-domain generalization, we repeat the same evaluation on a whole-adult-mouse MERFISH cohort [Zhang et al., 2023], comprising a 1,122-gene panel with ~146K cells across three slides. Here, two independently annotated spatial domains (Fiber-tracts and Isocortex) were held out, testing whether performance transfers beyond a single disease context. Across held-out domains (Table 2), Cellina variants again outperform all baselines across three of the four metrics; here Cellina-GAT ties or outperforms Cellina on three of the four metrics (excluding E-distance). scGen posts the lowest E-distance ( 5.74 ), followed closely by CPA and Cellina -variants with mean shift and Mintflow far behind. This indicates that Cellina ’s s captures microenvironmental structure across spatial contexts and species without appreciably sacrificing distributional fidelity. The node-perturbation ranking likewise holds, with Cellina-GAT leading SpatialProp by a safe margin (Pearson 
+
++0 .16 , Signed Precision +0 .44 , RMSE LFC −1.08 ). 7Table 2: Leave-one-celltype-out performance (top 50 DEGs) for the counterfactuals Thalamus →
+
+Isocortex, Fiber-tracts. Mean ± std across cell types and slides, averaged over holdout domains; full results in Appendix Table A2. Best per metric within each block (edge- vs. node-perturbation) in 
+
+bold . Cellina generalizes to spatial transcriptomics across tissues and species. Method Pearson ↑ Precision signed ↑ E-distance ↓ RMSE LFC ↓
+
+Mean shift 0.43 ± 0.23 0.12 ± 0.09 25.16 ± 4.69 10.98 ± 2.78 CPA 0.82 ± 0.16 0.42 ± 0.13 7.02 ± 2.33 6.40 ± 4.76 scGen 0.77 ± 0.17 0.21 ± 0.13 5.74 ± 4.81 6.53 ± 4.05 MintFlow 0.81 ± 0.17 0.29 ± 0.16 19.58 ± 1.73 7.24 ± 5.41 Cellina (ablated) 0.79 ± 0.15 0.37 ± 0.17 8.96 ± 5.31 6.86 ± 4.48 Cellina 0.83 ± 0.16 0.47 ± 0.15 8.01 ± 1.36 6.25 ± 4.81 Cellina-GAT 0.85 ± 0.15 0.52 ± 0.14 8.69 ± 1.45 5.80 ± 4.50 
+
+Cellina node-pert 0.82 ± 0.16 0.47 ± 0.15 9.07 ± 1.86 6.31 ± 4.76 Cellina-GAT node-pert 0.85 ± 0.15 0.51 ± 0.14 8.60 ± 1.43 5.86 ± 4.43 
+
+SpatialProp node-pert 0.69 ± 0.14 0.07 ± 0.07 22.40 ± 3.16 6.94 ± 2.56 
+
+4.4 Cellina captures biologically meaningful within-domain heterogeneity. 
+
+To assess whether Cellina ’s spatial latent s captures biologically meaningful variation, we examine how it differentiates cells within the same domain. We cluster the latent s over CRC cells to discover spatially autocorrelated subdomains [DeTomaso and Yosef, 2021], and select the two most distinct modules (denoted CRC1 and CRC2). In UMAP space, reconstructed Fibroblast counts from CRC1 and CRC2 form clearly separated clusters, and counterfactual Fibroblasts (REF →CRC1/2) integrate well with each respective subdomain (Figure 3(a)). This suggests that s captures meaningful variation across these microenvironments. We confirm this quantitatively: counterfactual predictions conditioned on neighborhoods sampled from the matched subdomain outperform those conditioned on neighborhoods from the global CRC domain, across all five cell types (Figure 3(b)). 
+
+Subdomains recover interpretable signaling programs. To interpret CRC1 and CRC2 biolog-ically, we score their gene modules against PROGENy pathway gene sets [Schubert et al., 2018, Badia-i Mompel et al., 2022], recovering distinct signaling profiles (Figure 3(c)): TGF β-dominant for CRC1 and NF κB/MAPK-dominant for CRC2. These signatures arise without direct supervision and are consistent with the signaling heterogeneity reported by Crowell et al. [2025]. 
+
+Pathway-specific neighbor perturbations recapitulate biologically grounded responses. We next ask whether prior pathway knowledge alone suffices to reproduce these subdomain responses (Figure 3(d)). Encouragingly, performing node perturbations with PROGENy pathway weights as al-teration vectors δg recovers the subdomain effects to a large extent (Pearson r = 0 .77 (TGF β→CRC1) and r = 0 .76 (NF κB→CRC2)). Notably, the two most up-regulated genes predicted by our model (FN1 and MMP3) are consistent with established TGF β/NF κB fibroblast programs: TGF β signalling is a canonical driver of extracellular-matrix production (FN1), while NF κB activation induces matrix-remodelling metalloproteinases (MMP3) - observed hallmarks of cancer-associated fibroblast and immune microenvironments [Crowell et al., 2025]. 
+
+# 5 Discussion and Conclusion 
+
+Foundational models of single cells are scaling rapidly [Bunne et al., 2024], yet most still treat cells as independent samples [Rood et al., 2024]. For such models to succeed, they must predict how a cell behaves as a function of its neighborhood. Previous work has demonstrated compelling instances of modeling tissue counterfactuals: in silico cell-type depletion and swapping via label manipulation, including regulatory T cell modulation relevant to cellular therapy [Akbarnejad et al., 2025]; combinatorial queries on perturbations and covariates in interventional spatial data [Lin et al., 2025]; and gradual microenvironment steering, paired with causal analyses linking perturbation predictions to downstream response [Sun et al., 2025]. Our formalization of tissue counterfactuals unifies these instances, providing the single-cell genomics community a common language for 8Figure 3: Cellina identifies spatial subdomains and enables pathway-specific perturbations in CRC. (a) UMAP of Cellina -generated Fibroblast counts; counterfactual cells (CRC1 CF, CRC2 CF) integrate with their respective observed CRC subdomain populations. ( b) Spearman ρ for Cellina -predicted counterfactuals across cell types, comparing global (pre-annotated) CRC neighborhoods versus Cellina -identified subdomains. ( c) Inferred pathway activity scores in each CRC subdomain, revealing distinct signaling programs (e.g., elevated TGF β in CRC1; strong MAPK/NF κB in CRC2). (d) Top-50 most affected genes according to log-fold changes in predicted Fibroblast expression under domain-matched pathway perturbations ( x-axis: CRC1; y-axis: CRC2). building and evaluating models that predict how cells respond to altered neighborhoods. While such counterfactuals remain generative hypotheses requiring wet-lab validation, they hold the promise of querying virtual cell responses, not in isolation but in context, and reducing the experimental search space. Spatial neighborhoods are continuous, compositionally heterogeneous contexts, and averaging over coarse labels or shifts ignores the variation within them. Two design choices follow directly from this observation and underpin Cellina ’s performance. First, encoding neighborhoods continuously yields a strong prior even without any supervision: Cellina (ablated) , trained without cell-type or domain labels, already outperforms or matches all non-Cellina baselines. Second, supervised disentanglement adds substantial further gains. Cellina ’s explicit disentanglement additionally enables the discovery of the subdomain structure that can be used to refine pathology annotations and enables pathway-specific neighbor perturbations. Together, these components allow Cellina to consistently surpass all competitors on the most biologically-relevant metrics across both cohorts. Cellina itself is a relatively simple model: its design choices are biologically motivated rather than architecturally complex. 
+
+Cellina-GAT , a more expressive architecture, performs largely on par with Cellina across metrics. This near-parity, despite GAT’s considerably higher computational cost, reinforces that Cellina ’s simpler pre-aggregated neighborhood encoder already captures the relevant microenvironmental structure. This is consistent with a broader pattern in single-cell perturbation modeling, where simpler approaches often match more complex ones [Ahlmann-Eltze et al., 2025, Viñas Torné et al., 2025]. 9Limitations and future directions. 
+
+Cellina ’s supervised disentanglement objectives rely on cell-type and spatial-domain annotations, themselves simplifications of continuous biology, which bounds how well the spatial latent s can reflect neighborhood variation. The underlying imaging-based spatial transcriptomics data also depend on cell segmentation, which remains error-prone: transcripts are frequently misassigned across cell boundaries and can dominate downstream niche and neighbor-influence analysis [Mitchel et al., 2026]. Future methods that integrate raw imaging signal alongside segmented counts could denoise both the expression signal and the counterfactuals derived from it. Moreover, we interpret counterfactuals operationally, as simulated outcomes under altered inputs and contexts, rather than in the strict Pearlian sense, which presupposes a fully specified structural causal model. Cellina ’s latent decomposition is compatible with this interpretation. It does not yet impose the structural assumptions [Khemakhem et al., 2020, Lachapelle et al., 2022] required for identifiability, but its architecture could be extended to incorporate them in future work – for instance, by combining it with sparse mechanism priors [Lachapelle et al., 2022, Lopez et al., 2023]. Finally, emerging spatial perturbation screens [Dhainaut et al., 2022, Breinig et al., 2026], though currently limited in scale and resolution, are beginning to provide spatially resolved interventional readouts that could ground these predictions empirically. 
+
+# Acknowledgments and Disclosure of Funding 
+
+The authors’ work is supported through state funds approved by the State Parliament of Baden-Württemberg for the Innovation Campus Health + Life Science alliance Heidelberg Mannheim, the Data Science Collaborative Research Programme 2022 by the Novo Nordisk Foundation (grant NNF22OC0076414), the Priority Program Translational Oncology of the Deutsche Krebshilfe (grant number 70115167), the Helmholtz Association under the joint research school “HIDSS4Health – Helmholtz Information and Data Science School for Health.”, and the European Research Council (Synergy Grant DECODE 810296). We also thank Philipp Sven Lars Schaeffer, Ahmet Rifaioglu, Elyas Heidari, Rama Abdulhamid, Ricardo Ramirez Flores, and Julio Saez-Rodriguez for their feedback. 
+
+# Code Availability 
+
+Cellina is available at https://github.com/PMBio/cellina . Scripts and configurations required to download all data and reproduce the experiments presented in this work are available at https: //github.com/PMBio/cellina-reproducibility . We provide tutorials for Cellina and Cellina-GAT , here: https://cellina.readthedocs.io/ .10 References 
+
+Constantin Ahlmann-Eltze, Wolfgang Huber, and Simon Anders. Deep-learning-based gene pertur-bation effect prediction does not yet outperform simple linear baselines. Nature Methods , 22(8): 1657–1661, 2025. Amir Akbarnejad, Lloyd Steele, Daniyal J Jafree, Sebastian Birk, Marta Rosa Sallese, Koen Rade-maker, Adam Boxall, Benjamin Rumney, Catherine Tudor, Minal Patel, et al. Mapping and reprogramming human tissue microenvironments with mintflow. bioRxiv , 2025. Erick Armingol, Adam Officer, Olivier Harismendy, and Nathan E Lewis. Deciphering cell–cell interactions and communication from gene expression. Nature Reviews Genetics , 22(2):71–88, 2021. Pau Badia-i Mompel, Jesús Vélez Santiago, Jana Braunger, Celina Geiss, Daniel Dimitrov, Sophia Müller-Dott, Petr Taus, Aurelien Dugourd, Christian H Holland, Ricardo O Ramirez Flores, et al. decoupler: ensemble of computational methods to infer biological activities from omics data. 
+
+Bioinformatics advances , 2(1):vbac016, 2022. Mohit Bajaj, Lingyang Chu, Zi Yu Xue, Jian Pei, Lanjun Wang, Peter Cho-Ho Lam, and Yong Zhang. Robust counterfactual explanations on graph neural networks. Advances in neural information processing systems , 34:5644–5655, 2021. Marco Breinig, Artem Lomakin, Elyas Heidari, Michael Ritter, Gleb Rukhovich, Lio Böse, Luise Butthof, Lena Wendler-Link, Hendrik Wiethoff, Tanja Poth, et al. Integrated in vivo combinatorial functional genomics and spatial transcriptomics of tumours to decode genotype-to-phenotype relationships. Nature Biomedical Engineering , 10(1):125–143, 2026. Shaked Brody, Uri Alon, and Eran Yahav. How attentive are graph attention networks? arXiv preprint arXiv:2105.14491 , 2021. Charlotte Bunne, Stefan G Stark, Gabriele Gut, Jacobo Sarabia Del Castillo, Mitch Levesque, Kjong-Van Lehmann, Lucas Pelkmans, Andreas Krause, and Gunnar Rätsch. Learning single-cell perturbation responses using neural optimal transport. Nature methods , 20(11):1759–1768, 2023. Charlotte Bunne, Yusuf Roohani, Yanay Rosen, Ankit Gupta, Xikun Zhang, Marcel Roed, Theo Alexandrov, Mohammed AlQuraishi, Patricia Brennan, Daniel B. Burkhardt, Andrea Califano, Jonah Cool, Abby F. Dernburg, Kirsty Ewing, Emily B. Fox, Matthias Haury, Amy E. Herr, Eric Horvitz, Patrick D. Hsu, Viren Jain, Gregory R. Johnson, Thomas Kalil, David R. Kelley, Shana O. Kelley, Anna Kreshuk, Tim Mitchison, Stephani Otte, Jay Shendure, Nicholas J. Sofroniew, Fabian Theis, Christina V. Theodoris, Srigokul Upadhyayula, Marc Valer, Bo Wang, Eric Xing, Serena Yeung-Levy, Marinka Zitnik, Theofanis Karaletsos, Aviv Regev, Emma Lundberg, Jure Leskovec, and Stephen R. Quake. How to build the virtual cell with artificial intelligence: Priorities and opportunities. Cell , 187(25):7045–7063, 2024. ISSN 0092-8674. doi: 10.1016/j.cell.2024.11.015. URL https://doi.org/10.1016/j.cell.2024.11.015 .Helena L Crowell, Irene Ruano, Zedong Hu, Yourae Hong, Gin Caratù, Hubert Piessevaux, Ash-ley Heck, Rachel Liu, Max Walter, Megan Vandenberg, et al. Tracing colorectal malignancy transformation from cell to tissue scale. bioRxiv , 2025. David DeTomaso and Nir Yosef. Hotspot identifies informative gene modules across modalities of single-cell genomics. Cell systems , 12(5):446–456, 2021. Maxime Dhainaut, Samuel A Rose, Guray Akturk, Aleksandra Wroblewska, Sebastian R Nielsen, Eun Sook Park, Mark Buckup, Vladimir Roudko, Luisanna Pia, Robert Sweeney, et al. Spatial crispr genomics identifies regulators of the tumor microenvironment. Cell , 185(7):1223–1239, 2022. Daniel Dimitrov, Stefan Schrod, Martin Rohbeck, and Oliver Stegle. Interpretation, extrapolation and perturbation of single cells. Nature Reviews Genetics , pages 1–22, 2026. Mingze Dong, David G Su, Harriet Kluger, Rong Fan, and Yuval Kluger. Simvi disentangles intrinsic and spatial-induced cellular states in spatial omics data. Nature Communications , 16(1):2990, 2025. 11 Matthias Fey and Jan Eric Lenssen. Fast graph representation learning with pytorch geometric. arXiv preprint arXiv:1903.02428 , 2019. David S Fischer, Anna C Schaar, and Fabian J Theis. Modeling intercellular communication in tissues using spatial graphs of cells. Nature Biotechnology , 41(3):332–336, 2023. Boyang Fu, George Dasoulas, Sameer Gabbita, Xiang Lin, Shanghua Gao, Xiaorui Su, Soumya Ghosh, and Marinka Zitnik. Strand: Sequence-conditioned transport for single-cell perturbations. 
+
+arXiv preprint arXiv:2602.10156 , 2026. Aviv Gabbay and Yedid Hoshen. Demystifying inter-class disentanglement. arXiv preprint arXiv:1906.11796 , 2019. Adam Gayoso, Romain Lopez, Galen Xing, Pierre Boyeau, Valeh Valiollah Pour Amiri, Justin Hong, Katherine Wu, Michael Jayasuriya, Edouard Mehlman, Maxime Langevin, et al. A python library for probabilistic analysis of single-cell omics data. Nature biotechnology , 40(2):163–166, 2022. Ian J Goodfellow, Jean Pouget-Abadie, Mehdi Mirza, Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron Courville, and Yoshua Bengio. Generative adversarial nets. Advances in neural information processing systems , 27, 2014. Mahshid Heidari, Mina Karimpour, Sumana Srivatsa, and Hesam Montazeri. Evaluating single-cell perturbation response models is far from straightforward. bioRxiv , 2026. Leon Hetzel, Simon Boehm, Niki Kilbertus, Stephan Günnemann, Mohammad Lotfollahi, and Fabian Theis. Predicting cellular responses to novel drug perturbations at a single-cell reso-lution. In S. Koyejo, S. Mohamed, A. Agarwal, D. Belgrave, K. Cho, and A. Oh, editors, 
+
+Advances in Neural Information Processing Systems , volume 35, pages 26711–26722. Curran As-sociates, Inc., 2022. URL https://proceedings.neurips.cc/paper_files/paper/2022/ file/aa933b5abc1be30baece1d230ec575a7-Paper-Conference.pdf .Ilyes Khemakhem, Diederik Kingma, Ricardo Monti, and Aapo Hyvarinen. Variational autoencoders and nonlinear ica: A unifying framework. In International conference on artificial intelligence and statistics , pages 2207–2217. PMLR, 2020. Prannay Khosla, Piotr Teterwak, Chen Wang, Aaron Sarna, Yonglong Tian, Phillip Isola, Aaron Maschinot, Ce Liu, and Dilip Krishnan. Supervised contrastive learning. CoRR , abs/2004.11362, 2020. URL https://arxiv.org/abs/2004.11362 .Diederik P Kingma and Max Welling. Auto-encoding variational bayes. arXiv preprint arXiv:1312.6114 , 2013. Thomas N Kipf and Max Welling. Variational graph auto-encoders. arXiv preprint arXiv:1611.07308 ,2016. Dominik Klein, Jonas Simon Fleck, Daniil Bobrovskiy, Lea Zimmermann, Sören Becker, Alessandro Palma, Leander Dony, Alejandro Tejada-Lapuerta, Guillaume Huguet, Hsiu-Chuan Lin, et al. Cellflow enables generative single-cell phenotype modeling with flow matching. bioRxiv , 2025. Sébastien Lachapelle, Pau Rodriguez, Yash Sharma, Katie E Everett, Rémi Le Priol, Alexandre Lacoste, and Simon Lacoste-Julien. Disentanglement via mechanism sparsity regularization: A new principle for nonlinear ica. In Conference on Causal Learning and Reasoning , pages 428–484. PMLR, 2022. Nathan Levy, Florian Ingelfinger, Artemii Bakulin, Giacomo Cinnirella, Pierre Boyeau, Boaz Nadler, Can Ergen, and Nir Yosef. scviva: a probabilistic framework for representation of cells and their environments in spatial transcriptomics. bioRxiv , 2025. Xiang Lin, Zhenglun Kong, Soumya Ghosh, Manolis Kellis, and Marinka Zitnik. Concert predicts niche-aware perturbation responses in spatial transcriptomics. bioRxiv , 2025. Francesco Locatello, Stefan Bauer, Mario Lucic, Gunnar Raetsch, Sylvain Gelly, Bernhard Schölkopf, and Olivier Bachem. Challenging common assumptions in the unsupervised learning of disentan-gled representations. In international conference on machine learning , pages 4114–4124. PMLR, 2019. 12 Romain Lopez, Jeffrey Regier, Michael B Cole, Michael I Jordan, and Nir Yosef. Deep generative modeling for single-cell transcriptomics. Nature methods , 15(12):1053–1058, 2018. Romain Lopez, Natasa Tagasovska, Stephen Ra, Kyunghyun Cho, Jonathan Pritchard, and Aviv Regev. Learning causal representations of single cells via sparse mechanism shift modeling. In 
+
+Conference on Causal Learning and Reasoning , pages 662–691. PMLR, 2023. Mohammad Lotfollahi, F Alexander Wolf, and Fabian J Theis. scgen predicts single-cell perturbation responses. Nature methods , 16(8):715–721, 2019. Mohammad Lotfollahi, Anna Klimovskaia Susmelj, Carlo De Donno, Leon Hetzel, Yuge Ji, Ignacio L Ibarra, Sanjay R Srivatsan, Mohsen Naghipourfar, Riza M Daza, Beth Martin, et al. Predicting cellular responses to complex perturbations in high-throughput screens. Molecular systems biology ,19(6):MSB202211517, 2023. Ana Lucic, Maartje A Ter Hoeve, Gabriele Tolomei, Maarten De Rijke, and Fabrizio Silvestri. Cf-gnnexplainer: Counterfactual explanations for graph neural networks. In International conference on artificial intelligence and statistics , pages 4499–4511. PMLR, 2022. Malte D. Luecken, M. Büttner, K. Chaichoompu, A. Danese, M. Interlandi, M. F. Mueller, D. C. Strobl, L. Zappia, M. Dugas, M. Colomé-Tatché, and Fabian J. Theis. Benchmarking atlas-level data integration in single-cell genomics. Nature Methods , 19(1):41–50, 2022. ISSN 1548-7105. doi: 10.1038/s41592-021-01336-8. URL https://doi.org/10.1038/s41592-021-01336-8 .Jing Ma, Ruocheng Guo, Saumitra Mishra, Aidong Zhang, and Jundong Li. Clear: Generative counterfactual explanations on graphs. Advances in neural information processing systems , 35: 25895–25907, 2022. Stathis Megas, Daniel G. Chen, Krzysztof Polanski, Moshe Eliasof, Carola-Bibiane Schönlieb, and Sarah A Teichmann. Estimation of single-cell and tissue perturbation effect in spatial transcrip-tomics via spatial causal disentanglement. In The Thirteenth International Conference on Learning Representations , 2025. URL https://openreview.net/forum?id=Tqdsruwyac .Jonathan Mitchel, Teng Gao, Viktor Petukhov, Eli Cole, and Peter V Kharchenko. Impact and correction of segmentation errors in spatial transcriptomics. Nature Genetics , pages 1–11, 2026. Stefan Peidli, Tessa D Green, Ciyue Shen, Torsten Gross, Joseph Min, Samuele Garda, Bo Yuan, Linus J Schumacher, Jake P Taylor-King, Debora S Marks, et al. scperturb: harmonized single-cell perturbation data. Nature Methods , 21(3):531–540, 2024. Zoe Piran, Niv Cohen, Yedid Hoshen, and Mor Nitzan. Disentanglement of single-cell data with biolord. Nature Biotechnology , 42(11):1678–1683, 2024. Jennifer E Rood, Anna Hupalowska, and Aviv Regev. Toward a foundation model of causal cell and tissue biology with a perturbation cell and tissue atlas. Cell , 187(17):4520–4545, 2024. Yusuf H Roohani, Tony J Hua, Po-Yuan Tung, Lexi R Bounds, Feiqiao B Yu, Alexander Dobin, Noam Teyssier, Abhinav Adduri, Alden Woodrow, Brian S Plosky, et al. Virtual cell challenge: Toward a turing test for the virtual cell. Cell , 188(13):3370–3374, 2025. Bernhard Schölkopf, Francesco Locatello, Stefan Bauer, Nan Rosemary Ke, Nal Kalchbrenner, Anirudh Goyal, and Yoshua Bengio. Toward causal representation learning. Proceedings of the IEEE , 109(5):612–634, 2021. Michael Schubert, Bertram Klinger, Martina Klünemann, Anja Sieber, Florian Uhlitz, Sascha Sauer, Mathew J Garnett, Nils Blüthgen, and Julio Saez-Rodriguez. Perturbation-response genes reveal signaling footprints in cancer gene expression. Nature communications , 9(1):20, 2018. Eric D Sun, Alejandro Buendia, Anne Brunet, and James Zou. Spatialprop: tissue perturbation modeling with spatially resolved single-cell transcriptomics. bioRxiv , 2025. 13 Artur Szałata, Andrew Benz, Robrecht Cannoodt, Mauricio Cortes, Jason Fong, Sunil Kuppasani, Richard Lieberman, Tianyu Liu, Javier A. Mas-Rosario, Rico Meinl, Jalil Nourisa, Jared Tumiel, Tin M. Tunjic, Mengbo Wang, Noah Weber, Hongyu Zhao, Benedict Anchang, Fabian J. Theis, Malte D. Luecken, and Daniel B. Burkhardt. Abenchmark for prediction of transcriptomic responses to chemical perturbations across cell types. In A. Globerson, L. Mackey, D. Belgrave, A. Fan, U. Paquet, J. Tomczak, and C. Zhang, editors, Advances in Neural Information Processing Systems , volume 37, pages 20566–20616. Curran Associates, Inc., 2024. doi: 10.52202/079017-0650. URL https://proceedings.neurips.cc/paper_files/paper/2024/file/ 24c4d51f3ef48dd2dbab78243ecb26a1-Paper-Datasets_and_Benchmarks_Track.pdf .Jovan Tanevski, Ricardo Omar Ramirez Flores, Attila Gabor, Denis Schapiro, and Julio Saez-Rodriguez. Explainable multiview framework for dissecting spatial relationships from highly multiplexed data. Genome biology , 23(1):97, 2022. Ramon Viñas Torné, Maciej Wiatrak, Zoe Piran, Shuyang Fan, Liangze Jiang, Sarah A Teichmann, Mor Nitzan, and Maria Brbi´ c. Systema: a framework for evaluating genetic perturbation response prediction beyond systematic variation. Nature Biotechnology , pages 1–10, 2025. F Alexander Wolf, Philipp Angerer, and Fabian J Theis. Scanpy: large-scale single-cell gene expression data analysis. Genome biology , 19(1):15, 2018. Yan Wu, Esther Wershof, Sebastian M Schmon, Marcel Nassar, Bła˙ zej Osi´ nski, Ridvan Eksi, Zichao Yan, Rory Stark, Kun Zhang, and Thore Graepel. Perturbench: Benchmarking machine learning models for cellular perturbation analysis. arXiv preprint arXiv:2408.10609 , 2024. Chenling Xu, Romain Lopez, Edouard Mehlman, Jeffrey Regier, Michael I Jordan, and Nir Yosef. Probabilistic harmonization and annotation of single-cell transcriptomics data with deep generative models. Molecular systems biology , 17(1):MSB20209620, 2021. Meng Zhang, Xingjie Pan, Won Jung, Aaron R Halpern, Stephen W Eichhorn, Zhiyun Lei, Limor Cohen, Kimberly A Smith, Bosiljka Tasic, Zizhen Yao, et al. Molecularly defined and spatially resolved cell atlas of the whole mouse brain. Nature , 624(7991):343–354, 2023. 14 A Evaluation Metrics 
+
+All metrics are computed using library-size–normalized gene expression, with fixed library size 
+
+ℓ0 = 10 4. Let c(obs)  
+
+> g,v
+
+denote the observed raw count of gene g in cell v, and c(pred)  
+
+> g,v
+
+the corresponding model-predicted raw count. We convert both to normalized expression as 
+
+pg,v = cg,v 
+
+P 
+
+> g′
+
+cg′,v 
+
+· ℓ0
+
+We consider perturbation settings where each gene is evaluated between a control and a perturbed condition. The log-fold change (logFC) for gene g is defined as 
+
+logFC g = log( p(pert)  
+
+> g
+
++ 1) − log( p(ctrl)  
+
+> g
+
++ 1) ,
+
+computed either from observed data or from model predictions. For observed data, p(·) 
+
+> g
+
+denotes the empirical mean of normalized expression across cells in the corresponding condition. For model predictions, the model outputs raw counts ˆc(pert)  
+
+> g,v
+
+, which are first normalized and then averaged: 
+
+p(pert)  
+
+> g
+
+= Ev∈pert 
+
+"
+
+ˆc(pert) 
+
+> g,v
+
+P 
+
+> g′
+
+ˆc(pert) 
+
+> g′,v
+
+· ℓ0
+
+#
+
+,
+
+and analogously for the control condition. In all cases, p denotes library-size–normalized gene expression, either computed from observed counts, predicted counts, or model-specific mean parameters (e.g., NB mean for generative models or inverse-transformed outputs for log-normalized models such as scGen). The observed and predicted log-fold change vectors are thus defined as: 
+
+real =
+
+
+
+logFC (obs) 
+
+> g
+
+
+
+> g∈T
+
+, pred =
+
+
+
+logFC (pred) 
+
+> g
+
+
+
+> g∈T
+
+We restrict evaluation to the top differentially expressed genes defined as 
+
+T = arg top 
+
+> n
+
+
+
+logFC (obs) 
+
+> g
+
+
+
+Pearson r: Pearson correlation between observed and predicted log-fold changes across genes i.e. between real and pred .
+
+Spearman ρ: Spearman rank correlation between real and pred .
+
+Signed Precision : This metric represents the sign-coherent overlap of the top-n genes with strongest effects in observed and predicted logFC vectors, where “top-n” is user-specific (50 in our experiments), and sorted according to the largest absolute values. It counts how many features are selected in both top-n sets and have matching signs, then normalizes that count by n, making it sensitive to directionality of logFC of overlapping differentially expressed genes in predicted and observed vectors. 
+
+Precision signed  
+
+> n
+
+(real , pred ) = 1
+
+n
+
+X 
+
+> i∈top real
+> n∩top pred
+> n
+
+1  sign( real i) = sign( pred i)
+
+RMSE (counts) : Root mean squared error between predicted and observed counts on ground-truth differentially expressed (DE) genes 
+
+RMSE( p, ˆp; T ) = 
+
+s 1
+
+|T | 
+
+X
+
+> i∈T
+
+ ˆpi − pi
+
+2
+
+For better readability, we report log 10 (RMSE counts ).
+
+RMSE (log-fold change) : This metric evaluates magnitude differences between predicted and ground truth logFC on a selected set of differentially expressed genes. It computes the root mean squared error (RMSE) between the ground-truth and predicted values restricted to that gene set. 
+
+RMSE LFC (real , pred ; T ) = 
+
+s 1
+
+|T | 
+
+X
+
+> i∈T
+
+ real i − pred i
+
+2
+
+15 E-distance (local) : Energy distance is a widely used distribution-level metric for single-cell data [Peidli et al., 2024], measuring overall distributional difference between X (observed) and Y (pre-dicted) populations. We use a local variant of E-distance proposed in [Heidari et al., 2026], which restricts pairwise comparisons to k-nearest neighborhoods, improving sensitivity to disruptions in gene-gene co-expression patterns that global E-distance may fail to detect. We use k=10 and negated Euclidean distances as the similarity kernel so that higher kernel values correspond to closer cells. Computed as: 
+
+Elocal (X, Y ) = 1
+
+nk 
+
+> n
+
+X
+
+> i=1
+
+" X  
+
+> y′∈N Yk(xi)
+
+∥xi − y′∥ + X  
+
+> x′∈N Xk(yi)
+
+∥yi − x′∥− X  
+
+> x′∈N Xk(xi)
+
+∥xi − x′∥ − X  
+
+> y′∈N Yk(yi)
+
+∥yi − y′∥
+
+#
+
+Unlike the standard E-distance, which captures global distributional discrepancy, this version mea-sures local manifold differences. We follow the procedure outlined in [Fu et al., 2026] of first computing a 50-component PCA map T (.) on the training split and applying it to log-normalized populations Elocal 
+
+ T (X), T (Y ). For robustness and speed, we subsample 200 cells from each population and report mean, standard deviation over 10 iterations. 
+
+# B Data Availability and Pre-processing 
+
+Colorectal Cancer Patient Cohort. We downloaded the processed CRC data [Crowell et al., 2025] as AnnData files from Zenodo (https://zenodo.org/records/15574384). On each slide, we apply a standard feature selection procedure (Seurat-flavor) to subset each slide to the 2000 highly variable genes implemented in scanpy [Wolf et al., 2018]. The original CRC dataset contains eight slides, two of which (slide IDs 110, 222) were not used in our analyses for the following reasons: slide 110 contained sequencing artefacts in the form of major empty patches disrupting neighborhood computations, while slide 222 did not contain any REF cells. For evaluations, we merged fine-grained subtypes (e.g., epithelial subpopulations annotated as Epi1-Epi4) into broad cell type categories. This was important: such subtypes are typically domain-specific, so retaining them would conflate cell type identity with domain (e.g., cancer vs. healthy Epithelial cells). For the disentanglement benchmark, all sections were merged into a single dataset prior to model fitting. For all other evaluations and downstream applications presented in this work, models were instead fit on one section at a time. 
+
+Whole-brain Mouse Cohort. We downloaded the MERFISH whole-brain mouse cohort [Zhang et al., 2023] from the CZI CELLxGENE portal (https://datasets.cellxgene.cziscience.com/93c3bb97-ea05-4ee0-a760-a1508cd04612.h5ad), from which we selected three adjacent coronal slides from the mid-brain (C57BL6J-2.036, C57BL6J-2.039, C57BL6J-2.041). Given the limited number of genes profiled in this dataset, we retained all features without further selection. We further restricted the analysis to three anatomical domains, selected based on (i) their overall abundance, (ii) their consistent representation across the three selected sections, and (iii) the diversity of cell types they contained. Of these, the Thalamus was used as the source domain, while Fiber-Tracts and Isocortex served as target domains. 
+
+Graph Pre-processing (shared). We process each sample independently to compute a spatial neighbor graph using a Gaussian proximity kernel with bandwidth σ = 100 μm, consistent with the physical length scales at which neighboring cells exchange molecular signals [Armingol et al., 2021]: 
+
+Wuv = exp 
+
+
+
+− d(u, v )2
+
+2σ2
+
+
+
+(1) where d(u, v ) is the Euclidean distance between cell centroids. Wuv is set to zero for pairs outside the 
+
+k = 200 nearest neighbors of either cell or when Wuv < τ = 0 .1; self-loops are excluded ( Wvv = 0 ). For Cellina-GAT , we use the same graph with k = 50 and use binary edge weights ( Wuv ∈ { 0, 1}), letting attention learn edge importance during message passing. 16 C Hyperparameters, Architecture, and Running Time Details 
+
+We implement Cellina using the scvi-tools API [Gayoso et al., 2022] – a standard framework in single-cell genomics. Hence we adopt the default hyperparameters and best practices recommended by scvi-tools . To ensure a consistent comparison, all methods are evaluated using their default settings across experiments and whenever possible using count likelihoods. 
+
+Compute Resources. All experiments were conducted on GPU machines with four NVIDIA GeForce RTX 4090, AMD Ryzen Threadripper PRO 7975WX 32-Cores, and 500GB of RAM. We provide training times for competitors and Cellina variants in Figure A6. A single training and inference run of Cellina takes approximately one hour on the CRC slides from [Crowell et al., 2025] and approximately 20 minutes on the mouse brain data from [Zhang et al., 2023]. The counterfactual evaluations reported in Tables 1 and 2 are the most expensive experiments, requiring roughly ten and two days of compute, respectively. The ablation sweeps in the Appendix require three to five days, while the remaining appendix experiments each complete within one day. In total, all reported experiments required approximately two to three weeks of GPU time on the hardware described above. Table A1: Architecture and training hyperparameters. Cellina uses a VAE architecture, with standard defaults for single-cell data, trained with unit loss weights across all regularization terms.                                                                                      
+
+> Component Parameter Cellina Cellina-GAT
+> z-encoder Hidden dim 128 128
+> z-encoder Layers 23
+> z-encoder Latent dim d64 64
+> s-encoder Hidden dim 128 128
+> s-encoder Layers 23
+> s-encoder Latent dim d64 64 Decoder Hidden dim 128 128 Decoder Layers 23Discriminator Hidden dim 32 32 Discriminator Layers 22GNN Convolution —GATv2 Training Batch size 2048 256 Training Max epochs 100 100 Training Learning rate 10 −310 −3
+> Training Weight decay —10 −4
+> Training KL warmup linear, 0→1linear, 0→1
+> Training λclf 11Training λdisc 11Training λspatial 01Spatial graph Bandwidth 100 μm100 μmSpatial graph Kernel Gaussian —Spatial graph Max neighbours 200 50 Spatial graph Cutoff 0.1 —Count Decoding Distribution Negative Binomial Negative Binomial
+
+# D Model Details and Training Objective 
+
+D.1 Generative model 
+
+Cellina is a (graph) variational autoencoder [Kingma and Welling, 2013, Kipf and Welling, 2016] with two latent variables: • z ∈ Rk: intrinsic cell identity, capturing variation independent of spatial context • s ∈ Rk: spatial niche representation, capturing microenvironmental variation The joint generative model is: 
+
+p(x, z, s ) = p(x | z, s ) p(z) p(s)
+
+17 with standard normal priors p(z) = p(s) = Normal (0 , I k).The likelihood used in the evaluations throughout this study is a Negative Binomial (NB) distribution over counts, a standard choice in modeling single-cell data [Lopez et al., 2018, Gayoso et al., 2022], with parameters produced by a decoder operating on [z; s] ∈ R2k:
+
+x ∼ NB( μ, r ), with μ = exp( ℓ) μθ ([ z; s], b ), r = rθ ([ z; s], b )
+
+where b is a one-hot-encoded sequencing batch covariate injected into the decoder, μθ ∈ RG>0,
+
+rθ ∈ RG>0 are learnable per-gene mean and inverse dispersion parameters, and ℓ = log P 
+
+> g
+
+xg is the observed log-library size used to scale the NB rate. The decoder input dimensionality is 2k, reflecting the concatenation of both latent variables. The model supports conditioning on b in both the encoders and the decoder, but all experiments reported in this work use a single batch, so b is fixed and omitted from the main-text notation. 
+
+D.2 Inference model 
+
+Both Cellina variants share the z encoder (an MLP with counts as input); they differ only in how the niche input is constructed and how s is encoded, as detailed below. The approximate posterior factorizes differently per variant: Cellina: q(z, s | x, φ v ) = q(z | x) q(s | φv )
+
+Cellina-GAT: q(z, s | x, Gv ) = q(z | x) q(s | G v )
+
+where Gv = (˜ xv , {˜xu}u∈N (v), Ev ) denotes v’s local subgraph. Both variants share how z is encoded: an MLP parameterizing a diagonal Gaussian over counts, 
+
+q(z | x) = Normal (μz (x, b ), σ 2 
+
+> z
+
+(x, b )) 
+
+Cellina (base). The niche input is the degree-normalized aggregation of log-normalized neighbor expression. Let N (v) = {u : Wuv > 0} and ˜X ∈ RN ×G the matrix of log-normalized counts, where 
+
+˜xu,g = log 
+
+
+
+1 + xu,g 
+
+ℓu
+
+· ℓ0
+
+
+
+, ℓu = X
+
+> g
+
+xu,g , ℓ0 = 10 4,
+
+with ℓu denoting the library size (total counts per cell). Spatial weights are given by a Gaussian proximity kernel as described in equation (1). The niche feature vector is then: 
+
+φ(v) = 
+
+P  
+
+> u∈N (v)
+
+Wuv ˜xu
+
+P  
+
+> u∈N (v)
+
+Wuv 
+
+a simple degree-normalized aggregation of neighbor expression. The s encoder is an MLP: 
+
+q(s | φv ) = Normal (μs(φv , b ), σ 2 
+
+> s
+
+(φv , b )) 
+
+Cellina-GAT. The s encoder is replaced by a graph neural network fs that processes v’s local subgraph (˜ xv , {˜xu}u∈N (v), Ev ) directly, where Ev is the local edge set derived from the same proximity graph W (i.e. Ev = {{ u, v } : Wuv > 0}); edges are binarized ( Wuv ∈ { 0, 1}), so GATv2 receives only the graph topology — attention weights are learned entirely from gene expression. fs is a multi-layer GATv2 [Brody et al., 2021], implemented via pytorch-geometric [Fey and Lenssen, 2019]. Self-loops are excluded: v’s own expression is captured by z; fs aggregates only neighbor contributions. The posterior conditions on the local subgraph: 
+
+q(s | G v ) = Normal  μG 
+
+> s
+
+(Gv ), σ 2  
+
+> sG
+
+(Gv )
+
+where μG 
+
+> s
+
+and σ2  
+
+> sG
+
+are linear projections applied to the seed-node representation after L rounds of message passing. Samples are drawn via the reparameterization trick [Kingma and Welling, 2013]. 18 D.3 Training objective ELBO. The variational lower bound is: 
+
+ELBO = Eq
+
+log p(x | z, s ) − βt
+
+h
+
+KL  q(z | x)∥p(z) + KL  q(s | φv )∥p(s)i
+
+where βt is a KL warmup schedule increasing linearly from 0 to 1 [Gayoso et al., 2022], and for 
+
+Cellina-GAT , we replace φv with Gv . The size of the library is treated as observed ( ℓ = log P 
+
+> g
+
+xg ), so no KL term appears in the library. We minimize the negative ELBO: 
+
+LVAE = −ELBO 
+
+Dual supervised disentanglement on z. Optimizing LVAE alone does not prevent z from absorbing spatial variation. To enforce a meaningful partition, we apply two additional objectives exclusively to 
+
+z.We write ∆K = {p ∈ RK 
+
+> ≥0
+
+: P 
+
+> i
+
+pi = 1 } for the (K −1) -dimensional probability simplex and sg( ·)
+
+for the stop-gradient operator sg .A cell-type classifier fclf : Rk → ∆C is trained jointly to predict the cell-type label y from z:
+
+Lclf = E− log fclf (y | z)
+
+An adversarial domain discriminator fdisc : Rk → ∆D is trained in a two-step alternating procedure. In step 1 (VAE frozen), the discriminator is trained to predict the spatial domain label d from a detached z:
+
+Ldisc = E− log fdisc (d | sg( z)) 
+
+In step 2 (discriminator frozen), the VAE is trained to fool the discriminator by maximizing its entropy, that is, minimizing the negated cross-entropy with weight −1:
+
+Ladv = E− log fdisc (d | z)
+
+In the base Cellina variant, s is unsupervised; Cellina-GAT additionally applies a graph contrastive loss on s.
+
+Spatial contrastive loss for Cellina-GAT . For the Cellina-GAT variant we additionally consider a modified graph-supervised contrastive loss on s. The loss operates on the ℓ2-normalised spatial-latent posterior mean 
+
+ˆsv = μs(v) / ∥μs(v)∥2,
+
+and uses scaled cosine similarity sim τ (v, u ) = ˆ s⊤ 
+
+> v
+
+ˆsu/τ with temperature τ = 0 .25 . For a mini-batch of anchor cells B ⊆ V and an anchor v ∈ B , define 
+
+P(v) = N (v) (positives: spatial neighbors of v)
+
+Q(v) = { u ∈ V : du̸ = dv , u / ∈ N (v) ∪ { v} } (negatives: different-domain non-neighbors) 
+
+A(v) = P(v) ∪ Q (v).
+
+The per-anchor loss is 
+
+ℓSupCon (v) = − 1
+
+|P (v)|
+
+X 
+
+> p∈ P (v)
+
+log exp  sim τ (v, p )X 
+
+> a∈ A (v)
+
+exp  sim τ (v, a ) ,
+
+and the batch-level loss averages over anchors with at least one valid positive and negative, both subsampled from B:
+
+Lspatial = 1
+
+|B ⋆|
+
+X
+
+> v∈B ⋆
+
+ℓSupCon (v), B⋆ = { v ∈ B : P(v)̸ = ∅, Q(v)̸ = ∅ } .
+
+19 This is a variant of SupCon [Khosla et al., 2020], in which positives are induced by the spatial graph 
+
+E rather than by class label, while supervision enters through the negative set via domain labels dv .Treating local neighborhood membership as the positive criterion encodes a biologically-motivated inductive bias - a cell’s relevant microenvironment is its immediate spatial context, not the coarse domain partition. Same-domain non-neighbors are excluded from both sets, avoiding ambiguous supervision from cells whose spatial relationship to the anchor is uninformative. For example, cells at the extremes of the same domain (or tissue region) may be completely unrelated. 
+
+D.4 Loss normalization 
+
+The user-set weights λclf , λdisc , λadv , and λspatial (Table A1) control the relative importance of each auxiliary objective but do not account for the inherent scale differences between the reconstruction loss and the auxiliary terms. To prevent any auxiliary objective from dominating training, we additionally compute fixed normalization scales α from the raw loss values observed during the first training epoch: 
+
+αclf = |L VAE ||L clf | + ϵ , αadv = |L VAE ||L adv | + ϵ , αdisc = |L VAE ||L disc | + ϵ , αspatial = |L VAE ||L spatial | + ϵ
+
+where overbars denote epoch-0 means and ϵ =1e-8. These scales are fixed after the first epoch. The full training objective in step 2 is then: 
+
+L = LVAE + λclf αclf Lclf + λspatial αspatial Lspatial − λadv αadv Ladv 
+
+minimized over encoder and decoder parameters, with the discriminator frozen. Ablation studies in Supplementary E show that this normalization substantially reduces sensitivity to the choice of λclf ,
+
+λdisc , and λspatial , with unit weights, used throughout our work, providing a robust default. 
+
+D.5 Adversarial training procedure 
+
+The two-step alternating training is implemented via PyTorch Lightning’s manual optimization (https://github.com/Lightning-AI/pytorch-lightning ). The VAE optimizer covers all parameters except the discriminator head; the discriminator optimizer covers the discriminator head only. In each training step: 
+
+Step 1. Freeze VAE. Sample z without gradients. Minimize discriminator cross-entropy: 
+
+θdisc ← θdisc − η∇θdisc [λdisc · E[− log fdisc (d | sg( z))]] 
+
+Step 2. Freeze the discriminator. Minimize VAE + classifier + adversarial loss: 
+
+θVAE ← θVAE − η∇θVAE [LVAE + λclf Lclf + λspatial Lspatial − λadv Ladv ]
+
+In step 2, the adversary λ is negated: minimizing −λadv · E[− log fadv (d | z)] is equivalent to maximizing the adversary’s cross-entropy - i.e., encoding z such that the adversary cannot recover d.
+
+# E Ablation: Loss Weight Sensitivity 
+
+We ablated each loss weight independently, sweeping one λ at a time over 
+
+{0, 10 −7, 10 −5, 10 −3, 0.1, 1, 10 , 100 , 10 3} on a single CRC slide, while holding all other 
+
+λ values at 10 −7. We train five random seeds per setting and evaluate on a 10% holdout via macro-F1 from a logistic regression probe (measuring cell-type and spatial-domain information in the respective latents) and marginal log-likelihood (MLL, N = 500 samples). Results are shown in Figure A1. 
+
+Cell-type classifier ( λclf ). As we increase λclf , cell-type F1 on z improves, indicating that the classifier successfully anchors z to cell identity. We also observe a drop in spatial-domain information carried by z, which we take as evidence that the disentanglement is working as intended. Both effects level off around λclf = 1 , and there is only a modest MLL cost for them. 
+
+Domain adversary ( λdisc ). Larger λdisc values push spatial-domain accuracy on z down, showing that the adversary is fulfilling its purpose and stripping domain-level signal from z. We see a small 20 accompanying dip in cell-type F1, which is expected due to the entanglement between cell type composition and spatial domain (i.e. domains are to a certain extent defined by their cell type composition). Again, the effect saturates near λdisc = 1 , and higher lambdas come at high cost in MLL. 
+
+Domain classifier on s (λdomain _clf ). We also experimented with a supervised domain-classification loss on s, but it did not improve spatial-domain F1 from s and introduced a small MLL penalty at 
+
+λ = 1 . We therefore drop this term from Cellina and leave s entirely unsupervised in the base variant. 
+
+Graph contrastive loss ( λspatial , Cellina-GAT only). The modified contrastive loss described above raises spatial-domain F1 from s and gives a slight MLL improvement, which we view as evidence that it provides a useful inductive bias for Cellina’s GAT variant. Taken together, MLL stays largely flat around λ = 1 and only degrades for substantially larger values, which suggests that our normalization scheme (Appendix D.4) gives a robust default at unit weights and removes the need for per-dataset tuning. As such, for all experiments reported in this paper, we set λ = 1 , and thus omit it from the loss definition in the main text. 
+
+# F Related Methods 
+
+scVI [Lopez et al., 2018] is a conditional VAE for single-cell RNA-seq data. It models raw counts with a negative binomial (or zero-inflated negative binomial) likelihood, decomposing each cell’s expression into a low-dimensional latent representation and a separately inferred library-size factor. Batch effects (and other covariates) are mitigated by conditioning the encoder and decoder on the corresponding labels, typically encoded as one-hot vectors. scVI is a default choice for dimensionality reduction, and its code base has since been expanded into scvi-tools [Gayoso et al., 2022], a probabilistic modeling framework for single-cell omics; several of the related methods in this section, as well as Cellina , are built on scvi-tools. 
+
+scANVI [Xu et al., 2021] is a semi-supervised extension of scVI in which the latent space is structured by cell-type identity. On top of scVI’s per-cell latent representation, scANVI introduces a second, label-conditional latent variable and a classifier that predicts the cell-type label from scVI’s latent. During training, labeled cells contribute an additional cross-entropy term, resulting in an explicitly supervised latent. scANVI is widely used for cell-type label transfer, particularly when annotating a query dataset against a labeled reference. 
+
+scGen [Lotfollahi et al., 2019] is a VAE that predicts perturbation responses via latent-space arith-metics. The model is trained to reconstruct normalized gene expression profiles through a low-dimensional latent space; the effect of a perturbation is then summarized by a difference vector δ,calculated as the difference between the mean latent representations of perturbed and unperturbed training cells. To predict the response of an unseen (test) cell-type population, δ is added to the latent representation of each unperturbed test cell, and the resulting vector is decoded back to gene expression space. For the two largest slides (120 and 210), scGen’s predict functions failed with internal errors which resolved when training on subsets of the slides; we therefore sub-sampled the data for scGen to 30% in these slides. 
+
+CPA [Lotfollahi et al., 2023] models single-cell gene expression as additive compositions of disen-tangled latent factors: a basal cell state plus separate embeddings for each perturbation and covariate (e.g., cell type, drug). Only the basal state is produced by the encoder; perturbation and covariate embeddings are learned per label (or dosage) and added before decoding. Disentanglement is enforced adversarially: auxiliary classifiers are trained to recover the labels from the basal embedding, and the encoder is penalized whenever they succeed. 
+
+scVIVA [Levy et al., 2025] is a VAE-based model designed for spatial transcriptomics data. It learns a shared embedding that captures both intrinsic cell state and microenvironment context. To effectively add spatial information in the latent embedding, scVIVA predicts niche gene expression and neighbor composition (proportion of each cell type in a given neighborhood) in addition to denoised gene expression of query cells. It has no mechanism for disentanglement and cannot answer counterfactual questions. 
+
+SIMVI [Dong et al., 2025] is a spatially-informed VAE that disentangles gene expression variability into two latent factors: an intrinsic variable z and a spatial variable s. The spatial latent s is inferred 21 by aggregating intrinsic representations of neighboring cells via a Graph Attention Network. To promote independence between z and s, SIMVI uses an additional unsupervised regularization: an MMD-based term that promotes independence between (z, s ) or, alternatively, a mutual-information penalty. We excluded SIMVI from our counterfactual benchmarks because it exceeds available memory at 10 5 cells on an NVIDIA GeForce RTX 4090 (24 GB VRAM) in our scalability tests (Figure A6), well below our slide N sizes, and does not natively support counterfactual donor-swap or neighbor-feature interventions. 
+
+MintFlow [Akbarnejad et al., 2025] is a flow-matching-based generative model with an underly-ing graphVAE-style encoding and count-specific decoding that disentangles single-cell gene ex-pression into intrinsic and microenvironment-induced components. It learns three latent variables per cell (an intrinsic state and incoming/outgoing spatial signals). MintFlow supports in-domain counterfactual queries via in silico perturbation of the tissue (e.g., relabeling or deleting cells and re-sampling from the generative model), but cannot extrapolate to cell types or contexts unseen during training. Consequently, we provide MintFlow with all cells, including those held out for other methods during training, giving it a strictly in-domain evaluation setting that constitutes an advantage over the other benchmarked approaches. Because MintFlow does not natively support edge swapping of neighbors, we adapted its inference procedure to align it as closely as possible with Cellina : for each target cell, we replace its gene expression vector with that of a randomly se-lected control cell of the same cell type and then call generate_insilico_ST_data() to produce counterfactual counts (matching Cellina ’s sampling procedure). We note that certain trained models raised an internal memory error ( Expected parameter rate to satisfy the constraint GreaterThan(lower_bound=0.0) ) at arbitrary checkpoints; in these cases, we evaluated on the last stable checkpoint preceding the error. 
+
+SpatialProp [Sun et al., 2025] is a graph neural network model that predicts how perturbations to neighboring cells propagate to a center cell by inferring its gene expression from masked k-hop (2-hop by default) neighborhood graphs. SpatialProp is tailored to in-domain predictions, and its SparseRenorm post-processing calibrates predictions using an empirical error distribution derived from unperturbed (in-distribution) base predictions, which we omit for out-of-distribution perturbation evaluated in this work. Like Cellina, SpatialProp provides functionality to predict downstream effects of perturbations on the spatial microenvironment, enabling direct comparison in neighbor node perturbation setting, via adaptation of this vignette: https://github.com/ abuendia/spatial-prop/blob/main/notebooks/api_demo.ipynb .
+
+Concert [Lin et al., 2025] predicts spatially-resolved perturbation responses by disentangling spot-level expression into learnable embeddings for basal cell state and perturbation or covariate identities, following the LORD framework [Gabbay and Hoshen, 2019, Piran et al., 2024]. Perturbation effects are propagated across the tissue via Gaussian process priors with perturbation-specific Cauchy kernels. Unlike Cellina, Concert simulates perturbations by swapping embeddings for categorical attributes (e.g., perturbation identity, disease state) or interpolating learned projections of continuous attributes (e.g., time, dose), rather than perturbing the continuous neighborhood of seed cells. 
+
+Celcomen [Megas et al., 2025] is a generative graph neural network model that disentangles intra-and inter-cellular gene regulation in spatial transcriptomics via a maximum-entropy formulation. The model’s parameters are guaranteed to yield identifiability for the gene-gene interaction matrices. It consists of an inference module that learns intra- and inter-cellular gene-gene interaction matrices (under an acyclic regulatory assumption), and a generative simulation module that produces coun-terfactual spatial samples by intervening on selected nodes (e.g., gene knockouts in specific tissue locations). As such, unlike Cellina , Celcomen targets in silico gene-level perturbations rather than perturbations directly on tissue graphs. 
+
+Additional notes. All competing methods are evaluated using their default parameters under the same protocol as Cellina (Section 4.2): identical leave-one-cell-type-out splits and donor pool construction, except for MintFlow as described in Section F where no cells are held-out. Each method receives the input modalities its formulation supports: scGen and CPA are given only cell expression and domain labels, as in their original formulations, and are not provided neighbor composition features. SpatialProp, which does take spatial neighborhoods as input, is evaluated in node perturbation task: a partial neighbor-node perturbation restricted to the top 200 genes, matching the setting used for 
+
+Cellina node-pert is applied at inference. 22 G Extended Results 
+
+Extended Metrics for Cell-Type Leave-One-Out Evaluation. Here, we discuss results at the cell-type level for CRC and Merfish datasets across an extended list of metrics. As a reminder, for the colorectal cancer data, we design our experiments around the counterfactual query of predicting the effect of the cancer region on healthy cells (REF → CRC). We employ a leave-one-celltype-out strategy for a comprehensive evaluation of models across samples from six patients. In CRC, Cellina 
+
+consistently achieves the best performance across all held-out cell types on Pearson and Spearman 
+
+ρ, with the exception of Epithelial, where MintFlow is competitive, likely because this is the most abundant cell type, and MintFlow observes it during training. On Signed Precision and RMSE LFC ,
+
+Cellina ’s variants demonstrate a clear advantage over all competing methods across all cell types. RMSE counts and E-distance yield more uniform results across methods, though MintFlow performs slightly worse (Figure A2). All models including Cellina -variants had their best performance for Endothelial cells. To further assess whether Cellina ’s advantage over competitors generalizes to other datasets, we repeat the same evaluation strategy on a whole mouse brain dataset (3 slides chosen, most abundant cell types). We use Thalamus as the control region, while Fiber-tracts and Isocortex are held-out. Both settings are discussed in the main text. Similar results are seen on the MERFISH mouse brain data (Figures A3 and A4), suggesting that Cellina maintains the highest scores in correlation metrics of log-fold changes (as measured by Spearman and Pearson) as well as Signed Precision and RMSE LFC , while remaining competitive in distributional metrics ( RMSE counts 
+
+and E-distance). 
+
+Biological Application. We apply Cellina to the CRC 210 tissue section in-domain, then extract the spatial latent representations s for all cells and run Hotspot [DeTomaso and Yosef, 2021] on the tumour sub-population to identify co-expressed gene modules. These modules are subsequently used to label spatially coherent tumour microenvironments, with module-level pathway activity scored against PROGENy [Schubert et al., 2018] gene sets via decoupler [Badia-i Mompel et al., 2022] to assign biological identities to each microenvironment. To probe how cellular context shapes gene expression, we then apply neighbourhood perturbations and edge-swapping counterfactuals per cell type, both globally across the tumor and within individual microenvironments, evaluating predictions against observed differential expression. 
+
+# H Disentanglement Benchmark 
+
+One of our core claims in this work is that supervised disentanglement improves counterfactual inference on graph-structured data. To demonstrate that Cellina ’s latent factors z and s accordingly absorb cell type and spatial domain information, respectively, we use the single-cell integration benchmark (scIB) package [Luecken et al., 2022] – a comprehensive benchmarking tool for latent factors of single-cell data. Given a categorical label, such as cell type, scIB assigns an aggregate "Bio Conservation" score summarizing multiple clustering metrics such as K-means Normalized Mutual Information (NMI), K-means Adjusted Rand Index (ARI) and Silhouette score. We use the CRC cohort to assess both cell type and spatial domain (niche) conservation (Figure A5). As points of comparison, we take standard single-cell methods such as scVI [Lopez et al., 2018], scANVI [Xu et al., 2021] and scVIVA [Levy et al., 2025] (details in F). Additionally, we compare to MintFlow [Akbarnejad et al., 2025] and SIMVI [Dong et al., 2025], which are designed for disentanglement of spatial and non-spatial variation in single-cells. Each model is trained once on the entirety of CRC data (all six slides together) and aggregate scores for each label are reported on the training set, except for SIMVI, which does not scale to millions of cells (see Section 4 and Appendix F). For SIMVI, we take coherent regions of two slides (231, 242) containing all 3 domain labels, for a total of 40K cells. As SIMVI is evaluated on a smaller and distinct subset, this comparison is not directly controlled; we include it as the best available evidence given its scalability constraints. We observe that not only do 
+
+Cellina ’s latent z and s encode the desired source of variation, but they also adequately remove the nuisance sources of variation – i.e., z scoring low on niche conservation while s scoring low on cell type clustering. The advantage over SIMVI and MintFlow is particularly notable as all three methods are spatially-informed models designed for exactly this task. This suggests that Cellina ’s explicitly supervised disentanglement adds notable benefits in each latent space as opposed to the implicit or unsupervised disentanglement strategies adopted by MintFlow and SIMVI, respectively. 23 I Scalability Benchmark 
+
+Training models on emerging spatial datasets which capture millions of cells can incur major costs in user wall-clock time. It is therefore important that models are not only relatively quick to train, but also able to scale as the number of cells increases. We assess the scalability of all models shown in this work and report findings on three CRC slides (221, 242, 232) with subsampling to 10 3, 10 4 and 
+
+10 5 cells (Figure A6). For a fair comparison, we set the same batch size and number of epochs for each model and only compare the train loop (without pre-processing workloads). Cellina comes out as one of the fastest-to-train models in the benchmark suite, owing to the efficient pseudobulk-based 
+
+φ(v) computed a priori, omitting the expensive message passing from model training over graphs. Training then proceeds with the same complexity as standard scVI with no graph-structure overhead at training time. This contrasts with GAT-based methods (including Cellina-GAT , MintFlow, and SIMVI) that require subgraph sampling during training. All methods were trained and evaluated on the same GPU machine with NVIDIA GeForce RTX 4090 GPUs, AMD Ryzen Threadripper PRO 7975WX 32-Cores, and 500GB of RAM. 
+
+# J Empirical convergence of node perturbation toward edge perturbation 
+
+Recall that node perturbation modifies a subset S of k genes per neighbor cell. In our experiments, we alter the genes of neighbors in source domains by the log fold-change (logFC) shift δ, representing the average difference between pseudobulked cell populations. Concretely, δ is added to the log-normalized count ˜xu,g of each neighbor u, i.e. ˜xcf  
+
+> u,g
+
+= ˜ xu,g + δu,g for g ∈ S. Specifically, we calculate a global and a cell-type-specific δ. Let ℓ0 = 10 4 denote the target library size, Cd the set of cells in domain d ∈ { REF , CRC }, Cdy ⊆ C d its restriction to cell type y, and xi,g the raw count of gene g in cell i.• Global. Pseudobulk across all cells per domain, bdg = P 
+
+> i∈C d
+
+xi,g , library-normalize, and log-transform: ˜bdg = log 
+
+
+
+1 + ℓ0 bdg / P 
+
+> g′
+
+bdg′
+
+
+
+. The global shift is δg = ˜b CRC  
+
+> g
+
+− ˜b REF  
+
+> g
+
+.• Cell-type-specific. Pseudobulk within each cell type y and domain, bdy,g = P 
+
+> i∈C dy
+
+xi,g ,library-normalize, and log-transform: ˜bdy,g = log 
+
+
+
+1 + ℓ0 bdy,g / P 
+
+> g′
+
+bdy,g ′
+
+
+
+. The cell-type-specific shift is δy,g = ˜b CRC  
+
+> y,g
+
+− ˜b REF  
+
+> y,g
+
+.Note that Cellina ’s neighborhoods aggregate log1p-normalized expression, while Cellina-GAT 
+
+operates on raw count data. Accordingly, for Cellina the perturbation is an additive shift in log-normalized space ( ˜xcf = ˜ x + δ), whereas for Cellina-GAT the equivalent operation is a multiplicative scaling on counts ( xcf = x · eδ ), obtained by exponentiating the logFC shift. As such, Cellina-GAT 
+
+preserves the gene-specific transformation in counts space Tg : Z≥0 → Z≥0. Also, to preserve a strict counterfactual setting, for the held out cell type y, we assign a global δ\y , which excludes that cell type from the calculation. In our convergence analyses (Figure A7), we tested the performance of Cellina as k approaches the total number of genes of G, i.e. every gene of every neighbor is altered by δ or δg,y , producing a transcriptome-wide shift for all neighborhoods toward the target domain profile. Here, we see that all four metrics improve with k for both logFC variants and saturate by k ≈ 100 –200 , collapsing shortly after (Figure A7). At k = 200 (in-distribution), the cell-type-specific variant consistently outperforms the global one and reaches Pearson r ≈ 0.89 , Signed Precision ≈ 0.56 , energy distance 
+
+≈ 1.05 , and RMSE LFC of 0.66 , compared with the edge perturbation ceiling of 0.95 , 0.69 , 0.50 , and 
+
+0.49 respectively. We assume that this is a biologically-meaningful result: biological perturbations are often assumed to elicit relatively sparse shifts on a few genes, rather than in full expression space [Lopez et al., 2023]. 24 Table A2: Leave-one-celltype-out performance (top 50 DEGs). For each slide we first average over the held-out cell types, then report mean ± std across 3 slides. Best per metric within each block (edge- vs. node-perturbation) in bold . -np refers to node perturbation task. Holdout Method Pearson ↑ Precision signed ↑ E-dist ↓ RMSE LFC ↓
+
+Fiber-tracts Mean shift 0.31 ± 0.26 0.05 ± 0.05 21.32 ± 5.59 11.71 ± 3.64 CPA 0.80 ± 0.15 0.31 ± 0.13 7.25 ± 2.70 7.65 ± 5.81 scGen 0.72 ± 0.20 0.15 ± 0.09 5.28 ± 4.38 7.51 ± 5.14 MintFlow 0.78 ± 0.18 0.21 ± 0.16 19.99 ± 1.49 8.47 ± 6.55 Cellina-ablated 0.77 ± 0.15 0.27 ± 0.15 8.25 ± 3.86 7.93 ± 5.55 Cellina 0.80 ± 0.15 0.37 ± 0.17 8.16 ± 1.46 7.43 ± 5.84 
+
+Cellina-GAT 0.81 ± 0.16 0.39 ± 0.18 8.49 ± 1.87 7.69 ± 6.18 Cellina np 0.80 ± 0.14 0.39 ± 0.18 9.26 ± 1.97 7.46 ± 5.87 Cellina-GAT np 0.81 ± 0.16 0.40 ± 0.18 8.71 ± 1.96 7.59 ± 6.20 SpatialProp np 0.65 ± 0.18 0.07 ± 0.07 22.35 ± 3.99 7.44 ± 3.15 
+
+Isocortex Mean shift 0.54 ± 0.20 0.20 ± 0.14 28.99 ± 3.78 10.25 ± 1.92 CPA 0.84 ± 0.17 0.53 ± 0.14 6.80 ± 1.96 5.16 ± 3.70 scGen 0.82 ± 0.14 0.27 ± 0.16 6.21 ± 5.23 5.54 ± 2.97 MintFlow 0.84 ± 0.16 0.37 ± 0.16 19.17 ± 1.96 6.01 ± 4.26 Cellina-ablated 0.81 ± 0.15 0.46 ± 0.18 9.67 ± 6.75 5.80 ± 3.41 Cellina 0.85 ± 0.17 0.57 ± 0.14 7.87 ± 1.25 5.07 ± 3.78 Cellina-GAT 0.89 ± 0.15 0.65 ± 0.11 8.90 ± 1.04 3.92 ± 2.82 
+
+Cellina np 0.85 ± 0.17 0.54 ± 0.13 8.88 ± 1.75 5.16 ± 3.66 Cellina-GAT np 0.88 ± 0.15 0.61 ± 0.11 8.50 ± 0.90 4.13 ± 2.65 
+
+SpatialProp np 0.74 ± 0.10 0.08 ± 0.07 22.45 ± 2.33 6.43 ± 1.97 25 Figure A1: Lambda sweep ablations. Each panel varies one λ (others set to 10 −7). Top: macro-F1 from logistic regression probes on z (rows 1 and 3) and s (rows 2 and 4) evaluated against cell-type y
+
+and spatial-domain d labels. Bottom: marginal log-likelihood. Lines connect median values; error bars show standard error over five seeds; dots show individual seeds. Overall, we see that unit weights provide a good balance between disentanglement and fit quality. 26 Figure A2: Colorectal cancer per-cell type results with extended metrics for CRC holdout region. Stripped bars with -pert in method names denote evaluation under node perturbation on a subset of features. The mean shift baseline is denoted as ´baseline’. Bar heights indicate mean over slides, error bars indicate standard error of the mean. 27 Figure A3: MERFISH per-cell type results with extended metrics for Isocortex holdout region. Stripped bars with -pert in method names denote evaluation under node perturbation on a subset of features. . The mean shift baseline is denoted as ’baseline’. Bar heights indicate mean over slides, error bars indicate standard error of the mean. 28 Figure A4: MERFISH per-cell type results with extended metrics for Fiber-tracts holdout region. 
+
+-pert denote node perturbation models. The mean shift baseline is denoted as ’baseline’. Bar heights indicate mean over slides, error bars indicate standard error of the mean. 29 Figure A5: scIB disentanglement benchmark across methods. Bio-conservation score is an aggregate measure of clustering with respect to given label (cell type or spatial domain). Cellina shows strong competitive performance on common disentanglement metrics across. 
+
+Figure A6: Training time (wall clock, seconds) vs. dataset size (number of cells) for Cellina and related methods. Cellina is one of the fastest, remaining competitive with scVI and substantially faster than spatial competitors (SIMVI, scVIVA, MintFlow). SpatialProp ’s training time remains stable due to efficient cell-type-based subsampling, while Cellina-GAT ’s explicit message passing adds a computational penalty over Cellina , yet it remains faster than MintFlow. 30 Figure A7: Convergence of node perturbation toward edge perturbation. We sweep over a range of gene sets and evaluate in-distribution node perturbations against the target domain under two choices of the logFC shift δg : a global logFC pooled across all cells (dashed, light), and a 
+
+cell-type-specific δg,y logFC computed within cell-type groups (solid, dark). The maroon dashed line marks the edge perturbation reference, i.e. a complete neighborhood swap, plus sampling from the domain target neighbours. 31

@@ -6,40 +6,56 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-13
-- 运行时间：2026-06-13 21:38:49 UTC
+- 最新运行日期：2026-06-14
+- 运行时间：2026-06-14 21:42:54 UTC
 - 运行状态：成功
-- 本次总论文数：6
-- 精读区：3
-- 速读区：3
+- 本次总论文数：12
+- 精读区：8
+- 速读区：4
 
 ### 今日简报（AI）
-今日聚焦空间组学、医学影像与智能体技能，6篇论文各有突破。  
-最值得精读9.0分的未配对空间多组学对角线整合方法，以及8.0分的脊柱MRI多序列报告生成系统。  
-普通读者可速览Anything2Skill，学习如何将外部知识编译为智能体可复用的技能。
-- 详情：[/202606/13/README](/202606/13/README)
+今日聚焦交互式组织成像分析与弱锚定空间多组学整合，两篇精读文章均获9.0高分。推荐优先关注《A Web-based Software Resource》的复用工具性和《Robust integration》的稳健整合策略。若想快速跟进，可从速读中的反事实查询与纵向多模态学习切入应用场景。
+- 详情：[/202606/14/README](/202606/14/README)
 
 ### 精读区论文标签
-1. [Deciphering cross-omics complexity of tissues via diagonal integration of unpaired spatial multi-omics data](/202606/13/biorxiv-10-64898-2026-06-09-730286-v1-deciphering-cross-omics-complexity-of-tissues-via-diagonal-integration-of-unpaired-spatial-multi-omics-data)  
+1. [A Web-based Software Resource for Interactive Analysis of Multiplex Tissue Imaging Datasets](/202606/14/biorxiv-10-1101-2022-08-18-504436-v3-a-web-based-software-resource-for-interactive-analysis-of-multiplex-tissue-imaging-datasets)  
    标签：评分：9.0/10、query:spatialprot
-   evidence：使用图注意力网络进行非配对空间多组学数据的对角线整合
-2. [A multi-agent system for spine MRI report generation from multi-sequence imaging](/202606/13/2606.08897v1-a-multi-agent-system-for-spine-mri-report-generation-from-multi-sequence-imaging)  
+   evidence：用于多重组织成像（空间蛋白质组学）分析的网络软件
+2. [Robust integration of weakly anchored spatial multi-omics](/202606/14/biorxiv-10-64898-2026-06-10-731246-v1-robust-integration-of-weakly-anchored-spatial-multi-omics)  
+   标签：评分：9.0/10、query:spatialprot
+   evidence：使用组织学图像作为锚点的空间多组学整合，直接相关于空间蛋白组学
+3. [Querying Counterfactuals on Tissue Graphs with Supervised Disentanglement](/202606/14/2606.08493v1-querying-counterfactuals-on-tissue-graphs-with-supervised-disentanglement)  
+   标签：评分：8.0/10、query:spatialprot
+   evidence：组织图反事实推理用于空间邻域上下文分析
+4. [A multi-agent system for spine MRI report generation from multi-sequence imaging](/202606/14/2606.08897v1-a-multi-agent-system-for-spine-mri-report-generation-from-multi-sequence-imaging)  
    标签：评分：8.0/10、query:agent
-   evidence：多智能体框架用于医学报告生成
-3. [Anything2Skill: Compiling External Knowledge into Reusable Skills for Agents](/202606/13/2606.09316v2-anything2skill-compiling-external-knowledge-into-reusable-skills-for-agents)  
+   evidence：用于脊柱MRI报告生成的多智能体框架
+5. [Analyzing and Improving Fine-grained Preference Optimization in Medical LVLMs](/202606/14/2606.12590v1-analyzing-and-improving-fine-grained-preference-optimization-in-medical-lvlms)  
+   标签：评分：8.0/10、query:hmm
+   evidence：医疗大型视觉语言模型的细粒度偏好优化
+6. [ArogyaSutra: A Multi-Agent Framework for Multimodal Medical Reasoning in Indic Languages](/202606/14/2606.13572v1-arogyasutra-a-multi-agent-framework-for-multimodal-medical-reasoning-in-indic-languages)  
    标签：评分：8.0/10、query:agent
-   evidence：将外部知识编译为智能体可复用技能；直接适用于医学智能体框架设计
+   evidence：多智能体医疗推理框架
+7. [AgentBeats: Agentifying Agent Assessment for Openness, Standardization, and Reproducibility](/202606/14/2606.13608v1-agentbeats-agentifying-agent-assessment-for-openness-standardization-and-reproducibility)  
+   标签：评分：8.0/10、query:agent
+   evidence：面向标准化代理评估的无关代理评测接口
+8. [TopoMIL: Topology Improves Multiple Instance Learning in Diagnostic Microscopic Images](/202606/14/biorxiv-10-64898-2026-06-10-731443-v1-topomil-topology-improves-multiple-instance-learning-in-diagnostic-microscopic-images)  
+   标签：评分：8.0/10、query:hmm
+   evidence：组织病理学全切片图像中的拓扑增强多实例学习
 
 ### 速读区论文标签
-1. [Anything2Skill: Compiling External Knowledge into Reusable Skills for Agents](/202606/13/2606.09316v1-anything2skill-compiling-external-knowledge-into-reusable-skills-for-agents)  
-   标签：评分：7.0/10、query:agent
-   evidence：将外部知识编译成可重用技能的智能体框架
-2. [Magnitude-Based Features for Multispecies Spatial Data](/202606/13/2606.11775v1-magnitude-based-features-for-multispecies-spatial-data)  
+1. [Querying Counterfactuals on Tissue Graphs with Supervised Disentanglement](/202606/14/2606.08493v2-querying-counterfactuals-on-tissue-graphs-with-supervised-disentanglement)  
    标签：评分：7.0/10、query:spatialprot
-   evidence：基于幅度的多物种空间数据特征，应用于肿瘤微环境和组织微阵列
-3. [Generalisable tissue-wide molecular reconstruction from histology](/202606/13/biorxiv-10-64898-2026-06-09-731252-v1-generalisable-tissue-wide-molecular-reconstruction-from-histology)  
-   标签：评分：7.0/10、query:spatialprot
-   evidence：从H&E组织学重建空间分子状态，应对稀疏空间分析
+   evidence：监督解耦框架用于组织图反事实分析，可迁移至空间蛋白质组学
+2. [Shift-Dependent Asymmetry: Orthogonal Inverse Low-Rank Adaptation for Federated Medical Segmentation](/202606/14/2606.08687v1-shift-dependent-asymmetry-orthogonal-inverse-low-rank-adaptation-for-federated-medical-segmentation)  
+   标签：评分：6.0/10、query:hmm
+   evidence：医疗影像分割基础模型的联邦微调方法
+3. [LongMoE: Longitudinal Multimodal Learning via Trajectory-Aware Mixture-of-Experts](/202606/14/2606.09907v1-longmoe-longitudinal-multimodal-learning-via-trajectory-aware-mixture-of-experts)  
+   标签：评分：6.0/10、query:hmm
+   evidence：处理不完全模态和纵向动态的多模态临床学习方法
+4. [NaVis: a virtual microscopy framework for interactive histological interrogation of spatial transcriptomics data](/202606/14/biorxiv-10-64898-2026-02-18-706509-v2-navis-a-virtual-microscopy-framework-for-interactive-histological-interrogation-of-spatial-transcriptomics-data)  
+   标签：评分：6.0/10、query:spatialprot
+   evidence：空间转录组可视化框架，支持高分辨率推断，与空间蛋白组学整合相关
 
 
 <div class="dpr-home-promo-card">

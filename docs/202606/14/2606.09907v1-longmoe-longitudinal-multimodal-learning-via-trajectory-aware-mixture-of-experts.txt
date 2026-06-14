@@ -1,0 +1,1153 @@
+Title: LongMoE: Longitudinal Multimodal Learning via Trajectory-Aware Mixture-of-Experts
+
+URL Source: https://arxiv.org/pdf/2606.09907v1
+
+Published Time: Wed, 10 Jun 2026 00:05:20 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+# LONG MOE: Longitudinal Multimodal Learning via Trajectory-Aware Mixture-of-Experts 
+
+Maxx Richard Rahman 
+
+German Research Centre for Artificial Intelligence (DFKI) Saarbrücken, Germany 
+
+maxx_richard.rahman@dfki.de 
+
+Prakhar Kumar 
+
+German Research Centre for Artificial Intelligence (DFKI) Saarbrücken, Germany 
+
+prakhar.kumar@dfki.de 
+
+Wolfgang Maass 
+
+German Research Centre for Artificial Intelligence (DFKI) Saarbrücken, Germany 
+
+wolfgang.maass@dfki.de 
+
+Abstract 
+
+Multimodal clinical learning is increasingly important for integrating diverse patient data, including imaging, text, and personalised health records. However, it faces two fundamental challenges: i) modality missingness, where arbitrary subsets of modalities are unavailable at a given patient visit, ii) longitudinal dynamics, where the diagnostic significance of an observation depends on the patient’s evolving disease trajectory over time. Existing methods address these challenges in isolation: missing-modality frameworks treat each visit as an independent static snapshot and discard temporal context, while longitudinal models often assume complete modality availability and degrade under systematic modality incompleteness. We propose L ONG MOE ( Long itudinal M ixture-o f- Experts), the unified framework to jointly address both challenges. L ONG MOE combines a context-aware imputation module with an attentional tokenization module that captures frequency-domain temporal patterns across irregular visit sequences, a trajectory-aware encoder for modeling disease progression, and context-conditioned Sparse MoE routing for patient-specific expert selection. Experiments on ADNI, OASIS-3, and MIMIC-IV show that L ONG MOE improves robustness under missing or weak contemporane-ous modalities and remains competitive in full-modality settings, establishing a strong foundation for longitudinally-aware multimodal clinical learning. 
+
+1 Introduction 
+
+Multimodal learning has become a fundamental challenge in clinical decision support, where in-tegrating complementary data sources yields richer and more reliable predictions than any single modality alone [ 1 , 2]. In Alzheimer’s disease (AD), this integrative capacity is clinically necessary, i.e., pathology manifests concurrently across structural neuroimaging, functional biomarkers, cogni-tive assessments, and genetic risk profiles, each contributing distinct and partially non-overlapping diagnostic signal [ 4, 5 , 6]. In practice, real-world cohorts exhibit pervasive modality missingness : any given patient visit yields only a subset of the full modality panel due to heterogeneous acquisition protocols, resource constraints, and time-dependent assay availability [ 7, 8 ]. Existing approaches either restrict training to fully observed patients or apply context-free imputation strategies such as zero-padding and global mean substitution [ 9, 10 ]. A compounding difficulty is that AD patients are 
+
+> Preprint.
+> arXiv:2606.09907v1 [cs.LG] 6 Jun 2026
+
+not a homogeneous population, i.e., individuals differ systematically in genetic profiles, comorbidi-ties, and progression rates, so that the relative informativeness of each modality varies substantially across subgroups [ 4 ]. With L modalities, a model should handle up to 2L − 1 distinct observation patterns, each inducing a different information structure over which fusion must be performed. A monolithic fusion network is structurally unsuited to this setting [ 12 ], motivating a Sparse Mixture-of-Experts (SMoE) architecture [ 11 , 43 ] in which a learned router dynamically activates a sparse subset of specialised expert networks conditioned on the observed modality combination, providing modality-pattern-aware and subgroup-aware fusion without the cost of a fully dense model. Alzheimer’s disease is a slowly progressive condition unfolding over years to decades, and the diagnostic significance of any observation is inseparable from its longitudinal context [ 24 , 20 ]. What matters clinically is not the absolute value of a biomarker at a single visit but its position along the patient’s individual trajectory of decline. For example, a moderate hippocampal volume reading carries an entirely different prognostic weight depending on whether it represents a stable plateau or a steep atrophy curve [ 4]. Therefore, the rate and pattern of biomarker change across successive visits is a substantially stronger predictor of disease stage than any cross-sectional measurement [ 24 , 19 ]. GRU-based models [ 38 , 19 ] capture longitudinal dependencies but require complete modality inputs at every visit and fail under structured missingness, while Transformer-based models [ 22 , 23 ] offer greater expressivity but have not been adapted to the joint challenge of irregular visit spacing, arbitrary modality combinations, and population-level heterogeneity. Recent work Flex-MoE [ 7 ] represents the closest prior work, introducing an SMoE framework with a learnable missing-modality bank and a two-stage routing strategy that accommodates arbitrary modality subsets. Nevertheless, Flex-MoE and all concurrent missing-modality methods [8, 17, 16] treat each clinical visit as an independent static snapshot, that means the routing mechanism receives no information about the patient’s prior visits, biomarker history, or evolving modality availability, and is therefore structurally incapable of trajectory-aware fusion. The result is a precise and consequential gap: no existing model jointly addresses modality missingness and longitudinal dynamics . We address this gap with L ONG MOE, whose contributions are as follows: • We propose L ONG MOE, which jointly addresses modality missingness and longitudinal temporal dynamics in clinical multimodal learning. A context-aware imputation module, a trajectory-aware transformer encoder, and a context-conditioned SMoE routing layer together handle arbitrary modality subsets at each visit. • We introduce an attentional tokenization module that fuses modality-level cross-attention with a continuous-time multi-frequency positional encoding, an provably injective tem-poral representation for non-uniformly sampled visit sequences that encodes both slow longitudinal trends and rapid rate changes without assuming uniform visit spacing. • Through experiments on ADNI, OASIS-3, and MIMIC-IV, we show that L ONG MOEoutperforms state-of-the-art baselines across missing or weak contemporaneous modalities. 
+
+2 Related Work 
+
+Missing Modality Handling in Multimodal Learning. Multimodal learning has been extensively studied across vision, language, and healthcare domains [ 1, 2], with AD-specific work confirming that combining imaging, genetic, and clinical data consistently outperforms any single modality [ 20 , 21 ]. Canonical fusion architectures including TF [ 16 ], MulT [ 17 ], and MAG [ 18 ] provide strong baselines but uniformly assume complete modality availability, while global imputation strategies such as zero-padding [31] and learned methods including ShaSpec [10] and mmFormer [9] condition imputation on population statistics rather than individual patient context, limiting effectiveness for rare modality combinations. The most directly relevant prior works are Flex-MoE [ 7 ] and FuseMoE [ 8 ]. Flex-MoE handles arbitrary modality combinations via a learnable missing modality bank and a two-stage SMoE design (G-Router for full-modality; S-Router for incomplete samples). FuseMoE applies dynamic expert input masking for variable modality sets, but both treat each visit as an independent static snapshot, discarding the patient’s historical trajectory entirely. 
+
+Longitudinal Modelling and Mixture-of-Experts. Longitudinal modelling of disease progression has relied on recurrent architectures [ 37 , 38 , 39 ], including the GRU-based multimodal model Lee-MMGRU [ 19 ], which captures temporal dynamics across imaging, clinical, and genetic modalities 2Figure 1: Overview of the L ONG MOE architecture, which processes a patient’s longitudinal visit sequence through four sequential modules: (i) modality-specific embedding, (ii) a modality imputation and tokenization, (iii) a trajectory-aware longitudinal modeling, and (iv) a context-aware MoE routing. in AD but requires complete modality observations at every visit, rendering it unable to exploit partially observed patients. Transformer-based sequence models [ 22 , 23 ] have largely superseded recurrent architectures, with irregular time-series Transformers [ 40 , 41 ] demonstrating that atten-tion accommodates irregular sampling via learned positional encodings. The Mixture-of-Experts paradigm [ 43 , 42 ] has undergone a resurgence through Sparsely-Gated MoE [ 11 ], Switch Trans-formers [ 12 ], and Mixtral [ 13 ]. In the multimodal setting, LiMoE [ 14 ], SM 4 [ 15 ], MMoE [ 33 ], Mod-Squad [ 34 ], DSelect-k [ 36 ], Expert Choice [ 35 ], and sparse vision MoE [ 32 ] advanced expert specialisation and load-balanced routing, but none addresses the intersection of longitudinal sequence modelling and missing modality handling on irregular, partially observed clinical visit sequences. 
+
+3 Preliminaries 
+
+Longitudinal Patient Record. Let a patient’s clinical history be represented as an ordered sequence of T visits, V = {v1, v 2, . . . , v T }, where each visit vt occurs at timestamp τt ∈ R>0. The inter-visit intervals ∆t = τt − τt−1 are irregular and patient-specific, reflecting the non-uniform nature of real-world clinical data collection. 
+
+Multimodal Observations. At each visit vt a subset of L modalities is observed. Let M =
+
+{m1, m 2, . . . , m L} denote the full set of available modalities. For the Alzheimer’s disease progres-sion modeling, these comprise: (i) structural MRI scans xmri  
+
+> t
+
+∈ R512 ×512 , (ii) clinical assessment scores xclin  
+
+> t
+
+∈ R64 , (iii) CSF/biospecimen panels xbio  
+
+> t
+
+∈ Rb, and (iv) genetic assay data xgen  
+
+> t
+
+∈ Rg .In practice, not all modalities are observed at every visit. Any given visit may yield only one or two modalities, making static full-input assumptions unrealistic. Let Ot ∈ { 0, 1}L be a binary observation mask at visit t, where Ot,l = 1 if modality ml is observed and Ot,l = 0 otherwise. Given the full longitudinal record of a patient up to and including the current visit vt, the goal is to predict the diagnostic label yt ∈ Y = {CN , MCI , AD }, where CN denotes cognitively normal, MCI denotes mild cognitive impairment, and AD denotes Alzheimer’s disease. 
+
+4 LongMoE Architecture 
+
+LONG MOE processes longitudinal multimodal patient data through four sequentially composed modules (Figure 1): (i) modality-specific embedding, (ii) a modality imputation and tokenization, 
+
+(iii) a trajectory-aware longitudinal modeling, and (iv) a context-aware MoE routing. 34.1 Modality-Specific Embeddings 
+
+For each modality ml ∈ M we define an encoder ϕl : Xl → Rd, where Xl is the native input space of modality l. Encoder architectures are chosen to match the structural properties of each modality: • MRI (xmri  
+
+> t
+
+∈ R512 ×512 ): A 3D convolutional encoder followed by an MLP projec-tion head captures local volumetric structure and global morphological features emri  
+
+> t
+
+=MLP  Conv3D  xmri 
+
+> t
+
+ ∈ Rd.
+
+• Clinical Scores (xclin  
+
+> t
+
+∈ R64 ), Biomarkers (xbio  
+
+> t
+
+), and Genetic Data (xgen  
+
+> t
+
+): Each is pro-cessed by a modality-specific MLP e(l) 
+
+> t
+
+= MLP l
+
+
+
+x(l)
+
+> t
+
+
+
+∈ Rd, l ∈ { clin , bio , gen }.
+
+• Temporal Embedding : The visit timestamp τt is encoded as a learned temporal embedding 
+
+Etime ∈ Rd, capturing both absolute time and the inter-visit interval ∆t.The per-modality embeddings at visit t are stacked to form Eraw  
+
+> t
+
+= e(1)  
+
+> t
+
+; e(2)  
+
+> t
+
+; . . . ; e(L)
+
+> t
+
+ ∈ RL×d,where rows corresponding to unobserved modalities ( Ot,l = 0 ) are set to zero prior to imputation. All encoders are jointly trained end-to-end with the full model. 
+
+4.2 Modality Imputation and Tokenization Imputation Module. For each missing modality l at visit t (i.e., Ot,l = 0 ) we apply one of two imputation strategies conditioned on the availability of past visit information. 
+
+Past Visit Available ( t > 1 and Ot−1,l = 1 ). We carry forward the most recent observed embed-ding via a replication operation ˆe(l) 
+
+> t
+
+= e(l) 
+
+> t−1
+
+(Duplicate Last Visit Embedding). This strategy is motivated by the clinical observation that biomarker and imaging values exhibit strong short-term autocorrelation, making the last observed value a more informative prior than the global mean. 
+
+No Past Visit Available ( t = 1 or no prior observation exists for modality l). We apply a learned contextual imputation network that conditions on the available modalities at the current visit ˆe(l) 
+
+> t
+
+=MLP imp 
+
+L   
+
+> l′:Ot,l ′=1
+
+e(l′)
+
+> t
+
+
+
+, where L denotes mean-pooling over observed modality embeddings and MLP imp is a shared contextual imputation network with learnable zero-masking, preventing contamination of observed modalities by missing signal. The fully imputed embedding matrix is defined as: 
+
+Eimp  
+
+> t
+
+[l, :] = 
+
+(
+
+e(l) 
+
+> t
+
+if Ot,l = 1 ,
+
+ˆe(l) 
+
+> t
+
+if Ot,l = 0 . (1) 
+
+Tokenization Module. Given Eimp  
+
+> t
+
+, we produce a unified visit-level token zt ∈ Rd via attentional fusion of two complementary representations: a modality embedding and a viscode encoding .
+
+Modality Embedding via Multi-Head Attention. We apply multi-head self-attention over the L modal-ity embeddings At = MultiHead 
+
+
+
+Eimp  
+
+> t
+
+, Eimp  
+
+> t
+
+, Eimp 
+
+> t
+
+
+
+∈ RL×d, where MultiHead( Q, K, V) = Concat(head 1, . . . , head H )WO with each head defined as: 
+
+head h = Softmax QW Qh (KW Kh )⊤
+
+pd/H 
+
+!
+
+VW Vh . (2) This operation learns inter-modality dependencies, enabling, e.g., MRI-derived morphological fea-tures to modulate the interpretation of clinical assessment scores. 
+
+Viscode Encoding via Multi-Frequency Sinusoidal Positional Encoding. To encode the temporal position of each visit in the patient’s longitudinal sequence, we perform a continuous-time multi-frequency sinusoidal encoding that maps each visit’s absolute timestamp τt ∈ R>0 (e.g., months from enrolment) to a fixed-dimensional vector without assuming uniform visit spacing. For F frequency bands with base frequencies ωk = 2 k−1 for k = 1 , . . . , F , the viscode encoding of visit t is: 
+
+vt = MLP viscode ([ sin( ω1 τt), cos( ω1 τt), . . . , sin( ωF τt), cos( ωF τt) ]) ∈ Rd, (3) 4yielding a 2F -dimensional raw encoding that is projected to Rd by the downstream MLP. To see why multiple frequencies are necessary, note that a single sine function is not injective: sin( ωτ ) = 0 
+
+at both τ = 0 and τ = π/ω , so two visits at those months would receive identical encodings. By concatenating F sine-cosine pairs at geometrically spaced frequencies, two visits τ and τ ′ receive the same encoding only if sin( ωkτ ) = sin( ωkτ ′) and cos( ωkτ ) = cos( ωkτ ′) hold simultaneously for all 
+
+k = 1 , . . . , F , which requires ωk(τ − τ ′) ≡ 0 (mod 2 π) for all k. Since τ, τ ′ ∈ Z>0 (integer month indices), 2π is irrational, and the frequencies ωk are chosen to be incommensurable, this collision cannot occur within any clinically plausible range of visit months.The downstream MLP viscode then learns a task-specific projection of these multi-frequency components, enabling the model to weight slow trends (low ωk) versus rapid rate changes (high ωk) adaptively for the downstream classification task. 
+
+Attentional Fusion. The modality embedding ¯At ∈ Rd and viscode encoding vt are fused via elementwise addition zt = ¯At + vt ∈ Rd. This additive fusion preserves gradient flow from both branches and has been shown to be effective in multimodal fusion settings [46]. 
+
+4.3 Trajectory-Aware Longitudinal Modelling 
+
+Given the sequence of visit tokens {zt′ }tt′=1 , we produce a contextualised representation ht ∈ Rd that integrates information across all past visits, capturing the patient’s disease-progression trajectory. We apply a stack of N = 2 identical Transformer encoder blocks to model temporal dependencies across visits. Each block consists of a multi-head self-attention sublayer (with H = 8 heads) followed by a position-wise feed-forward network (FFN), with residual connections and layer normalisation [ 22 ]. To prevent information leakage from future visits, we apply a causal attention mask: position t′ may attend only to positions t′′ ≤ t′. This ensures that the prediction at visit t is conditioned solely on the history {v1, . . . , v t}. The output of the final encoder layer at position t yields ht = z(N ) 
+
+> t
+
+∈ Rd. This embedding encodes not merely the current visit’s observations but a contextualised summary of the patient’s full longitudinal trajectory, providing a rich input to the downstream MoE routing module. 
+
+4.4 Context-Aware MoE Routing Expert Architecture. The MoE layer comprises K = Ki + Ks experts partitioned into two groups: i) Individual Experts {E ind  
+
+> k
+
+}Ki
+
+> k=1
+
+: Specialised sub-networks that capture distinct patient-subpopulation patterns. Each expert is an MLP Eind  
+
+> k
+
+(ht) = MLP k(ht) ∈ R|Y| . ii) Shared Experts 
+
+{E shr  
+
+> k
+
+}Ks
+
+> k=1
+
+: Experts accessible to all inputs that capture population-level common patterns, providing a regularisation effect and preventing over-specialisation. In total the MoE layer contains K = 8 
+
+experts, each producing a 3-class logit vector. 
+
+MoE Router. The router is a two-layer MLP mapping ht to a scoring vector over all K experts 
+
+st = Router( ht) = MLP router (ht) ∈ RK . Expert selection is performed via hard top-1 routing 
+
+k∗ = arg max k∈{ 1,...,K } st,k . The shared experts {E shr  
+
+> k
+
+} are always activated for all inputs, providing a stable common representation. Hard top-1 routing imposes sparsity in expert utilisation, reducing computational cost while encouraging expert specialisation, in contrast to soft routing, which can lead to diffuse utilisation and slower specialisation. The shared expert mechanism ensures that even under hard routing, all patients benefit from a common representational backbone, mitigating the cold-start problem for rare patient subgroups. 
+
+Aggregation over Visits. Let ˆyt = Ek∗ (ht) ∈ R|Y| denote the logit vector produced by the selected expert at visit t. The final prediction is obtained via attentional aggregation: 
+
+ˆy =
+
+> T
+
+X
+
+> t=1
+
+αt ˆyt, αt = exp  st,k ∗
+
+> t
+
+PTt′=1 exp 
+
+
+
+st′,k ∗
+
+> t′
+
+ , (4) where αt weights each visit’s contribution by the router’s confidence, assigning greater influence to visits with more informative or reliable observations. The aggregated logit vector ˆy is passed through a softmax ˆp(y | V ) = Softmax(ˆ y) ∈ ∆|Y|− 1, and the model is trained with the standard cross-entropy loss L = − P 
+
+> c∈Y
+
+⊮[y = c] log ˆ p(c | V ).
+
+5Load-Balancing Regularisation. To prevent router collapse, we augment the training objective with an auxiliary load-balancing loss [ 12 ] Lbal = K ·PKk=1 fk ·Pk, where fk = 1
+
+> |B|
+
+P 
+
+> i∈B
+
+⊮[k∗ 
+
+> i
+
+= k]
+
+is the fraction of inputs in mini-batch B routed to expert k, and Pk = 1
+
+> |B|
+
+P 
+
+> i∈B
+
+si,k is the mean routing score for expert k. The total training objective is Ltotal = L + λ Lbal , where λ > 0 is a regularisation coefficient controlling the trade-off between task performance and expert load balance. 
+
+5 Experiments 
+
+ADNI [ 24 ]. The Alzheimer’s Disease Neuroimaging Initiative comprises of 2,693 patients across CN (1,049; 38.9%), MCI (1,194; 44.3%), and AD (450; 16.7%), with four modalities: MRI/PET via MUSE [ 27 ] registered to MNI space [ 28 ] (2,359; 87.6%); CSF biomarkers (A β40, A β42, total/phospho-Tau, ApoE genotyping), normalised to [−1, 1] with categoricals one-hot encoded (1,611; 59.8%); longitudinal clinical assessments from five source files with label-leaking columns excluded (2,684; 99.7%); and SNP data from phases 1/GO/2/3 harmonised to GRCh38 via LiftOver and LD-pruned (window 50, step 5, r2 < 0.1) (2,226; 82.7%). 
+
+OASIS-3 [ 25 ]. This open-access longitudinal dataset from Washington University comprises of 1,098 participants (aged 42–95) across CN (625; 56.9%), MCI (280; 25.5%), and AD (193; 17.6%), with T1-weighted MRI via FreeSurfer (1,098; 100%), CSF amyloid/tau assays and PET amyloid burden scores (Pittsburgh Compound-B and Florbetapir), CDR/MMSE assessments (1,098; 100%), and ApoE ε4 with select AD-associated SNPs (620; 56.5%). OASIS-3 presents complementary challenges through higher visit spacing irregularity, more severe modality missingness, and a more balanced class distribution; prediction target: y ∈ { CN , MCI , AD }.
+
+MIMIC-IV [ 26 ]. 98,323 adults with at least two hospital visits at Beth Israel Deaconess Medical Center, with four modalities: clinical notes (N) encoded via a pre-trained clinical language model (98,323; 100%); lab values and vitals aggregated over the last visit window (80,802; 82.2%); ICD-9 codes as multi-hot vectors (96,689; 98.3%); and structured demographics, i.e., age, sex, ethnicity, insurance type (98,323; 100%). Binary one-year mortality under severe class imbalance (Survived: 79,266, 80.6%; Died: 19,057, 19.4%) serves as a large-scale stress test for generalisation to a fundamentally different clinical task with distinct modality semantics. 
+
+Baselines. We compare L ONG MOE against five baselines under identical data splits and missing-modality protocols: Flex-MoE [ 7], handling arbitrary modality combinations via a learnable missing modality bank and two-stage SMoE design (G-Router/S-Router), augmented with a mean-pooled preceding-visit summary for longitudinal fairness; FuseMoE [ 8], a concurrent MoE Transformer augmented with a single-layer GRU over per-visit embeddings; TF [ 16 ], computing outer-product tensor interactions with zero-padding for absent modalities and no temporal capacity; MulT [ 17 ], using directional cross-modal attention but designed for language-vision sequences and collapsing under systematic missingness; and Lee-MMGRU [ 19 ], the only baseline with explicit longitudinal modelling via a GRU encoder, but requiring the full modality intersection at every visit and thus unable to exploit partially observed patients. 
+
+Experimental Settings. All models are trained on NVIDIA H100 GPUs (80 GB) with a patient-level stratified 70/15/15 train/validation/test split (all visits of a patient in one partition). L ONG MOEuses d = 128 , a 2-layer Transformer encoder with 8 attention heads, K = 8 MoE experts, and AdamW [ 29 ]. We use F = 8 frequency bands producing a 16-dim raw viscode encoding. To eliminate within-patient temporal leakage we adopt a last-visit evaluation protocol, i.e., each test patient is evaluated on their final recorded visit only, with all strictly preceding visits as historical context for the encoder and imputation module, i.e., mirroring clinical deployment where no future information is available at prediction time. We report AUC-ROC as the primary metric with full results including accuracy and F1 score in Appendix A.8. All experiments use five random seeds and statistical significance is assessed via paired t-test between L ONG MOE and each baseline per modality combination, with p-values Bonferroni-corrected across all 2L − 1 combinations. 6Table 1: Performance comparison on ADNI (AUC-ROC) for all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired 
+
+t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+B 0.5586 ±.0170 0.5220 ±.1096 0.4915 ±.0230 0.5000 ±.0000 0.5000 ±.0000 0.9493 ±.0040 †
+
+C 0.9619 ±.0060 0.9650 ±.0016 0.9647 ±.0012 0.9704 ±.0034 0.5000 ±.0000 0.9750 ±.0027 †
+
+G 0.6067 ±.0193 0.6011 ±.0305 0.6316 ±.0059 0.5000 ±.0000 0.5000 ±.0000 0.9517 ±.0036 †
+
+I 0.5884 ±.0166 0.6632 ±.0199 0.6719 ±.0134 0.5771 ±.0696 0.5000 ±.0000 0.9534 ±.0032 †
+
+B,C 0.9638 ±.0047 0.9573 ±.0048 0.9632 ±.0010 0.9704 ±.0034 0.5000 ±.0000 0.9749 ±.0026 †
+
+B,G 0.6286 ±.0088 0.6293 ±.0426 0.6244 ±.0056 0.5000 ±.0000 0.5000 ±.0000 0.9515 ±.0029 †
+
+C,G 0.9712 ±.0023 0.9490 ±.0043 0.9679 ±.0011 0.9704 ±.0034 0.5000 ±.0000 0.9755 ±.0030 †
+
+I,B 0.5985 ±.0154 0.6645 ±.0233 0.6707 ±.0108 0.5771 ±.0696 0.5000 ±.0000 0.9531 ±.0029 †
+
+I,C 0.9584 ±.0069 0.9526 ±.0045 0.9571 ±.0040 0.9685 ±.0037 0.5000 ±.0000 0.9740 ±.0034 †
+
+I,G 0.6254 ±.0215 0.7043 ±.0271 0.7151 ±.0161 0.5771 ±.0696 0.5000 ±.0000 0.9544 ±.0033 †
+
+B,C,G 0.9712 ±.0018 0.9513 ±.0053 0.9670 ±.0012 0.9704 ±.0034 0.4613 ±.0733 0.9754 ±.0029 †
+
+I,B,C 0.9608 ±.0058 0.9517 ±.0075 0.9549 ±.0036 0.9685 ±.0037 0.5000 ±.0000 0.9739 ±.0033 †
+
+I,B,G 0.6297 ±.0200 0.7060 ±.0245 0.7123 ±.0144 0.5771 ±.0696 0.5000 ±.0000 0.9543 ±.0029 †
+
+I,C,G 0.9665 ±.0027 0.9552 ±.0039 0.9617 ±.0038 0.9685 ±.0037 0.5000 ±.0000 0.9744 ±.0032 †
+
+I,B,C,G 0.9666 ±.0023 0.9535 ±.0065 0.9604 ±.0037 0.9685 ±.0037 0.6546 ±.0859 0.9742 ±.0032 †
+
+Table 2: Performance comparison on OASIS-3 (AUC-ROC) for all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired 
+
+t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+C 0.4913 ±.0010 0.5007 ±.0031 0.4991 ±.0027 0.8776 ±.0031 0.5022 ±.0052 0.8630 ±.0191 
+
+G 0.5040 ±.0114 0.4993 ±.0030 0.5016 ±.0022 0.5264 ±.0470 0.5022 ±.0052 0.7624 ±.0078 †
+
+I 0.5352 ±.0035 0.5313 ±.0017 0.5309 ±.0012 0.6760 ±.0199 0.5022 ±.0052 0.7818 ±.0202 †
+
+C,G 0.6591 ±.0179 0.6722 ±.0062 0.6292 ±.0114 0.8674 ±.0036 0.5022 ±.0052 0.8643 ±.0178 
+
+I,C 0.7589 ±.0083 0.7651 ±.0037 0.7663 ±.0035 0.8568 ±.0111 0.4220 ±.1066 0.8521 ±.0208 
+
+I,G 0.6320 ±.0109 0.6632 ±.0107 0.6388 ±.0156 0.6672 ±.0359 0.5022 ±.0052 0.7767 ±.0130 †
+
+I,C,G 0.7713 ±.0100 0.8030 ±.0062 0.7811 ±.0200 0.8330 ±.0066 0.6564 ±.0827 0.8552 ±.0192 †
+
+6 Results 
+
+Performance Analysis. Tables 1, 2, and 3 report AUC-ROC across all 2L − 1 modality combina-tions; † denotes statistical significance (paired t-test, Bonferroni-corrected, p < 0.05 , five seeds). On ADNI, L ONG MOE achieves the best AUC-ROC across all 15 combinations, with gains exceeding 0.45 in imaging- and genetics-only settings where single-visit baselines collapse (B: 0.9493 vs. Fuse-MoE 0.4915 ; G: 0.9517 vs. 0.6316 ), and maintains a near-flat AUC-ROC range of [0 .9493 , 0.9755] 
+
+including the full-modality setting ( 0.9742 ), reflecting the stability of longitudinal context across the full modality-combination space. On OASIS-3, L ONG MOE leads on four of seven combinations including full-modality (I,C,G: 0.8552 ); Lee-MMGRU leads on clinical-heavy combinations (C: 
+
+0.8776 ; C,G: 0.8674 ; I,C: 0.8568 ) where its recurrent encoder is competitive, but L ONG MOE re-covers its advantage on imaging- and genetics-dominant combinations (G: 0.7624 ; I: 0.7818 ) where longitudinal trajectory context is the decisive signal. On MIMIC-IV, L ONG MOE achieves the best AUC-ROC across all 15 combinations (N,L,C,D: 0.9150 ; D-only: 0.8720 vs. MulT’s 0.6892 and TF’s 
+
+0.5000 ) with standard deviations consistently below 0.007 , confirming that the robustness mechanism transfers to a large-scale binary mortality task with fundamentally different modality semantics. 
+
+Complexity Analysis. Table 4 reports parameters, forward-pass time, GPU memory, training time, and AUC-ROC for all models on a single NVIDIA H100 GPU. L ONG MOE has 4.40M parameters versus 183K for Flex-MoE (24 ×) and forward-pass latency of 49.19 ms versus 1.01 ms (49 ×), which is a direct consequence of the trajectory-aware Transformer encoder processing the full visit sequence, which is precisely the component driving the largest ablation gain ( ∆AUC = −0.0335 ). GPU memory remains modest (149.8 MB on ADNI, 112.9 MB on MIMIC-IV, comparable to TF at 145.6 MB and 103.9 MB), and training time of 20.34 s/epoch on ADNI versus 2.47 s for TF is expected 7Table 3: Performance comparison on MIMIC-IV (AUC-ROC) for all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired 
+
+t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+C 0.8455 ±.0021 0.8206 ±.0231 0.8166 ±.0423 0.8893 ±.0026 0.5000 ±.0000 0.8987 ±.0008 †
+
+D 0.6892 ±.0036 0.6541 ±.0278 0.6866 ±.0017 0.7423 ±.0005 0.5000 ±.0000 0.8720 ±.0042 †
+
+L 0.8150 ±.0027 0.8164 ±.0037 0.8245 ±.0024 0.8243 ±.0124 0.5000 ±.0000 0.8788 ±.0064 †
+
+N 0.7780 ±.0040 0.7731 ±.0101 0.7732 ±.0035 0.7967 ±.0024 0.5000 ±.0000 0.8807 ±.0026 †
+
+C,D 0.8556 ±.0016 0.8078 ±.0344 0.8267 ±.0446 0.8965 ±.0015 0.5000 ±.0000 0.9041 ±.0008 †
+
+L,C 0.8813 ±.0013 0.8748 ±.0136 0.8760 ±.0116 0.9044 ±.0024 0.5000 ±.0000 0.9077 ±.0003 †
+
+L,D 0.8335 ±.0018 0.8250 ±.0115 0.8273 ±.0178 0.8564 ±.0053 0.5000 ±.0000 0.8900 ±.0056 †
+
+N,C 0.8789 ±.0008 0.8611 ±.0146 0.8644 ±.0162 0.9020 ±.0018 0.5000 ±.0000 0.9062 ±.0016 †
+
+N,D 0.7957 ±.0027 0.7332 ±.0221 0.7935 ±.0025 0.8407 ±.0016 0.5000 ±.0000 0.8908 ±.0042 †
+
+N,L 0.8690 ±.0019 0.8651 ±.0113 0.8680 ±.0020 0.8656 ±.0072 0.5000 ±.0000 0.8940 ±.0039 †
+
+L,C,D 0.8874 ±.0005 0.8753 ±.0181 0.8782 ±.0162 0.9092 ±.0016 0.5850 ±.0404 0.9115 ±.0003 †
+
+N,C,D 0.8850 ±.0006 0.8618 ±.0076 0.8729 ±.0165 0.9068 ±.0017 0.5000 ±.0000 0.9102 ±.0020 †
+
+N,L,C 0.8984 ±.0007 0.8929 ±.0092 0.8960 ±.0049 0.9107 ±.0015 0.5000 ±.0000 0.9119 ±.0010 †
+
+N,L,D 0.8778 ±.0013 0.8734 ±.0042 0.8711 ±.0083 0.8819 ±.0037 0.5000 ±.0000 0.9014 ±.0039 †
+
+N,L,C,D 0.9023 ±.0003 0.8993 ±.0082 0.8998 ±.0059 0.9043 ±.0014 0.7981 ±.0038 0.9150 ±.0012 †
+
+but practical for overnight runs. We report wall-clock time as the primary latency measure since GFLOPs underestimate actual latency due to memory access patterns in sequential Transformers; the 49 ms and 20 ms forward-pass times correspond to ∼20 and ∼50 patients per second on a single GPU, which is sufficient for offline batch-inference but not real-time bedside support, with full-cohort MIMIC-IV inference ( ∼98K patients) requiring ∼33 minutes. The encoder scales as O(T 2d) in visit sequence length; with ¯T = 4 .2 (ADNI) and ¯T = 3 .1 (MIMIC-IV) this cost is negligible, and linear-complexity attention variants [ 47 ] provide a direct scaling path for cohorts with longer sequences ( T > 50 ). Table 4: Complexity comparison across models on all three datasets (full modality setting). 
+
+Dataset Metric MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE ADNI 
+
+# Params ↓ 640,771 183,683 580,248 116,175 109,699 4,396,305 Fwd Time (ms) ↓ 3.11 1.01 1.17 2.19 1.52 49.19 GPU Mem (MB) ↓ 103.9 114.6 109.0 123.7 145.6 149.8 Train Time (s/ep) ↓ 5.52 7.91 5.98 6.7 2.47 20.34 AUC-ROC ↑ 0.9666 0.9535 0.9604 0.9685 0.6546 0.9742 OASIS-3 
+
+# Params ↓ 623,363 145,283 427,032 78,540 92,675 4,261,262 Fwd Time (ms) ↓ 1.611 1.566 1.345 1.994 0.445 5.707 GPU Mem (MB) ↓ 105.22 102.95 101.01 116.17 140.19 61.05 
+
+Train Time (s/ep) ↓ 40.81 11.23 8.57 25.23 7.7 77.37 AUC-ROC ↑ 0.7713 0.8030 0.7811 0.8330 0.6564 0.8552 MIMIC-IV 
+
+# Params ↓ 662,530 205,442 601,104 149,258 131,458 1,321,614 Fwd Time (ms) ↓ 3.12 1.00 1.32 2.34 1.63 20.26 GPU Mem (MB) ↓ 82.7 93.7 87.9 103.3 103.9 112.9 Train Time (s/ep) ↓ 5.6 7.68 5.46 7.16 2.46 20.23 AUC-ROC ↑ 0.9023 0.8993 0.8998 0.9043 0.7981 0.9150 
+
+Expert Specialisation Analysis. Figure 2 analyses the routing behaviour of L ONG MOE’s K = 8 
+
+experts on the ADNI testing set. The left plot shows a monotone disease-stage gradient across shared experts: E1 is predominantly CN, E2 is balanced CN/MCI, and E3/E4 increasingly concentrate MCI and AD patients, while individual experts collectively mirror the ADNI class prior ( 40% CN, 40% 
+
+MCI, 20% AD) with distinct stage profiles, confirming that shared and individual experts capture complementary population-level and subgroup-specific patterns respectively. The right plot shows that shared experts are overwhelmingly activated by Biospecimen-containing combinations, whereas individual experts exhibit modality-aligned specialisation, confirming that context-conditioned routing learns meaningful specialisation along both disease-stage and modality-availability axes. 8Figure 2: Left: Expert routing distribution stratified by disease stage for shared and individual experts. 
+
+Right: Modality combination activation ratio per expert. 
+
+Robustness under Missing Modalities. Figure 3 plots AUC-ROC as a function of missing modali-ties across all three benchmarks. On ADNI, L ONG MOE degrades minimally from 0.955 (all present) to 0.940 (one modality left; ∆AUC − ROC = 0 .015 ), while Flex-MoE and FuseMoE decline from 0.955 to 0.680-0.690, MulT and Lee-MMGRU fall to 0.680 and 0.760, and TF collapses to 0.500 upon the removal of a single modality due to its reliance on zero-padding. On OASIS-3 (three modalities; maximum two missing), L ONG MOE maintains AUC-ROC 0.800 at maximum missingness while FuseMoE and Flex-MoE decline from 0.850 to 0.500, MulT drops to 0.700, and TF collapses immediately, confirming robustness generalises to fewer modalities and more severe visit-spacing irregularity. On MIMIC-IV, L ONG MOE maintains AUC-ROC > 0.880 through three missing modalities and declines to only 0.890 at maximum missingness, while Flex-MoE, FuseMoE, and MulT all fall below 0.800 and TF collapses to 0.400. Across all three benchmarks, the near-flat degradation curve confirms that the trajectory-aware encoder substitutes longitudinal context for missing modality information. 
+
+Figure 3: Missing-modality robustness curves (AUC-ROC) for all the datasets. Table 5: Component-wise ablation of L ONG MOE on ADNI dataset (full modality).                                                                 
+
+> Model Variants Metrics Change ∆↓
+> Acc AUC-ROC F1 ∆Acc ∆AUC ∆F1
+> w/o LE 0.8452 0.9407 0.7250 −0.0329 −0.0335 −0.0814
+> w/o VE 0.8556 0.9564 0.7816 −0.0225 −0.0178 −0.0248
+> w/o Imp-ZP 0.8650 0.9607 0.7850 −0.0131 −0.0135 −0.0214
+> w/o Imp-GM 0.8612 0.9631 0.7910 −0.0169 −0.0111 −0.0154
+> w/o Single Expert 0.8705 0.9701 0.8024 −0.0076 −0.0041 −0.0040
+> w/o Shared Expert 0.8631 0.9606 0.7895 −0.0150 −0.0136 −0.0169
+> w/o Lbal 0.8650 0.9547 0.7904 −0.0131 −0.0195 −0.0160
+> LongMoE 0.8781 0.9742 0.8064 ———
+
+Ablation Study. Table 5 reports a component-wise ablation on ADNI (full modality), confirming every component contributes positively. The largest drops arise from removing the Longitudinal Encoder (LE; ∆Acc= −0.0329 ,
+
+∆AUC= −0.0335 ), which reduces LONG MOEto a per-visit classifier, and Viscode Encoding (VE; ∆Acc= −0.0225 ,
+
+∆AUC= −0.0178 ), validat-ing the sinusoidal temporal encoding as an independent longitudinal signal beyond self-attention; Load Balancing ( Lbal ) produces the third largest drop ( ∆AUC= −0.0195 ), both imputation ablations 9degrade comparably with Zero Padding slightly worse than Global Mean (greater distributional shift), Shared Experts cost ∆AUC= −0.0136 , and replacing the full MoE with a single expert yields the smallest drop ( ∆AUC= −0.0041 ), confirming expert specialisation provides marginal benefit beyond the longitudinal encoder. The detailed ablation studies under missing-modality settings, including other datasets, are provided in Appendix A.10. 
+
+7 Conclusion 
+
+We presented L ONG MOE, a unified framework that jointly addresses modality missingness and longitudinal temporal dynamics in multimodal sequential learning. By composing a context-aware imputation module, attentional tokenization module, and a trajectory-aware Transformer encoder with a context-conditioned Sparse MoE routing layer, L ONG MOE enables patient-specific conditional computation over the full visit history under arbitrary modality availability. Experiments on different datasets show that L ONG MOE is strongest under missing or weak contemporaneous modalities, but clinical-score-heavy settings remain competitive for recurrent baselines. 
+
+Limitations. LONG MOE’s trajectory-aware encoder introduces higher forward-pass latency, pre-cluding real-time bedside use but remaining well-suited to offline batch-inference settings. Addi-tionally, the model cannot leverage longitudinal context for first-contact patients with no prior visit history, as the encoder requires at least one past observation to produce a meaningful embeddings. 
+
+References 
+
+[1] T. Baltrušaitis, C. Ahuja, and L.-P. Morency, “Multimodal machine learning: A survey and taxonomy,” IEEE Transactions on Pattern Analysis and Machine Intelligence , vol. 41, no. 2, pp. 423–443, 2018. [2] P. P. Liang, Y. Lyu, X. Fan, Z. Wu, Y. Cheng, J. Wu, L. Chen, P. Wu, M. A. Lee, Y. Zhu, R. Salakhutdinov, and L. Morency, “MultiBench: Multiscale benchmarks for multimodal representation learning,” in Advances in Neural Information Processing Systems (NeurIPS) ,vol. 34, pp. 5813–5826, 2021. [3] Y. Zhang and D.-Y. Yeung, “Multi-task learning in heterogeneous feature spaces,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 25, pp. 574–579, 2011. [4] C. R. Jack and D. M. Holtzman, “Biomarker modeling of Alzheimer’s disease,” Neuron , vol. 80, no. 6, pp. 1347–1358, 2013. [5] F. Márquez and M. A. Yassa, “Neuroimaging biomarkers for Alzheimer’s disease,” Molecular Neurodegeneration , vol. 14, no. 1, p. 21, 2019. [6] A. Papassotiropoulos, M. Fountoulakis, T. Dunckley, D. A. Stephan, and E. M. Reiman, “Genet-ics, transcriptomics, and proteomics of Alzheimer’s disease,” Journal of Clinical Psychiatry ,vol. 67, no. 4, p. 652, 2006. [7] S. Yun, I. Choi, J. Peng, Y. Wu, J. Bao, Q. Zhang, J. Xin, Q. Long, and T. Chen, “Flex-MoE: Modeling arbitrary modality combination via the flexible mixture-of-experts,” in Advances in Neural Information Processing Systems (NeurIPS) , 2024. [8] X. Han, H. Nguyen, C. Harris, N. Ho, and S. Saria, “FuseMoE: Mixture-of-experts transformers for fleximodal fusion,” in Advances in Neural Information Processing Systems (NeurIPS) , 2024. [9] Y. Zhang, N. He, J. Yang, Y. Li, D. Wei, Y. Huang, Y. Zhang, Z. He, and Y. Zheng, “mm-Former: Multimodal medical transformer for incomplete multimodal learning of brain tumor segmentation,” arXiv preprint arXiv:2206.02425 , 2022. [10] H. Wang, Y. Chen, C. Ma, J. Avery, L. Hull, and G. Carneiro, “Multi-modal learning with missing modality via shared-specific feature modelling,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , 2024. 10 [11] N. Shazeer, A. Mirhoseini, K. Maziarz, A. Davis, Q. Le, G. Hinton, and J. Dean, “Outrageously large neural networks: The sparsely-gated mixture-of-experts layer,” in International Conference on Learning Representations (ICLR) , 2017. [12] W. Fedus, B. Zoph, and N. Shazeer, “Switch transformers: Scaling to trillion parameter models with simple and efficient sparsity,” Journal of Machine Learning Research , vol. 23, no. 120, pp. 1–39, 2022. [13] A. Q. Jiang, A. Sablayrolles, A. Roux, A. Mensch, B. Savary, C. Bamford, D. S. Chap-lot, D. de las Casas, E. B. Hanna, F. Bressand, et al., “Mixtral of experts,” arXiv preprint arXiv:2401.04088 , 2024. [14] B. Mustafa, C. Riquelme, J. Puigcerver, R. Jenatton, and N. Houlsby, “Multimodal contrastive learning with LiMoE: The language-image mixture of experts,” in Advances in Neural Informa-tion Processing Systems (NeurIPS) , 2022. [15] J. Peng, K. Zhou, R. Zhou, T. Hartvigsen, Y. Zhang, Z. Wang, and T. Chen, “Sparse MoE as a new treatment: Addressing forgetting, fitting, and learning issues in multi-modal multi-task learning,” in International Conference on Learning Representations (ICLR) , 2024. [16] A. Zadeh, M. Chen, S. Poria, E. Cambria, and L.-P. Morency, “Tensor fusion network for multimodal sentiment analysis,” in Proceedings of the Conference on Empirical Methods in Natural Language Processing (EMNLP) , pp. 1103–1114, 2017. [17] Y.-H. H. Tsai, S. Bai, P. P. Liang, J. Z. Kolter, L.-P. Morency, and R. Salakhutdinov, “Multimodal transformer for unaligned multimodal language sequences,” in Proceedings of the Annual Meeting of the Association for Computational Linguistics (ACL) , pp. 6558–6569, 2019. [18] W. Rahman, M. K. Hasan, S. Lee, A. B. Zadeh, C. Mao, L.-P. Morency, and E. Hoque, “Integrating multimodal information in large pretrained transformers,” in Proceedings of the Annual Meeting of the Association for Computational Linguistics (ACL) , pp. 2359–2369, 2020. [19] G. Lee, K. Nho, B. Kang, K.-A. Sohn, and D. Kim, “Predicting Alzheimer’s disease progression using multi-modal deep learning approach,” Scientific Reports , vol. 9, no. 1, p. 1952, 2019. [20] J. Venugopalan, L. Tong, H. R. Hassanzadeh, and M. D. Wang, “Multimodal deep learning models for early detection of Alzheimer’s disease stage,” Scientific Reports , vol. 11, no. 1, p. 3254, 2021. [21] M. Odusami, R. Maskeliunas, R. Damasevicius, and S. Misra, “Machine learning with multi-modal neuroimaging data to classify stages of Alzheimer’s disease: A systematic review and meta-analysis,” Cognitive Neurodynamics , pp. 1–20, 2023. [22] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, Ł. Kaiser, and I. Polosukhin, “Attention is all you need,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 30, pp. 5998–6008, 2017. [23] J. Devlin, M.-W. Chang, K. Lee, and K. Toutanova, “BERT: Pre-training of deep bidirectional transformers for language understanding,” in Proceedings of the Annual Conference of the North American Chapter of the Association for Computational Linguistics (NAACL) , pp. 4171–4186, 2019. [24] M. W. Weiner, P. S. Aisen, C. R. Jack, W. J. Jagust, J. Q. Trojanowski, L. Shaw, A. J. Saykin, J. C. Morris, N. Cairns, L. A. Beckett, et al., “The Alzheimer’s Disease Neuroimaging Initiative: Progress report and future plans,” Alzheimer’s & Dementia , vol. 6, no. 3, pp. 202–211, 2010. [25] P. J. LaMontagne, T. L. Benzinger, J. C. Morris, S. Keefe, R. Hornbeck, C. Yao, A. Hintaus, and D. Marcus, “OASIS-3: Longitudinal neuroimaging, clinical, and cognitive dataset for normal aging and Alzheimer’s disease,” medRxiv , 2019. [26] Johnson, A., Bulgarelli, L., Pollard, T., Horng, S., Celi, L. A., and Mark, R. (2023). MIMIC-IV, a freely accessible electronic health record dataset. Scientific Data , 10 (1), 1–9. Nature Publishing Group. 11 [27] J. Doshi, G. Erus, Y. Ou, S. M. Resnick, R. C. Gur, R. E. Gur, T. D. Satterthwaite, S. Furth, C. Davatzikos, and A. D. N. Initiative, “MUSE: Multi-atlas region segmentation utilizing ensem-bles of registration algorithms and parameters, and locally optimal atlas selection,” NeuroImage ,vol. 127, pp. 186–195, 2016. [28] Y. Ou, A. Sotiras, N. Paragios, and C. Davatzikos, “DRAMMS: Deformable registration via attribute matching and mutual-saliency weighting,” Medical Image Analysis , vol. 15, no. 4, pp. 622–639, 2011. [29] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization,” in International Confer-ence on Learning Representations (ICLR) , 2019. [30] A. Paszke, S. Gross, F. Massa, A. Lerer, J. Bradbury, G. Chanan, T. Killeen, Z. Lin, N. Gimelshein, L. Antiga, et al., “PyTorch: An imperative style, high-performance deep learning library,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 32, pp. 8024–8035, 2019. [31] R. J. A. Little and D. B. Rubin, Statistical Analysis with Missing Data , 3rd ed. John Wiley & Sons, 2019. [32] C. Riquelme, J. Puigcerver, B. Mustafa, M. Neumann, R. Jenatton, A. S. Pinto, D. Keysers, and N. Houlsby, “Scaling vision with sparse mixture of experts,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 34, pp. 8583–8595, 2021. [33] J. Ma, Z. Zhao, X. Yi, J. Chen, L. Hong, and E. H. Chi, “Modeling task relationships in multi-task learning with multi-gate mixture-of-experts,” in Proceedings of the ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD) , pp. 1930–1939, 2018. [34] Z. Chen, Y. Shen, M. Ding, Z. Chen, H. Zhao, E. G. Learned-Miller, and C. Gan, “Mod-Squad: Designing mixtures of experts as modular multi-task learners,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pp. 11828–11837, 2023. [35] Y. Zhou, T. Lei, H. Liu, N. Du, Y. Huang, V. Zhao, A. Dai, Z. Chen, Q. Le, and J. Laudon, “Mixture-of-experts with expert choice routing,” in Advances in Neural Information Processing Systems (NeurIPS) , 2022. [36] H. Hazimeh, Z. Zhao, A. Chowdhery, M. Sathiamoorthy, Y. Chen, R. Mazumder, L. Hong, and E. H. Chi, “DSelect-k: Differentiable selection in the mixture of experts with applications to multi-task learning,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 34, pp. 29335–29347, 2021. [37] S. Hochreiter and J. Schmidhuber, “Long short-term memory,” Neural Computation , vol. 9, no. 8, pp. 1735–1780, 1997. [38] K. Cho, B. van Merriënboer, C. Gulcehre, D. Bahdanau, F. Bougares, H. Schwenk, and Y. Bengio, “Learning phrase representations using RNN encoder–decoder for statistical machine translation,” in Proceedings of the Conference on Empirical Methods in Natural Language Processing (EMNLP) , pp. 1724–1734, 2014. [39] E. Choi, M. T. Bahadori, J. Sun, J. Kulas, A. Schuetz, and W. Stewart, “RETAIN: An inter-pretable predictive model for healthcare using reverse time attention mechanism,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 29, pp. 3504–3512, 2016. [40] M. Horn, M. Moor, C. Bock, B. Rieck, and K. Borgwardt, “Set functions for time series,” in 
+
+Proceedings of the International Conference on Machine Learning (ICML) , vol. 119, pp. 4353– 4363, 2020. [41] N. Shukla and B. Marlin, “Multi-time attention networks for irregularly sampled time series,” in International Conference on Learning Representations (ICLR) , 2021. [42] M. I. Jordan and R. A. Jacobs, “Hierarchical mixtures of experts and the EM algorithm,” Neural Computation , vol. 6, no. 2, pp. 181–214, 1994. 12 [43] Jacobs, R. A., Jordan, M. I., Nowlan, S. J., and Hinton, G. E. Adaptive mixtures of local experts. 
+
+Neural Computation , 3(1):79–87, 1991. [44] Wu, H., Hu, T., Liu, Y., Zhou, H., Wang, J., and Long, M. TimesNet: Temporal 2D-variation modeling for general time series analysis. In Proceedings of the International Conference on Learning Representations (ICLR) , 2023. [45] Zhou, T., Ma, Z., Wen, Q., Wang, X., Sun, L., and Jin, R. FEDformer: Frequency enhanced de-composed transformer for long-term series forecasting. In Proceedings of the 39th International Conference on Machine Learning (ICML) , pp. 27268–27286, 2022. [46] D. Kiela, C. Bhooshan, H. Firooz, E. Perez, and D. Testuggine, “Supervised multimodal bitransformers for classifying images and text,” arXiv preprint arXiv:1909.02950 , 2019. [47] N. Kitaev, L. Kaiser, and A. Levskaya, “Reformer: The efficient transformer,” in International Conference on Learning Representations (ICLR) , 2020. [48] T. M. Cover and J. A. Thomas, Elements of Information Theory , 2nd ed. John Wiley & Sons, 2006. [49] K. Hornik, M. Stinchcombe, and H. White, “Multilayer feedforward networks are universal approximators,” Neural Networks , vol. 2, no. 5, pp. 359–366, 1989. [50] L. Bottou, F. E. Curtis, and J. Nocedal, “Optimization methods for large-scale machine learning,” 
+
+SIAM Review , vol. 60, no. 2, pp. 223–311, 2018. [51] C. Yun, S. Bhojanapalli, A. S. Rawat, S. J. Reddi, and S. Kumar, “Are transformers universal approximators of sequence-to-sequence functions?” in International Conference on Learning Representations (ICLR) , 2020. 13 A Technical appendices and supplementary material 
+
+We provide theoretical grounding for the four core architectural components of L ONG MOE: the multi-frequency sinusoidal viscode encoding, the context-aware imputation module, the trajectory-aware Transformer encoder, and the sparse MoE routing layer. 
+
+A.1 Multi-Frequency Sinusoidal Viscode Encoding Proposition A.1 (Injectivity of Multi-Frequency Sinusoidal Encoding) . Let ϕ : Z>0 → R2F be the multi-frequency sinusoidal encoding defined by: 
+
+ϕ(τ ) = sin( ω1τ ), cos( ω1τ ), . . . , sin( ωF τ ), cos( ωF τ ), (5) 
+
+where ωk = 2 k−1 for k = 1 , . . . , F . Then ϕ is injective on all of Z>0: for any two distinct integer timestamps τ, τ ′ ∈ Z>0 with τ̸ = τ ′, we have ϕ(τ )̸ = ϕ(τ ′). In particular, ϕ is injective on the clinically relevant range τ ∈ { 1, 2, . . . , 240 } (months 1-240, covering a 20-year longitudinal follow-up window encompassing all ADNI, OASIS-3, and MIMIC-IV visit ranges). Proof. Suppose ϕ(τ ) = ϕ(τ ′) for some τ, τ ′ ∈ Z>0. This requires sin( ωkτ ) = sin( ωkτ ′) and 
+
+cos( ωkτ ) = cos( ωkτ ′) simultaneously for all k = 1 , . . . , F , which holds if and only if: 
+
+ωk(τ − τ ′) ≡ 0 (mod 2 π) ∀ k = 1 , . . . , F. (6) Condition (6) is equivalent to requiring τ − τ ′ = 2 πm k/ω k = 2 πm k/2k−1 for some integer mk for each k = 1 , . . . , F .We now show this forces τ = τ ′. Since τ − τ ′ ∈ Z by assumption, we need 2πm k/2k−1 ∈ Z for each k. This requires 2π ∈ Q, since mk/2k−1 is rational for all integer mk and all k. However, 2π is transcendental (in particular, irrational), so 2πm k/2k−1 /∈ Z for any mk̸ = 0 . Therefore the only solution to (6) is mk = 0 for all k, which gives τ − τ ′ = 0 , i.e., τ = τ ′. Hence ϕ(τ ) = ϕ(τ ′) implies 
+
+τ = τ ′, and ϕ is injective on all of Z>0.The clinical range {1, . . . , 240 } is a subset of Z>0, so injectivity holds over this range as an immediate corollary. 
+
+Remark A.2 . The key step in the proof is the irrationality of 2π, which prevents any non-zero integer difference τ − τ ′ from satisfying the collision condition (6) . This argument holds for any choice of rational or integer base frequencies ωk > 0, and is not restricted to the geometric schedule ωk = 2 k−1.The geometric schedule is chosen to provide a wide dynamic range of temporal scales (from monthly to decadal patterns) rather than for the injectivity guarantee, which holds for any such frequencies. Concretely, with F = 8 frequency bands and timestamps in {1, . . . , 240 }, every pair of visits is guaranteed to receive a distinct 16-dimensional encoding, providing a unique temporal identity for all longitudinal sequences within the clinically plausible follow-up window of 20 years. 
+
+Proposition A.3 (Expressivity of Multi-Frequency Encoding) . Let f : Z>0 → R be any function defined on a finite set of integer timestamps T = {τ1, . . . , τ T }. Then there exists an MLP g : R2F →
+
+R with F ≥ T such that g(ϕ(τt)) = f (τt) for all t = 1 , . . . , T .Proof. By Proposition A.1, the matrix Φ ∈ RT ×2F with rows ϕ(τt) has distinct rows. For F ≥ T ,the 2F -dimensional encoding space can be mapped to an arbitrary target vector [f (τ1), . . . , f (τT )] ⊤
+
+by solving the linear system Φw = f , which has a solution when Φ has full row rank. Since ϕ is injective and the frequencies ωk are distinct, Φ constitutes a generalised Vandermonde-type matrix with full row rank for T ≤ 2F , guaranteeing the existence of such a mapping. A single-layer linear MLP with weight vector w achieves this mapping exactly; a multi-layer MLP achieves it with strictly weaker conditions on F .
+
+A.2 Context-Aware Imputation Proposition A.4 (Optimality of Carry-Forward Imputation under Short-Term Autocorrelation) . Let 
+
+{e(l) 
+
+> t
+
+}t≥1 be a stationary stochastic process with autocorrelation function ρ(h) = Corr( e(l) 
+
+> t
+
+, e (l)
+
+> t+h
+
+),and let ˆe(l) 
+
+> t
+
+denote the minimum mean-squared error (MMSE) linear estimator of a missing embedding 
+
+14 at time t given the last observed embedding at time t − 1. If |ρ(1) | ≥ | ρ(h)| for all h > 1 (i.e., the process exhibits monotonically decaying autocorrelation), then the carry-forward estimator 
+
+ˆe(l) 
+
+> t
+
+= e(l) 
+
+> t−1
+
+minimises the expected imputation error: 
+
+E
+
+
+
+e(l) 
+
+> t
+
+− ˆe(l)
+
+> t
+> 2
+
+
+
+≤ E
+
+
+
+e(l) 
+
+> t
+
+− ˆe(l, alt) 
+
+> t
+> 2
+
+
+
+(7) 
+
+for any linear estimator ˆe(l, alt)  
+
+> t
+
+that depends on a single past observation at time t − k with k > 1.Proof. For a zero-mean stationary process, the MMSE linear estimator of e(l) 
+
+> t
+
+given e(l) 
+
+> t−k
+
+is ˆe(l) 
+
+> t
+
+=
+
+ρ(k) · e(l)
+
+> t−k
+
+. The corresponding MSE is: 
+
+MSE( k) = E
+
+h
+
+∥e(l) 
+
+> t
+
+∥2i  1 − ρ(k)2 . (8) Since |ρ(1) | ≥ | ρ(k)| for all k > 1 by assumption, 1−ρ(1) 2 ≤ 1−ρ(k)2, hence MSE(1) ≤ MSE( k).The carry-forward estimator corresponds to k = 1 , establishing its MMSE optimality among single-lag linear estimators. 
+
+Remark A.5 . Biomarker embedding processes in longitudinal AD datasets exhibit strong short-term autocorrelation, e.g., hippocampal volume changes slowly relative to visit frequency, making the monotone decay assumption empirically reasonable. The proposition formalises the clinical intuition that the most recent observation is the most informative single prior for imputation. 
+
+A.3 Trajectory-Aware Longitudinal Encoder Theorem A.6 (Trajectory-Aware Fusion Dominates Per-Visit Fusion under Markovian Disease Dynamics) . Let the patient’s disease state at visit t be represented by a latent variable st ∈ S , and let the observed multimodal embedding zt ∈ Rd be a noisy function of st: zt = f (st) + ϵt, where 
+
+ϵt is i.i.d. mean-zero noise with covariance σ2I. Assume disease progression follows a first-order Markov chain: p(st | s1, . . . , s t−1) = p(st | st−1). Let ˆyper denote the prediction from a per-visit model with access only to zt, and ˆytraj denote the prediction from a trajectory-aware model with access to (z1, . . . , zt). Then: 
+
+EL(yt, ˆytraj ) ≤ E[L(yt, ˆyper )] , (9) 
+
+with strict inequality whenever I(yt; st−1 | zt) > 0, i.e., when past states carry residual information about the current label beyond the current observation. Proof. By the data processing inequality [48], for any loss function L that is a proper scoring rule: 
+
+E[L(yt, ˆyper )] = H(yt | zt), (10) 
+
+E[L(yt, ˆytraj )] = H(yt | z1, . . . , zt), (11) where H(· | · ) denotes conditional entropy. By the chain rule of entropy and non-negativity of conditional mutual information: 
+
+H(yt | z1, . . . , zt) ≤ H(yt | zt), (12) with equality if and only if z1, . . . , zt−1 ⊥ yt | zt. Under the Markovian dynamics assumption, 
+
+st is a sufficient statistic for predicting yt, but zt = f (st) + ϵt is a noisy observation of st. When 
+
+σ2 > 0, the past observations z1, . . . , zt−1 carry additional information about st (via the Markov chain s1 → · · · → st), giving I(yt; z1: t−1 | zt) > 0 whenever I(yt; st−1 | zt) > 0. This establishes the strict inequality. 
+
+Remark A.7 (Robustness to Non-Markovian Dynamics) . The Markovian assumption in Theorem A.6 is a modelling simplification. Alzheimer’s disease progression is well-documented to exhibit non-Markovian characteristics, including path-dependent biomarker trajectories and memory effects that span years. For example, hippocampal atrophy rates at visit t depend not only on the state at t − 1
+
+but on the cumulative amyloid burden accumulated over the full disease history [4]. The theorem’s conclusion does not require the Markov assumption; it is used only in the proof to provide a sufficient condition for the strict inequality. The weak inequality H(yt | z1: t) ≤ H(yt | zt)
+
+15 holds unconditionally by the chain rule of entropy, regardless of whether the dynamics are Markovian. The strict inequality holds whenever I(yt; z1: t−1 | zt) > 0, which in non-Markovian settings is more likely to hold rather than less: if past states have long-range memory effects on yt, the historical trajectory z1: t−1 will carry more residual information about yt beyond the current snapshot 
+
+zt, strengthening the advantage of trajectory-aware fusion. Formally, for a general (possibly non-Markovian) process with p(st | s1: t−1)̸ = p(st | st−1):
+
+I(yt; z1: t−1 | zt) ≥ I(yt; st−1 | zt), (13) since the full history z1: t−1 contains at least as much information about yt as the single lag st−1.Thus Theorem A.6 is conservative under non-Markovian dynamics: the Markov assumption provides the weakest case for the advantage of longitudinal modelling, and the benefit can only increase as memory effects extend further back in time. 
+
+Corollary A.8 (Monotone Improvement with Visit History Length) . Under the conditions of Theo-rem A.6, the expected prediction loss is non-increasing in the length of the available visit history: 
+
+E[L(yt, ˆy(k+1) )] ≤ E[L(yt, ˆy(k))] ∀k = 1 , . . . , t − 1, (14) 
+
+where ˆy(k) denotes the prediction from access to the k most recent visits (zt−k+1 , . . . , zt).Proof. Follows directly from the chain rule of conditional entropy: H(yt | zt−k:t) ≤ H(yt |
+
+zt−k+1: t) for all k, since conditioning on more observations cannot increase entropy. 
+
+Remark A.9 . Corollary A.8 provides a theoretical justification for the near-flat AUC-ROC profile observed empirically in Table 1: as the visit history grows, the trajectory-aware model’s performance monotonically improves, while per-visit models cannot benefit from additional historical context. The practical implication is that patients with longer visit histories benefit disproportionately from LONG MOE relative to per-visit baselines. 
+
+A.4 Sparse MoE Routing and Load Balancing Proposition A.10 (Expressivity of Sparse MoE over Monolithic Classifier) . Let {Ek}Kk=1 be a set of K expert networks, each mapping Rd → R|Y| , and let g : Rd → ∆K−1 be a soft router. The soft-gated MoE output ˆy = PKk=1 gk(h)Ek(h) is a universal approximator of any continuous function f : Rd → R|Y| if each Ek is a universal approximator, and it strictly subsumes the function class of any single monolithic classifier with the same per-expert capacity. Proof. A monolithic classifier F : Rd → R|Y| is recovered by setting K = 1 . For K > 1, the soft MoE can partition the input space Rd into K regions via the router g, assigning a specialised expert to each region. Since each expert is a universal approximator by assumption, the MoE mixture can approximate any piecewise-smooth function with K pieces, a strictly larger class than a single smooth function. The universal approximation property of the full MoE follows from the density of neural networks in C(Rd, R|Y| ) [ 49 ] and the closure of the mixture class under composition with universal approximators. 
+
+Proposition A.11 (Load Balancing Prevents Expert Collapse) . Let Lbal = K PKk=1 fkPk be the load-balancing loss, where fk ≥ 0 is the fraction of inputs routed to expert k and Pk ≥ 0 is the mean routing score for expert k over a mini-batch B, with PKk=1 fk = 1 and PKk=1 Pk = 1 . The minimum of Lbal subject to these constraints is 1, achieved uniquely at fk = Pk = 1 /K for all k.Proof. We seek to minimise S = PKk=1 fkPk subject to P 
+
+> k
+
+fk = 1 , P 
+
+> k
+
+Pk = 1 , and fk, P k ≥ 0.By the AM-GM inequality applied to the K non-negative terms fkPk:
+
+1
+
+K
+
+> K
+
+X
+
+> k=1
+
+fkPk ≥
+
+> K
+
+Y
+
+> k=1
+
+fkPk
+
+!1/K 
+
+, (15) with equality if and only if all terms fkPk are equal, i.e., fkPk = c for some constant c > 0
+
+and all k. Since P 
+
+> k
+
+fk = P 
+
+> k
+
+Pk = 1 , summing the equality condition fkPk = c over k gives 16 P 
+
+> k
+
+fkPk = Kc , so c = S/K . The equality condition requires fkPk = S/K for all k, which together with P 
+
+> k
+
+fk = P 
+
+> k
+
+Pk = 1 is satisfied uniquely by fk = Pk = 1 /K for all k.To find the minimum value of S, we apply the AM-GM inequality in the other direction to the 2K
+
+variables {f1, . . . , f K , P 1, . . . , P K }:
+
+> K
+
+X
+
+> k=1
+
+fkPk ≥ K
+
+> K
+
+Y
+
+> k=1
+
+fkPk
+
+!1/K 
+
+≥ K · 1
+
+K2 by AM-GM on {fk} and {Pk} separately: 
+
+Y
+
+> k
+
+fk ≤
+
+ P  
+
+> k
+
+fk
+
+K
+
+K
+
+= K−K , Y
+
+> k
+
+Pk ≤ K−K . (16) Hence S ≥ K · (K−K · K−K )1/K = K · K−2 = 1 /K , giving Lbal = KS ≥ 1. Equality holds when fk = 1 /K and Pk = 1 /K for all k, at which point L∗ 
+
+> bal
+
+= K · K · (1 /K )2 = 1 .Any collapse configuration, e.g. f1 = 1 and fk = 0 for k > 1, gives S = P1 ≤ 1, so Lbal =
+
+KP 1 ≤ K but with S depending on the routing scores. The gradient of Lbal with respect to the router parameters is non-zero whenever f̸ = P, providing a training signal that pushes the distribution toward uniformity and away from degenerate collapse solutions. 
+
+Remark A.12 . Proposition A.11 establishes that minimising Lbal acts as an implicit regulariser that prevents the degenerate routing solution where all inputs are assigned to a single expert, a phenomenon known as expert collapse that has been observed empirically in Switch Transformers [ 12 ]. The regularisation coefficient λ controls the strength of this constraint relative to the primary classification objective; in our experiments λ = 0 .01 is sufficient to maintain near-uniform expert utilisation as confirmed by the ablation ( ∆AUC = −0.007 without load balancing). 
+
+Proposition A.13 (Context-Conditioned Routing Improves Subgroup Discrimination) . Let H =
+
+{h(1) , . . . , h (n)} be a set of trajectory embeddings for n patients, each belonging to one of G disease subgroups. If the trajectory embeddings h ∈ Rd are linearly separable across subgroups (i.e., there exists a matrix W ∈ RG×d such that Wh correctly classifies all patients), then a linear router 
+
+g(h) = softmax( Vh ) with K ≥ G experts can achieve zero routing error, assigning each subgroup exclusively to a dedicated expert. Proof. Under linear separability, Wh achieves perfect subgroup classification. Setting V = cW for sufficiently large c > 0, the softmax temperature approaches a hard argmax and the router assigns input h to expert k∗ = arg max k(Vh )k = arg max k(Wh )k, which corresponds to the subgroup assignment under W. With K ≥ G experts, there is sufficient capacity to assign at least one expert per subgroup, completing the proof. 
+
+Remark A.14 . Proposition A.13 justifies the use of trajectory embeddings ht (rather than single-visit embeddings) as routing inputs: trajectory embeddings aggregate longitudinal context and are therefore more likely to be linearly separable across disease subgroups than single-visit snapshots, which may be ambiguous (e.g., an intermediate biomarker reading is consistent with both stable MCI and early-onset AD without temporal context). 
+
+A.5 Convergence of the Full Training Objective Proposition A.15 (Gradient Flow under Combined Objective) . Let Ltotal = LCE + λLbal be the combined training objective. If LCE is L-smooth and Lbal is bounded ( Lbal ≤ B for some B > 0), then for λ ≤ ϵ/B with ϵ > 0, the gradient of Ltotal is dominated by LCE and standard SGD convergence guarantees for smooth objectives apply to the combined loss. Proof. ∥∇L total ∥ ≤ ∥∇L CE ∥ + λ∥∇L bal ∥. Since Lbal is bounded, its gradient is also bounded: 
+
+∥∇L bal ∥ ≤ C for some C > 0 by compactness of the parameter space under gradient clipping. For λ ≤ ϵ/ (BC ), the perturbation λLbal introduces a bounded additive noise term to the gradient, which falls within the standard analysis of SGD with gradient noise [50]. The convergence rate to a stationary point of Ltotal degrades by at most O(λC ) relative to pure LCE minimisation, establishing that the load-balancing regularisation does not compromise convergence for sufficiently small λ.17 Remark A.16 . In practice we set λ = 0 .01 , which is small enough that the primary classification objective dominates gradient flow while still providing meaningful load-balancing regularisation, consistent with the empirical findings of Switch Transformers [ 12 ] and the ablation result ∆AUC = 
+
+−0.007 when load balancing is disabled. 
+
+A.6 Notation Summary 
+
+For clarity, Table 6 summarises the key symbols used throughout the paper. Bold lowercase letters (e.g. h) denote vectors, bold uppercase letters (e.g. W) denote matrices, and calligraphic letters (e.g. 
+
+M) denote sets. Table 6: Summary of key notation. 
+
+Symbol Definition 
+
+T Number of clinical visits 
+
+L Number of modalities, |M| 
+
+d Shared embedding dimension 
+
+Eraw  
+
+> t
+
+∈ RL×d Raw multimodal embedding matrix at visit t
+
+Ot ∈ { 0, 1}L Binary observation mask at visit t
+
+Eimp  
+
+> t
+
+∈ RL×d Imputed multimodal embedding matrix at visit t
+
+zt ∈ Rd Tokenised visit-level embedding at visit t
+
+ht ∈ Rd Trajectory-aware embedding at visit tK Total number of experts in the MoE layer 
+
+Ki, K s Number of individual and shared experts 
+
+∆t = τt − τt−1 Inter-visit interval 
+
+A.7 Datasets 
+
+Table 7: Dataset statistics for the three benchmarks used in our experiments. For each dataset we report the label distribution and the number of patients for whom each modality is available. Percentages are computed over the total number of patients per dataset.                                                 
+
+> ADNI OASIS-3 MIMIC-IV Total Patients 2,693 1,098 98,323 Label
+> CN 1,049 (38.9%) 625 (56.9%) —MCI 1,194 (44.3%) 280 (25.5%) —AD 450 (16.7%) 193 (17.6%) —Survived ——79,266 (80.6%) Died ——19,057 (19.4%)
+> Modality
+> Imaging / MRI (I) 2,359 (87.6%) 1,098 (100%) —Biospecimen / CSF (B) 1,611 (59.8%) ——Clinical Scores (C) 2,684 (99.7%) 1,098 (100%) —Genetics (G) 2,226 (82.7%) 620 (56.5%) —Clinical Notes (N) ——98,323 (100.0%) Lab Values & Vitals (L) ——80,802 (82.2%) ICD-9 Codes (C) ——96,689 (98.3%) Demographics (D) ——98,323 (100.0%)
+> Task AD Stage Classification (3-class) Mortality Prediction (binary)
+> Primary Metric ACC / Macro F1-Score AUC-ROC / ACC
+
+A.8 Performance Comparison ADNI. Tables 8 and 9 report the Accuracy and F1-Score on ADNI. L ONG MOE achieves the highest Accuracy across 13 of 15 modality combinations, with the two exceptions (C,G and B,C,G) attributable to MulT’s marginal advantage on clinical-score-dominant combinations where cross-sectional signal is already highly discriminative. The F1-Score results reveal the most striking separation: all baselines collapse to near-zero F1 under single-modality settings lacking clinical scores (B: 0.0000 -0.0461 ; G: 0.0000 -0.0285 ; I: 0.0000 -0.2541 ), while L ONG MOE maintains ≥ 0.78 F1 across every single-modality setting, a direct consequence of the trajectory-aware encoder substituting 18 longitudinal history for missing contemporaneous signal. Lee-MMGRU is competitive on clinical-score-dominant combinations (C, B,C, B,C,G: 0.7733 ) but degrades sharply without clinical scores, confirming its dependence on the highly discriminative clinical modality rather than on trajectory modelling. TF collapses entirely under F1, recording 0.0000 across all combinations, consistent with its zero-padding strategy producing a degenerate classifier under class imbalance. In the full-modality setting (I,B,C,G), L ONG MOE achieves Accuracy 0.8781 and F1 0.7964 , outperforming all baselines on both metrics simultaneously, confirming that longitudinal trajectory context provides complementary discriminative signal even when all modalities are available. Table 8: Performance comparison on ADNI (Accuracy) across all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired 
+
+t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+B 0.3552 ±.0214 0.3603 ±.0615 0.3410 ±.0103 0.3333 ±.0000 0.3333 ±.0000 0.8002 ±.0050 †
+
+C 0.8711 ±.0067 0.8366 ±.0191 0.8461 ±.0015 0.8447 ±.0037 0.3333 ±.0000 0.8757 ±.0058 †
+
+G 0.4040 ±.0070 0.3974 ±.0117 0.4074 ±.0101 0.3333 ±.0000 0.3333 ±.0000 0.8034 ±.0061 †
+
+I 0.4253 ±.0279 0.5167 ±.0323 0.4967 ±.0115 0.3566 ±.0433 0.3333 ±.0000 0.8108 ±.0084 †
+
+B,C 0.8705 ±.0025 0.8434 ±.0136 0.8542 ±.0042 0.8447 ±.0037 0.3333 ±.0000 0.8763 ±.0048 †
+
+B,G 0.3656 ±.0070 0.4290 ±.0694 0.4036 ±.0367 0.3333 ±.0000 0.3333 ±.0000 0.8016 ±.0044 †
+
+C,G 0.8844 ±.0069 0.8361 ±.0152 0.8526 ±.0126 0.8447 ±.0037 0.3333 ±.0000 0.8756 ±.0028 
+
+I,B 0.4355 ±.0196 0.5079 ±.0360 0.4790 ±.0225 0.3566 ±.0433 0.3333 ±.0000 0.8096 ±.0079 †
+
+I,C 0.8525 ±.0078 0.8433 ±.0089 0.8474 ±.0077 0.8369 ±.0101 0.3333 ±.0000 0.8769 ±.0067 †
+
+I,G 0.4357 ±.0133 0.5673 ±.0399 0.5301 ±.0293 0.3566 ±.0433 0.3333 ±.0000 0.8141 ±.0071 †
+
+B,C,G 0.8880 ±.0073 0.8473 ±.0062 0.8539 ±.0159 0.8447 ±.0037 0.3332 ±.0002 0.8763 ±.0019 
+
+I,B,C 0.8586 ±.0073 0.8361 ±.0078 0.8452 ±.0050 0.8369 ±.0101 0.3333 ±.0000 0.8769 ±.0067 †
+
+I,B,G 0.4179 ±.0209 0.5479 ±.0378 0.5105 ±.0358 0.3566 ±.0433 0.3333 ±.0000 0.8128 ±.0068 †
+
+I,C,G 0.8615 ±.0049 0.8601 ±.0102 0.8464 ±.0008 0.8369 ±.0101 0.3333 ±.0000 0.8781 ±.0030 †
+
+I,B,C,G 0.8649 ±.0079 0.8525 ±.0035 0.8482 ±.0038 0.8369 ±.0101 0.4569 ±.0874 0.8781 ±.0030 †
+
+Table 9: Performance comparison on ADNI (F1-Score) across all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired 
+
+t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+B 0.0461 ±.0568 0.0090 ±.0156 0.0000 ±.0000 0.0000 ±.0000 0.0000 ±.0000 0.7964 ±.0036 †
+
+C 0.7160 ±.0029 0.7205 ±.0361 0.7414 ±.0151 0.7733 ±.0390 0.0000 ±.0000 0.7707 ±.0333 
+
+G 0.0285 ±.0290 0.0000 ±.0000 0.0278 ±.0481 0.0000 ±.0000 0.0000 ±.0000 0.7917 ±.0074 †
+
+I 0.1431 ±.0391 0.2541 ±.0152 0.2428 ±.0986 0.1236 ±.1080 0.0000 ±.0000 0.7808 ±.0183 †
+
+B,C 0.7429 ±.0381 0.7078 ±.0749 0.7516 ±.0192 0.7733 ±.0390 0.0000 ±.0000 0.7707 ±.0333 
+
+B,G 0.0372 ±.0424 0.0370 ±.0642 0.0821 ±.0270 0.0000 ±.0000 0.0000 ±.0000 0.7882 ±.0022 †
+
+C,G 0.7650 ±.0208 0.7306 ±.0519 0.7463 ±.0161 0.7733 ±.0390 0.0000 ±.0000 0.7755 ±.0296 †
+
+I,B 0.1350 ±.0257 0.2262 ±.0385 0.2553 ±.0837 0.1236 ±.1080 0.0000 ±.0000 0.7808 ±.0183 †
+
+I,C 0.6721 ±.0388 0.6653 ±.1424 0.7184 ±.0227 0.7484 ±.0451 0.0000 ±.0000 0.7877 ±.0496 †
+
+I,G 0.0741 ±.0561 0.1769 ±.0609 0.2511 ±.0551 0.1236 ±.1080 0.0000 ±.0000 0.7809 ±.0149 †
+
+B,C,G 0.7513 ±.0196 0.7402 ±.0154 0.7524 ±.0203 0.7733 ±.0390 0.0000 ±.0000 0.7733 ±.0261 
+
+I,B,C 0.6688 ±.0096 0.6840 ±.0850 0.7128 ±.0140 0.7484 ±.0451 0.0000 ±.0000 0.7854 ±.0469 †
+
+I,B,G 0.0823 ±.0462 0.1183 ±.0535 0.2561 ±.0833 0.1236 ±.1080 0.0000 ±.0000 0.7809 ±.0149 †
+
+I,C,G 0.7056 ±.0173 0.6843 ±.0643 0.7032 ±.0474 0.7484 ±.0451 0.0000 ±.0000 0.7911 ±.0515 †
+
+I,B,C,G 0.0461 ±.0568 0.0090 ±.0156 0.0000 ±.0000 0.0000 ±.0000 0.0000 ±.0000 0.7964 ±.0036 †
+
+OASIS-3. Tables 10 and 11 report the Accuracy and F1-Score on OASIS-3. OASIS-3 presents the most demanding setting in our benchmark, combining severe visit-spacing irregularity, only three available modalities, and a more balanced class distribution than ADNI or MIMIC-IV. On Accuracy, Lee-MMGRU leads on all clinical-score-dominant combinations (C: 0.6555 ; C,G: 0.6486 ;I,C: 0.6596 ; I,C,G: 0.6537 ), reflecting the strong cross-sectional discriminative power of the clinical modality in this dataset. L ONG MOE leads on the three combinations that exclude clinical scores (G: 0.5268 ; I: 0.5444 ; I,G: 0.5408 ), where all other baselines collapse to near-random performance (0.3333 –0.4492 ), confirming that longitudinal trajectory context is the decisive source of discrim-inative signal when the most informative modality is absent. The F1-Score results reveal an even 19 sharper separation: L ONG MOE achieves the highest F1 on five of seven combinations, including the full-modality setting (I,C,G: 0.4886 ) and all genetics- and imaging-only settings where every baseline except Lee-MMGRU records 0.0000 . The two exceptions are I,C, where Lee-MMGRU leads ( 0.4994 
+
+vs. 0.4827 ), and I,G, where FuseMoE leads marginally ( 0.1514 vs. 0.0864 ), both combinations where the presence of imaging alongside a complementary modality partially compensates for the absence of longitudinal context. L ONG MOE is the only model to achieve non-trivial F1 on the genetics-only setting (G: 0.0864 ), where Lee-MMGRU records 0.0131 and all remaining baselines record 0.0000 ,underscoring the unique capacity of the trajectory-aware encoder to extract longitudinal signal from a modality that carries minimal cross-sectional discriminative information in isolation. Table 10: Performance comparison on OASIS-3 (Accuracy) across all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired 
+
+t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+C 0.3333 ±.0000 0.3333 ±.0000 0.3333 ±.0000 0.6555 ±.0138 0.3333 ±.0000 0.6226 ±.0294 
+
+G 0.3333 ±.0000 0.3333 ±.0000 0.3333 ±.0000 0.3522 ±.0287 0.3333 ±.0000 0.5268 ±.0153 †
+
+I 0.3333 ±.0000 0.3333 ±.0000 0.3400 ±.0095 0.4492 ±.0325 0.3333 ±.0000 0.5444 ±.0413 †
+
+C,G 0.3836 ±.0045 0.3958 ±.0067 0.3542 ±.0187 0.6486 ±.0019 0.3333 ±.0000 0.6369 ±.0360 
+
+I,C 0.4277 ±.0125 0.4446 ±.0076 0.4429 ±.0009 0.6596 ±.0119 0.3333 ±.0000 0.6245 ±.0326 
+
+I,G 0.3325 ±.0012 0.3357 ±.0033 0.3475 ±.0153 0.4485 ±.0267 0.3333 ±.0000 0.5408 ±.0238 †
+
+I,C,G 0.4590 ±.0165 0.4679 ±.0050 0.4485 ±.0113 0.6537 ±.0122 0.3494 ±.0102 0.6400 ±.0413 
+
+Table 11: Performance comparison on OASIS-3 (F1-Score) across all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired 
+
+t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+C 0.0000 ±.0000 0.0000 ±.0000 0.0000 ±.0000 0.4581 ±.0074 0.0000 ±.0000 0.4754 ±.0061 †
+
+G 0.0000 ±.0000 0.0000 ±.0000 0.0000 ±.0000 0.0131 ±.0095 0.0000 ±.0000 0.0864 ±.0148 †
+
+I 0.0000 ±.0000 0.0000 ±.0000 0.0000 ±.0000 0.0649 ±.0186 0.0000 ±.0000 0.1944 ±.0217 †
+
+C,G 0.0000 ±.0000 0.0256 ±.0113 0.0417 ±.0152 0.3652 ±.0191 0.0000 ±.0000 0.5064 ±.0128 †
+
+I,C 0.4222 ±.0184 0.4444 ±.0159 0.4622 ±.0136 0.4994 ±.0117 0.0133 ±.0078 0.4827 ±.0124 
+
+I,G 0.0406 ±.0121 0.0795 ±.0167 0.1514 ±.0205 0.0533 ±.0142 0.0000 ±.0000 0.0864 ±.0153 
+
+I,C,G 0.2594 ±.0226 0.3657 ±.0198 0.4317 ±.0172 0.4144 ±.0185 0.0606 ±.0134 0.4886 ±.0115 †
+
+MIMIC-IV. Tables 12 and 13 report the Accuracy and F1-Score on MIMIC-IV. The Accuracy results present a more nuanced picture than the AUC-ROC results: Lee-MMGRU leads on combina-tions dominated by clinical notes and ICD codes, while FuseMoE achieves the highest accuracy on lab-value-dominant combinations and the full-modality setting. L ONG MOE leads on demographics-only (D: 0.6562 ) and notes-only (N: 0.6893 ) settings, the two combinations where all other baselines either collapse to the majority-class baseline ( 0.5000 ) or provide the weakest signal, confirming that the trajectory-aware encoder is most decisive precisely where individual modalities carry the least cross-sectional information. The F1-Score results, however, reveal a cleaner separation: L ONG MOEachieves the highest F1 across 9 of 15 combinations, including all four single-modality settings except N, where Lee-MMGRU leads marginally ( 0.3474 vs. 0.3412 ). The largest F1 gains for L ONG MOEoccur on demographics-only (D: 0.3227 vs. 0.1004 for the next-best Flex-MoE) and lab-values-only (L: 0.3383 vs. 0.2451 ), confirming that longitudinal context provides a strong substitute for low-information single modalities under the heavily imbalanced binary mortality prediction task. TF collapses to 0.0000 F1 across nearly all combinations, with the sole exception of the full-modality setting ( 0.3235 ), consistent with its zero-padding strategy producing a degenerate classifier under class imbalance. MulT achieves the highest F1 on several note-heavy combinations (N,C,D: 0.4083 ;N,L,C: 0.4355 ; N,L,C,D: 0.4396 ), suggesting that directional cross-modal attention is particularly effective at exploiting clinical note representations when multiple complementary modalities are simultaneously available, a regime where L ONG MOE’s advantage over MulT narrows but remains competitive. 20 Table 12: Performance comparison on MIMIC-IV (Accuracy) across all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+C 0.7416 ±.0044 0.7215 ±.0455 0.7407 ±.0604 0.7918 ±.0070 0.5000 ±.0000 0.7036 ±.0314 
+
+D 0.5893 ±.0235 0.6006 ±.0318 0.6453 ±.0056 0.6471 ±.0128 0.5000 ±.0000 0.6562 ±.0183 †
+
+L 0.6887 ±.0101 0.6822 ±.0362 0.7452 ±.0279 0.7075 ±.0419 0.5000 ±.0000 0.6924 ±.0200 
+
+N 0.6629 ±.0112 0.5008 ±.0007 0.5422 ±.0309 0.6796 ±.0255 0.5000 ±.0000 0.6893 ±.0224 †
+
+C,D 0.7491 ±.0043 0.7068 ±.0464 0.7469 ±.0589 0.7935 ±.0049 0.5000 ±.0000 0.7145 ±.0316 
+
+L,C 0.7707 ±.0066 0.7784 ±.0145 0.8035 ±.0049 0.7934 ±.0307 0.5000 ±.0000 0.7468 ±.0310 
+
+L,D 0.6964 ±.0160 0.7181 ±.0242 0.7378 ±.0491 0.7637 ±.0069 0.5000 ±.0000 0.7022 ±.0188 
+
+N,C 0.7491 ±.0071 0.6372 ±.0075 0.6785 ±.0341 0.7993 ±.0225 0.5000 ±.0000 0.7302 ±.0309 
+
+N,D 0.6762 ±.0134 0.5524 ±.0214 0.6154 ±.0537 0.7588 ±.0021 0.5000 ±.0000 0.6990 ±.0242 
+
+N,L 0.7121 ±.0074 0.6585 ±.0165 0.7132 ±.0618 0.7659 ±.0122 0.5000 ±.0000 0.7281 ±.0148 
+
+L,C,D 0.7745 ±.0025 0.7567 ±.0271 0.8035 ±.0095 0.7790 ±.0033 0.5216 ±.0468 0.7549 ±.0307 
+
+N,C,D 0.7564 ±.0063 0.7408 ±.0037 0.6886 ±.0374 0.7920 ±.0042 0.5000 ±.0000 0.7386 ±.0326 
+
+N,L,C 0.7706 ±.0051 0.7868 ±.0052 0.7861 ±.0060 0.7940 ±.0275 0.5000 ±.0000 0.7568 ±.0294 
+
+N,L,D 0.7217 ±.0089 0.7376 ±.0125 0.7420 ±.0434 0.7776 ±.0044 0.5000 ±.0000 0.7380 ±.0125 
+
+N,L,C,D 0.7744 ±.0034 0.7904 ±.0091 0.7905 ±.0029 0.7819 ±.0013 0.7156 ±.0125 0.7646 ±.0291 
+
+Table 13: Performance comparison on MIMIC-IV (F1-Score) across all modality combinations. Results are mean ± std over five seeds. † denotes statistical significance over the runner-up baseline (paired t-test, Bonferroni-corrected, p < 0.05 ). 
+
+Modalities MulT Flex-MoE FuseMoE Lee-MMGRU TF LongMoE 
+
+C 0.3127 ±.0073 0.2915 ±.0458 0.3127 ±.0436 0.3544 ±.0066 0.0000 ±.0000 0.3603 ±.0017 †
+
+D 0.0903 ±.0176 0.1004 ±.0000 0.0674 ±.0306 0.0623 ±.0072 0.0000 ±.0000 0.3227 ±.0155 †
+
+L 0.2399 ±.0034 0.2451 ±.0045 0.2207 ±.0265 0.2344 ±.0265 0.0000 ±.0000 0.3383 ±.0128 †
+
+N 0.2976 ±.0248 0.3025 ±.0006 0.2970 ±.0087 0.3474 ±.0047 0.0000 ±.0000 0.3412 ±.0151 
+
+C,D 0.2988 ±.0085 0.2532 ±.0562 0.2943 ±.0489 0.3348 ±.0164 0.0000 ±.0000 0.3564 ±.0105 †
+
+L,C 0.3783 ±.0033 0.3602 ±.0348 0.3577 ±.0520 0.3842 ±.0105 0.0000 ±.0000 0.3892 ±.0065 †
+
+L,D 0.2403 ±.0108 0.2237 ±.0343 0.1984 ±.0570 0.2311 ±.0204 0.0000 ±.0000 0.3378 ±.0121 †
+
+N,C 0.3877 ±.0152 0.3705 ±.0214 0.3707 ±.0199 0.4112 ±.0128 0.0000 ±.0000 0.3803 ±.0051 
+
+N,D 0.3164 ±.0159 0.2692 ±.0036 0.2848 ±.0037 0.3469 ±.0037 0.0000 ±.0000 0.3418 ±.0129 
+
+N,L 0.3539 ±.0121 0.3176 ±.0098 0.3322 ±.0034 0.3938 ±.0076 0.0000 ±.0000 0.3693 ±.0203 
+
+L,C,D 0.3830 ±.0064 0.3397 ±.0354 0.3271 ±.0744 0.3758 ±.0084 0.0895 ±.1499 0.3844 ±.0033 †
+
+N,C,D 0.4083 ±.0119 0.3343 ±.0307 0.3767 ±.0312 0.4021 ±.0075 0.0000 ±.0000 0.3789 ±.0055 
+
+N,L,C 0.4355 ±.0242 0.4005 ±.0319 0.4081 ±.0231 0.4315 ±.0102 0.0000 ±.0000 0.4163 ±.0054 
+
+N,L,D 0.3693 ±.0096 0.3482 ±.0136 0.3219 ±.0346 0.3901 ±.0086 0.0000 ±.0000 0.3701 ±.0169 
+
+N,L,C,D 0.4396 ±.0147 0.4034 ±.0434 0.4053 ±.0397 0.4355 ±.0048 0.3235 ±.0729 0.4165 ±.0111 
+
+A.9 Robustness under Missing Modalities 
+
+Figures 4 and 5 plot Accuracy and F1-Score as a function of the number of missing modalities across all three benchmarks. L ONG MOE exhibits a near-flat degradation curve on all three datasets: on ADNI, Balanced Accuracy declines from 0.86 with all modalities present to 0.82 with only one modality remaining ( ∆ = 0 .04 ), and F1 remains stable above 0.78 throughout the entire missingness spectrum; on OASIS-3, L ONG MOE maintains Balanced Accuracy above 0.55 and F1 above 0.57 even at maximum missingness (one modality left), while all baselines degrade steeply from 0.45 to below 
+
+0.34 ; and on MIMIC-IV, L ONG MOE sustains Balanced Accuracy above 0.70 and F1 above 0.35 
+
+through three missing modalities, where competing methods fall to 0.63 -0.69 and TF collapses to the majority-class baseline ( 0.50 ) after the first modality is removed. In contrast, all baselines exhibit steep, near-linear degradation: TF collapses immediately upon the removal of a single modality on ADNI and MIMIC-IV, recording random-level performance throughout; Flex-MoE, FuseMoE, and MulT converge toward each other at maximum missingness, confirming that their static per-visit fusion strategies provide no mechanism for compensating missing contemporaneous information; and Lee-MMGRU, despite its explicit recurrent temporal encoder, degrades comparably to the static baselines once the clinical modality is removed, exposing its dependence on cross-sectional signal rather than trajectory context. The consistent near-flat profile of L ONG MOE across all three benchmarks, datasets scales, and task types is direct evidence that the trajectory-aware Transformer 21 encoder substitutes longitudinal history for missing contemporaneous modality information, providing a principled and transferable robustness mechanism under the full modality missingness spectrum. 
+
+Figure 4: Missing-modality robustness curves (Accuracy) for all the datasets. 
+
+Figure 5: Missing-modality robustness curves (F1-score) for all the datasets. 
+
+A.10 Ablation Studies A.10.1 ADNI Ablation under Missing Modalities. Table 14 reports the ∆AUC of each ablation variant relative to the L ONG MOE model as a function of the number of available modalities at inference time (1, 2, 3, and 4 modalities) on ADNI. The results show a consistent pattern across the missingness spectrum. The w/o Viscode Encoding (VE) variant produces the largest and most persistent drops at all levels of missingness ( ∆AUC = −0.025 at 1 modality, declining to −0.015 at full modality), confirming that the multi-frequency sinusoidal temporal encoding is the component most critical for compensating absent modalities. Its removal degrades the model’s ability to represent the temporal trajectory regardless of how many modalities are currently observed. Removing Shared Experts (SE) 
+
+and disabling Load Balancing (Lbal ) both produce consistent moderate drops of −0.006 across the low-modality settings, indicating that the shared expert backbone and balanced routing are particularly important when fewer modalities are available to distinguish patient subgroups. The w/o Longitudinal Encoder (LE) and w/o Imputation: Zero Padding variants show modest and uniform drops of −0.003 
+
+to −0.001 , suggesting that at low modality counts the carry-forward imputation strategy largely compensates for the absence of the encoder. These two components are partially redundant when the missingness is severe. Conversely, w/o MoE (Single Expert) produces a slight positive ∆AUC (+0 .001 to +0 .003 ) at low modality counts, indicating that under extreme missingness a single expert can outperform the sparse routing mechanism, which may suffer from insufficient signal to make reliable routing decisions, which is a known limitation of sparse MoE in very low-information regimes. 
+
+A.10.2 OASIS-3 Component-wise Ablation. Table 15 reports component-wise ablation on OASIS-3 (full modality: I,C,G) relative to L ONG MOE. The highest degradations arise from removing Shared Experts (SE; 
+
+∆Acc = −0.0417 , ∆AUC = −0.0102 , ∆F1 = −0.0479 ) and the MoE routing in favour of a Single Expert ( ∆Acc = −0.0409 , ∆AUC = −0.0040 , ∆F1 = −0.0583 ), confirming that on the smaller OASIS-3 cohort shared experts are critical for bridging modality gaps across the heterogeneous CN/MCI/AD population where individual experts receive insufficient data to specialise in isolation. The Viscode Encoding (VE) produces the largest AUC drop among temporal components (∆AUC = −0.0256 , ∆F1 = −0.0293 ), indicating that temporal encoding is more critical on 22 Table 14: Ablation under missing modalities on ADNI. Values report ∆AUC relative to the L ONG -MOE model at each missingness level (1 modality available through 4 modalities / full).                                        
+
+> Model Variants 1 mod 2 mods 3 mods 4 mods (full)
+> w/o LE −0.003 −0.002 −0.001 −0.001
+> w/o VE −0.025 −0.023 −0.020 −0.015
+> w/o Imp-ZP −0.003 −0.002 −0.001 −0.001
+> w/o Imp-GM −0.001 −0.000 +0 .000 +0 .002
+> w/o Single Expert +0 .003 +0 .002 +0 .001 +0 .001
+> w/o Shared Experts −0.006 −0.006 −0.005 −0.003
+> w/o Lbal −0.006 −0.008 −0.008 −0.007
+
+OASIS-3 than the near-zero ADNI AUC delta suggested, while removing the Longitudinal Encoder (LE) produces comparable degradation ( ∆AUC = −0.0066 , ∆F1 = −0.0261 ), confirming that both temporal components contribute independently to discriminative performance. The Global Mean imputation ablation produces the largest accuracy drop among non-MoE variants ( ∆Acc = −0.0259 ,
+
+∆AUC = −0.0172 , ∆F1 = −0.0457 ), consistent with global mean statistics overfitting to the population distribution on the smaller 1,098-patient cohort. Table 15: Component-wise ablation of L ONG MOE on OASIS-3 (full modality). Results report Balanced Accuracy, AUC-ROC, Macro F1-score, and their deltas relative to the full model.                                                              
+
+> Variant Acc AUC-ROC F1-Score ∆Acc ∆AUC ∆F1
+> w/o LE 0.6271 0.8486 0.6276 −0.0129 −0.0066 −0.0261
+> w/o VE 0.6277 0.8296 0.6244 −0.0123 −0.0256 −0.0293
+> w/o Imp-ZP 0.6271 0.8486 0.6276 −0.0129 −0.0066 −0.0261
+> w/o Imp-GM 0.6141 0.8380 0.6080 −0.0259 −0.0172 −0.0457
+> w/o Single Expert 0.5991 0.8512 0.5954 −0.0409 −0.0040 −0.0583
+> w/o Shared Experts 0.5983 0.8450 0.6058 −0.0417 −0.0102 −0.0479
+> w/o Lbal 0.6317 0.8510 0.6466 −0.0083 −0.0042 −0.0071
+> LONG MOE0.6400 0.8552 0.6537 ———
+
+Ablation under Missing Modalities. Table 16 reports ∆AUC as a function of the number of available modalities at inference time on OASIS-3. w/o Lbal and w/o Shared Experts (SE) produce the largest drops at 1 modality ( −0.022 and −0.021 respectively), confirming that balanced routing and the shared expert backbone are most critical when modality availability is minimal and the model must maintain discriminative performance from a single modality stream. w/o Imp-GM is uniquely consistent across all missingness levels ( −0.016 , −0.015 , −0.017 ), the only variant that degrades at full modality as well, reflecting the overfitting of population-level imputation statistics on this small cohort regardless of how many modalities are observed. By contrast, w/o VE yields small positive ∆AUC across all levels ( +0 .001 , +0 .006 , +0 .004 ), indicating that on OASIS-3’s shorter visit sequences the temporal encoding contributes minimally to AUC under modality masking; and 
+
+w/o Single Expert shows a mixed profile ( −0.017 at 1 modality, +0 .016 at full), suggesting that sparse routing benefits information-rich full-modality inputs but converges slower than a monolithic expert under extreme missingness on this smaller dataset. 
+
+A.11 Expert Specialisation Analysis OASIS-3. Figure 6 analyses routing behaviour on OASIS-3 ( K = 8 : E1-E5 shared; E6-E8 individual, assigned to Imaging, Clinical, and Genetics respectively). The left plot shows a more heterogeneous stage distribution across shared experts than on ADNI, reflecting OASIS-3’s more balanced CN/MCI/AD class split: E1 is the most CN-dominant (49% CN), E2 and E3 are substantially MCI-enriched (30% CN, rising MCI), and E4/E5 accumulate higher AD fractions (30% AD), indicating that shared experts still capture a disease-severity gradient despite the more challenging class distribution. Individual experts show complementary stage profiles: E6 (Imaging) and E7 (Clinical) both receive approximately 40% CN with rising MCI and AD fractions, while E8 (Genetics) is strongly AD-enriched (47% AD), suggesting that genetics-only inputs are disproportionately associated with confirmed AD diagnoses in OASIS-3. The right plot shows that unlike ADNI, 23 Table 16: Ablation under modality masking on OASIS-3. Values report ∆AUC relative to the full LONG MOE model at each missingness level (1 modality through 3 modalities / full).                                
+
+> Variant 1 mod 2 mods 3 mods (full)
+> w/o LE −0.009 −0.005 +0 .003
+> w/o VE +0 .001 +0 .006 +0 .004
+> w/o Imp-ZP −0.009 −0.005 +0 .003
+> w/o Imp-GM −0.016 −0.015 −0.017
+> w/o Single Expert −0.017 +0 .000 +0 .016
+> w/o Shared Experts −0.021 −0.011 −0.010
+> w/o Lbal −0.022 −0.015 −0.004
+
+shared experts on OASIS-3 receive highly diverse modality combinations across I, C, G, and I,C combinations, consistent with the dataset’s smaller cohort and three-modality structure; individual experts show clear modality-aligned activation: E6 (Imaging) concentrates on I and I,G; E7 (Clinical) on C and C,G; and E8 (Genetics) on G and I,C,G, confirming that context-conditioned routing recovers modality specialisation even in a smaller, more heterogeneous dataset. 
+
+Figure 6: Expert specialization analysis on OASIS-3. Left: Expert routing distribution stratified by disease stage for shared and individual experts. Right: Modality combination activation ratio per expert across the different OASIS-3 combinations. 
+
+MIMIC-IV. Figure 7 analyses routing behaviour on MIMIC-IV ( K = 8 : E1-E4 shared; E5-E8 individual, assigned to Clinical Notes, Lab Values, ICD Codes, and Demographics respectively). The left plot shows that all shared and individual experts are overwhelmingly dominated by the Survived class (88-90%), consistent with the heavily imbalanced label distribution (80.6% Survived), with shared experts showing a modest survival gradient: E1 (88% Survived), E2 (91%), E3 (89%), and E4 (88%), while individual experts exhibit slightly lower survival fractions (78-83%), indicating that individual experts are relatively more active for the minority Died class than shared experts. The right plot shows that shared experts are predominantly activated by Notes and Notes-containing combinations, reflecting the dominance and universal availability of clinical notes in MIMIC-IV (100% coverage), while individual experts exhibit clear modality-aligned specialisation: E5 (Notes) receives highly diverse combinations including N,C,D and N,L,C,D; E6 (Labs) concentrates on L and L-containing combinations; E7 (ICD Codes) shows broad activation across C, N,C, and L,C,D; and E8 (Demographics) is predominantly activated by D and Demographics-inclusive combinations. Together, these patterns confirm that L ONG MOE’s context-conditioned routing generalises expert specialisation meaningfully across both label types (multiclass staging and binary mortality) and modality semantics (neuroimaging vs. EHR), validating the architecture’s subgroup-aware fusion design beyond the AD domain. 
+
+A.12 Hyperparameter Configuration 
+
+Tables 17–22 report the final hyperparameter configurations for L ONG MOE and all the baselines after optimisation. All models share a common training infrastructure: gradient clipping at max_norm =1.0, a patient-level stratified 70/15/15 data split, and five random seeds. L ONG MOE uses a higher epoch budget (100) with a cosine annealing scheduler to accommodate the longer convergence 24 Figure 7: Expert specialization analysis on MIMIC-IV. Left: Expert routing distribution stratified by outcome for shared and individual experts. Right: Modality combination activation ratio per expert across MIMIC-IV modality combinations. time of the trajectory-aware Transformer encoder; baseline models converge within 50 epochs. For L ONG MOE, the MoE layer comprises K = 8 experts partitioned into 5 shared experts ( =max(1 , 8 − 3) ) and 3 modality- specific individual experts (I, C, G), with hard top-1 routing and attentional aggregation over visits. For Flex-MoE, the missing modality embedding bank has shape (2 nmods − 1, n mods , hidden_dim ), covering all 2L − 1 observed modality patterns. For Lee-MMGRU, the GRU encoder (Stage 1) is trained end-to-end with Adam, and a Stage 2 L1-penalised logistic regression is fitted on the frozen GRU representations using the SAGA solver with C ∈ { 0.01 , 0.1, 1.0, 10 .0} cross-validated on the validation set and StandardScaler feature normalisation. All hyperparameters were selected by grid search over the validation set. Baseline configurations follow the original papers where available and are tuned otherwise. Table 17: Hyperparameter configuration for L ONG MOE.                            
+
+> Hyperparameter Value
+> Learning Rate 3×10 −4
+> Batch Size 32 Weight Decay 1×10 −4
+> Optimiser AdamW Epochs 100 Scheduler CosineAnnealingLR Gradient Clipping max_norm = 1 .0
+> Token Dimension ( dtok )256 Transformer Layers ( N)2Total Experts ( K)8Shared Experts 5 ( = max(1 ,8−3) )Modality Experts 3 (I,C,G) Top-KExpert Selection 1Dropout 0.2 Aggregation Attentional ( attn )Output Classes 3 (CN / MCI / AD)
+
+25 Table 18: Hyperparameter configuration for Flex-MoE [7]. 
+
+Hyperparameter Value 
+
+Learning Rate 1 × 10 −4
+
+Batch Size 8Epochs 50 Warm-up Epochs 5Dropout 0.5 Gate Loss Weight 0.01 Hidden Dim 128 Number of Experts 16 Number of Routers 1Fusion Layers 1Prediction Layers 1Top-K 4Attention Heads 4Missing Embed Shape (2 nmods − 1, n mods , hidden_dim )
+
+Gradient Clipping max_norm = 1 .0
+
+Table 19: Hyperparameter configuration for FuseMoE [8]. 
+
+Hyperparameter Value 
+
+Learning Rate 1 × 10 −4
+
+Batch Size 32 Weight Decay 1 × 10 −4
+
+Optimiser AdamW Epochs 50 Gradient Clipping max_norm = 1 .0
+
+Hidden Dim 128 Number of Experts 8Top-K 2Gating Laplace distance-based Dropout 0.1 Table 20: Hyperparameter configuration for MulT [17]. 
+
+Hyperparameter Value 
+
+Learning Rate 1 × 10 −4
+
+Batch Size 32 Weight Decay 1 × 10 −4
+
+Optimiser AdamW Epochs 50 Gradient Clipping max_norm = 1 .0
+
+Model Dim ( dmodel ) 128 Attention Heads 4Transformer Layers 3FFN Dim 512 ( dmodel × 4)Activation GELU Dropout 0.1 CLS Token Learnable Modality Position Embeddings Learnable 26 Table 21: Hyperparameter configuration for Lee-MMGRU [ 19 ]. Stage 1: GRU encoder. Stage 2: L1-penalised logistic regression on frozen representations. 
+
+Hyperparameter Value 
+
+Stage 1 — GRU Encoder 
+
+Learning Rate 1 × 10 −3
+
+Batch Size 32 Weight Decay 1 × 10 −5
+
+Optimiser Adam Epochs 50 Gradient Clipping max_norm = 1 .0
+
+GRU Hidden Dim 64 GRU Layers 1Dropout 0.1 
+
+Stage 2 — Logistic Regression 
+
+Penalty L1 
+
+C Candidates {0.01 , 0.1, 1.0, 10 .0}
+
+Solver SAGA Max Iterations 5,000 Feature Scaling StandardScaler Table 22: Hyperparameter configuration for TF (Tensor Fusion Network) [16]. 
+
+Hyperparameter Value 
+
+Learning Rate 1 × 10 −4
+
+Batch Size 32 Weight Decay 1 × 10 −4
+
+Optimiser AdamW Epochs 50 Gradient Clipping max_norm = 1 .0
+
+Hidden Dim 128 Dropout 0.1 Fusion Outer product of (hidden_dim + 1) vectors Fused Dim min(( hidden_dim + 1) nmods , hidden_dim × 4) 
+
+27
