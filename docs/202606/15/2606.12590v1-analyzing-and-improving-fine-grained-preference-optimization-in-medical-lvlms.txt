@@ -1,0 +1,336 @@
+Title: Analyzing and Improving Fine-grained Preference Optimization in Medical LVLMs
+
+URL Source: https://arxiv.org/pdf/2606.12590v1
+
+Published Time: Fri, 12 Jun 2026 00:07:25 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+# Analyzing and Improving Fine-grained Preference Optimization in Medical LVLMs 
+
+Shayan Mohammadizadehsamakosh 1,3 Pritam Sarkar 2,3 Leonid Sigal 2,3
+
+Ali Etemad 4,3 Elham Dolatabadi 1,31York University 2University of British Columbia 
+
+> 3
+
+Vector Institute 4Queen’s University 
+
+## Abstract 
+
+Large Vision-Language Models (LVLMs) have achieved strong performance across medical imaging tasks, yet they remain prone to factual inconsistencies, poor visual grounding, and misalignment with clinically meaningful feedback. Existing post-training alignment approaches, including Direct Preference Optimization (DPO) and its variants, face three critical limitations in the medical domain: (1) sequence-level reward signals treat clinically critical tokens identically to generic filler text; (2) reliance on static supervised fine-tuning references as preferred responses introduces an off-policy distribution shift, steering optimization toward stylistic artifacts over clinical correctness; and (3) alignment objectives lack explicit visual grounding constraints, leaving models insensitive to subtle yet diagnostically decisive pathological features. Our method leverages a bidirectional token-wise KL regularizer alongside a visual-contrastive grounding objective that pairs clean and lesion-corrupted images to penalize responses generated without adequate visual evidence. Together, these components form a fine-grained, on-policy alignment framework that constructs preference pairs by minimally editing model-generated outputs, correcting only clinically erroneous spans while preserving the original linguistic style. Extensive experiments across medical imaging tasks and clinical text generation benchmarks validate the effectiveness of our approach. 
+
+## 1 Introduction 
+
+Large Vision-Language Models (LVLMs) have shown growing capabilities in perceiving and syn-thesizing visual and textual information, with rapid progress across general-purpose [ 1, 2 , 3 , 4 ] and medical [ 5 , 6 , 7 , 8 , 9 , 10 ] domains. In high-stakes settings such as healthcare, however, LVLMs continue to exhibit unintended failure modes: they hallucinate clinical findings that are not present in the image, produce responses that are linguistically fluent yet factually unsupported by the underlying visual evidence [ 11 , 12 ], and fail to reliably follow clinician instructions [ 13 , 14 ]. These failures undermine medical reliability and limit safe deployment in real-world clinical workflows. Beyond the initial supervised learning phase, post-training techniques have demonstrated remarkable success in refining model behavior and improving task-specific performance [ 15 , 16 , 17 ]. Among them, Direct Preference Optimization (DPO) has gained popularity for its ability to skip explicit reward modeling [ 18 , 19 , 20 , 21 ]. However, standard DPO and its variants face three critical limitations when applied to the medical domain. First , the pairwise preference format is too coarse to capture the feedback clinicians actually provide, causing DPO-based approaches to yield inconsistent gains over supervised fine-tuning [ 22 ]. While clinical evaluation hinges on fine-grained correctness (e.g. exact terminology and accurate anatomical localization), standard DPO treats all response tokens uniformly during optimization. Consequently, diagnostically important spans such as findings, anatomical locations, and measurements contribute no more to the training signal than generic filler 
+
+> Preprint.
+> arXiv:2606.12590v1 [cs.CV] 10 Jun 2026
+
+phrases such as “the image shows” or “there is evidence of”. Second , because AI-generated preference labels are unreliable in medicine [ 23 , 24 ], prior work substitutes the supervised fine-tuning (SFT) ground-truth as the preferred response [ 19 , 25 , 20 ]. This creates an off-policy distribution shift [ 26 ], and the systematic stylistic gap between SFT references and on-policy samples becomes a spurious signal that the model exploits as a reward-hacking shortcut, optimizing stylistic patterns rather than clinical correctness. And third , existing alignment objectives lack explicit visual grounding constraints, leaving models insensitive to subtle yet diagnostically decisive pathological features. 
+
+Figure 1: Reward assignment and visual attention in DPO vs. F IRE-MPO. DPO exhibits the same diffused visual attention as the base LVLM and fails to priori-tize the reward of clinically decisive "left lung" words (darker is higher). In this work, we address these limita-tions by introducing a fine-grained, on-policy alignment framework specifically designed for the high-precision require-ments of medical LVLMs. First, to over-come the coarse sequence-level supervi-sion of standard DPO, where clinically decisive tokens receive the same reward as generic filler text, we introduce Fi ne-grained Re gularized Medical Preference 
+
+Optimization (F IRE-MPO) objective, a fine-grained preference optimization objec-tive that operates at the token level. In-spired by Refined Regularized Preference Optimization (RRPO) [ 27 ], our method applies bidirectional token-wise KL reg-ularization to selectively refine clinically important spans such as anatomical find-ings, measurements, and pathological de-scriptors, enabling more localized and medically meaningful supervision. Sec-ond, to mitigate the off-policy distribu-tion shift and stylistic reward hacking caused by using supervised ground-truth responses as preferred samples, we con-struct on-policy preference pairs directly from model-generated outputs. We care-fully edit only the clinically incorrect spans and preserve the model’s original linguistic structure, rather than replacing the entire response with a stylistically different ref-erence answer. This forces the optimization process to focus on clinical factuality and not the stylistic cues. Third, to address the lack of explicit visual grounding in existing preference optimiza-tion methods, we introduce a visual-contrastive grounding objective that pairs clean images with lesion-corrupted counterparts. By training the model to distinguish between clinically supported and visually unsupported responses, F IRE-MPO explicitly penalizes hallucinated predictions that are not grounded in localized visual evidence. This encourages sensitivity to subtle yet diagnostically critical features such as focal radiographic anomalies or small enhancing lesions. Experiments across multiple medical imaging benchmarks demonstrate that F IRE-MPO consistently outperforms both standard DPO and RRPO, achieving an average relative improvement of 10.24% across two state-of-the-art LVLMs and effectively reducing the stylistic reward-hacking behavior commonly observed in off-policy alignment methods. Our contributions are twofold: • A Medical Preference Data Framework: We propose a novel strategy for generating on-policy preference datasets from existing medical SFT data. By creating counterfactual pairs that correct specific model hallucinations while preserving original syntax, we move beyond simple ground-truth comparisons to provide more precise supervision. • A Multimodal Fine-grained Regularized Loss: We introduce a comprehensive loss modification that operates at both the text and image levels. Our approach provides fine-2grained medical rewards while encouraging the model to incorporate clinically significant visual regions into its reward assignment. 
+
+## 2 The Pitfall of DPO and RRPO in Clinical Setting 
+
+2.1 Preliminaries DPO. Given a vision-language pair {v, q }, DPO [ 15 ] seeks to align the policy model πθ by increasing the likelihood of a chosen response y+ relative to a rejected one y−. This alignment is achieved by maximizing the reward margin between πθ and a fixed reference model πref via the following objective:             
+
+> LDPO (πθ;πref ) = −Elog σ rθ(v, q, y +)−rθ(v, q, y −) ,(1)
+
+where the implicit reward is formulated as rθ (v, q, y ) = β log πθ (y|v,q ) 
+
+> πref (y|v,q )
+
+. Here, β serves as a hyperpa-rameter that controls the strength of the constraint toward the reference distribution. However, this formulation relies on a coarse-grained reward mechanism. Since rθ (v, q, y ) is calcu-lated at the response level, the optimization process penalizes or rewards all tokens in y uniformly. This approach is often suboptimal for fine-grained alignment, as the semantic divergence between 
+
+y+ and y− may be concentrated within only a few critical tokens. Furthermore, the reliance on a sequence-level reward means that for extended outputs, the gradients for LDPO can become dispro-portionately large. Such volatility often leads πθ to diverge, resulting in a loss of capabilities and performance degradation [28, 29, 30]. 
+
+RRPO. Several recent studies [ 27 , 31 , 32 , 33 ] have proposed techniques to mitigate these limitations. In particular, we find RRPO [ 27 ] effective in general domain vision tasks. RRPO introduces a fine-grained alignment strategy that isolates and penalizes only the key differing tokens between y+
+
+and y− by minimizing the following training objective:                   
+
+> LRRPO (πθ;πref ) = −E
+> 
+> log σX
+> i
+>  rθ(v, q, y +
+> i)−rθ(v, q, y −
+> i)
+> +α·X
+> t
+> DKL
+>  πref (t|v, q, y +
+> <t )∥πθ(t|v, q, y +
+> <t )
+> ,
+> (2)
+
+where {v, q, y +} ∼ D and y− ∼ T(πθ (v′, q )) , with v′ representing a randomly perturbed version of v, and T indicating a template-matched version of y+ that incorporates divergent concepts from 
+
+πθ (v′, q ). Because RRPO modifies the implicit KL divergence inherent in DPO to focus exclusively on differing tokens, an additional forward KL divergence term is incorporated. This ensures the model maintains its overall generative profile while applying localized penalties. However, while effective in general contexts, RRPO overlooks several critical nuances as discussed below. 
+
+2.2 Reward Hacking in Clinical Preference Learning 
+
+Figure 2: Stylistic shift VS. Medical accuracy. Using GT as the preferred response causes the model to mimic the length of the rewarded answer instead of improving clinical precision, which shows itself in both final generation and training. a) The medically correct answer of the alignment data compared to its length. b) Reward accuracy measures the fraction of preference pairs for which the implicit DPO reward assigns a higher score to the preferred response than to the rejected response. In medical DPO, expert preference an-notation is often expensive, so a com-mon alternative is to use the fixed SFT reference response as the preferred an-swer [ 34 , 19 ].This construction intro-duces an off-policy distribution shift due to the distinct style of GT medical responses, which are often shorter and more structured, whereas model re-sponses are typically longer and more explanatory. This can confound clin-ical correctness with response style, a failure mode we refer to as stylistic reward hacking. This issue is particularly problematic in clinical alignment because the deci-sive difference between two responses 3is often localized to a small span, such as an anatomical side, lesion attribute, or abnormality label. If the preferred and rejected responses also differ in length, syntax, or format, the optimization signal no longer isolates the clinically meaningful error. Figure 2 illustrates this effect by comparing model outputs and reward accuracy under off-policy 
+
+and on-policy preference construction. Under off-policy DPO, high reward accuracy together with low medical accuracy indicates this reward hacking: the model becomes better at satisfying the preference objective without necessarily correcting the clinically relevant visual finding. In contrast, on-policy preference construction keeps the response style closer to the model’s own outputs. 
+
+2.3 Forward KL vs. Reverse KL in Token-wise Alignment 
+
+In clinical alignment, the choice of regularizer DKL determines how the updated policy πθ trades off distributional coverage against precision. Although the standard LRRPO utilizes a forward token-wise KL ( FKL ) to anchor the policy to the base model, the distributional characteristics of the regularizer are critical for high-stakes medical factuality. The forward term DKL (πref ∥ πθ ) minimizes the divergence by ensuring that πθ places the probability mass wherever the reference πref does. At the token level yt, the optimization behaves as: 
+
+arg min  
+
+> θ
+
+DF KL = arg min  
+
+> θ
+
+DKL (πref ∥ πθ )= arg min  
+
+> θ
+
+Ey∼πref 
+
+
+
+log πref (y | x)
+
+πθ (y | x)
+
+
+
+= arg max  
+
+> θ
+
+Ey∼πref [log πθ (y | x)] 
+
+This requires πθ to cover all modes of the reference model. In a medical context, this ensures the model retains the linguistic variety and general clinical knowledge of the base model. However, it can also force the model to preserve low-precision modes. 
+
+The Case for Reverse KL. The reverse term DKL (πθ ∥ πref ) (RKL ) encourages πθ to concentrate its mass on the high-probability regions of the reference. The objective can be decomposed as: 
+
+arg min  
+
+> θ
+
+DRKL = arg min  
+
+> θ
+
+DKL (πθ ∥ πref )= arg min  
+
+> θ
+
+Ey∼πθ
+
+
+
+log πθ (y | x)
+
+πref (y | x)
+
+
+
+= arg max  
+
+> θ
+
+Ey∼πθ [log πref (y | x)] + H(πθ (y | x)) 
+
+Figure 3: Comparison of Pass@1 vs. Pass@4 across different regularization strategies. The Bidirectional KL (FKL+RKL) achieves the high-est clinical precision while maintaining the dis-tributional richness required for complex reason-ing. RKL acts as an on-policy regularizer. By maximiz-ing the log-probability of the reference under the current policy’s samples, it penalizes the model for straying into regions of the token space that the ref-erence model finds unlikely. This tail-suppression is vital for medical LVLMs, as it prevents the model from generating spuriously attractive but clinically incorrect tokens. 
+
+The case for Forward KL. In Figure 3, we an-alyze the trade-off between distributional cover-age and clinical precision. While RKL enforces high-precision outputs, its mode-seeking nature often triggers a collapse into repetitive responses. Conversely, FKL acts as a necessary safeguard, an-choring the model to the diverse reasoning traces and linguistic richness of the base policy. The re-sults suggest that optimization under either force in isolation is insufficient for high-stakes medical alignment. A balanced regularization ensures the policy achieves rigorous clinical accuracy without sacrificing the interpretive variety that is essential for complex medical reasoning. 43 Method 
+
+To address the limitations of DPO and RRPO, we introduce F IRE-MPO, which incorporates key modifications to the ranking loss and the token-wise KL regularizer. Specifically, the reliance of RRPO on a forward KL divergence term as a regularizer tends to preserve the coverage and diversity of πref , yet it often fails to facilitate the learning of new concepts that lie beyond the distribution of the reference model. Furthermore, RRPO imposes an overly rigid constraint by requiring the rejected response to strictly mirror a ground-truth template, which necessitates perfectly paired correct and incorrect phrases. In practical settings, such a constraint is often unrealistic, as a single phrase in the preferred response may correspond to multiple segments within the rejected response. Consequently, this forceful alignment can cause the model to shift its behavior too abruptly when encountering new tasks. Rather than achieving seamless adaptation, this approach frequently leads to the forgetting of useful prior knowledge in favor of satisfying an off-policy alignment. Finally, the framework lacks explicit constraints regarding evidence grounding within the visual domain, a factor that is particularly critical for effective alignment in high-stakes environments, such as the medical domain. 
+
+Ranking Loss. Given the subtle visual nuances in the medical domain, our objective is to prevent the model from hallucinating correct-sounding responses when essential visual evidence is absent or corrupted. We achieve this by structuring the ranking loss around a dual-constraint. First, we define preference pairs (q, v, y +) ≻ (q, v, y −), which align πθ toward medically accurate answers when supported by valid visual evidence v. Second, we introduce pairs (q, v ′, y −) ≻ (q, v ′, y +),which compel the model to refrain from providing a definitive response when the underlying visual evidence is corrupted ( v′). This ensures that the model prioritizes visual evidence over linguistic priors, effectively penalizing correct guesses made for the wrong reasons. 
+
+Figure 4: An overview of the fine-grained on-policy visual-textual preference creation process First, we obtain a response from πθ
+
+for a given {v, q }. If the output con-tains clinically designated errors, we substitute only the erroneous medi-cal statements with ground-truth in-formation to form y+, while the orig-inal output serves as y−. Conversely, if the initial response is correct, we use them as y+ and generate y− by altering the response with plausible medical counterfactuals. In both sce-narios, the model’s original linguistic style is preserved to allow on-policy alignment. We construct the first set of pairs as (q, v, y +) and (q, v, y −).Next, we construct the second set of pairs as (q, v ′, y −) and (q, v ′, y +), where we obtain v′ by applying targeted Gaussian noise to specific lesions or anatomical landmarks on v relevant to the query. Note that in both cases, we provide a fine-grained reward only on the clinically divergent tokens between y+ and y− by utilizing the ranking loss defined as:                       
+
+> L(Rank) FiRe-MPO (πθ;πref ) = −E
+> 
+> log σX
+> i
+> rθ(v, q, y +
+> i)−X
+> i
+> rθ(v, q, y −
+> i)
+> !
+> +γlog σX
+> i
+> rθ(v′, q, y −
+> i)−X
+> i
+> rθ(v′, q, y +
+> i)
+> !
+> ,
+> (3)
+
+KL Regularizer. Our goal is to enable the policy model to preserve the rich, generalized prior knowledge of the base model while simultaneously allowing it to assimilate new, specialized domain knowledge that may lie outside the base model’s original distribution.The forward KL divergence, 
+
+DKL (πref ∥ πθ ), as employed in RRPO, is "mean-seeking," forcing the policy model to maintain the broad coverage of the reference distribution. Although this successfully preserves the base model’s diverse vision-language capabilities, it is overly restrictive. It heavily penalizes the policy for shifting its probability mass to learn the new concepts necessary for adapting to specific fields, such as the medical domain. Conversely, the reverse KL divergence, DKL (πθ ∥ πref ), is inherently 5“mode-seeking” allowing the model to learn new concepts through effective tail suppression. However, it often induces a severe lack of generation diversity. To address these limitations, we replace the unidirectional constraint with a bidirectional, token-wise KL regularizer. This approach allows balances coverage preservation and tail suppression by simultaneously applying both forward and reverse KL divergence constraints at the token level:             
+
+> L(KL) FiRe-MPO (πθ;πref ) = −E
+> X
+> t
+> 
+> λDKL
+>  πref (yt|v, q, y <t )∥πθ(yt|v, q, y <t )
+> + (1 −λ)DKL
+>  πθ(yt|v, q, y <t )∥πref (yt|v, q, y <t )
+> ,
+> (4)
+
+where λ is a hyperparameter that dictates the relative influence of each constraint. 
+
+Final Loss. The complete F IRE-MPO objective is thus formulated by unifying the ranking loss with the KL regularizer:           
+
+> LFiRe-MPO (πθ;πref ) = L(Rank) FiRe-MPO (πθ;πref ) + α· L (KL) FiRe-MPO (πθ;πref ),(5)
+
+where α is a loss coefficient to control the influence of fine-grained reward and model divergence. 
+
+## 4 Experiments 
+
+In this section, we present our training data construction process, experimental setup and results. 
+
+4.1 Setup Base Models. We evaluate FIRE-MPO using two state-of-the-art open-source backbones: HuatuoGPT-Vision-7B [ 7] and Qwen3-VL-4B-Instruct [ 1]. 
+
+HuatuoGPT-Vision-7B is a specialized medical LVLM pre-trained on extensive medi-cal image-text pairs, making it a strong domain-specialized backbone for clinical vision-language alignment. Qwen3-VL-4B-Instruct is a highly efficient multimodal model that utilizes a sophisticated visual-language adapter for high-resolution image perception, providing a robust baseline for assessing both medical-specific and general-purpose multimodal alignment capabilities. We compare F IRE-MPO with preference-optimization baselines. Standard DPO serves as the sequence-level preference-learning baseline. mDPO [ 35 ] extends DPO loss by incorporating a visual preference component. RRPO [ 27 ] and MASK-DPO [ 31 ] introduce more localized textual preference signals, with RRPO additionally using a regularization term to constrain the updated policy relative to the reference model. These baselines are selected to isolate the contribution of FIRE-MPO’s two main design choices: fine-grained textual preference optimization and explicit visual grounding. For additional context, we also report published results from recent medical alignment methods, including MMedPO [19], FiSAO [36], and STLLaVA-Med [21], where available. 
+
+Training Datasets. We utilize three benchmark datasets that span diverse clinical modalities and tasks. VQA-RAD [ 37 ] is a manually constructed dataset containing 315 radiology images of the head, chest, and abdomen, paired with 3,515 professional-grade question-answer pairs; we utilize the full dataset encompassing both open-ended and binary "yes/no" queries. To assess multilingual capabilities, we employ SLAKE [ 38 ], a semantically-labeled bilingual dataset featuring 642 images and over 14,000 QA pairs. For our experiments, we utilize only the English portion of the dataset and focus on the visual-textual pairs without incorporating the semantic labels or the medical knowledge graph. Finally, for clinical report generation, we utilize the IU-Xray dataset [ 39 ], which comprises 7,470 dual-view chest X-ray images and 3,955 corresponding reports. 
+
+Implementation Details. Following standard preference learning protocols, we utilize Low-Rank Adaptation (LoRA) for efficient fine-tuning [ 40 ]. LoRA is applied exclusively to the LLM component of the LVLMs while the vision encoder and cross-modal projectors remain frozen to preserve the fundamental perceptual features learned during pre-training. We use a cosine decay scheduler and a global batch size of 8. We utilize GPT-4o-mini for VQA extraction and Gemini 3 Flash Preview for report refinement. We ensure that only the clinical accuracy has changed, without the change of targeted model response style. Fine-grained corrupted image samples are constructed by first using MedSAM3-v1 [ 41 ], a pure text-guided medical segmentation model, to get the localized 6Table 1: Comparison of preference-optimization losses on medical VQA and report-generation benchmarks. SLAKE and VQA-RAD report Closed and Open accuracy; IU-Xray reports the Green Score, Precision, and Recall. The Average column aggregates across all reported metrics. Higher is better; best and second best per backbone in bold and underline , respectively. Text ∗ denotes fine-grained text. Results for F IRE-MPO and reproduced baselines are obtained under a unified experimental protocol. Rows in gray correspond to previously published methods (MMedPO, FiSAO, and STLLaVA-Med) and are reported using the metrics provided in their original papers.                                                                                                                                                                                                    
+
+> Text ∗Img. SLAKE VQA-RAD IU-Xray Average
+> Models Pref. Pref. Closed Open Closed Open Green Score Prec. Rec. HuatuoGPT-Vision-7B [7] --70.33 47.49 68.58 40.53 71.55 76.44 58.47 61.21 + DPO [15] ××79.40 55.38 71.65 39.47 71.66 74.07 59.32 64.46 + mDPO [35] ×✓73.59 56.10 72.80 40.58 73.17 67.80 62.03 64.82 + RRPO [27] ✓×79.12 59.11 71.26 43.68 78.84 77.12 64.24 68.15 + MASK-DPO [31] ✓×81.32 57.10 73.18 43.68 58.42 58.98 55.59 61.52 + F IRE-MPO (Ours) ✓✓81.32 ↑10 .961.26 ↑13 .771.26 ↑2.68 45.26 ↑4.73 80.70 ↑9.15 82.54 ↑6.10 63.56 ↑5.09 69.71 ↑8.50
+> Qwen3-VL-4B-Instruct [1] --76.64 56.24 64.75 40.00 72.18 85.08 71.18 63.24 + DPO ××82.41 50.78 67.43 38.94 71.11 82.71 71.18 62.73 + mDPO ×✓77.19 56.24 68.58 40.00 71.66 82.71 71.18 63.87 + RRPO ✓×77.19 60.11 67.43 41.57 73.27 85.08 72.37 65.26 + MASK-DPO ✓×80.49 59.54 69.34 39.94 75.11 79.83 76.27 66.12 + F IRE-MPO (Ours) ✓✓81.32 ↑4.68 60.25 ↑4.01 71.26 ↑6.51 41.05 ↑1.05 76.22 ↑4.04 89.53 ↑4.45 73.89 ↑2.71 67.41 ↑4.17
+> MMedPO [19] ××73.08 53.99 66.54 36.36 ----FiSAO [36] ××70.46 52.69 64.11 32.70 ----STLLaVA-Med [21] ××61.75 48.65 64.38 30.17 ----
+
+corresponding segmentations and then adding targeted noise on the specific clinical concepts. Default 
+
+λ is 0.5, α is 0.01, and γ is 0.1 . More details are provided in Appendix C. 
+
+Evaluation Benchmarks and Metrics. For the Med-VQA and report generation tasks, all evaluations are conducted on the standard in-distribution test splits of their respective datasets. For Med-VQA, we use accuracy for both Closed (binary/categorical) and Open (free-form) question performance on VQA-RAD and SLAKE. Given the question, its ground truth, and the corresponding model response, 
+
+GPT-4o-mini is used as the judge. For medical semantic consistency in IU-Xray, we utilize the Green Score [ 42 ], a specialized metric that prioritizes medical correctness over surface-level n-gram overlap, reporting the accuracy, precision, and recall of the generated report against the ground-truth test set. To assess visual grounding, we evaluate on VGMED [ 43 ], a grounding-centric evolution of the SLAKE dataset designed specifically to measure a model sensitivity to subtle yet diagnostically decisive pathological features. Following the benchmark’s protocol, we measure the Attention Ratio (AR) [ 44 ], KL Divergence , and Jensen-Shannon (JS) Divergence [ 43 ] specifically on critical clinical tokens (Localization and Attribute). 
+
+4.2 Main Results Quantitative Performance. Table 1 reports the performance of different preference-optimization strategies across medical VQA and report-generation benchmarks. On HuatuoGPT-Vision-7B ,our F IRE-MPO achieves the highest overall average score of 69 .71% , improving upon the base model ( 61 .21% ) by 8.50 points, yielding a relative gain of +13.89% , with the largest relative improvements concentrated on the open-ended and report-generation splits: SLAKE Open (+29.0%), IU-Xray Green Score (+12.8%), SLAKE Closed (+15.6%), and SLAKE Overall (+13.9%). On 
+
+Qwen3-VL-4B-Instruct , our method again leads on most splits, including SLAKE Closed (81 .32% ), VQA-RAD Closed ( 71 .26% ), VQA-RAD Overall ( 56 .16% ), and IU-Xray Avg./Precision (79 .88% /89 .53% ), confirming that the gains transfer across both medical-specialized and general-purpose backbones. Qualitative examples showcasing these improvements are included in Section E. 
+
+Visual Grounding. Figure 5 provides layer-wise analysis of visual grounding on localization and attribute tokens. Across both backbones, the baseline unaligned models ( base ) and standard sequence-level DPO alignment exhibit clear limitations in their internal layer representations, showing lower AR values in deeper layers and weaker alignment to clinically relevant localization and attribute information. In contrast, F IRE-MPO demonstrates stronger visual grounding and more controlled distributional alignment across both the specialized HuatuoGPT-Vision-7B and the general-purpose Qwen3-VL-4B-Instruct backbones. Enabled by the fine-grained image preference construction pipeline, the model progressively shifts attention toward diagnostically relevant localization and attribute tokens while maintaining lower KL and JS divergence throughout 7Figure 5: F IRE-MPO shows superior visual grounding compared to base models and DPO alignment. 
+
+Figure 6: Preference-pair construction used in the textual-style ablation. Vanilla preference learning compares the model output directly against the SFT ground truth, creating a large stylistic gap between the rejected and preferred responses. GT-style preference pairs preserve this off-policy mismatch: the preferred answer is short and reference-like, while the rejected answer remains model-like. Our LVLM-style construction edits only the clinically incorrect span while preserving the model’s original response style. This isolates the preference signal to clinical factuality rather than surface-level formatting, directly corresponding to the ablation in Table 5. the network. This behavior becomes particularly evident in the deeper layers, where the separation between F IRE-MPO and the baseline methods is most pronounced, suggesting that the model relies more consistently on clinically relevant visual evidence when forming its final predictions. 
+
+4.3 Ablation Study 
+
+We ablate the three core design choices of F IRE-MPO on HuatuoGPT-Vision-7B , including the bidirectional KL regularizer (Table 2), the visual-contrastive preference pairs (Tables 3 and 4), and the textual preference-pair construction strategy (Table 5). 
+
+Bidirectional KL Regularization. Table 2 evaluates the contribution of the forward and reverse KL components. Removing the KL regularizer entirely ( w/o KL ) leads to the largest performance drop on IU-Xray ( 80 .70% to 58 .42% ). This suggests that regularization plays an important role in stabilizing optimization, especially for long-form report generation. The two KL terms contribute differently. Removing the reverse KL term ( w/o Reverse KL ) reduces performance across all three benchmarks, lowering SLAKE from 68 .14% to 65 .97% , VQA-RAD from 60 .31% to 59 .65% , and IU-Xray from 80 .70% to 78 .84% . In contrast, removing the forward KL term ( w/o Forward KL )primarily affects the VQA tasks, reducing SLAKE to 66 .35% and VQA-RAD to 59 .65% . Taken together, these results indicate that the full bidirectional formulation provides the most consistent performance across clinical settings that require both detailed report generation and open-ended visual question answering. 
+
+Visual-contrastive Preference Pairs . Tables 3 and 4 evaluate both the visual preference formulation and the image corruption strategy used in F IRE-MPO. Table 3 compares different image corruption strategies. Lesion-based corruption achieves the strongest overall performance, outperforming global perturbations such as cropping, image-level noise, and full-image masking across all three benchmarks. The largest gaps are observed relative to cropped images on SLAKE ( 68 .14% vs. 56 .13% ) and fully 8Table 2: Impact of forward and reverse KL regularization across medical VQA and report-generation benchmarks.                     
+
+> Metric Slake VQA-RAD IU-XRAY Average
+> FIRE-MPO (Ours) 68.14 60.31 80.70 69.72
+> w/o Reverse KL 65.97 59.65 78.84 68.15 w/o Forward KL 66.35 59.65 80.98 68.99 w/o KL 65.40 60.75 58.42 61.52
+
+Table 3: Comparison of image corruption strategies used for visual preference construc-tion.                     
+
+> Corruption Type Slake VQA-RAD IU-XRAY Average
+> Lesion-Based 68.14 60.31 80.70 69.72
+> Cropped 56.13 58.76 70.13 61.67 Image Level Noise 66.35 59.65 79.10 68.37 Full Black 66.72 55.28 60.22 60.74
+
+Table 4: Ablation of visual preference formulations.                         
+
+> Metric Slake VQA-RAD IU-XRAY Average
+> FIRE-MPO (Ours) 68.14 60.31 80.70 69.72
+> w/o visual pref. 67.48 58.76 81.79 69.34 + v1 ( v, q, y +≻v′, q, y +)63.05 58.09 77.73 66.29 + v2 ( v, q, y +≻v′, q, y −)65.60 59.64 79.48 68.24
+
+Table 5: Comparison of preference-pair construction strategies on medical VQA benchmarks. Cl, Op, and Ov denote closed-ended, open-ended, and overall performance, respectively.                          
+
+> SLAKE VQA-RAD Models Cl Op Ov Cl Op Ov
+> Style Agnostic 73.63 47.77 56.64 70.88 38.94 57.42 GT Style 80.76 52.36 62.11 73.56 44.21 61.20
+> LVLM Style 79.40 55.38 63.62 71.65 39.47 58.09
+
+blacked-out images on IU-Xray ( 80 .70% vs. 60 .22% ). These results support the central design choice of F IRE-MPO where it teaches the model to anchor its clinical assertions to specific anatomical regions, effectively penalizing lucky hallucinations that lack authentic visual grounding. Removing visual preferences (Table 4) results in lower performance on the VQA benchmarks, reducing SLAKE from 68 .14% to 67 .48% and VQA-RAD from 60 .31% to 58 .76% . We further compare alternative visual preference formulations. Both variants perform worse than the proposed dual-constraint design, with the largest degradation observed for v1, where SLAKE decreases to 63 .05% and IU-Xray decreases to 77 .73% . These results indicate that contrasting clean and corrupted images alone is insufficient; the model also benefits from explicitly learning that a clinically specific answer should not be preferred when the supporting visual evidence has been removed. 
+
+On-policy Response Editing. Figure 6 illustrates the three pair-construction strategies evaluated in Table 5. The style-agnostic setting (vanilla preference learning), which does not explicitly control for stylistic differences between preferred and rejected responses, performs worst across both datasets, achieving overall scores of 56 .64% on SLAKE and 57 .42% on VQA-RAD. This indicates that the quality of the preference pairs plays a substantial role in downstream alignment performance. Both GT Style and LVLM Style substantially improve over the style-agnostic baseline, suggesting that preserving coherent response structure during preference construction is beneficial. In the 
+
+GT Style (off-policy ground truth) setting, the preferred response is written in the style of the supervised reference, while the rejected response remains in the model’s own style. In contrast, the LVLM Style (on-policy) approach edits only the clinically incorrect span while preserving the model’s original syntax and verbosity. As a result, the preferred and rejected responses remain closer in style and differ primarily in clinical content rather than surface-level formatting. This makes preference learning less susceptible to stylistic shortcuts, where the model can increase the preference margin by imitating the form of the ground-truth response rather than correcting the underlying clinical error. The results in Table 5, together with the examples in Figure 6, demonstrate that on-policy, minimally edited preference pairs provide an effective alternative to reference-style supervision by focusing the learning signal on clinical factuality rather than stylistic differences between responses. 
+
+## 5 Related Work 
+
+General Domain Alignments. Traditional DPO often suffers from sequence-level sparsity and distribution shifts between the reference policy and preference data. Recent works like RRPO [ 27 ]address sequence-level issues by utilizing sub-sequence-level refined rewards with a forward token-wise KL for more stable training. Similarly, Mask-DPO [ 31 ] and ASPO [ 45 ] employ sentence-level mechanisms to block noise and adaptively evaluate individual segments. To mitigate the gap between the reference policy and the preference distribution, OPA-DPO [ 46 ] advocates for on-policy data construction, where preferred responses are sampled directly from the model and refined to ensure they reside within the model’s reachable manifold. However, these methods focus primarily on 9textual signals, neglecting the fine-grained interdependence where clinical tokens must be strictly tethered to specific visual regions. 
+
+Multimodal Direct Preference Learning. Incorporating visual preferences has shown promise in improving grounded medical interpretation by moving beyond purely textual feedback. Methods like CHiP [ 47 ] propose cross-modal hierarchical objectives to simultaneously optimize textual and visual representations, while SymPO [ 48 ] utilizes symmetric image-text pairs to reinforce the model’s reliance on visual evidence over linguistic priors. These approaches emphasize the use of image-contrast pairs to align the model’s multimodal manifold. Nevertheless, these frameworks often utilize coarse image-level perturbations that fail to capture the subtle, localized pathological features—such as minute lesions or focal radiographic anomalies—that are decisive in clinical diagnosis. 
+
+Preference Learning in Clinical Settings. The success of DPO in the general domain has encouraged its adoption in medical workflows, where clinical applications require significantly higher factual precision. To scale this, CheXalign [ 49 ] uses automated reference-based scoring for radiology reports, and Rad-DPO [ 34 ] employs specialized data construction to reduce hallucinations in VQA. Similarly, MMedPO [ 19 ] introduces clinical-aware token weighting, while R-DPO [ 50 ] utilizes recursive optimization to iteratively refine policy factuality. While these methods adapt the data or weighting, they all rely on the standard DPO schema for reward assignment, which fails to provide the fine-grained supervision required to distinguish between critical clinical findings and generic filler text. Our work bridges this gap by introducing an on-policy framework that ensures clinical terms are precisely anchored to both the textual reference and the underlying visual evidence. 
+
+## 6 Conclusion 
+
+In this work, we presented F IRE-MPO, a fine-grained, on-policy alignment framework designed to address the unique challenges of medical Vision-Language Models. By moving beyond coarse sequence-level rewards, our approach utilizes a bidirectional token-wise KL regularizer that balances distributional coverage with the tail-suppression necessary for clinical precision. We addressed the pervasive issue of reward hacking by introducing an on-policy data construction strategy that preserves the model’s linguistic manifold while strictly enforcing factual correctness. Furthermore, our visual-contrastive grounding objective ensures that model responses are authentically tethered to localized pathological features rather than linguistic priors. Extensive evaluations across VQA-RAD, SLAKE, and IU-Xray demonstrate that F IRE-MPO consistently outperforms state-of-the-art alignment methods, offering a robust path toward more reliable and factually consistent AI assistants in healthcare. 
+
+## 7 Limitations 
+
+While F IRE-MPO demonstrates consistent gains across medical VQA and report generation bench-marks, several limitations remain. First, the on-policy preference construction pipeline depends on external models, GPT-4o-mini for VQA extraction and MedSAM3-v1 for lesion segmentation, introducing potential error propagation when the task is more niche. Second, the lesion-targeted corruption strategy requires reliable segmentation masks, which may be unavailable or imprecise for rare pathologies or underrepresented imaging modalities. Third, our evaluation is confined to radiology, and it remains an open question whether the framework generalizes to other clinical imaging domains such as pathology, dermatology, or ophthalmology, which exhibit substantially different visual grounding characteristics. 10 References 
+
+[1] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 , 2025. [2] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical report. arXiv preprint arXiv:2303.08774 , 2023. [3] Aaditya Singh, Adam Fry, Adam Perelman, Adam Tart, Adi Ganesh, Ahmed El-Kishky, Aidan McLaughlin, Aiden Low, AJ Ostrow, Akhila Ananthram, et al. Openai gpt-5 system card. arXiv preprint arXiv:2601.03267 , 2025. [4] Aixin Liu, Bei Feng, Bing Xue, Bingxuan Wang, Bochao Wu, Chengda Lu, Chenggang Zhao, Chengqi Deng, Chenyu Zhang, Chong Ruan, et al. Deepseek-v3 technical report. arXiv preprint arXiv:2412.19437 , 2024. [5] Chunyuan Li, Cliff Wong, Zirui Zhang, Yan Luo, Jianwei Yang, Haotian Liu, Kai-Wei Cheng, Yu Yue, Jianfeng Peng, Jianfeng Gao, et al. Llava-med: Training a large language-and-vision assistant for biomedicine in one day. In Advances in Neural Information Processing Systems (NeurIPS) , 2024. [6] Zhihong Chen, Maya Varma, Jean-Benoit Delbrouck, Magdalini Paschali, et al. Chexagent: Towards a foundation model for chest x-ray interpretation. arXiv preprint arXiv:2401.12208 ,2024. [7] Junying Chen, Chi Gui, Ruyi Ouyang, Anningzhe Gao, Shunian Chen, Guiming Hardy Chen, Xidong Wang, Zhenyang Cai, Ke Ji, Xiang Wan, et al. Towards injecting medical visual knowledge into multimodal llms at scale. In Proceedings of the 2024 conference on empirical methods in natural language processing , pages 7346–7370, 2024. [8] Andrew Sellergren, Sahar Kazemzadeh, Tiam Jaroensri, Atilla Kiraly, Madeleine Traverse, Timo Kohlberger, Shawn Xu, Fayaz Jamil, Cían Hughes, Charles Lau, et al. Medgemma technical report. arXiv preprint arXiv:2507.05201 , 2025. [9] Rawan AlSaad, Alaa Abd-Alrazaq, Sabri Boughorbel, Arfan Ahmed, Max-Antoine Renault, Rafat Damseh, and Javaid Sheikh. Multimodal large language models in health care: ap-plications, challenges, and future outlook. Journal of medical Internet research , 26:e59505, 2024. [10] Khaled Saab, Tao Tu, Wei-Hung Weng, Ryutaro Tanno, David Stutz, Ellery Wulczyn, Fan Zhang, Tim Strother, Chunjong Park, Elahe Vedadi, et al. Capabilities of gemini models in medicine. arXiv preprint arXiv:2404.18416 , 2024. [11] et al. Zhang. Detecting and evaluating medical hallucinations in large vision language models. 
+
+arXiv preprint arXiv:2406.10185 , 2024. [12] Ashish Seth, Dinesh Manocha, and Chirag Agarwal. Hallucinogen: Benchmarking hallucination in implicit reasoning within large vision language models. In Proceedings of the 2nd Workshop on Uncertainty-Aware NLP (UncertaiNLP 2025) , pages 89–102, 2025. [13] Praneeth Vadlapati. Ai reliability gap: Why large language models fail in safety-critical systems. 
+
+ResearchGate / Independent Report , 2026. URL https://www.researchgate.net/ publication/401422885 .[14] Peng Xia, Ze Chen, Juanxi Tian, Yangrui Gong, Ruibo Hou, Yue Xu, Zhenbang Wu, Zhiyuan Fan, Yiyang Zhou, Kangyu Zhu, et al. Cares: A comprehensive benchmark of trustworthiness in medical vision language models. Advances in Neural Information Processing Systems , 37: 140334–140365, 2024. [15] Rafael Rafailov, Archit Sharma, Eric Mitchell, Christopher D Manning, Stefano Ermon, and Chelsea Finn. Direct preference optimization: Your language model is secretly a reward model. 
+
+Advances in neural information processing systems , 36:53728–53741, 2023. 11 [16] Kawin Ethayarajh, Winnie Xu, Niklas Muennighoff, Dan Jurafsky, and Douwe Kiela. Kto: Model alignment as prospect theoretic optimization, 2024. URL https://arxiv. org/abs/2402.01306 , 14, 2023. [17] Mohammad Gheshlaghi Azar, Zhaohan Daniel Guo, Bilal Piot, Remi Munos, Mark Rowland, Michal Valko, and Daniele Calandriello. A general theoretical paradigm to understand learning from human preferences. In International Conference on Artificial Intelligence and Statistics ,pages 4447–4455. PMLR, 2024. [18] Dennis Hein, Zhihong Chen, Sophie Ostmeier, Justin Xu, Maya Varma, Eduardo Pontes Reis, Arne Edward Michalson, Christian Bluethgen, Hyun Joo Shin, Curtis Langlotz, and Akshay S Chaudhari. CheXalign: Preference fine-tuning in chest X-ray interpretation models without hu-man feedback. In Wanxiang Che, Joyce Nabende, Ekaterina Shutova, and Mohammad Taher Pile-hvar, editors, Proceedings of the 63rd Annual Meeting of the Association for Computational Lin-guistics (Volume 1: Long Papers) , pages 27679–27702, Vienna, Austria, July 2025. Association for Computational Linguistics. ISBN 979-8-89176-251-0. doi: 10.18653/v1/2025.acl-long.1342. URL https://aclanthology.org/2025.acl-long.1342/ .[19] K. Zhu et al. MMedPO: Aligning medical vision-language models with clinical-aware multi-modal preference optimization. arXiv preprint arXiv:2412.06141 , 2024. [20] Thomas Savage, Stephen P Ma, Abdessalem Boukil, Ekanath Rangan, Vishwesh Patel, Ivan Lopez, and Jonathan Chen. Fine-tuning methods for large language models in clinical medicine by supervised fine-tuning and direct preference optimization: Comparative evaluation. Journal of Medical Internet Research , 27:e76048, 2025. [21] Guohao Sun, Can Qin, Huazhu Fu, Linwei Wang, and Zhiqiang Tao. Self-training large language and vision assistant for medical question answering. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pages 20052–20060, 2024. [22] Dain Kim, Jiwoo Lee, Jaehoon Yun, Yong Hoe Koo, Qingyu Chen, Hyunjae Kim, and Jaewoo Kang. Benchmarking direct preference optimization for medical large vision-language models. 
+
+arXiv preprint arXiv:2601.17918 , 2026. [23] Alexandra DeLucia, Heyuan Huang, Sonal Joshi, Mahsa Yarmohammadi, Ahmed Hassoon, and Mark Dredze. Same verdict, different reasons: Llm-as-a-judge and clinician disagreement on medical chatbot completeness. arXiv preprint arXiv:2604.16383 , 2026. [24] Debbie Rankin, Michaela Black, Raymond Bond, Jonathan Wallace, Maurice Mulvenna, and Gorka Epelde. Reliability of supervised machine learning using synthetic data in health care: Model to preserve privacy for data sharing. JMIR medical informatics , 8(7):e18910, 2020. [25] Hong Liu, Dong Wei, Zhe Xu, Xian Wu, Yefeng Zheng, and Liansheng Wang. Rrg-dpo: Direct preference optimization for clinically accurate radiology report generation. In International Conference on Medical Image Computing and Computer-Assisted Intervention , pages 552–562. Springer, 2025. [26] Zhihe Yang, Xufang Luo, Dongqi Han, Yunjian Xu, and Dongsheng Li. Mitigating hallucina-tions in large vision-language models via dpo: On-policy data hold the key. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 10610–10620, 2025. [27] Pritam Sarkar and Ali Etemad. Self-alignment of large video language models with refined regularized preference optimization. arXiv preprint arXiv:2504.12083 , 2025. [28] Shusheng Xu, Wei Fu, Jiaxuan Gao, Wenjie Ye, Weilin Liu, Zhiyu Mei, Guangju Wang, Chao Yu, and Yi Wu. Is dpo superior to ppo for llm alignment? a comprehensive study. arXiv preprint arXiv:2404.10719 , 2024. [29] Yuzi Yan, Yibo Miao, Jialian Li, Yipin Zhang, Jian Xie, Zhijie Deng, and Dong Yan. 3d-properties: Identifying challenges in dpo and charting a path forward. arXiv preprint arXiv:2406.07327 , 2024. 12 [30] Jay Hyeon Cho, JunHyeok Oh, Myunsoo Kim, and Byung-Jun Lee. Rethinking dpo: The role of rejected responses in preference misalignment. arXiv preprint arXiv:2506.12725 , 2025. [31] Yuzhe Gu, Wenwei Zhang, Chengqi Lyu, Dahua Lin, and Kai Chen. Mask-dpo: Generalizable fine-grained factuality alignment of llms. arXiv preprint arXiv:2503.02846 , 2025. [32] Yongcheng Zeng, Guoqing Liu, Weiyu Ma, Ning Yang, Haifeng Zhang, and Jun Wang. Token-level direct preference optimization. arXiv preprint arXiv:2404.11999 , 2024. [33] Mingkang Zhu, Xi Chen, Zhongdao Wang, Bei Yu, Hengshuang Zhao, and Jiaya Jia. Tgdpo: Harnessing token-level reward guidance for enhancing direct preference optimization. arXiv preprint arXiv:2506.14574 , 2025. [34] A. Puli et al. Rad-DPO: Reducing hallucinations in medical visual question answering. arXiv preprint arXiv:2406.06496 , 2024. [35] Fei Wang, Wenxuan Zhou, James Y Huang, Nan Xu, Sheng Zhang, Hoifung Poon, and Muhao Chen. mdpo: Conditional preference optimization for multimodal large language models. In 
+
+Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing ,pages 8078–8088, 2024. [36] Chenhang Cui, An Zhang, Yiyang Zhou, Zhaorun Chen, Gelei Deng, Huaxiu Yao, and Tat-Seng Chua. Fine-grained verifiers: Preference modeling as next-token prediction in vision-language alignment. arXiv preprint arXiv:2410.14148 , 2024. [37] Jason J Lau, Soumya Gayen, Asma Ben Abacha, and Dina Demner-Fushman. A dataset of clinically generated visual questions and answers about radiology images. Scientific data , 5(1): 180251, 2018. [38] Bo Liu, Li-Ming Zhan, Li Xu, Lin Ma, Yan Yang, and Xiao-Ming Wu. Slake: A semantically-labeled knowledge-enhanced dataset for medical visual question answering. In 2021 IEEE 18th international symposium on biomedical imaging (ISBI) , pages 1650–1654. IEEE, 2021. [39] Dina Demner-Fushman, Marc D Kohli, Marc B Rosenman, Sonya E Shooshan, Laritza Ro-driguez, Sameer Antani, George R Thoma, and Clement J McDonald. Preparing a collection of radiology examinations for distribution and retrieval. Journal of the American Medical Informatics Association , 23(2):304–310, 2016. [40] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Liang Wang, Weizhu Chen, et al. Lora: Low-rank adaptation of large language models. Iclr , 1(2):3, 2022. [41] Anglin Liu, Rundong Xue, Xu R Cao, Yifan Shen, Yi Lu, Xiang Li, Qianqian Chen, and Jintai Chen. Medsam3: Delving into segment anything with medical concepts. arXiv preprint arXiv:2511.19046 , 2025. [42] Sophie Ostmeier, Justin Xu, Zhihong Chen, Maya Varma, Louis Blankemeier, Christian Blueth-gen, Arne Edward Michalson Md, Michael Moseley, Curtis Langlotz, Akshay S Chaudhari, et al. Green: Generative radiology report evaluation and error notation. In Findings of the association for computational linguistics: EMNLP 2024 , pages 374–390, 2024. [43] Y. Liu et al. Analyzing visual grounding in medical LVLMs. arXiv preprint arXiv:2603.14323 ,2026. [44] Mahyar Khayatkhoei, Prateek Chhikara, Filip Ilievski, et al. Mllms know where to look: Training-free perception of small visual details with multimodal llms. In International Confer-ence on Learning Representations , volume 2025, pages 68194–68213, 2025. [45] H. Wang et al. ASPO: Adaptive sentence-level preference optimization for multimodal large language models. In Findings of the Association for Computational Linguistics (ACL) , 2025. [46] X. Yang et al. OPA-DPO: On-policy alignment for preference optimization. arXiv preprint arXiv:2501.09695 , 2025. 13 [47] J. Fu et al. CHiP: Cross-modal hierarchical DPO. arXiv preprint arXiv:2501.16629 , 2025. [48] S. Shukla et al. SymPO: Symmetric preference optimization for vision-language models. arXiv preprint arXiv:2506.11712 , 2025. [49] D. Hein et al. CheXalign: Preference fine-tuning in chest X-ray interpretation models without human feedback. In Proceedings of the Association for Computational Linguistics (ACL) , 2025. [50] Y. Liu et al. R-DPO: Recursive direct preference optimization for medical vision-language models. In Medical Image Computing and Computer Assisted Intervention (MICCAI) , 2025. 14 A Impact Statement 
+
+The broader impact of this work lies in its potential to enhance the reliability and factual consistency of AI-driven medical diagnostics. Our framework advances the development of more trustworthy medical AI tools with direct implications for diagnostic accuracy and medical image faithfulness. Improved alignment between model outputs and clinically decisive visual evidence could reduce hallucinated findings in radiology reports and medical VQA, supporting clinicians in time-sensitive diagnostic workflows. However, ethical considerations remain paramount. The aligned model can still suffer from critical errors as of the base model. The responsible use requires safeguards against over-reliance on AI-generated medical advice in high-stakes decision-making contexts. Future societal benefits may include reduced diagnostic errors, improved radiological workflow efficiency, and broader access to AI-assisted clinical interpretation in resource-limited settings, but these gains must be pursued alongside rigorous prospective validation and ongoing ethical oversight to ensure that advances in fine-grained medical alignment genuinely serve the best interests of patients and healthcare providers. 
+
+## B FIRE-MPO Pseudocode 
+
+def FiRe-MPO( self, # phrase-level logprobs chosen_phrase_logps, rejected_phrase_logps, ref_chosen_phrase_logps, ref_rejected_phrase_logps, # v visual pair at phrase level: (m_l, y_l) vs (m_l, y_w) v_chosen_phrase_logps, v_rejected_phrase_logps, ref_v_chosen_phrase_logps, ref_v_rejected_phrase_logps, # token logits for phrase-level KL chosen_logits, ref_chosen_logits, phrase_mask, ref_phrase_mask, has_rejected_image, beta, alpha, gamma, lambda, # hyperparams ): # -------- 1) Base phrase preference --------# margins computed from phrase-only logprobs base_margin = beta * ((chosen_phrase_logps - rejected_phrase_logps) - (ref_chosen_phrase_logps - ref_rejected_phrase_logps) )base_loss = -F.logsigmoid(base_margin) # [B] # -------- 2) Visual preference (v only, phrase-level) --------v_margin = beta * ( (v_chosen_phrase_logps - v_rejected_phrase_logps) - (ref_v_chosen_phrase_logps - ref_v_rejected_phrase_logps) )v_loss = -F.logsigmoid(v_margin) # [B] loss = base_loss + gamma * v_loss # -------- 3) token-wise KL --------logp_pi = F.log_softmax(chosen_logits, dim=-1) # [B,S,V] logp_ref = F.log_softmax(ref_chosen_logits, dim=-1) # [B,S,V] # forward KL(ref || pi), then keep phrase positions only tkl_tok = (logp_ref.exp() * (logp_ref - logp_pi)).sum(dim=-1) # [B,S] 
+
+15 tkl = (tkl_tok * phrase_mask.float()).sum(dim=-1) # [B] # reverse KL(pi || ref), also phrase-only rtkl_tok = (logp_pi.exp() * (logp_pi - logp_ref)).sum(dim=-1) # [B,S] rtkl = (rtkl_tok * ref_phrase_mask.float()).sum(dim=-1) # [B] mixed_tkl = lambda * tkl + (1.0 - lambda) * rtkl loss = loss + alpha * mixed_tkl return loss.mean() 
+
+## C Implementation Details. 
+
+Table 6: Details of training hyperparameters.                                    
+
+> HuatuoGPT-Vision-7B Qwen3-VL-4B
+> Is Medically SFT ✓×
+> Trainable module LoRA in LLM and everything else is kept frozen LoRA setup rank=128, alpha=256, dropout=0.05 Learning rate 1e-6 1e-6 Learning rate scheduler Cosine Cosine Optimizer AdamW AdamW Weight decay 0.0 0.0 Warmup ratio 0.0 0.0 Epoch 11Batch size per GPU 44Batch size (total) 88
+> β(loss coefficient) 0.1 0.1
+> α(loss coefficient) 0.01 0.01
+> γ(loss coefficient) 0.1 0.1
+> λ(loss coefficient) 0.5 0.5 Memory optimization unsloth unsloth
+
+Training was performed on an H100 80GB GPU, while inference utilized two L40s. 
+
+Licenses of existing assets used. 
+
+• HuatuoGPT-Vision-7B (Apache License 2.0): https://huggingface.co/ FreedomIntelligence/HuatuoGPT-Vision-7B 
+
+• Qwen3-VL-4B-Instruct (Apache License 2.0): https://huggingface.co/Qwen/ Qwen3-VL-4B-Instruct 
+
+## D Prompt Templates 
+
+The instructions used for processing the open-ended generated responses are detailed below. We utilize a multi-stage approach to first evaluate correctness (Stage 1) and then identify and incorporate fine-grained clinical differences (Stage 2). 16 {Stage 1: Prompt used in VQA answer localization.} You are evaluating a model’s answer to a medical question. Question: {question} Correct answer (ground truth): {answer} Model’s full answer: {output} Perform these four steps and respond with a single JSON object only (no other text): 1. **answer_sentence**: The minimal phrase or clause from the model’s answer that states the final answer, using the model’s exact wording. Preserve the model’s language so the final answer is visible in context. Do not include extra clauses that follow. 2. **final_answer**: Locate and extract the final answer to the question from the model’s answer. Use as few words as possible (the first occurrence of the conclusive answer). 3. **is_correct**: true if the final answer is correct given the ground truth, false otherwise. 4. **opposite_answer**: Modify the answer sentence as little as possible to make a medically plausible alternative for the question. Respond only with valid JSON in this exact shape: {"answer_sentence": "...", "final_answer": "...", "is_correct": true or false, "opposite_answer": "..."} {Stage 2: Prompt used in VQA answer difference localization.} You are given two sentences that are the same except for some phrases. Your task is to identify the phrases in each sentence that differs from the other. Sentence A: {sentence_a} Sentence B: {sentence_b} Wrap only the differing phrases in ‘<mask ‘ ‘</mask ‘ tags. The differing phrases should be as short as possible. 
+
+Figure 7: Prompt template used for VQA task answer localization and Ground Truth incorporation. 17 % {Stage 1: Prompt used in Report generation modification} **Task:** Rewrite **Report A** to make a medically difficult preference pair. **Instruction:** * **Change Logic**: Use the facts in **Report B** to replace a few medical words in Report A to create a fine-grained preferred pair. * **all_correct**: If all the fact in Report B are already present in Report A, change a few words yourself to make a rejected pair. **Constraints:** * **Structural Locking:** The format of Report A should be preserved. * **Token Parsimony:** At most **two or three words per sentence** can be changed. * **Clinical Significance:** The rejected response should be clinically different with Report A. Changing synonyms (e.g. "clear" vs "normal", "healthy" vs "unremarkable") is not accepted. * **Output Format:** Return a JSON object containing keys ‘all_correct‘ and ‘rewritten_report_a‘. **Input Data:** * **Report A:** {report_a} * **Report B:** {report_b} % {Stage 2: Prompt used in Report Generation answer difference localization} CHEST_MASK_PROMPT = """Compare two reports and put the differing phrases inside ‘<mask ‘ ‘</mask ‘ tags. Output: Return **only** a valid JSON object with two keys: ‘report_a_masked‘ and ‘report_b_masked‘. Each key should be a string with the differing phrases wrapped in ‘<mask ‘ ‘</mask ‘ tags. Report A: {report_a} Report B: {rewritten_report_a} """ 
+
+Figure 8: Prompt template used for Report Generation task answer localization and Ground Truth incorporation. 18 E More Cases 
+
+> 19
+
+20
