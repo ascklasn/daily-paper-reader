@@ -1,0 +1,558 @@
+Title: Attention-Based Prototype Calibration for Multi-Rater Few-Shot Medical Image Segmentation
+
+URL Source: https://arxiv.org/pdf/2606.16325v1
+
+Published Time: Tue, 16 Jun 2026 02:20:24 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Attention-Based Prototype Calibration for Multi-Rater Few-Shot Medical Image Segmentation 
+
+Truong Vu, Minh Khoi Ho, and Yutong Xie ⋆
+
+Mohamed bin Zayed University of Artificial Intelligence 
+
+{truong.vu, khoi.ho, yutong.xie}@mbzuai.ac.ae 
+
+Abstract. Few-shot medical image segmentation methods typically as-sume a single ground-truth annotation, overlooking systematic variabil-ity across expert raters commonly observed in clinical datasets. We pro-pose an attention-based prototype calibration framework for few-shot multi-rater segmentation that models rater-specific deviations from a consensus representation in prototype space. A lightweight yet princi-pled attention operator directly refines rater prototypes without modify-ing the backbone feature extractor, making the approach fully compati-ble with existing prototype-based few-shot segmentation methods. This design preserves semantic consistency while enabling personalized seg-mentation outputs with minimal computational overhead. Experiments on multi-rater medical imaging datasets demonstrate consistent improve-ments over baseline prototype approaches, highlighting the effectiveness of structured prototype calibration for modeling annotation variability. Our code is available at https://github.com/truong2710-cyber/JAPC .
+
+Keywords: Few-shot Learning · Multi-rater · Medical Image Segmen-tation 
+
+1 Introduction 
+
+Medical image segmentation underpins many clinical applications, including tu-mor assessment and organ volumetry [3,19,28]. Although deep neural networks achieve strong performance [2,7,15], they rely on densely annotated data, which is expensive and time-consuming to obtain. Few-shot medical image segmenta-tion (FSMIS) mitigates this issue by learning transferable representations that adapt to unseen classes from only a few labeled support images. Prototype-based approaches [6,8,10,12,13,18,23,24,29], such as PANet [25] and SSL-ALPNet [20], compute class prototypes from support masks and perform dense feature match-ing for query segmentation, demonstrating strong generalization under limited supervision. However, most FSMIS methods assume a single reliable annotation per im-age. In realistic clinical practice, images are often labeled by multiple experts  
+
+> ⋆
+
+Corresponding author: yutong.xie@mbzuai.ac.ae  
+
+> arXiv:2606.16325v1 [cs.CV] 15 Jun 2026 2Vu et al.
+
+whose delineations differ systematically due to boundary tolerance and clinical interpretation. Such inter-rater variability, observed in datasets such as CUR-VAS [21], LIDC-IDRI [1], and QUBIQ [16], reflects structured stylistic differ-ences rather than random noise. While multi-rater segmentation has been stud-ied in fully supervised settings through consensus estimation [26], uncertainty modeling [4,14], and personalized prediction [11,17,27], these approaches assume abundant annotations and are not tailored to few-shot learning. This reveals a key gap: in practice, supervision is both scarce and heteroge-neous. To address this, we introduce few-shot multi-rater segmentation , where each support image contains multiple annotations and the model produces R per-sonalized predictions per query, one corresponding to each rater style observed in the support set, thereby avoiding consensus collapse and explicitly modeling multiple plausible segmentation modes. Collapsing multiple annotations into a consensus discards rater-specific infor-mation, whereas training raters independently can not exploit shared semantic structure across annotators nor explicitly model the structured differences be-tween rater styles. Hence, we propose a prototype-centric personalization frame-work for this setting. An attention-based prototype calibration module models structured deviations between rater-specific and consensus prototypes directly in prototype space. A calibration loss regularizes prototype updates to stabilize personalization under limited support data. To enable multi-style supervision from pseudo labels, we further introduce pseudo-style generation, synthesizing multiple rater-style variants from superpixel-based pseudo labels [9]. Finally, a two-stage training strategy improves optimization stability. We evaluate our method on two multi-rater benchmarks across modalities: CURVAS (Abdominal CT) and QUBIQ brain-growth (Brain MRI). Using per-rater Dice as the metric, our approach consistently outperforms FSMIS and multi-rater baselines while maintaining robustness in few-shot scenarios. Our contributions are as follows: - We formalize the novel problem of few-shot multi-rater segmentation , bridg-ing realistic multi-annotator supervision with few-shot learning. - We propose a prototype-based personalization framework incorporating attention-based prototype calibration, calibration regularization, pseudo-style generation, and two-stage training for solving few-shot multi-rater segmentation by modeling structured inter-rater variability in prototype space. - We demonstrate consistent empirical improvements in per-rater segmenta-tion accuracy across multiple multi-rater medical benchmarks. 
+
+2 Method 
+
+2.1 Problem Formulation 
+
+Few-shot medical image segmentation (FSMIS) aims to learn a model on a train-ing set Dtr that can segment unseen semantic classes in a test set Dte given only a few labeled examples of those unseen classes, without retraining . The dataset Title Suppressed Due to Excessive Length 3
+
+is split into Dtr and Dte with disjoint class sets Ctr and Cte , where Ctr ∩ C te = ∅.Following the standard meta-learning protocol [20], Dtr and Dte are sampled into episodes {(Si, Qi)} for training and evaluation, respectively. Each episode defines an N -way K-shot segmentation task with episode classes {cj }Nj=1 (typi-cally N =1 in medical FSS): the support set is Si = {(xls, y ls(cj )) }N,K j=1 ,l =1 and the query set Qi contains V image-mask pairs from the same class as the support set, where yls(cj ) ∈ { 0, 1}H×W is the binary mask for class cj in an image sized 
+
+H × W (background c0 is implicit). A conventional single-label FSMIS model learns to predict one mask ˆyvq (cj ) for each query image xvq (v = 1 , . . . , V ) con-ditioned on Si. After a series of episodes, we obtain the final model, which is evaluated on unseen Cte in the same N -way K-shot segmentation manner. In realistic multi-rater datasets, each image may be annotated by multiple experts with systematic stylistic differences. We therefore extend to few-shot multi-rater segmentation , where each support image has R masks for each class 
+
+cj {yl, (r) 
+
+> s
+
+(cj )}Rr=1 , i.e., Si = {(xls, {yl, (r) 
+
+> s
+
+(cj )}Rr=1 )}N,K j=1 ,l =1 . The class split and episodic protocol remain unchanged, but the goal differs: given xvq , the model must output R personalized predictions {ˆyv, (r) 
+
+> q
+
+(cj )}Rr=1 , one per rater style ob-served in the support set, rather than a single consensus segmentation. Following previous works [18,20,24,29], we consider N = K = 1 .
+
+2.2 Prototype-Based Few-Shot Segmentation 
+
+In this section, we present a simple baseline approach to the few-shot multi-rater segmentation problem. This approach is a direct extension of existing prototype-based FSMIS methods [18,20,24,29], simply processing each rater independently. Let fθ (·) denote a shared encoder producing feature maps Fs = fθ (xs), F q =
+
+fθ (xq ) with xs and xq being a support image and a query image from the same episode. Modern few-shot segmentation methods construct prototypes through various modules, including masked pooling, grid-based local prototypes, or multi-scale refinement [6,8,10,12,13,18,23,24,29]. We denote this prototype extraction function abstractly as {p(r) 
+
+> c
+
+} = Φ(Fs, y (r) 
+
+> s
+
+), where c ∈ { fg , bg } and Φ(·, ·) may produce one or multiple prototypes per class. The shape of p(r) 
+
+> c
+
+is N × D with 
+
+N being the number of prototypes of class c and D being the dimension. A pixel-wise cosine similarity: ℓ(r) 
+
+> q,c
+
+(i) = sim  Fq (i), p (r)
+
+> c
+
+ is used to compute query logits, where i is the spatial location on the feature map. The fore-ground logit ℓ(r)
+
+> q, fg
+
+(i) and background logit ℓ(r)
+
+> q, bg
+
+(i) are stacked to form ℓ(r) 
+
+> q
+
+(i).Class probabilities are obtained via softmax: π(r) 
+
+> q
+
+(i) = softmax (ℓ(r) 
+
+> q
+
+(i)) , where 
+
+π(r) 
+
+> q
+
+∈ RH×W ×C and π(r) 
+
+> q,c
+
+denotes its c-channel ( c ∈ { fg,bg }). The final predicted mask for rater r is defined as ˆy(r) 
+
+> q
+
+(i) = arg max 
+
+> c∈{ fg,bg }
+
+π(r) 
+
+> q,c
+
+(i).
+
+2.3 JAPC: Joint Attention-based Prototype Calibration 
+
+As mentioned previously, a straightforward baseline to adapt a conventional single-label few-shot model to our novel setting is to treat each rater indepen-4 Vu et al. 𝑓 𝜃 (⋅)  
+
+> 𝑓 𝜃 (⋅)
+> 𝐹 𝑠
+> 𝐹 𝑞
+> Prototype Extractor
+> Φ(⋅,⋅)
+> …
+> . . .
+> 𝑝 𝑓𝑔
+> (𝑟 )
+> 𝑝 𝑏𝑔
+> (𝑟 )
+> ...
+> ...
+> ...
+> . . .
+> Multi -rater masks 𝑦 𝑠
+> (𝑟 )
+> 𝑟 =1
+> 𝑅
+> ...
+> Average
+> Consensus mask
+> Consensus
+> prototype
+> . . .
+> Δ𝑝 𝑓𝑔
+> (𝑟 )
+> Δ𝑝 𝑏𝑔
+> (𝑟 )
+> ...
+> ...
+> ...
+> Diff
+> JAPC
+> . . .
+> ෤𝑝 𝑓𝑔
+> (𝑟 )
+> ෤𝑝 𝑏𝑔
+> (𝑟 )
+> ...
+> ...
+> ...
+> C
+> . . .
+> Predictions ො𝑦 𝑞
+> (𝑟 )
+> 𝑟 =1
+> 𝑅
+> Support
+> 𝑥 𝑠
+> Query
+> 𝑥 𝑞
+> CC
+> CC
+> CC
+> C
+> Concat
+> Cosine similarity
+> ℒcalib
+> Calibrated
+> prototype
+
+(a) 𝑝 𝑐         
+
+> (1)
+> ...
+> Δ𝑝 𝑐
+> (1)
+> ...
+> ... ...
+> 𝑝 𝑐
+> (2)𝑝 𝑐
+> (𝑅 )
+> ...
+> ...  ... ...
+> Δ𝑝 𝑐
+> (2)
+> Δ𝑝 𝑐
+> (𝑅 )
+> ×𝑾 𝑞
+> ×𝑾 𝑘
+> 𝝈
+> ෤𝑝 𝑐
+> (1)
+> ... ... ...
+> ෤𝑝 𝑐
+> (2)෤𝑝 𝑐
+> (𝑅 )
+> ...
+> (𝑸 )
+> (𝑲 )
+> (𝑽 )
+> ෤𝑝 𝑐
+> (1)
+> ...
+> S
+> ෤𝑝 𝑐
+> (2)
+> ...
+> ෤𝑝 𝑐
+> (𝑅 )
+> ... ...
+> 𝝈
+> S
+> Sigmoid
+> Multiply
+> Separate
+
+(b) Text 
+
+> Unlabeled image
+> Net w ork
+> Superpixel/ Supervoxel
+> Generation
+> Random
+> Select
+> Support
+> Query
+> Pseudo- label
+> Transformed pseudo- label Prediction
+> Transform
+> Loss
+> Pseuso- st y le
+> Generation
+> Offline pseudo- label generation
+
+(c) 
+
+Fig. 1: Overview of the proposed framework. (a) Few-shot multi-rater segmenta-tion pipeline. Rater-specific and consensus prototypes are extracted from support features, and calibrated by the Joint Attention-based Prototype Calibration (JAPC ) module to generate R personalized predictions via cosine similarity with query features. (b) Internal structure of JAPC , modeling structured inter-actions between rater prototypes and their deviations. (c) Pseudo-style genera-tion. Pseudo labels derived from superpixel/supervoxel segmentation are trans-formed to synthesize multiple rater-style variants, which are used as support labels and query supervision during training. The “Network” block in (c) corre-sponds to the full pipeline shown in (a). dently: for each episode, one can process a single rater mask at a time and repeat this for all R raters. While simple, this strategy ignores structured relationships among raters. In particular, it fails to exploit shared semantic information and does not explicitly model systematic boundary deviations across raters, leading to inefficient learning of stylistic differences, especially in ambiguous regions. To explicitly model structured inter-rater relationships, we introduce JAPC :a Joint Attention-based Prototype Calibration module. This module aims to calibrate each rater’s prototypes, highlighting the differences among raters. The module is lightweight and can be plugged into any existing prototype-based Title Suppressed Due to Excessive Length 5
+
+FSMIS method. An overview of the overall framework and the JAPC module is illustrated in Fig. 1a and Fig. 1b, respectively. First, we compute a consensus mask y(0)  
+
+> s
+
+= 1
+
+> R
+
+PRr=1 y(r) 
+
+> s
+
+, and derive a con-sensus prototype p(0)  
+
+> c
+
+= Φ(Fs, y (0)  
+
+> s
+
+) where c ∈ { fg , bg }. For each rater and class, we define deviation ∆(r) 
+
+> c
+
+= p(r) 
+
+> c
+
+− p(0)  
+
+> c
+
+. All rater prototypes are concatenated: 
+
+Pc = concat ([ p(1)  
+
+> c
+
+, . . . , p (R) 
+
+> c
+
+]) . The shape of Pc is Ntotal × D with Ntotal being the total number of prototype vectors of all raters for class c and D being the prototype dimension. We apply a shared self-attention module for both background prototypes Pbg 
+
+and foreground prototype Pfg : Q = PcWq , K = ∆cWk, V = Pc,
+
+A = σ
+
+
+
+QK ⊤/√D
+
+
+
+, ˜Pc = AV .
+
+This joint formulation allows each rater prototype to attend to the devia-tions of all other raters, enabling structured modeling of shared and distinctive boundary tendencies. Calibrated prototypes of each rater ˜p(r) 
+
+> c
+
+are separated from 
+
+˜Pc and then used for query prediction: ℓ(r) 
+
+> q,c
+
+(i) = sim (Fq (i), ˜p(r) 
+
+> c
+
+).
+
+To prevent excessive deformation from semantic anchors, we introduce cali-bration loss: Lcalib = 1
+
+> R
+
+PRr=1 
+
+P 
+
+> c
+
+∥p(r) 
+
+> c
+
+− ˜p(r) 
+
+> c
+
+∥22.
+
+2.4 Pseudo-Style Generation from Pseudo Labels 
+
+Prior work shows that superpixel-derived pseudo labels yield more diverse and generalizable representations than raw annotations [20]; we therefore adopt pseudo labels as primary supervision. However, they are style-agnostic and lack rater-specific variations. To enable personalized modeling while retaining pseudo su-pervision, we introduce pseudo-style generation. Given a pseudo label ypseudo ,we synthesize R style-conditioned variants (with R raters) as ˜y(r) = Tr (ypseudo ),where Tr denotes a random structured boundary transformation (e.g., dila-tion/erosion). The transformations vary across episodes to avoid overfitting and simulate plausible inter-rater deviations while preserving semantics. They are ap-plied only during training for support labels and query supervision (see Fig. 1c). 
+
+2.5 Two-Stage Training Strategy 
+
+Directly training the calibration module jointly with a randomly initialized en-coder leads to unstable prototype dynamics under few-shot supervision. We therefore adopt a two-stage training strategy within a total budget of T iter-ations: the base prototype model is trained without JAPC and pseudo-style for the first T / 2 iterations, after which they are enabled and training continues for the remaining T / 2 iterations. This strategy improves stability because intermediate encoder features al-ready encode meaningful semantic structure, reducing early prototype noise. It also prevents catastrophic drift of prototypes during calibration, enabling effec-tive modeling of subtle stylistic differences at object boundaries. 6 Vu et al. 
+
+2.6 Overall Objective 
+
+The rater-specific segmentation loss is defined as pixel-wise cross-entropy: L(r) 
+
+> seg
+
+=
+
+> 1
+> |Ω|
+
+P 
+
+> i∈Ω
+
+CE  softmax (ℓ(r) 
+
+> q
+
+(i)) , y (r) 
+
+> q
+
+(i), where Ω denotes spatial locations. The overall segmentation loss is averaged across raters: Lseg = 1
+
+> R
+
+PRr=1 L(r)
+
+> seg
+
+.
+
+Following previous works [20,24,25], we also employ the alignment loss, where the query images act as the support set to predict labels of the support images. Please note that the prototypes in this reverse learning process are also calibrated as in the forward process: 
+
+Lalign = 1
+
+R
+
+> R
+
+X
+
+> r=1
+
+L(r) 
+
+> align
+
+= 1
+
+R|Ω|
+
+> R
+
+X
+
+> r=1
+
+X
+
+> i∈Ω
+
+CE  softmax (ℓ(r) 
+
+> s
+
+(i)) , y (r) 
+
+> s
+
+(i).
+
+The final objective is L = Lseg + Lalign + Lcalib .
+
+3 Experiments 
+
+3.1 Datasets 
+
+We evaluate on two multi-rater medical segmentation datasets spanning different modalities and numbers of raters: (i) CURVAS [21] (abdominal CT), termed Abd-CT, contains three organs (kidney ( K ), pancreas ( P), liver ( L)), each an-notated by three experts. We follow the official split with 20 training and 65 test scans. (ii) QUBIQ Brain-Growth [16] (Brain-MRI) includes one class (brain-growth ( B )) annotated by seven raters. As the official test set is unavailable, we use the validation set for evaluation, resulting in 34 training and 5 test scans. 
+
+3.2 Evaluation Metrics 
+
+Following previous works[20,24,27], we evaluate segmentation performance using the Dice score (%). Suppose Dice cRi is the Dice score (%) of rater i with respect to class c. For each dataset, we report Dice cm (the average Dice across raters for class c), Dice Ri 
+
+> m
+
+(the average Dice across classes for rater Ri), and Dice m =
+
+> 1
+> C
+
+P 
+
+> c
+
+Dice cm (the average Dice across all classes and raters). 
+
+3.3 Few-shot Settings 
+
+We follow two common few-shot evaluation protocols [20,22,24]. In Setting 1 (standard) , the model is trained and tested on all classes without explicit class partitioning; test classes may appear as background during training but are not supervised as foreground. In Setting 2 (strict unseen-class) , test classes are entirely excluded from training, and any image containing test-class pixels is re-moved to ensure true class disjointness. Label partitioning differs accordingly. In Setting 1, pseudo-label training requires no partitioning. In Abd-CT under Set-ting 2, pancreas and liver often co-occur in 2D slices, so they are grouped (upper abdomen); when testing one group, all its classes are excluded from training. Since Brain-MRI contains only one class, it is evaluated only under Setting 1. Title Suppressed Due to Excessive Length 7
+
+Table 1: Setting 1 results. We report per-class mean Dice on Abd-CT and Brain-MRI. Voxel-based (supervoxel) methods are not applicable to Brain-MRI as images are single-sliced. Best and second best values are bold and underlined.                                                                                      
+
+> Settings Method Abd-CT Brain-MRI
+> Dice KmDice PmDice LmDice mDice Bm
+> Full-sup Backbone 85.02 57.46 91.40 77.96 87.42
+> Multi-rater MRNet [11] 56.19 15.20 68.29 46.56 62.35 D-Persona [27] 64.72 26.67 67.16 53.05 57.20
+> Few-shot supervoxel
+> Q-Net [23] 61.06 39.56 57.44 52.69 –
+> RPT [29] 63.82 41.87 71.66 59.12 –Few-shot superpixel
+> SSL-ALPNet [20] 69.33 37.68 77.42 61.48 61.37 SSL-ALPNet [20] + Ours 71.04 39.06 78.26 62.79 65.78 DSPNet [24] 68.03 37.96 78.58 61.52 54.02 DSPNet [24] + Ours 68.63 39.09 79.03 62.25 66.62 Rater 1 Rater 2 Diff - Labels Diff - Preds
+> Method Dice R1
+> mDice R2
+> mDice R3
+> mDice m
+> Q-Net [23] 54.73 54.80 51.85 53.79 RPT [29] 51.59 51.70 49.79 51.03 SSL-ALPNet [20] 57.01 58.08 54.65 56.58
+> + Ours 59.23 59.95 56.88 58.69 DSPNet [24] 58.62 59.18 56.54 58.11
+> + Ours 60.23 60.82 57.82 59.62
+
+Fig. 2: (left) Qualitative example with ground truth (yellow) and predictions (red) and their rater-wise pixel difference (green & blue respectively). (right) Per-rater macro-averaged Dice over Kidney/Pancreas/Liver on Abd-CT Setting 2. 
+
+3.4 Implementation Details 
+
+We compare with representative FSMIS methods, including SSL-ALPNet [20] and DSPNet [24] (superpixel-based), Q-Net [23] and RPT [29] (supervoxel-based), as well as multi-rater methods MRNet [11] and D-Persona [27] trained on the support set. All few-shot methods use identical support–query splits and share the same DeepLabv3-ResNet101 [5] backbone. A fully supervised model is included as an upper bound. We adopt default hyperparameters for all bench-marks. On Abd-CT, FSMIS models are trained for 50k iterations, and ours initializes from the 25k checkpoint following the two-stage schedule. On Brain-MRI, FSMIS models are trained for 10k iterations, and ours starts from 5k. Multi-rater models and fully supervised baseline are trained for 50 epochs each. 
+
+3.5 Results 
+
+Few-shot performance. Across both settings, our method consistently improves strong few-shot baselines on Abd-CT and Brain-MRI (Tables 1 and 2). On Abd-CT, despite modest absolute gains, improvements are statistically signif-icant: using each test scan once as support gives 65 Dice m results, and one-tailed paired p-tests show significance in all cases ( p < 0.01 ), with p-values of 8 Vu et al. Dice: 0.610 Dice: 0.626 Dice: 0.608 Dice: 0.578 Dice: 0.597 Dice: 0.626 Dice: 0.642         
+
+> Dice: 0.701
+> : +0.091
+> Dice: 0.733
+> : +0.108
+> Dice: 0.676
+> : +0.068
+> Dice: 0.720
+> : +0.142
+> Dice: 0.684
+> : +0.087
+> Dice: 0.732
+> : +0.105
+> Dice: 0.703
+> : +0.061
+> Rater 1 Rater 2 Rater 3 Rater 4 Rater 5 Rater 6 Rater 7
+> Support DSPNet DSPNet + Ours
+> Support mask GT Pred
+
+Fig. 3: Visualization of support annotations and segmentation results in Brain-MRI. Our method consistently performs better across all 7 raters. 
+
+5.25 ×10 −19 /2.71 ×10 −24 for SSL-ALPNet/DSPNet in Setting 1 and 5.84 ×10 −12 
+
+/2.20 ×10 −65 in Setting 2. On Brain-MRI, gains are more pronounced, partic-ularly over DSPNet, demonstrating the effectiveness of personalized prototype calibration under multi-rater supervision. 
+
+Rater-wise robustness. Improvements are consistent across annotators (Fig. 2 and 3), indicating stable personalization rather than gains limited to specific raters. Qualitative results further show that our predictions better capture shared structures while adapting to boundary variations among raters. 
+
+Minimal overhead. Our method adds only 0.2% parameters to SSL-ALPNet and 0.3% to DSPNet, while incurring less than 5% extra computational time. 
+
+Ablation study. Table 3 verifies the contribution of each component on Abd-CT Setting 2. Pseudo-style supervision provides a modest improvement, attention and two-stage training further enhance performance, and calibration loss signif-icantly strengthens prototype regularization. Combining all modules yields the best overall result, confirming their complementary effects. 
+
+Limitations. A limitation is that performance on pancreas may still lag be-hind supervoxel-based methods, which benefit from stronger region-level con-straints; although pseudo-style supervision reduces fragmentation, it does not always eliminate this gap. 
+
+4 Conclusion 
+
+We introduced the problem of few-shot multi-rater medical image segmentation, bridging the gap between conventional few-shot learning and realistic multi-Title Suppressed Due to Excessive Length 9
+
+Table 2: Abd-CT Setting 2 with mean Dice for each organ.                             
+
+> Method Dice KmDice PmDice LmDice m
+> Q-Net [23] 47.86 36.33 77.19 53.79 RPT [29] 50.29 39.88 62.91 51.03 SSL-ALPNet [20] 58.50 38.23 73.02 56.58 SSL-ALPNet [20] + Ours 61.49 38.24 76.33 58.69 DSPNet [24] 62.24 35.32 76.77 58.11 DSPNet [24] + Ours 64.10 36.78 77.98 59.62
+
+Table 3: Ablation study on Abd-CT Setting 2 of DSPNet.                                          
+
+> Pseudo style Attn 2-stage Calib loss Dice KmDice PmDice LmDice m
+> ××××62.24 35.32 76.77 58.11
+> ✓×××62.43 34.21 78.32 58.32
+> ✓✓×✓66.00 34.94 77.05 59.33
+> ✓✓✓×62.86 36.53 78.48 59.29
+> ✓✓✓✓64.10 36.78 77.98 59.62
+
+annotator supervision. To address the challenges of heterogeneous annotations under limited support data, we proposed a prototype-based personalization frame-work with pseudo-style generation, joint attention-based prototype calibration, calibration regularization, and two-stage training. The proposed method explic-itly models structured inter-rater variations while preserving shared semantic representations. Experiments on CURVAS and QUBIQ demonstrate consistent improvements in Dice scores across modalities and anatomical structures. Our re-sults highlight the importance of modeling annotation heterogeneity in few-shot regimes and provide a practical foundation for personalized few-shot medical segmentation. 
+
+Disclosure of Interests. The authors have no competing interests to declare that are relevant to the content of this article. 
+
+References 
+
+1. Armato, S.G.I.e.a.: The Lung Image Database Consortium (LIDC) and Image Database Resource Initiative (IDRI): A Completed Reference Database of Lung Nodules on CT Scans. Medical Physics 38 (2), 915–931 (February 2011). https: //doi.org/10.1118/1.3528204 
+
+2. Azad, R., Aghdam, E.K., Rauland, A., Jia, Y., Avval, A.H., Bozorgpour, A., Karim-ijafarbigloo, S., Cohen, J.P., Adeli, E., Merhof, D.: Medical image segmentation review: The success of u-net. IEEE Transactions on Pattern Analysis and Machine Intelligence 46 (12), 10076–10095 (2024) 3. Banerjee, T., Singh, D.P., Kour, P., Swain, D., Mahajan, S., Kadry, S., Kim, J.: A novel unified Inception-U-Net hybrid gravitational optimization model (UIGO) incorporating automated medical image segmentation and feature selection for liver tumor detection. Scientific Reports 15 (1), 29908 (2025) 4. Baumgartner, C.F., Tezcan, K.C., Chaitanya, K., Hötker, A.M., Muehlematter, U.J., Schawkat, K., Becker, A.S., Donati, O., Konukoglu, E.: Phiseg: Capturing uncertainty in medical image segmentation. In: International conference on medical image computing and computer-assisted intervention. pp. 119–127. Springer (2019) 5. Chen, L.C., Papandreou, G., Schroff, F., Adam, H.: Rethinking atrous convolution for semantic image segmentation. arXiv preprint arXiv:1706.05587 (2017) 6. Cheng, Z., Wang, S., Xin, T., Zhou, T., Zhang, H., Shao, L.: Few-Shot Medical Image Segmentation via Generating Multiple Representative Descriptors. IEEE Transactions on Medical Imaging 43 (6), 2202–2214 (2024). https://doi.org/10. 1109/TMI.2024.3358295 10 Vu et al. 7. Conze, P.H., Andrade-Miranda, G., Singh, V.K., Jaouen, V., Visvikis, D.: Current and emerging trends in medical image segmentation with deep learning. IEEE Transactions on Radiation and Plasma Medical Sciences 7(6), 545–569 (2023) 8. Ding, H., Sun, C., Tang, H., Cai, D., Yan, Y.: Few-Shot Medical Image Segmenta-tion With Cycle-Resemblance Attention. In: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV). pp. 2488–2497 (January 2023) 9. Felzenszwalb, P., Huttenlocher, D.: Efficient Graph-Based Image Segmentation. International Journal of Computer Vision 59 , 167–181 (09 2004). https://doi. org/10.1023/B:VISI.0000022288.19776.77 
+
+10. Hansen, S., Gautam, S., Jenssen, R., Kampffmeyer, M.: Anomaly detection-inspired few-shot medical image segmentation through self-supervision with su-pervoxels. Medical Image Analysis 78 , 102385 (2022) 11. Ji, W., Yu, S., Wu, J., Ma, K., Bian, C., Bi, Q., Li, J., Liu, H., Cheng, L., Zheng, Y.: Learning Calibrated Medical Image Segmentation via Multi-Rater Agreement Modeling. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 12341–12351 (June 2021) 12. Jiang, J., Zhang, H.: Concentrate on weakness: mining hard prototypes for few-shot medical image segmentation. In: Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence. IJCAI ’25 (2025). https://doi.org/ 10.24963/ijcai.2025/139 
+
+13. Kim, H., Hansen, S., Kampffmeyer, M.: Tied Prototype Model for Few-Shot Med-ical Image Segmentation. In: International Conference on Medical Image Comput-ing and Computer-Assisted Intervention. pp. 651–661. Springer (2025) 14. Kohl, S., Romera-Paredes, B., Meyer, C., De Fauw, J., Ledsam, J.R., Maier-Hein, K., Eslami, S., Jimenez Rezende, D., Ronneberger, O.: A probabilistic u-net for segmentation of ambiguous images. Advances in neural information processing sys-tems 31 (2018) 15. Kumar, S.: Advancements in medical image segmentation: A review of transformer models. Computers and Electrical Engineering 123 , 110099 (2025) 16. Li, H.B., Navarro, F., Ezhov, I., Bayat, A., Das, D., Kofler, F., Shit, S., Wald-mannstetter, D., Paetzold, J.C., Hu, X., et al.: QUBIQ: Uncertainty quantifica-tion for biomedical image segmentation challenge. arXiv preprint arXiv:2405.18435 (2024) 17. Liao, Z., Hu, S., Xie, Y., Xia, Y.: Modeling annotator preference and stochastic an-notation error for medical image segmentation. Medical Image Analysis 92 , 103028 (2024) 18. Lin, Y., Chen, Y., Cheng, K.T., Chen, H.: Few shot medical image segmentation with cross attention transformer. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 233–243. Springer (2023) 19. Liu, Q., Liu, M., Zhu, Y., Liu, L., Zhang, Z., Wang, Y.: DAUNet: A deformable aggregation UNet for multi-organ 3D medical image segmentation. Pattern Recog-nition Letters 191 , 58–65 (2025) 20. Ouyang, C., Biffi, C., Chen, C., Kart, T., Qiu, H., Rueckert, D.: Self-Supervised Learning for Few-Shot Medical Image Segmentation. IEEE Transactions on Medical Imaging 41 (7), 1837–1848 (2022). https://doi.org/10.1109/TMI.2022. 3150682 
+
+21. Riera-Marín, M., Kleiß, J.M., Aubanell, A., Antolín, A.: CURVAS dataset (Sep 2024). https://doi.org/10.5281/zenodo.13767408 , https://doi.org/10.5281/ zenodo.13767408 Title Suppressed Due to Excessive Length 11 22. Roy, A.G., Siddiqui, S., Pölsterl, S., Navab, N., Wachinger, C.: ‘Squeeze & ex-cite’guided few-shot segmentation of volumetric images. Medical image analysis 
+
+59 , 101587 (2020) 23. Shen, Q., Li, Y., Jin, J., Liu, B.: Q-net: Query-informed few-shot medical image segmentation. In: Proceedings of SAI Intelligent Systems Conference. pp. 610–628. Springer (2023) 24. Tang, S., Yan, S., Qi, X., Gao, J., Ye, M., Zhang, J., Zhu, X.: Few-shot medical image segmentation with high-fidelity prototypes. Medical Image Analysis 100 ,103412 (2025) 25. Wang, K., Liew, J.H., Zou, Y., Zhou, D., Feng, J.: Panet: Few-shot image semantic segmentation with prototype alignment. In: proceedings of the IEEE/CVF inter-national conference on computer vision. pp. 9197–9206 (2019) 26. Warfield, S., Zou, K.H., Wells, W.M.: Simultaneous truth and performance level es-timation (STAPLE): an algorithm for the validation of image segmentation. IEEE Transactions on Medical Imaging 23 , 903–921 (2004) 27. Wu, Y., Luo, X., Xu, Z., Guo, X., Ju, L., Ge, Z., Liao, W., Cai, J.: Diversified and Personalized Multi-rater Medical Image Segmentation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 11470–11479 (June 2024) 28. Xia, Q., Zheng, H., Zou, H., Luo, D., Tang, H., Li, L., Jiang, B.: A comprehensive review of deep learning for medical image segmentation. Neurocomputing 613 ,128740 (2025) 29. Zhu, Y., Wang, S., Xin, T., Zhang, H.: Few-shot medical image segmentation via a region-enhanced prototypical transformer. In: International conference on medical image computing and computer-assisted intervention. pp. 271–280. Springer (2023)

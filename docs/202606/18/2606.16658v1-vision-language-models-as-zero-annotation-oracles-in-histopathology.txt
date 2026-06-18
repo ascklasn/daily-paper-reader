@@ -1,0 +1,330 @@
+Title: Vision-Language Models as Zero-Annotation Oracles in Histopathology
+
+URL Source: https://arxiv.org/pdf/2606.16658v1
+
+Published Time: Tue, 16 Jun 2026 02:43:41 GMT
+
+Number of Pages: 11
+
+Markdown Content:
+# Vision-Language Models as Zero-Annotation Oracles in Histopathology 
+
+Vishal Jain 1 , Giorgio Buzzanca 2 , Sarah Cechnicka 1 , Maarten Naesens 3 ,Priyanka Koshy 4 , Tri Nguyen 5 , Jesper Kers 2 , Candice Roufosse 1 , and Bernhard Kainz 1,6 
+
+> 1
+
+Imperial College London, London, UK 
+
+v.jain24@imperial.ac.uk  
+
+> 2
+
+Leiden University Medical Center, Leiden, The Netherlands  
+
+> 3
+
+KU Leuven, Leuven, Belgium  
+
+> 4
+
+University Hospitals Leuven, Leuven, Belgium  
+
+> 5
+
+University Medical Center Utrecht, Utrecht, The Netherlands  
+
+> 6
+
+Dept. AIBE, Friedrich-Alexander University Erlangen-Nürnberg, Germany 
+
+Abstract. Foreground segmentation is the critical first step of every computational pathology pipeline, yet existing methods rely on hand-tuned heuristics or supervised models that overfit to narrow stain and scanner distributions, failing silently on specialised stains such as Jones silver or Elastica van Gieson. We propose a coarse-to-fine approach that recasts foreground segmentation as a visual perception task and lever-ages general-purpose vision-language models (VLMs) as zero-annotation oracles. Our key insight is that tissue-versus-background discrimination is a natural-image recognition problem, not a histopathological one, so VLMs trained on internet-scale corpora generalise where domain-specific models cannot. We introduce Leica-75 , a benchmark of 75 renal trans-plant whole-slide images spanning three stain families. On Leica-75, our method achieves the highest segmentation quality on out-of-distribution stains (Dice 0.858 ±0.027 on Jones, 0.853 ±0.041 on EVG) with 7× lower cross-stain variance than the best supervised baseline, while remaining competitive on in-distribution H&E. Few-shot prompting with automat-ically curated exemplars ( Auto-context ) rescues hard cases on Stress-32 
+
+(n=32 ), a curated stress-test subset (Dice 0.470 → 0.819 for the 2B model). VLM-based annotation review matches human expert consen-sus ( κ=0 .989 for blur detection; mean precision/recall grading accuracy 
+
+0.708 vs. human 0.646 for segmentation mask review). The resulting pseudo-labels are used to distil lightweight student models that are as performant as the teacher model while running for a fraction of the cost. Our framework provides a principled, scalable solution to a per-sistent infrastructure bottleneck in digital pathology. Code is available at https://github.com/VishalJ99/vlm-wsi-auto-context 
+
+Keywords: Digital pathology · Foreground segmentation · Vision-language models · Zero-shot learning · Quality control  
+
+> arXiv:2606.16658v1 [cs.CV] 15 Jun 2026 2V. Jain et al.
+
+1 Introduction 
+
+Every computational pathology pipeline begins by separating tissue from back-ground in a whole-slide image (WSI). At gigapixel scale, downstream meth-ods typically operate on fixed-size patches and aggregate representations via multiple-instance learning (MIL) [19,5,12], creating an extreme class-imbalance setting in which diagnostically relevant regions may occupy only a small frac-tion of the slide [4]. Including background or artefacts among candidate patches can induce spurious correlations in attention mechanisms and degrade perfor-mance [11,30]. Reliable foreground segmentation is therefore a foundational pre-requisite whose errors propagate to all subsequent analysis. In practice, tissue preparation and digitisation introduce substantial varia-tion across institutions, scanners, and chemical protocols [11,13,15]. Classical methods based on fixed thresholds or unsupervised clustering (Otsu [24], K-means [20]) are brittle under distribution shift. Rule-based pipelines such as His-toQC [13] require manual recalibration per site, while supervised models such as HEST [14] and GrandQC [28] can overfit to their training distribution. A major contributor is limited stain diversity in widely used pathology tooling and current foundation models [6,27,18,23,8], which are typically trained on H&E-dominated datasets. This induces stain bias that is consequential in clinical workflows em-ploying specialised stains such as Jones methenamine silver, Elastica van Gieson (EVG), and periodic acid-Schiff (PAS) [11,15,17]. For the purpose of WSI preprocessing, tissue-versus-background discrimina-tion depends primarily on generic visual cues (colour, texture, and structural regularity) rather than histopathological semantics. This suggests that general-purpose vision-language models (VLMs) [7,2], trained on internet-scale corpora, can provide a strong prior for stain- and site-agnostic foreground detection. If such a prior can be leveraged reliably, it offers a path to cross-site deployment without the per-institution tuning that H&E-centric pipelines often require. The remaining obstacle is efficiency: naïvely applying VLM inference at WSI scale is prohibitively expensive. We therefore introduce a coarse-to-fine method that uses VLMs as zero-annotation oracles while aggressively restricting the number of expensive calls, and we use the resulting pseudo-labels to distil lightweight student models for fast, low-cost deployment. Therefore, our contributions are: (1) A coarse-to-fine method that lever-ages general-purpose VLMs as zero-annotation oracles for WSI foreground seg-mentation, and a distillation pathway that converts VLM pseudo-labels into lightweight student models suitable for deployment. (2) The first systematic evaluation of general-purpose VLMs as zero-annotation oracles for stain-agnostic foreground segmentation across three stain families, showing improved robust-ness on out-of-distribution stains and demonstrating that automated few-shot prompting can rescue hard cases while narrowing the gap between smaller and larger VLMs. (3) Evidence that VLMs can provide practical quality control at scale on two tasks: (i) near-perfect binary out-of-focus patch triage, and (ii) precision/recall mask review on a synthetic corruption benchmark, where VLM Zero-Annotation Oracles in Histopathology 3
+
+reviewers match or exceed the strongest human rater and show competitive agreement with expert cohorts. 
+
+Related work. Foreground segmentation has progressed from classical thresh-olding and clustering [24,20] and rule-based quality control (HistoQC [13]) to supervised pipelines embedded in computational pathology toolkits such as TIA-Toolbox [25] and TRIDENT [31], which incorporate GrandQC [28] and HEST [14]. However, these models are typically trained predominantly on H&E and inherit stain-specific biases that can degrade performance on specialised stains [15,11,30]. VLMs remain largely unexplored for histopathology preprocessing; the closest work is CORE [22], which uses Florence-2 [29] with SAM [16] for tissue mask ex-traction for WSI registration but falls back to a supervised U-Net when staining quality degrades. In contrast, we treat segmentation as a general visual per-ception task solvable via text prompting of general-purpose VLMs [1,3], extend this to automated exemplar selection for few-shot refinement, and use VLM-generated pseudo-labels to distil lightweight students. We emphasize patch-level tissue labels, aligning the segmentation output with the primary consumer in modern pipelines: MIL-based WSI aggregation [12,5,26], which typically requires patch-level filtering rather than pixel-accurate boundaries. 
+
+2 Method 
+
+Our method (Fig. 1) is a coarse-to-fine approach that produces patch-level tissue labels using a general-purpose VLM as a zero-annotation oracle, and then dis-tills these pseudo-labels into a lightweight deployment model. The core method comprises seven stages: (i) thumbnail-level VLM box grounding, (ii) two-pass colour clustering to obtain a coarse candidate foreground mask, (iii) zero-shot patch classification (tissue/background), jointly producing focus-quality labels as a side-output, (iv) Auto-context : VLM-guided sampling of candidate points and automatic selection of high-magnification tissue/background exemplars, (v) few-shot patch re-classification using the exemplars, (vi) morphological mask re-finement and (vii) hard-label distillation into a student model. Separately, we use an auxiliary VLM reviewer to grade mask precision/recall and to trigger stages (iv-v) when refinement is required. 
+
+VLM-guided tissue core localisation. Given a WSI W at native resolution 
+
+H0 × W0, we extract a thumbnail T ∈ Rh×w×3 at a fixed downsampling factor 
+
+d (typically d=64 , yielding h=H0/d , w=W0/d ). Rather than relying on hand-crafted colour thresholds, we query a VLM with T and a structured prompt requesting bounding boxes around tissue cores visible in the thumbnail. The VLM returns a set of axis-aligned bounding boxes B = {bi}Bi=1 , where each 
+
+bi = ( xmin  
+
+> i
+
+, y min  
+
+> i
+
+, x max  
+
+> i
+
+, y max  
+
+> i
+
+) specifies the top-left and bottom-right corners of a tissue core in thumbnail coordinates. These bounding boxes define the regions of interest for the subsequent colour-based segmentation. 
+
+Two-pass colour segmentation. We refine the thumbnail boxes from Stage 1 using K-means in CIELAB space. 4 V. Jain et al.     
+
+> Auto Context (Few-Shot Refinement)
+> WSI Input
+> thumbnail extraction
+> Box Grounding
+> visual grounding Tissue Crops
+> local isolation
+> Colour Seg.
+> two-pass K-means
+> Zero-Shot VLM
+> patch classification
+> Refinement
+> morphological ops.
+> VLM Reviewer
+> quality audit
+> Student Distillation
+> lightweight model
+> ×pass
+> Point Grounding
+> candidate sampling
+> Top-KSelection
+> exemplar ranking
+> Few-Shot VLM
+> in-context inference
+> Refinement
+> morphological ops.
+> fail (low quality)
+> ✓
+
+Fig. 1. The primary fast path (top) uses VLM-guided region proposals and zero-shot patch classification to generate initial tissue masks. A VLM reviewer (red) automati-cally audits quality; failed masks are routed to an Auto Context loop (bottom) where slide-specific exemplars are mined to rescue performance via few-shot refinement. Val-idated pseudo-labels are ultimately distilled into a lightweight student model for de-ployment. 
+
+Global pass. We cluster all thumbnail pixels into K=2 clusters with assignments 
+
+zij ∈ { 1, 2} and centroids {μ1, μ2}. We identify the global background centroid as the majority cluster, 
+
+kbg = arg max 
+
+k {(i, j ) : zij = k} , μbg = μkbg . (1) 
+
+Local pass. For each VLM box bi ∈ B we cluster pixels in the crop Ti into 
+
+K=3 clusters with centroids {μ(i)
+
+k }3
+
+k=1 . The crop background cluster is chosen by nearest-centroid matching, 
+
+k(i)bg = arg min 
+
+k μ(i)
+
+k − μbg 2
+
+, (2) and the binary crop mask is M(i) = 1[z(i)̸ = k(i)bg ]. Using K=3 locally reduces failures when a dominant artefact would otherwise absorb a cluster under K=2 .We combine crop masks via M(1) (u, v ) = max i∈{ 1,...,B } M(i)(u, v ), and upsample 
+
+M(1) to level-0 coordinates to restrict subsequent VLM evaluation. 
+
+Zero-shot patch classification. We partition the tissue regions identified by 
+
+M(1) into a regular grid of non-overlapping patches {xn}Nn=1 of size 512 × 512 
+
+pixels at level-0. Each patch is presented to the VLM with a structured prompt requesting two labels: ( i) a binary tissue classification ˆy(0) 
+
+n ∈ { 0, 1}, and ( ii ) a focus-quality assessment qn ∈ { sharp , mild blur , out of focus }. Since both labels are extracted from a single VLM call, the blur map is obtained at no additional inference cost. Aggregating {ˆy(0) 
+
+n } yields an initial tissue map over the slide, while aggregating {qn} yields a patch-level focus-quality map. 
+
+VLM-based segmentation mask review. Once the tissue mask has been produced, we employ a frontier VLM (Gemini [9,10]) as an automated annotation reviewer. The reviewer receives two inputs: ( i) the tissue-core crop from the WSI thumbnail, and ( ii ) the same crop with the predicted mask overlaid. It is prompted to assess the overall quality of the segmentation and returns discrete Zero-Annotation Oracles in Histopathology 5
+
+quality grades for both precision and recall, gp, g r ∈ { 1, 2, 3, 4}. If either grade falls below a threshold τg , our method re-enters the few-shot refinement stage described in Stages (iv–v). The reviewer thus serves as a scalable quality triage layer, with human escalation reserved for ambiguous cases. 
+
+High-magnification exemplar selection ( Auto-context ). Should refine-ment be triggered (e.g. by reviewer grades falling below τg ), we query the VLM to perform point grounding on the tissue-core crop, asking it to identify candidate tissue and background locations. This yields spatially informed candidate pools 
+
+G+ (tissue) and G− (background) that are better balanced than naïve random sampling, which would be dominated by background. Because point grounding is imprecise, we present the corresponding high-magnification patches to the VLM in a comparative re-ranking prompt and select the top-K tissue exemplars 
+
+E+ and top-K background exemplars E−, forming the in-context exemplar set 
+
+E = E+ ∪ E −.
+
+Few-shot patch classification. The exemplar set E is prepended to the VLM prompt as labelled demonstrations, and all patches are re-classified. The up-dated label for patch n is ˆyn = fVLM (xn | E ), where fVLM denotes the VLM response under the few-shot prompt. This stage targets whole slide images where zero-shot performance is limited by background staining artefacts whose high-magnification appearance mimics cellular structures. 
+
+Post-processing. We apply lightweight morphological cleanup on this grid us-ing 4-neighbour connectivity: (i) remove foreground connected components with area < 8 patches, and (ii) fill background holes with area < 10 patches. 
+
+Knowledge distillation. We perform hard-label distillation from VLM pseudo-labels at patch level. A lightweight student fθ (MobileNetV3-Large-100, 4.2 M params, 2-class head) is trained with standard cross-entropy on canonical binary targets ˆyn ∈ { 0, 1}; no temperature scaling or teacher-logit matching is used. 
+
+3 Evaluation 
+
+We evaluate on Leica-75 : 75 renal transplant WSIs (25 per stain: EVG, H&E, Jones) scanned on a Leica system. Slides are partitioned into non-overlapping 
+
+512 ×512 level-0 patches and evaluated against manually curated foreground masks spanning 220 annotated tissue cores. We additionally define a curated stress-test subset, Stress-32 (n=32 ; 23 Jones, 9 EVG), comprising slides where background artefacts can be confused with tissue under high magnification. For blur assessment, we sample 200 patches from 186 WSIs, stratified by Qwen3 VL 8B predicted focus labels (sharp / mild blur / out of focus) into approxi-mately equal thirds, and collect independent human judgements for each patch. For evaluating VLMs as segmentation-mask reviewers, we discretise precision and recall into four grades (excellent ≥95%, good 80–95%, partial 50–80%, poor 
+
+<50%) and construct a balanced benchmark by manually corrupting expert-verified masks to obtain uniform coverage over the resulting 4×4×3 grid (pre-cision × recall × stain), yielding 96 masks with known ground-truth grades. We distil two student models using Leica-75 or Stress-32 following a 70/10/20 6 V. Jain et al. 
+
+Table 1. Dice (mean ±std ) on 75 Leica WSIs. Best per stain bold . †Paired Wilcoxon 
+
+p< 0.01 vs. best non-VLM baseline ( p< 0.001 EVG; p=0 .019 H&E; p=0 .542 Jones). 
+
+Baselines Ours (VLM oracle) 
+
+Stain Otsu K-means HistoQC GrandQC HEST 2B-ZS 8B-ZS 2B-FS 8B-FS EVG 0.638 ±.284 0.667 ±.270 0.548 ±.276 0.769 ±.148 0.793 ±.049 0.835 ±.123 0.853 ±.041 † 0.844 ±.039 0.847 ±.035 
+
+H&E 0.679 ±.204 0.667 ±.224 0.224 ±.235 0.870 ±.047 0.807 ±.075 0.852 ±.034 0.843 ±.045 0.829 ±.047 0.828 ±.047 
+
+Jones 0.644 ±.239 0.637 ±.244 0.281 ±.298 0.775 ±.194 0.743 ±.109 0.854 ±.072 0.858 ±.027 0.843 ±.031 0.840 ±.031 
+
+Table 2. Ablation on Stress-32 test (n=32 ). Each row adds one stage.                                               
+
+> # Configuration Dice Prec Rec Acc ∆D12B WSI-level ZS .107 ±.060 .058 ±.034 .976 ±.019 .735 ±.073 –2+VLM bbox filter .426 ±.107 .279 ±.092 .976 ±.019 .958 ±.028 +.319
+> 3+Colour filter .520 ±.159 .378 ±.176 .952 ±.034 .971 ±.020 +.094
+> 4+Auto-context 2B .812 ±.093 .811 ±.133 .832 ±.093 .994 ±.005 +.292
+> 5+Auto-context 8B .836 ±.063 .829 ±.073 .846 ±.076 .995 ±.004 +.024
+> 6+Post-processing .846 ±.057 .832 ±.067 .863 ±.069 .995 ±.004 +.010
+
+Table 3. Stress-32 ( n=32 ): zero-shot vs. few-shot. ∗∗∗ p< 0.001 (paired Wilcoxon).                               
+
+> Absolute ∆(FS −ZS)
+> 2B-ZS 2B-FS 8B-ZS 8B-FS ∆2B ∆8B Dice .470 ±.172 .819 ±.094 .768 ±.107 .846 ±.057 +.349 ∗∗∗ +.078 ∗∗∗
+> Prec .337 ±.181 .810 ±.133 .691 ±.147 .832 ±.067 +.473 ∗∗∗ +.141 ∗∗∗
+> Rec .949 ±.053 .848 ±.089 .894 ±.064 .863 ±.069 −.101 ∗∗∗ −.031 ∗∗∗
+> Acc .972 ±.017 .995 ±.004 .993 ±.006 .996 ±.002 +.023 ∗∗∗ +.003 ∗∗∗
+
+train/val/test split, sampling 5,000 foreground and background patches from the training split with standard data augmentations (colour jitter, random rota-tions, flips). We compare five baselines (Otsu [24], K-means [20], HistoQC [13], TRIDENT-GrandQC [28,31], TRIDENT-HEST [14,31]) against four VLM ora-cle configurations (Qwen3 VL 2B/8B, zero-shot and few-shot [2]). For few-shot Auto-context, we set K=1 . Statistical comparisons use paired Wilcoxon signed-rank tests with Bonferroni correction. Finally, we evaluate 264 WSIs from an external kidney-pathology centre in a different country. 
+
+Foreground segmentation. Tab. 1 reports stain-stratified Dice. On both spe-cialized stains, VLM methods achieve the highest performance: Qwen 8B-ZS reaches 0.853 ±0.041 on EVG and 0.858 ±0.027 on Jones, significantly outperform-ing the best non-VLM baselines (HEST 0.793 on EVG, p< 0.001 ; GrandQC 
+
+0.775 on Jones). On in-distribution H&E, GrandQC achieves 0.870 ±0.047 ow-ing to its supervised training advantage; VLM methods remain competitive at 
+
+0.852 ±0.034 without any in-context examples. HistoQC achieves moderate pre-cision but catastrophically low recall ( 0.150 on H&E, 0.209 on Jones), discard-ing the majority of viable tissue. Aggregating across stains, our 8B-ZS oracle achieves the highest mean Dice ( ¯D=0 .851 ) with 7× lower cross-stain standard deviation ( σs=0 .006 ) than GrandQC ( σs=0 .046 , Dmin =0 .769 ), confirming more consistent predictions across stain families. To verify that this is not an artefact of the stages preceding the VLM, we ran a fairness ablation giving GrandQC identical bounding-box and colour-mask preprocessing: Qwen-8B zero-shot still yields higher recall on all three stains ( ∆R = + 0 .115 EVG, +0 .040 H&E, +0 .133 
+
+Jones), confirming the gain originates from the VLM decision layer itself. Under-segmentation is the more dangerous failure mode because it irrecoverably ex-cludes diagnostically relevant patches from all downstream analysis. 
+
+Component ablation. Tab. 2 quantifies the contribution of each pipeline stage on Stress-32 . Naïve WSI-level zero-shot classification (row 1) achieves 0.107 ±.060 
+
+Dice due to extreme base-rate imbalance: tissue typically occupies only a small Zero-Annotation Oracles in Histopathology 7
+
+Table 4. Knowledge distillation: MobileNetV3 student (4.2 M) vs. VLM teacher (∼8B). 
+
+> †
+
+Patches/sec, single GPU.                                       
+
+> Eval Model Params F1↑IoU ↑P↑R↑p/s †
+> Leica-75 Qwen-8B ZS teach. ∼8B .877 .781 .942 .821 6Student (Leica-75) 4.2M .884 .792 .932 .840 586 Stress-32 Qwen-8B FS teach. ∼8B .894 .809 .926 .864 4Student (Stress-32) 4.2M .907 .829 .888 .927 586 Student (Stress-32) →Leica-75 test 4.2M .881 .787 .929 .837 586 Student (Leica-75) →Stress-32 test 4.2M .701 .539 .579 .887 586
+
+Table 5. Blur detection (n=200 ): Qwen 8B vs. human consensus.                      
+
+> Metric Est. 95 % CI Hum. α(3-cl.) .927 ±.016 [.894 , . 955]
+> VLM κw(3-cl.) .708 ±.036 [.632 , . 773]
+> VLM κ(bin.) .989 ±.009 [.963 ,1.00]
+> VLM sens. (bin.) 1.00 ±.000 [1 .00 ,1.00]
+> VLM spec. (bin.) .993 ±.006 [.977 ,1.00]
+
+fraction of the slide, so even a low false-positive rate yields many spurious fore-ground patches and collapses precision. VLM bounding-box filtering (row 2) provides the first major gain ( ∆D = + 0 .319 ) by restricting processing to VLM-localised tissue regions. Two-pass colour refinement adds a further +0 .094 (row 3). The largest improvement comes from Auto-context exemplar mining (K=1) and few-shot prompting (row 4), which increases Dice by +0 .292 and improves pre-cision from 0.378 to 0.811 while maintaining high recall ( 0.832 ). Scaling from 2B to 8B yields an additional +0 .024 (row 5), and lightweight morphological post-processing contributes a final +0 .010 to reach 0.846 ±.057 Dice (row 6). 
+
+Few-shot stress test. On the stress-32 set (Tab. 3), Qwen 2B-ZS achieves 
+
+0.470 ±0.172 Dice (precision 0.337 ) due to deceptive background textures, while Qwen 8B-ZS reaches 0.768 ±0.107 . Few-shot prompting with automatically cu-rated exemplars yields striking improvements: Qwen 2B rises to 0.819 ±0.094 (∆=+ 0.349 , p< 0.001 ) and Qwen 8B to 0.846 ±0.057 (∆= + 0 .078 , p< 0.001 ). The mech-anism is precision-driven ( +0 .473 for 2B): the model learns to reject deceptive background patches by leveraging slide-specific exemplars, with individual case gains exceeding +0 .6 Dice. 
+
+Knowledge distillation. Tab. 4 shows that a lightweight MobileNetV3 student (4.2 M parameters) trained purely on VLM pseudo-labels matches or exceeds its Qwen-8B teacher on held-out data, while running ∼100 × faster (586 vs. 4–6 patches/sec). On the Leica benchmark the student achieves F 1=0 .884 (teacher 
+
+0.877 ); on the stress set F 1=0 .907 (teacher 0.894 ). Cross-set transfer (bottom rows) reveals that a student distilled on stress-32 generalises well to Leica-75 (F 1=0 .881 ), but the reverse degrades ( F 1=0 .701 ), confirming that per-site dis-tillation on representative data is important for robust deployment. 
+
+Blur detection. For focus quality assessment (Tab. 5), Qwen 8B achieves near-perfect binary agreement with human consensus ( κ=0 .989 , sensitivity 1.000 ,specificity 0.993 ) and strong 3-class ordinal agreement ( κw=0 .708 ) with zero extreme misclassifications. This confirms that VLMs can serve as reliable au-tomated quality gates for out-of-focus patches at no additional inference cost, since blur labels are extracted jointly with tissue classifications. 
+
+VLM reviewer alignment. For mask-quality grading (Tab. 6), Gemini 3 Pro achieves the highest joint exact-match accuracy ( 0.708 ±0.094 ), exceeding the best human rater ( 0.646 ±0.099 ) by +0 .062 . Group means show VLMs outperform humans on grade-level accuracy ( 0.771 /0.878 vs. 0.726 /0.816 for precision/recall) 8 V. Jain et al. 
+
+Table 6. Mask-quality reviewer alignment on corrupted masks ( n=96 ). Best VLM 
+
+bold ; best human underlined; ‡VLM exceeds best human. Bottom rows: group means.                                                                   
+
+> Accuracy (grade-level) QWK (ordinal) MAE (%) ↓
+> Rater Prec Rec Joint Prec Rec Prec Rec Hum. (Gi) .760 ±.089 .750 ±.089 .604 ±.094 .886 ±.051 .896 ±.040 4.35 ±0.96 4.35 ±1.03
+> Hum. (C) .729 ±.089 .854 ±.073 .646 ±.099 .887 ±.045 .941 ±.034 6.30 ±0.96 3.97 ±0.92
+> Hum. (V) .688 ±.099 .844 ±.073 .594 ±.099 .862 ±.051 .935 ±.032 6.09 ±1.43 3.26 ±0.65
+> Gem. 3.1 Pro .740 ±.089 .885 ±.062 ‡.635 ±.094 .892 ‡±.045 .953 ±.030 ‡7.55 ±1.39 4.58 ±0.85
+> Gem. 3 Flash .781 ‡±.083 .875 ‡±.068 .667 ‡±.089 .896 ±.053 ‡.951 ‡±.031 6.09 ±1.11 3.99 ±0.62
+> Gem. 3 Pro .792 ±.083 ‡.875 ‡±.068 .708 ±.094 ‡.894 ‡±.054 .915 ±.080 7.49 ±1.28 4.82 ±1.25
+> Human mean .726 .816 –.878 .924 5.58 3.86 VLM mean .771 .878 –.894 .939 7.04 4.46
+
+and ordinal agreement (QWK 0.894 /0.939 vs. 0.878 /0.924 ), while humans retain a calibration advantage (MAE 5.58 vs. 7.04 ). Inter-rater QWK averages 0.904 
+
+for human-human, 0.884 for VLM-VLM, and 0.857 for human-VLM pairs. On a complementary subjective review task, collapsing grades to clinically actionable bins (excellent vs. needs review), VLM-human agreement remains substantial (κ=0 .717 ), confirming VLMs can reliably triage masks for human escalation even when given no explicit scoring criteria. 
+
+Multi-centre validation. We ran our implementation at an external center abroad, on a cohort from a separate kidney-pathology center (264 WSIs, 353 valid bounding boxes across six hospital sites). Qwen-8B zero-shot achieves an overall Dice of 0.784 ±0.199 with high recall ( 0.964 ±0.096 ) and moderate precision (0.701 ±0.205 ). Per-site Dice ranges from 0.715 to 0.840 . The lower precision rela-tive to the Leica-75 benchmark is expected, as this external cohort was curated as a deliberately challenging evaluation set. The consistently high recall ( > 0.94 
+
+at all sites) confirms that our method reliably detects tissue across scanners and institutions without site-specific tuning. 
+
+Discussion. General-purpose VLMs, despite no pathology-specific training, sur-pass dedicated computational pathology tools on out-of-distribution stains with 
+
+7× lower cross-stain variance, validating the thesis that foreground segmentation is a perceptual task. Few-shot prompting with automatically curated exemplars addresses the long tail of difficult cases through per-slide adaptation at infer-ence time, without retraining or human intervention. VLM-based annotation review achieves agreement with ground truth that is statistically indistinguish-able from human expert consensus, and distilled students preserve teacher-level performance at ∼100 × the throughput. 
+
+4 Conclusion 
+
+By reframing foreground segmentation as a perception task, we show that general-purpose VLMs outperform dedicated pathology tools on out-of-distribution stains (Dice 0.858 Jones, 0.853 EVG) with 7× lower cross-stain variance, while few-Zero-Annotation Oracles in Histopathology 9
+
+shot prompting rescues hard cases ( +0 .349 Dice) and VLM reviewers match hu-man consensus ( κ=0 .989 blur; joint accuracy 0.708 vs. 0.646 ). Distillation into lightweight students decouples deployment from frontier-model cost. Our work establishes VLMs as practical zero-annotation oracles for stain-agnostic dataset curation at institutional scale. 
+
+Acknowledgements. G. Buzzanca acknowledges Leiden University Medical Center. J. Kers acknowledges Leiden University Medical Center and Amster-dam UMC. M. Naesens acknowledges KU Leuven. T. Nguyen acknowledges University Medical Center Utrecht. This project has received funding from the European Union’s Horizon Europe research and innovation programme under grant agreement No. 101072891. V. Jain and S. Cechnicka are supported by the UKRI Centre for Doctoral Training AI4Health (EP/S023283/1). This work was further supported by the European Research Council (ERC) project MIA-NORMAL (101083647), ERC project CHARMS (101246053), the German Re-search Foundation (DFG, projects 512819079 and 513220538), and the State of Bavaria through HTA and the Bavarian Foundation Model Initiative. HPC re-sources were provided by NHR@FAU of FAU Erlangen-Nürnberg under the NHR projects b143dc and b180dc. NHR funding is provided by federal and Bavarian state authorities, and NHR@FAU hardware is partially funded by the DFG under project 440719683. The authors acknowledge the use of resources provided by the Isambard-AI National AI Research Resource (AIRR). Isambard-AI is operated by the University of Bristol and is funded by the UK Government’s Department for Science, Innovation and Technology (DSIT) via UK Research and Innovation, and the Science and Technology Facilities Council [ST/AIRR/I-A-I/1023] [21]. Dr. Roufosse is supported by the National Institute for Health Research (NIHR) Biomedical Research Centre based at Imperial College Healthcare NHS Trust and Imperial College London (ICL). The views expressed are those of the au-thors and not necessarily those of the NHS, the NIHR, or the Department of Health. Dr. Roufosse’s research activity is made possible with generous support from Sidharth and Indira Burman. Human samples used in this research project were obtained from the Imperial College Healthcare Tissue & Biobank (ICHTB). ICHTB is supported by the NIHR Biomedical Research Centre based at Imperial College Healthcare NHS Trust and ICL. ICHTB is approved by Wales REC3 to release human material for research (22/WA/2836). 
+
+Disclosure of Interests. The authors declare no competing interests relevant to the content of this article. 
+
+References 
+
+> 1. Bai, S., Bai, J., Yang, S., Wang, S., Tan, S., Wang, P., Lin, J., Zhou, C., Zhou, J.: Qwen2-VL: Enhancing vision-language model’s perception of the world at any resolution. arXiv:2409.12191 (2024) 2. Bai, S., Cai, Y., Chen, R., Chen, K., Chen, X., Cheng, Z., Deng, L., Ding, W., Gao, C., Ge, C., et al.: Qwen3-VL technical report. arXiv:2511.21631 (2025)
+
+10 V. Jain et al. 3. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., et al.: Qwen2.5-VL technical report. arXiv:2502.13923 (2025) 4. Bejnordi, B.E., Veta, M., van Diest, P.J., van Ginneken, B., Karssemeijer, N., Litjens, G., van der Laak, J.A., the CAMELYON16 Consortium: Diagnostic as-sessment of deep learning algorithms for detection of lymph node metastases in women with breast cancer. JAMA 318 (22), 2199–2210 (2017). https://doi.org/ 10.1001/jama.2017.14585 
+
+5. Campanella, G., Hanna, M.G., Geneslaw, L., Miraflor, A., Werneck Krauss Silva, V., Busber, K.J., Madabhushi, A., Fuchs, T.J.: Clinical-grade computational pathology using weakly supervised deep learning on whole slide images. Nat. Med. 
+
+25 (8), 1301–1309 (2019). https://doi.org/10.1038/s41591-019-0508-1 
+
+6. Chen, R.J., Ding, T., Lu, M.Y., Williamson, D.F., Jaume, G., Song, A.H., Chen, B., Zhang, A., Shao, D., Shaban, M., et al.: Towards a general-purpose foundation model for computational pathology. Nat. Med. 30 , 850–862 (2024). https://doi. org/10.1038/s41591-024-02857-3 
+
+7. Comanici, G., Bieber, E., Schaekermann, M.: Gemini 2.5: Pushing the frontier with advanced reasoning, multimodality, long context, and next generation agentic capabilities (2025), https://arxiv.org/abs/2507.06261 
+
+8. Filiot, A., Gancarski, R., Jacob, A., Vakalopoulou, M., et al.: Scaling self-supervised learning for histopathology with masked image modeling. arXiv:2409.09173 (2024) 9. Gemini Team: Gemini 1.5: Unlocking multimodal understanding across millions of tokens of context. arXiv:2403.05530 (2024) 10. Google DeepMind: Gemini 3.1 Pro: A smarter model for your most complex tasks (2025), google DeepMind Blog 11. Howard, F.M., Dolezal, J., Kochanny, S., Schulte, J., Chen, H., Heij, L., Huo, D., Nanda, R., Olopade, O.I., Kather, J.N., et al.: The impact of site-specific digital histology signatures on deep learning model accuracy and bias. Nat. Commun. 
+
+12 (1), 4423 (2021). https://doi.org/10.1038/s41467-021-24698-1 
+
+12. Ilse, M., Tomczak, J.M., Welling, M.: Attention-based deep multiple instance learn-ing. In: ICML’18. pp. 2127–2136. PMLR (2018) 13. Janowczyk, A., Zuo, R., Gilmore, H., Feldman, M.D., Madabhushi, A.: HistoQC: An open-source quality control tool for digital pathology slides. JCO Clin. Cancer Inform. 3, 1–7 (2019). https://doi.org/10.1200/CCI.18.00157 
+
+14. Jaume, G., Doucet, P., Song, A.H., Lu, M.Y., Almagro-Perez, C., Wagner, S.J., Vaidya, A.J., Chen, R.J., Williamson, D.F., Kim, A., et al.: HEST-1k: A dataset for spatial transcriptomics and histology image analysis. In: NeurIPS’24 (2024) 15. de Jong, E.D., Marcus, E., Teuwen, J.: Current pathology foundation models are unrobust to medical center differences (2025), https://arxiv.org/abs/2501. 18055 
+
+16. Kirillov, A., Mintun, E., Ravi, N., Mao, H., Rolland, C., Gustafson, L., Xiao, T., Whitehead, S., Berg, A.C., Lo, W.Y., et al.: Segment anything. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 4015–4026 (2023) 17. Lin, W., Liu, S., Zhu, R., Lin, Y., Wang, B., Wang, L.: Beyond diagnostic per-formance: Revealing and quantifying ethical risks in pathology foundation models (2025), https://arxiv.org/abs/2502.16889 
+
+18. Lu, M.Y., Chen, B., Williamson, D.F., Chen, R.J., Liang, I., Ding, T., Jaume, G., Odintsov, I., Le, L.P., Gerber, G., et al.: A visual-language foundation model for computational pathology. Nat. Med. 30 , 863–874 (2024). https://doi.org/10. 1038/s41591-024-02856-4 Zero-Annotation Oracles in Histopathology 11 19. Lu, M.Y., Williamson, D.F., Chen, T.Y., Chen, R.J., Barbieri, M., Mahmood, F.: Data-efficient and weakly supervised computational pathology on whole-slide images. Nat. Biomed. Eng. 5(6), 555–570 (2021). https://doi.org/10.1038/ s41551-020-00682-w 
+
+20. MacQueen, J.: Some methods for classification and analysis of multivariate obser-vations (1967), https://api.semanticscholar.org/CorpusID:6278891 
+
+21. McIntosh-Smith, S., Alam, S.R., Woods, C.: Isambard-ai: a leadership class su-percomputer optimised specifically for artificial intelligence (2024). https://doi. org/10.48550/arXiv.2410.11199 , https://arxiv.org/abs/2410.11199 
+
+22. Nasir, E.S., Elhaminia, B., Eastwood, M., King, C., Cain, O., Harper, L., Moss, P., Chanouzas, D., Snead, D., Rajpoot, N., Shephard, A., Raza, S.E.A.: CORE – a cell-level coarse-to-fine image registration engine for multi-stain image alignment. arXiv preprint arXiv:2511.03826 (2025) 23. Nechaev, D., Pchelnikov, A., Ivanova, E.: Hibou: A family of foundational vision transformers for pathology. arXiv:2406.05074 (2024) 24. Otsu, N.: A threshold selection method from gray-level histograms. IEEE Trans. Syst. Man Cybern. 9(1), 62–66 (1979). https://doi.org/10.1109/TSMC.1979. 4310076 
+
+25. Pocock, J., Graham, S., Vu, Q.D., Jahanifar, M., Deshpande, S., Hadjigeorghiou, G., Shephard, A., Bashir, R.M.S., Bilal, M., Lu, W., et al.: TIAToolbox as an end-to-end library for advanced tissue image analytics. Commun. Med. 2(1), 120 (2022). https://doi.org/10.1038/s43856-022-00186-5 
+
+26. Shao, Z., Bian, H., Chen, Y., Wang, Y., Zhang, J., Ji, X., Zhang, Y.: TransMIL: Transformer based correlated multiple instance learning for whole slide image clas-sification. In: NeurIPS’21. pp. 2136–2147 (2021) 27. Vorontsov, E., Bozkurt, A., Casson, A., Shaikovski, G., Zelechowski, M., Severson, K., Zimmermann, E., Hall, J., Tenenholtz, N., Fusi, N., et al.: A foundation model for clinical-grade computational pathology and rare cancers detection. Nat. Med. 
+
+30 , 857–868 (2024). https://doi.org/10.1038/s41591-024-03141-0 
+
+28. Weng, Z., Seper, A., Pryalukhin, A., Mairinger, F., Wickenhauser, C., Bauer, M., Glamann, L., Bläker, H., Lingscheidt, T., Hulla, W., et al.: GrandQC: A compre-hensive solution to quality control problem in digital pathology. Nat. Commun. 
+
+15 (1), 10685 (2024). https://doi.org/10.1038/s41467-024-54769-y 
+
+29. Xiao, B., Wu, H., Xu, W., Dai, X., Hu, H., Lu, Y., Zeng, M., Liu, C., Yuan, L.: Florence-2: Advancing a unified representation for a variety of vision tasks. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 4818–4829 (2024) 30. Ye, W., Jiang, L., Xie, E., Zheng, G., Ma, Y., Cao, X., Guo, D., Qi, D., He, Z., Tian, Y., Coffee, M., Zeng, Z., Li, S., Huang, T.h.K., Wang, Z., Rehg, J.M., Kautz, H., Zhang, A.: The clever hans mirage: A comprehensive survey on spurious correlations in machine learning. arXiv:2402.12715 (2024) 31. Zhang, A., Jaume, G., Vaidya, A., Ding, T., Mahmood, F.: Accelerating data processing and benchmarking of AI models for pathology. arXiv:2502.06750 (2025)

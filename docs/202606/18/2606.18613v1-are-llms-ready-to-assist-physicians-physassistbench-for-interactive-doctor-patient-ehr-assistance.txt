@@ -1,0 +1,2455 @@
+Title: Are LLMs Ready to Assist Physicians? PhysAssistBench for Interactive Doctor-Patient-EHR Assistance
+
+URL Source: https://arxiv.org/pdf/2606.18613v1
+
+Published Time: Thu, 18 Jun 2026 00:22:50 GMT
+
+Number of Pages: 34
+
+Markdown Content:
+## Are LLMs Ready to Assist Physicians? PhysAssistBench for Interactive Doctor-Patient-EHR Assistance     
+
+> Tianming Du 1, Peijie Yu 2, Sihan Shang 3, Danli Shi 4, My Linh Nguyen 1,Shengbo Gao 1, Guangyuan Li 1, Yinghong Yu 1, Yan Jiang 1, Qianlong Zhao 1,Behzad Bozorgtabar 5, Shaoxiong Ji 1, Jiazhen Pan 6, Daniel Rueckert 6, Jiancheng Yang 1*,
+> 1Aalto University, 2Tencent, 3Harbin Institute of Technology, Shenzhen,
+> 4Hong Kong Polytechnic University, 5Aarhus University, 6Technical University of Munich
+> {du.tianming,jiancheng.yang}@aalto.fi
+
+Abstract 
+
+The most plausible near-term role of medical LLMs is to assist rather than replace physi-cians, yet current evaluations often test isolated capabilities: clinical knowledge, EHR system interaction, or patient communication. Physi-cian assistance instead requires coordinating these capabilities within the same interaction, where physicians issue underspecified requests, patients describe symptoms ambiguously, and EHR systems demand precise tool use. We introduce PHYS ASSIST BENCH , a benchmark for interactive doctor-patient-EHR assistance. Built from real MIMIC-IV cases, P HYS ASSIST -BENCH uses a scalable pipeline to construct 
+
+agentic patients : interactive, record-grounded agents that turn static EHR records into multi-turn clinical scenarios while preserving clinical factuality. P HYS ASSIST BENCH provides a cu-rated bilingual evaluation set of 1,296 manually reviewed and physician-validated turns. Exper-iments with leading LLMs show that current models remain unreliable in this setting, which exposes a key bottleneck for clinical LLMs: re-liable assistance requires coordination across knowledge, communication, and systems, not isolated gains in any of them. 
+
+1 Introduction 
+
+LLMs have generated substantial optimism for clin-ical AI (Thirunavukarasu et al., 2023; Moor et al., 2023; Rajpurkar et al., 2022). Much of this opti-mism comes from their strong performance on med-ical examinations and question-answering bench-marks (Kung et al., 2023; Singhal et al., 2023), motivating visions of LLMs as a new “front door to healthcare” (NHS England-South East, 2024; Kyle, 2025). However, recent studies suggest that such performance may not transfer to interactive clinical use. Laban et al. (2025) found that shifting from fully specified single-turn prompts to multi-turn, under-specified interactions caused an average 39% 
+
+> *corresponding author
+
+performance drop. Similarly, Bean et al. (2026) found that LLMs performed strongly when tested alone, but failed to improve user performance in a randomized medical self-assessment study, identi-fying user interaction as a key barrier. These findings reveal a gap in current evalua-tion practice: practical failures may arise not only from insufficient medical knowledge, but from fail-ures of interaction. As summarized in Table 1, prior medical LLM benchmarks mostly evaluate three isolated roles: knowledge , where models act as medical experts; system , where models retrieve or manipulate clinical records; and communica-tion , where models interact with patients or gener-ate clinical text. These roles are useful, but they miss the most plausible near-term deployment set-ting: assisting physicians under human oversight, as emphasized by ethical and regulatory expecta-tions (World Health Organization, 2021; U.S. Food and Drug Administration, 2025). Technically, this setting is also where recent studies expose a key bottleneck: interaction (Laban et al., 2025; Bean et al., 2026). Physician assistance is not static ques-tion answering, but interactive coordination across incomplete physician intent, ambiguous patient in-formation, and precise EHR actions. Figure 1 illustrates the setting studied in this paper. Even for medical professionals, physician requests are often context-dependent, elliptical, and spread across turns. The assistant must map these implicit requests to two distinct interfaces: EHR systems requiring precise tool calls, and patients providing colloquial, incomplete, and clinically im-precise information. It must decide when to query the EHR, when to ask the patient, and how to in-tegrate evidence into a physician-facing response. As will be discussed in Section 2, this combination is not captured by existing benchmarks. We introduce P HYS ASSIST BENCH , a bench-mark for interactive doctor-patient-EHR assistance. Evaluating such interactions requires more than 1
+
+> arXiv:2606.18613v1 [cs.CL] 17 Jun 2026 Patient
+> Interview
+> EHR Tool
+> Call
+> Tool
+> Result
+> Colloquial
+> Response
+> AI Response
+
+Physician  
+
+> -Issues implicit, multi -
+> turn clinical queries
+
+LLM as Physician Assistant     
+
+> -Understands implicit physician intent
+> -Queries EHR
+> -Interviews the patient
+> -Integrates information
+
+EHR System   
+
+> -Standard FHIR interface
+> -Responses to API calls
+
+Patient Dialogue    
+
+> -Responds in colloquial,
+> imprecise language
+> Implicit Query
+> Turn Task Type Interaction Flow
+
+0
+
+> Information
+> Lookup
+> (IL)
+> Data
+> Gathering
+> (DG)
+> Clinical
+> Reasoning
+> (CR)
+> Write /
+> Update
+> (WU)
+
+1
+
+2
+
+3                            
+
+> Implicit Type
+> Explicit
+> Predicate
+> Ellipsis
+> (PE)
+> Event
+> Anaphora
+> (EA)
+> Nominal
+> Anaphora
+> (NA)
+> Physician: "What is the most recent blood pressure?"
+> Assistant: The patient’s most recent blood pressure is 168/102 mmHg.
+> Tool Call: Observation.search(code="blood -pressure") → 168/102 mmHg
+> Physician: ”Current antihypertensives? And how she has been tolerating them?"
+> Tool Call 1: MedicationRequest.search → amlodipine 5 mg daily
+> Patient Interview (Tool call 2): patient.get_symptom_history
+> Patient: " I don’t know what it’s called, the new pill for my pressure... my feet have
+> been all puffy and my socks leave dents in my skin. I thought maybe I was just
+> drinking too much water
+> Assistant: She is on amlodipine 5 mg daily. She reports bilateral lower -limb swelling —puffy
+> feet with sock indentation —consistent with peripheral edema, a known side effect of
+> amlodipine. She thinks it’s due to drinking too much water.
+> Physician: "Given all this, should we switch her antihypertensive?"
+> Assistant: Switching is appropriate. BP remains uncontrolled (168/102 mmHg) on
+> amlodipine 5 mg daily, and she has peripheral edema, a dose -dependent side effect of
+> amlodipine. An ARB like losartan is an evidence -based alternative with similar efficacy and
+> less edema. No contraindications are documented.
+> Physician: "Alright, start it at 50mg. Write the prescription."
+> Tool Call: MedicationRequest.create (drug="losartan", dose="50 mg",
+> frequency="daily") → order created
+> Assistant: Done. Losartan 50 mg once daily has been prescribed, and the order is now in
+> the system. You may want to recheck blood pressure and renal function in 2 –4 weeks
+> following the switch.
+> Rubric Criteria
+> 1. Reports exactly 168/102 mmHg;
+> 2. Does not cite additional values;
+> 3. Does not add clinical
+> interpretation, diagnosis, or context
+> not in the tool result
+> 1. Names amlodipine 5 mg daily
+> (from EHR tool)
+> 2. Captures bilateral lower -limb
+> swelling / sock indentation (from
+> patient)
+> 3. Identifies peripheral edema as
+> amlodipine side effect
+> 4. Preserves patient's own
+> attribution (drinking too much
+> water)
+> 5. No hallucinated symptoms or
+> medications
+> 1. Recommends switching
+> 2. Cites uncontrolled BP
+> 3. peripheral edema on amlodipine
+> 4. Proposes ARB with rationale
+> 5. Notes no contraindications
+> without fabricating any
+> 1. Drug: losartan
+> 2. Dose: 50 mg
+> 3. Frequency: daily
+> 4. Confirms order was created
+> 5. Recommends BP/renal function
+> recheck within 2 –4 weeks
+
+MIMIC -IV Records   
+
+> -Static EHR tables
+> -Real patients
+
+Agentic Patient Environment from Static EHR Records 
+
+# ×Figure 1: Left: PHYS ASSIST BENCH evaluates LLMs as physician assistants, not physicians: the assistant follows physician requests while interacting with a record-grounded FHIR-based EHR system and a dialogue patient. A multi-agent pipeline transforms static MIMIC-IV records into this agentic patient environment, exposing them through standardized FHIR interfaces rather than direct record access. Right: A representative hypertension case in PHYS ASSIST BENCH . The 4-turn session progresses from explicit lookup to implicit assistance involving patient dialogue, clinical reasoning, and EHR actions, with each turn paired with its interaction flow and rubric criteria. 
+
+static clinical records: it must provide patients who can respond across turns, EHR systems that can be queried through structured tools, and physi-cian requests that evolve with context. To make this scalable while preserving clinical ground-ing, P HYS ASSIST BENCH repurposes real MIMIC-IV (Johnson et al., 2023) cases through a multi-agent synthetic data pipeline. The pipeline plans clinically plausible scenarios from eligible records and constructs agentic patients : interactive, record-grounded agents that turn static EHR cases into multi-turn clinical scenarios. Unlike unconstrained patient simulation, these agents are grounded in ex-isting EHR evidence; unsupported cases are filtered rather than counterfactually rewritten. The formulated benchmark contains 324 multi-turn sessions, each reviewed by 8 trained anno-tators and validated by a physician. It spans 4 clinical scenarios (Diagnostic Workup, Med Safety, Treatment Response and Discharge Planning), 4 tasks (Information Lookup, Data Gathering, Clini-cal Reasoning, and Write/Update), and 3 physician-query implicitness subtypes: Nominal Anaphora (NA ), Predicate Ellipsis ( PE ), and Abstract Event Anaphora ( AE ). Each session uses a standardized FHIR R4 tool set and is evaluated in English and Chinese. Turn-level rubrics are provided for stable and interpretable assessment. Figure 1 shows a rep-resentative 4-turn session, illustrating how implicit physician requests, patient ambiguity, and EHR precision co-occur within the same workflow. Our contributions are threefold. First, we for-mulate interactive physician assistance as a coordi-nation problem across clinical knowledge, patient communication, and EHR systems, a setting over-looked by existing evaluations of isolated roles. Second, we develop a scalable multi-agent syn-thetic data pipeline that repurposes static MIMIC-IV records into agentic patients , enabling clinically grounded multi-turn doctor-patient-EHR scenarios. Third, we release P HYS ASSIST BENCH , a manu-ally reviewed and physician-validated benchmark of 324 sessions and 1,296 turns, and show that leading LLMs are not yet reliable physician assis-tants, especially when resolving physician intent, handling patient ambiguity, issuing grounded EHR queries, and integrating evidence across sources. We will fully release our dataset and code to the research community. (Details in Appendix B) 
+
+2 Related Work 
+
+2.1 EHR and Medical Agent Benchmarks 
+
+Table 1 compares existing benchmarks by evalua-tion focus and interaction dimensions. Most prior benchmarks evaluate isolated capabilities rather than integrated physician-assistant workflows. A large body of work focuses on knowledge ,testing medical reasoning over questions, notes, records, or agent-style clinical tasks (Jin et al., 2019; Shi et al., 2024; Kweon et al., 2024; Chen et al., 2024; Mehandru et al., 2025; Wang et al., 2025; Zhou et al., 2025; Tang et al., 2025). These benchmarks assess clinical expertise, but mostly assume fully specified, static inputs without pa-tient or EHR interaction across turns. Another line 2Benchmark Evaluation Focus Implicit Queries Patient Interaction Tool Use Turns                                                                             
+
+> PubMedQA (Jin et al., 2019) Knowledge ✗✗✗Single EHRSQL (Lee et al., 2022) System ✗✗✗Single EHRXQA (Bae et al., 2023) System, Knowledge ✗✗✗Single EHRAgent (Shi et al., 2024) Knowledge ✗✗✓Single EHRNoteQA (Kweon et al., 2024) Knowledge ✗✗✗Single ClinicalBench (Chen et al., 2024) Knowledge ✗✗✗Multi ER-REASON (Mehandru et al., 2025) Knowledge ✗✗✗Single CSEDB (Wang et al., 2025) Knowledge ✗✗✗Single MedThink-Bench (Zhou et al., 2025) Knowledge ✗✗✗Single MedAgentsBench (Tang et al., 2025) Knowledge ✗✗✓Single MedAgentBench (Jiang et al., 2025) System ✗✗✓(FHIR) Single FHIR-AgentBench (Lee et al., 2025) System ✗✗✓(FHIR) Single AgentClinic (Schmidgall et al., 2026) Knowledge, Communication ✗✓✓Multi MedAgentGym (Xu et al., 2026a) System, Knowledge ✗✗✓Multi
+> PHYS ASSIST BENCH (Ours) Assistance ✓✓✓(FHIR) Multi
+
+Table 1: Comparison of existing EHR and medical agent benchmarks. Evaluation Focus denotes the primary capability tested: knowledge for medical expertise, system for EHR or tool use, and communication for patient dialogue. P HYS ASSIST BENCH is the only benchmark with integrated assistance focus across all three interaction dimensions. Implicit Queries , Patient Interaction , Tool Use , and Turns denote underspecified physician requests, simulated-patient interaction, executable tools with FHIR noted when applicable, and single- or multi-turn evaluation. 
+
+focuses on system interaction, evaluating EHR re-trieval or clinical tool use (Lee et al., 2022; Bae et al., 2023; Jiang et al., 2025; Lee et al., 2025; Xu et al., 2026a). However, they typically treat EHR access as standalone tool use and do not test implicit references, argument elision, or cross-turn carry-over. A third line focuses on communication ,where models interact with patients or generate clinical text. AgentClinic (Schmidgall et al., 2026) supports multi-turn doctor-patient interaction and is closest to the dialogue side of our setting, but does not jointly evaluate structured EHR tool use, patient dialogue, and implicit physician requests. Overall, existing benchmarks cover important pieces of clinical LLM evaluation, but not the in-tegrated assistance setting, where an LLM must coordinate knowledge , communication , and sys-tem interaction under evolving physician instruc-tions. Luo et al. (2026) also articulate a research vision for evaluating clinical LLMs through realis-tic EHR interfaces in dynamic, interactive clinical settings, sharing our critique of current evaluation paradigms. As shown in Table 1, P HYS ASSIST -BENCH is the only benchmark covering implicit queries, patient interaction, FHIR-based EHR tool use, and multi-turn evaluation together. This cov-erage is made possible by a scalable multi-agent synthetic data pipeline that turns static MIMIC-IV records into interactive doctor-patient-EHR scenar-ios. 
+
+2.2 Medical Synthetic Data 
+
+Medical synthetic data has become an important strategy for addressing data scarcity, privacy, and bias in healthcare. Most prior work follows a gener-ative synthesis paradigm, creating realistic medical images, clinical text, tabular EHR data, or multi-modal patient records for training and evaluation via generative models (Fansi Tchango et al., 2022; Li et al., 2023b; Seo and Lee, 2024; Zhang et al., 2025, 2026). Beyond sample generation, recent work also studies agentic data synthesis, where LLMs or multi-agent systems construct clinical di-alogues through prompt-encoded constraints (Das et al., 2024) or clinician-patient role simulation grounded in EHR-derived evidence (Wang et al., 2024; ALMutairi et al., 2024; Xu et al., 2026b). PHYS ASSIST BENCH differs by using synthetic data to construct an interactive evaluation envi-ronment. Its scalable multi-agent synthetic data pipeline plans clinically plausible scenarios from real records and constructs agentic patients , which are grounded in existing EHR evidence rather than unconstrained simulation; unsupported cases are fil-tered instead of counterfactually rewritten. The re-sulting evaluation set is further manually reviewed and physician-validated for reliability. 
+
+2.3 Tool Use and Function Calling 
+
+General-domain tool-use benchmarks evaluate API selection, function calling, and tool-mediated task completion (Li et al., 2023a; Qin et al., 2023; Kr-ishna et al., 2025; Yu et al., 2026). While useful for studying agent tool use, they mostly assume general-purpose domains and do not model clin-ical tool schemas, FHIR-based EHR actions, or implicit physician queries. P HYS ASSIST BENCH 
+
+instead embeds tool use in an interactive doctor-3patient-EHR workflow requiring coordination be-tween FHIR-based EHR tools, ambiguous patient dialogue, and evolving physician instructions. 
+
+2.4 Ellipsis and Anaphora in Dialogue 
+
+Ellipsis and anaphora are pervasive in natural di-alogue and have long been studied in linguistics and NLP (Gerber and Chai, 2010; Lee et al., 2017, 2018; Marasovi´ c et al., 2017; Kolhatkar and Hirst, 2014). They cover phenomena such as omitted predicates or arguments, entity references, and ab-stract event references, all of which require context-dependent interpretation. In clinical communica-tion, especially physician instructions, such implic-itness is common: clinicians often rely on shared context, abbreviate repeated actions, and refer back to prior findings across turns. Despite this, existing EHR and medical agent benchmarks typically for-mulate queries as explicit, standalone instructions, leaving implicit physician requests overlooked. 
+
+3 PHYS ASSIST BENCH 
+
+3.1 Overview 
+
+PHYS ASSIST BENCH is a multi-turn benchmark built on real MIMIC-IV patient data that evaluates LLMs on realistic doctor-patient-EHR interaction. It comprises 324 sessions and 1,296 turns, evalu-ated in both English and Chinese using a standard-ized FHIR R4 tool set (Mandel et al., 2016). 
+
+3.2 Benchmark Structure Sessions and Turns. The primary unit of evalu-ation is a session : four consecutive turns (Turn 0– Turn 3) simulating a single clinical encounter. Turns are not independent: each builds on prior re-trieved data and established context, requiring the assistant to track what has already been answered and reason across the full conversation. 
+
+Task Types. Each turn is labeled among four task types reflecting the clinical intent of the physician’s query. Information Lookup ( IL ) retrieves a single clinical fact via one EHR read tool. Data Gath-ering ( DG ) collects information from two or more sources (EHR tools, patient-interview tools) with calls that may be parallel or adaptive. Clinical Rea-soning ( CR ) combines retrieved findings with med-ical knowledge to produce a clinical recommenda-tion optionally involving tool calls. Write/Update (WU ) executes a FHIR write operation whose pa-rameters are inferred from session context. Turn 0 is always IL , anchoring the session in a concrete data request; Turn 3 always ends in DG , CR , or WU .
+
+Physician-Query Implicitness Types. Task type captures what is being requested; the implicitness type captures how the physician expresses it. As shared context accumulates, physicians naturally abbreviate: referring back to prior entities by pro-noun, dropping predicates, or compressing the clinical picture into a brief phrase. P HYS ASSIST -BENCH encodes three implicitness types assigned to Turns 1–3. Nominal Anaphora ( NA ): a pronoun or noun phrase refers to a specific entity from a prior turn. Predicate Ellipsis ( PE ): the verb and arguments are omitted; only the new focus item is stated. Abstract Event Anaphora ( AE ): a phrase such as “given all this” refers to the accumulated clinical picture. Examples are in Appendix E. 
+
+Tool Set. The assistant draws on two tool fam-ilies. EHR tools are FHIR R4 read and write operations over MIMIC-IV resources. Patient-interview tools elicit subjective information absent from structured records (chief complaint, symptom history, medication adherence, and functional sta-tus) with responses pre-generated from the same admission records as the EHR snapshot and held fixed at evaluation time. Treating patient interac-tion as a tool call unifies EHR queries and patient questions under a single decision interface and en-ables deterministic evaluation via response replay. The full tool inventory is provided in Appendix D. 
+
+Clinical Scenarios. The task and implicitness types instantiate across four clinical scenarios span-ning the physician’s core decision cycle: Diag-nostic workup, Medication safety review (Med Safety), treatment response monitoring (Treatment Response), and discharge planning. Each scenario constrains which FHIR resources and tool combi-nations are exercised, ensuring structural distinc-tiveness. The scenario design is inspired by Jiang et al. (2025); Lee et al. (2025); Liu et al. (2026). 
+
+Data-Richness Tiers. Each session is assigned among three data-richness tiers reflecting the depth of structured evidence in the MIMIC-IV record: a coverage dimension rather than a difficulty rank-ing. Data-sparse sessions require a single lab value or prescription. Data-moderate sessions require a trend-bearing time series or a co-occurring drug-lab pair. Data-rich sessions require multi-dimensional evidence such as multiple drug-monitoring pairs or multi-system differential findings. Tier eligibility 4is verified offline against raw MIMIC-IV CSV files without LLM involvement (Appendix H). Session distribution by scenario and tier is in Appendix G. 
+
+3.3 Evaluation Task Formalization. We formulate each PHYS ASSIST BENCH session as a finite-horizon partially observable Markov decision pro-cess (POMDP) (S, A, O, T, R, U), with state space S, action space A, observation space O,transition function T : S × A → S × O ,reward R : S → [0 , 1] , and physician-instruction space U. The state decomposes as S = Sehr ∪ S pat ∪ S ctx : Sehr is the MIMIC-IV patient snapshot frozen at tanchor and hidden from the agent; Spat is the patient-interview state, constructed from the same admission-period records as Sehr and fixed at pipeline initialization time. Sctx is the accumulated dialogue history 
+
+Ht = (( q0, y 0), . . . , (qt−1, y t−1)) . The action space partitions as A = Aehr ∪ A pat ∪ A nl : FHIR R4 tool calls (read and write), patient-interview tool calls, and the natural-language answer yt
+
+returned to the physician. The instruction space 
+
+U contains the physician’s queries qt. A session is the tuple σ = ( tanchor , q 0, q 1, q 2, q 3) paired with gold tool calls and gold answers; at each turn the agent produces (τt, y t), where τt is the executed tool-call trace and yt is the response. 
+
+Rubric-Based Scoring. Each turn is scored by an LLM judge on several independent rubric items designed for the turn’s task type. Items cover fac-tual accuracy of reported values, correctness of clinical interpretation, appropriate integration of prior session context, and absence of hallucinated facts. The score for turn t is the fraction of items passed, rt ∈ [0 , 1] ; the session-level Rubric Score is ¯r(σ) = 14
+
+P3 
+
+> t=0
+
+rt and the corpus-level mean rubric score (mRS) reported in Table 2 is Eσ[¯ r(σ)] .
+
+Pass@Turn and Pass@Session. The continuous rubric score is binarised at threshold τ to yield 2 re-liability metrics. Pass@Turn (@T τ ) is the fraction of turns whose rubric score meets the threshold: @T τ =
+
+P
+
+> σ
+
+P3 
+
+> t=0
+
+1[rt ≥ τ ]4|D| .
+
+Pass@Session (@S τ ) is the fraction of sessions in which all four turns meet the threshold: @S τ =
+
+P 
+
+> σ∈D
+
+1min t∈{ 0,1,2,3} rt ≥ τ 
+
+|D| .
+
+We report τ ∈ { 0.60 , 0.75 }. |D| is the number of sessions. @S is the demanding metric: single weak turn fails entire session, reflecting the multi-turn, context-dependent character of clinical practice. 
+
+Tool Use Evaluation Tool invocation is evalu-ated implicitly through rubric-based scoring: a re-sponse grounded in correct EHR values necessarily required correct tool calls to retrieve them. This also accommodates cases where a model deviates from the gold tool trajectory but still produces a clinically correct answer, as the rubric rewards cor-rectness rather than procedural conformity. 
+
+4 Agentic Patient Environment from Static EHR Records 
+
+We design the pipeline around a generative princi-ple: each patient’s EHR record, rather than serving as a static lookup table, acts as the driving partic-ipant of an agentic patient environment. Given one admission’s data, a coordinated set of agents decides what clinical questions the record can sup-port, plans the required EHR and patient-tool in-teractions, executes real FHIR queries against the actual data, and produces verifiable gold responses without human authorship of the scenario itself. The same record can therefore generate different conversations across scenarios, difficulty tiers, and languages, making the pipeline scalable while re-maining grounded in which specific admission con-tains. In this sense, the pipeline turns static EHR records into interactive agentic patients capable of driving complex doctor-patient-EHR interactions. As illustrated in Figure 2, the pipeline comprises 3 stages. (1) Patient pre-filtering applies a two-stage offline filter: first file-size thresholds, then scenario- and tier-specific content checks ensuring every retained patient has sufficient EHR evidence before any LLM is invoked. (2) Session planning 
+
+reads the patient’s EHR snapshot and produces a co-herent four-turn clinical arc specifying the per-turn topic, FHIR tools or patient tools, transforming iso-lated tabular data into a connected clinical narrative. 
+
+(3) Turn-level generation instantiates each planned turn through multi-agent cooperation with tool-call planning, FHIR execution against real data, and gold answer generation, with three embedded qual-ity gates rejecting hallucinated, structurally invalid, or clinically unsafe outputs. The pipeline scales by instantiating multiple ses-sions from a single patient record across scenarios, difficulty tiers, and languages; quality is enforced 51 Stage 1 Patient Pre -screening 
+
+Phase A 
+
+File -size Filter 
+
+Eliminate records below minimum 
+
+file -size threshold 
+
+Phase B 
+
+Clinical Evidence Check 
+
+Verify required clinical evidence in 
+
+MIMIC -IV CSV files 
+
+2 Stage 2 Session -level Planning 3 Stage 3 Turn -level generation 
+
+> Tools Source Topic Turn
+> EHR Read Tools EHR History & Background 0
+> EHR Read Tools
+> Patient Tool
+> Mixed BP Control Assessment 1
+> EHR Read Tools EHR Risk & Complications 2
+> EHR Write Tools Mixed Management Plan 3
+> Tools Tool Source Topic Turn
+> EHR Read Tools EHR History & Background 0
+
+Four -turn Clinical Arc (connected narrative) 
+
+Candidate Pool 
+
+20 × target count per 
+
+scenario -difficulty cell 
+
+EHR Values 
+
+EHR Snapshot 
+
+Clinical Score 
+
+Session Planner Agent 
+
+MIMIC -IV split 
+
+by Subject ID Single -turn Clinical Arc 
+
+Patient 
+
+Record 
+
+> Rubric Gen Agent
+
+Multi Agent Cooperation with embedded QC 
+
+> Checker Agent
+> Turn planner Agent
+> Patient Agent
+> User Agent
+> Answer Agent
+
+Single Turn Data 
+
+×𝟒 Session data with tool 
+
+observations, answers 
+
+and rubrics Figure 2: Multi-agent data synthesis pipeline. A static MIMIC-IV record is transformed into a grounded, multi-turn benchmark entry in the agentic patient environment, through patient pre-filtering, session-level planning, and turn-level generation with embedded quality control. 
+
+by a three-stage checker that filters hallucinations, structural errors, and unsafe content. Full pipeline details (Figure H1), prompt templates, and per-gate failure statistics are provided in Appendix H. 
+
+5 Experiments 
+
+5.1 Models 
+
+We benchmark 5 closed-source models: GPT-5.4, GPT-5.4 mini (Singh et al., 2025), Claude-Opus-4.7 (Anthropic, 2026), Gemini-3.1-Pro (Google, 2026), Seed-1.8(ByteDance Seed Team, 2026) and 9 open-weight models: DeepSeek-V4-Pro and DeepSeek-V4-Flash (DeepSeek-AI, 2026), Qwen3.5 series models (Qwen Team, 2025), GLM-5 (GLM-5 Team, 2026), Kimi-K2.6 (Kimi Team, 2025), Min-iMax (MiniMax, 2026). For each model we run the full English and Chinese benchmark (324 ses-sions × 4 turns × 2 languages = 2,592 turns), under identical evaluation conditions. 
+
+Eval Configuration & Judge Model. All mod-els run with reasoning (“thinking”) mode enabled (reasoning_effort=high for the GPT-5 series), temperature = 0 .2, and a maximum of 16 tool calls per turn, with all 17 EHR and patient-interview tools available at every turn. Rubric scoring is per-formed by a fixed GPT-5.4-mini judge which is identical across all models. It receives the model’s answer, EHR ground-truth, and rubric items, re-turning binary scores with reasoning for each item. 
+
+5.2 Main Results 
+
+Table 2 reports performance of 14 LLMs on PHYS ASSIST BENCH . Closed-source and open-weight models perform comparably on mRS, with an average gap of only 1.5 pp on English mRS IL DG CR WU                                                                                                                                                                                                                
+
+> Expl.
+> NA
+> PE
+> AE
+> Impl. Type  76 53 63 70
+> 85 53 54 83
+> 80 48 60 60
+> 56 60 89
+> GPT-5.4-high
+> IL DG CR WU
+> 84 59 63 57
+> 94 49 67 86
+> 87 51 66 59
+> 48 65 97
+> Claude-Opus-4.7
+> IL DG CR WU
+> 82 51 58 65
+> 96 53 54 88
+> 85 48 52 49
+> 48 52 83
+> DS-V4-Flash
+> IL DG CR WU
+> 84 55 64 72
+> 100 55 60 85
+> 84 51 60 55
+> 49 60 92
+> DS-V4-Pro
+> IL DG CR WU
+> 82 57 58 68
+> 94 47 63 89
+> 87 49 59 49
+> 51 56 86
+> Qwen-3.5-35b-a3b
+> IL DG CR WU
+> Expl.
+> NA
+> PE
+> AE
+> Impl. Type  76 48 58 71
+> 85 47 51 97
+> 79 42 58 53
+> 47 50 94
+> Gemini-3.1-Pro
+> IL DG CR WU
+> 85 61 63 69
+> 96 53 64 76
+> 89 52 64 54
+> 54 60 92
+> GLM-5
+> IL DG CR WU
+> 80 54 64 79
+> 100 50 60 96
+> 82 50 61 57
+> 52 59 89
+> Seed-1.8
+> IL DG CR WU
+> 85 59 53 77
+> 96 46 59 91
+> 89 50 59 62
+> 51 55 94
+> Kimi-K2.6
+> IL DG CR WU
+> 82 54 58 78
+> 83 44 56 92
+> 83 46 56 55
+> 44 56 92
+> MiniMax 2.7
+> IL DG CR WU
+> Task Type
+> Expl.
+> NA
+> PE
+> AE
+> Impl. Type  74 43 48 70
+> 87 39 39 87
+> 77 40 50 43
+> 39 45 89
+> GPT-5.4-mini
+> IL DG CR WU
+> Task Type
+> 77 50 53 68
+> 89 46 46 66
+> 80 44 50 51
+> 37 48 86
+> Qwen3.5-27B
+> IL DG CR WU
+> Task Type
+> 66 42 46 79
+> 65 42 42 88
+> 71 42 49 66
+> 41 48 97
+> Qwen3.5-9B
+> IL DG CR WU
+> Task Type
+> 77 33 38 69
+> 50 33 42 98
+> 66 30 37 66
+> 27 35 89
+> Qwen3.5-4B
+> IL DG CR WU
+> Task Type
+> 79 51 56 71
+> 87 47 54 87
+> 81 46 56 56
+> 46 54 91
+> Average (14 models)
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> Rubric Score (%)
+> Rubric Score: Implicitness type × Task Type (EN)
+
+Figure 3: Rubric score (%) by implicitness type × task type (EN), for 14 models and their average. Informa-tion Lookup stays robust across all implicitness types, while Data Gathering (multi-tool composition) and Clin-ical Reasoning (knowledge-grounded inference) are the consistent weak points across models. Both demand reasoning beyond single-point retrieval. Results for Chi-nese (ZH) are presented in Appendix I2 
+
+(63.9 vs. 62.4). GLM-5 achieves the highest mRS among all models (69.4 EN, 71.5 ZH), narrowly outperforming Claude-Opus-4.7 (68.3 EN, 69.9 ZH) on this metric. However, Pass@Session tells a different story: Claude-Opus-4.7 leads all models on session-level consistency, reaching 23.5% (EN) and 26.9% (ZH) at τ =.60 , and 8.0% (EN) and 9.0% (ZH) at τ =.75 . This gap between turn-level and session-level rankings highlights that sustaining quality across all four turns within a session is a dis-tinct capability, not captured by mean rubric score alone. Within the Qwen3.5 family, mRS scales clearly with model size (66.3 →58.3 →55.2 →48.7 from 35B to 4B), with the 4B model recording 0.0% Pass@Session at τ =.75 .
+
+Implicitness Type and Task Type: Heatmap Analysis Figure 3 decomposes the rubric score 6Model English Chinese                                                                                                                                                                   
+
+> mRS Pass@Turn Pass@Session mRS Pass@Turn Pass@Session
+> τ=.60 τ=.75 τ=.60 τ=.75 τ=.60 τ=.75 τ=.60 τ=.75
+> Closed-Source Model (Anthropic, 2026; Singh et al., 2025; Google DeepMind, 2025; ByteDance Seed Team, 2026)
+> Claude-Opus-4.7 68.3 67.7 52.5 23.5 8.0 69.9 70.1 55.1 26.9 9.0 GPT-5.4-high 64.1 63.4 42.3 17.3 2.2 65.9 63.0 43.8 18.8 4.9 Gemini-3.1-Pro 62.1 59.9 40.3 11.1 1.5 68.0 68.8 48.5 22.5 4.6 Seed-1.8 67.4 66.4 46.5 18.5 3.1 68.7 67.4 48.0 20.4 6.8 GPT-5.4-mini 57.8 53.8 37.6 8.0 1.2 61.5 58.7 41.7 11.7 2.2
+> Open-Weight Model (GLM-5 Team, 2026; Kimi Team, 2026; DeepSeek-AI, 2026; MiniMax, 2026; Qwen Team, 2026)
+> GLM-5 69.4 67.6 53.1 21.3 6.5 71.5 71.3 55.3 26.5 8.3 Kimi-K2.6 68.0 66.6 51.7 15.7 4.6 69.9 69.7 53.4 24.7 8.3 DS-V4-Pro 68.1 66.7 52.9 20.7 6.5 64.8 63.4 48.8 19.4 5.6 DS-V4-Flash 64.3 62.7 49.1 17.0 4.6 60.6 59.7 46.2 19.4 7.1 MiniMax-M2.7 63.2 60.4 43.4 10.8 2.2 66.8 63.9 47.3 13.3 4.3 Qwen3.5-35B-A3B 66.3 65.0 49.4 18.8 3.7 65.8 63.3 50.0 17.3 5.9 Qwen3.5-27B 58.3 55.6 40.2 11.1 1.2 61.4 57.6 42.4 10.8 3.1 Qwen3.5-9B 55.2 49.5 34.2 11.7 1.9 58.0 52.9 35.7 12.3 3.7 Qwen3.5-4B 48.7 40.1 29.6 1.9 0.0 47.4 40.4 27.4 1.9 0.6
+
+Table 2: Performance on P HYS ASSIST BENCH across 1,296 turns over 324 clinical sessions (4 scenarios × 3 data richness tiers × 27 sessions each). mRS : mean rubric score (%) over all 1,296 turns. Pass@Turn (@T) : the fraction of turns with rubric score ≥ τ (%). Pass@Session (@S) : the fraction of complete 4-turn sessions where every turn passes threshold τ (%). Numbers highlighted in red and blue denote the best and second-best results, respectively. 
+
+by implicitness (rows) and task (columns) across all 14 models. The heatmap reveals three patterns. First, task type defines a stable difficulty hierarchy: IL 82.6 > WU 76.1 > CR 54.9 > DG 47.5, with DG as the universal bottleneck whose narrow cross-model standard deviation (5.6–7.6) indicates that multi-tool composition resists model scale. Sec-ond, implicitness interacts non-uniformly with task type: PE is the weakest row (59.6) but collapses specifically on WU (55.6), where dropping the verb creates syntactic ambiguity between a write in-struction and a verification query; NA and AE pre-serve the write-verb in the antecedent, recovering to 87.2 and 90.7: the two highest cells on average. Third, cross-model variance is lowest on AE × WU (σ=4 .0) and highest on NA × IL ( σ=13 .6), con-centrating the capability gap in implicit DG and CR cells; Claude-Opus-4.7 and GLM-5 are the most balanced systems, while Qwen3.5-4B shows the widest within-model spread (98 on NA × WU vs. 27 on AE × DG), suggesting surface-pattern acquisition without underlying composition skill. 
+
+Language-Conditioned Tool-Invocation Bias. 
+
+All models trained by non-Chinese organizations achieve higher scores on Chinese than English sessions (up to +11.4 pp Pass@Session for Gem-ini 3.1 Pro). A turn-level breakdown for Gem-ini 3.1 Pro shows that 23% of turns where Chinese passed but English failed involve insufficient tool use (the English session skips EHR calls correctly invoked in Chinese), and 3% are outright refusals absent in Chinese entirely. We attribute this to a language-conditioned safety prior: English training data reinforces disclaimers about AI systems not accessing clinical records, suppressing EHR tool calls in English sessions. This motivates reporting multilingual results separately. 
+
+A Narrow Flagship Band. Among the flagship models, performance compresses into a narrow band: the top contenders (GPT-5.4-high, GLM-5, Claude-Opus-4.7, Kimi-K2.6, Seed-1.8) fall within ~3 points on EN despite differences in scale and architecture. We attribute this to the infor-mation filtering inherent in the data construction pipeline: since EHR evidence is fetched on de-mand, parametric knowledge differences are re-moved at the data-construction stage, so models differ in how they compose tool calls, not in what they know . Lightweight models stay clearly behind, with Qwen3.5-4B trailing GLM-5 (EN 69.4) by ~20 points. As retrieval already removed the knowl-edge axis, this gap isolates a reasoning deficit: smaller models obtain the same evidence but fail to reliably chain tool calls and integrate the results. 
+
+Invariance Across Data Richness Tiers. Perfor-mance is broadly invariant to the L1–L3 stratifica-tion. Across evaluated models (Appendix I2), mRS varies by less than ~4 points between L1 and L3, and the ranking is not monotonic for any model 7(L3 occasionally exceeds L1, e.g., Seed-1.8 EN, Qwen3.5-35B EN). This is a positive finding: un-der the FHIR tool abstraction, EHR scale is not the dominant bottleneck. Models navigate information-dense encounters via targeted tool calls just as ef-fectively as sparse ones; the dominant axes of vari-ance are instead task type and implicit-query type (Figure 3). 
+
+5.3 Effect of Implicit Queries                                                                                             
+
+> Model NA PE AE
+> Expl. Impl. ∆Expl. Impl. ∆Expl. Impl. ∆
+> Claude-Opus-4.7 63.2 60.8 −2.4 67.0 65.7 −1.3 63.8 58.1 −5.7 GPT-5.4-high 60.3 59.5 −0.8 64.7 60.7 −4.0 61.5 58.7 −2.8 Gemini-3.1-Pro 56.2 54.9 −1.3 57.7 57.7 +0.0 55.2 48.8 −6.4 DeepSeek-V4-Pro 62.8 61.7 −1.1 62.8 63.0 +0.2 58.2 55.5 −2.7 DeepSeek-V4-Flash 65.8 59.9 −5.9 64.1 59.4 −4.7 60.1 50.2 −9.9
+> Seed-1.8 64.0 63.2 −0.8 67.7 65.7 −2.0 60.0 55.7 −4.3 Qwen3.5-35B-A3B 59.1 59.2 +0.1 64.9 62.5 −2.4 57.1 54.0 −3.1 Qwen3.5-27B 57.8 48.0 −9.8 59.2 55.9 −3.3 51.3 44.1 −7.2
+> Average 61.2 58.4 −2.8 63.5 61.3 −2.2 58.4 53.1 −5.3
+
+Table 3: Explicit vs. implicit ablation (per subtype). Each model is evaluated twice over the entire bench-mark: once with every query restored to a fully explicit 
+
+paraphrase ( Expl. ), and once with the original implicit 
+
+physician queries ( Impl. ); all other inputs (patient data, tools, gold answers) are held fixed. ∆ = Impl. − Expl. 
+
+is the performance lost to implicit phrasing (negative = implicitness hurts). Columns report the comparison restricted to turns of each implicit subtype ( NA , PE , AE ). The magnitude of ∆ consistently grows with subtype difficulty ( PE < NA < AE ). All are rubric scores (%). 
+
+PHYS ASSIST BENCH preserves both implicit and explicit versions of each query, allowing us to isolate the effect of implicit phrasing while keep-ing patient data, tools, and gold answers fixed. As shown in Table 3. The implicit penalty ∆ is neg-ative in 21 of 24 model ×subtype cells, showing that implicitness introduces a real difficulty rather than annotation noise: making queries explicit al-most always improves accuracy. The penalty in-creases with anaphoric complexity, averaging −2.2
+
+for Predicate Ellipsis, −2.8 for Nominal Anaphora, and −5.3 for Abstract Event Anaphora ( AE ), the only subtype where every model degrades. This ordering is intuitive: predicate ellipsis omits a lo-cally recoverable verb, nominal anaphora refers to a specific entity, while AE requires reconstruct-ing an accumulated clinical state across multiple turns. Implicit penalties also separate models more clearly than raw accuracy. Stronger systems (e.g., DeepSeek-V4-Pro, GPT-5.4-high) remain within 
+
+−4.0 across all subtypes, whereas smaller open models are much more fragile (e.g., Qwen3.5-27B: 
+
+−9.8 on NA ; DeepSeek-V4-Flash: −9.9 on AE ). Since real physicians do not usually restate full context, this explicit-implicit gap highlights a fun-damental weakness of current EHR assistants in everyday clinical dialogue. 
+
+5.4 Effect of Patient Communication 20 40 60 80 
+
+> Rubric Score (%)
+> Claude Opus 4.7
+> GPT-5.4 (high)
+> Gemini 3.1 Pro
+> Seed 1.8
+> GPT-5.4 Mini
+> GLM-5
+> Kimi K2.6
+> DS V4 Pro
+> DS V4 Flash
+> MiniMax M2.7
+> Qwen3.5-35B-A3B
+> Qwen3.5-27B
+> Qwen3.5-9B
+> Qwen3.5-4B
+> 76
+> 71
+> 71
+> 74
+> 66
+> 78
+> 76
+> 73
+> 69
+> 75
+> 73
+> 68
+> 64
+> 59
+> 49
+> 50
+> 49
+> 51
+> 40
+> 50
+> 47
+> 46
+> 43
+> 44
+> 45
+> 39
+> 41
+> 29
+> open-weight
+> EHR vs. Patient-Interview Turns (EN+ZH)
+> EHR
+> Patient
+
+Figure 4: The comparison of rubric scores between EHR-only and Patient-interview turns. 
+
+Figure 4 compares model performance on struc-tured EHR-access turns versus patient-interview turns. Across the benchmark (EN+ZH), each model is evaluated on approximately 1,944 EHR-only turns and 648 patient-interview turns. All fourteen models show a substantial drop on patient-interview turns, with an average decrease of 26.4 points. EHR-turn scores range from 59% to 78%, while patient-interview scores drop to 29%–51%. The gap reflects a key difference in task structure. EHR turns mainly require retrieving or filtering well-defined records, where the correct tool usage is largely determined by the query. In contrast, patient-interview turns require models to elicit sub-jective information through natural dialogue and determine medically relevant follow-up questions, combining conversational ability with clinical rea-soning. The gap is slightly smaller for stronger pro-prietary models (20.6–26.8 points) than for smaller open-weight models (22.8–30.5 points), but re-mains substantial across all models. While Agent-Clinic (Schmidgall et al., 2026) evaluates doctor-patient dialogue only, our results show that EHR access does not reduce this difficulty; integrating both sources only compounds the challenge. This gap persists uniformly across all models, suggest-ing that patient communication is a capability bot-tleneck independent of general model capacity. 86 Conclusion 
+
+We introduced PHYS ASSIST BENCH , the first benchmark that jointly evaluates LLMs on three co-occurring challenges of physician-EHR interaction: implicit physician queries, structured FHIR-based EHR tool use, and ambiguous patient communica-tion. Built from real MIMIC-IV cases, P HYS AS-
+
+> SIST
+
+BENCH uses a scalable multi-agent synthetic data pipeline to construct agentic patients for inter-active doctor-patient-EHR scenarios. Our results show that even the strongest LLMs remain far from reliable as physician assistants, highlighting inter-action and coordination as key bottlenecks for clin-ical LLMs. We release the benchmark and code to support research on LLM clinical deployments. 
+
+Limitations 
+
+Scenario Coverage. PHYS ASSIST BENCH spans four clinical scenarios chosen to cover a representa-tive range of EHR reasoning and tool-use demands. Real-world clinical workflows include many addi-tional contexts, such as critical-care management, specialist referral, and post-discharge follow-up, that fall outside the current scope. We plan to ex-tend the scenario set in future releases, especially to higher-stakes and time-sensitive settings. 
+
+Scale of Expert Validation. PHYS ASSIST -BENCH uses automated quality gates, rubric-based scoring, and staged human review as its quality-control process. A sampled subset of sessions was reviewed by clinicians and confirmed to be clin-ically coherent, but full turn-level physician vali-dation across all 1,296 turns remains constrained by expert availability. Importantly, our two-round staged annotation shows that clinician and annota-tor feedback can be fed back into the pipeline as re-fined prompt constraints and gate rules, rather than treated as one-off corrections (see Appendix C). Future releases will expand expert validation and further use such feedback to improve the pipeline. 
+
+Model Coverage and Task Depth. PHYS AS-
+
+> SIST
+
+BENCH is designed to stress-test multi-turn reasoning, structured tool use, and implicit query understanding rather than biomedical knowledge recall alone. We therefore focus on frontier general-purpose LLMs with strong tool-use capabilities. Domain-specific medical LLMs, such as Med-PaLM 2 and HuatuoGPT, are important baselines, but many are primarily optimized for biomedical QA or clinical knowledge tasks, are not publicly accessible, or are not readily adapted to FHIR-style tool interfaces. Evaluating medical specialist mod-els with comparable tool-use scaffolds is an impor-tant direction for future work. 
+
+Agent Design Generality. Although agentic pa-tients are grounded in real records, they remain tailored to predefined scenarios and task types. In principle, static patient records could be trans-formed into richer interactive environments beyond dialogue, including more complex simulations such as in-silico clinical trials. Our current pipeline, however, uses a manually designed agent workflow for doctor-patient-EHR assistance and does not yet include a meta-pipeline for automatically design-ing new agent structures for substantially different scenarios. Developing such adaptive agent-pipeline design is an interesting direction for future work. 
+
+Data Source. All patients are drawn from MIMIC-IV, a US academic medical dataset with a heavy ICU focus, which may not generalize to documentation styles or disease prevalence in other healthcare systems. 
+
+Language. PHYS ASSIST BENCH is currently available in English and Chinese; supporting addi-tional languages would require re-grounding clini-cal terminology and patient persona behaviour in language-specific medical corpora. 
+
+Ethical Considerations 
+
+PHYS ASSIST BENCH is built from MIMIC-IV, a publicly available de-identified clinical dataset, and we followed its standard data-use and access re-quirements. The benchmark is intended only for research evaluation, not for clinical deployment or autonomous decision-making. As a secondary-use benchmark with synthetic interactions, P HYS AS-
+
+> SIST
+
+BENCH may inherit biases from the source records and introduce additional biases through sce-nario planning, patient personas, LLM-generated dialogue, and record filtering. In particular, be-cause the pipeline selects records that can sup-port predefined scenarios, it may introduce implicit cohort-selection effects, which should be consid-ered for clinically sensitive evaluations. We miti-gate these risks through record grounding, filtering, and manual review, but the benchmark should still be interpreted as an evaluation resource rather than a representation of real patient experience. 9Acknowledgments 
+
+Use of AI Assistance. During manuscript prepa-ration, we used LLMs only for grammar correction, language refinement, and limited assistance in lit-erature search. All cited references were manually checked and verified by the authors. The authors reviewed and edited all AI-assisted text and take full responsibility for the content of the manuscript. Other uses of LLMs are part of the scientific design of this work and are explicitly described in the relevant sections. First, LLMs are the evalu-ated models in all experiments (Section 5). Second, LLMs are used as components of the multi-agent benchmark construction pipeline, including the Ses-sion Planner, Doctor Agent, Patient Agent, and quality checker (Section 3). Third, GPT-5.4-mini is used as the automated rubric judge for turn-level scoring (Section 3.3), with human agreement vali-dation reported in Appendix C.3. 
+
+References 
+
+Mariam ALMutairi, Lulwah AlKulaib, Melike Aktas, Sara Alsalamah, and Chang-Tien Lu. 2024. Synthetic arabic medical dialogues using advanced multi-agent llm techniques. In Proceedings of The Second Arabic Natural Language Processing Conference , pages 11– 26. Anthropic. 2026. Claude Opus 4.7 system card. Techni-cal report, Anthropic. Seongsu Bae, Daeun Kyung, Jaehee Ryu, Eunbyeol Cho, Gyubok Lee, Sunjun Kweon, Jungwoo Oh, Lei Ji, Eric Chang, Tackeun Kim, and 1 others. 2023. Ehrxqa: A multi-modal question answering dataset for electronic health records with chest x-ray images. 
+
+Advances in Neural Information Processing Systems ,36:3867–3880. Andrew M Bean, Rebecca Elizabeth Payne, Guy Par-sons, Hannah Rose Kirk, Juan Ciro, Rafael Mosquera-Gómez, Sara Hincapié M, Aruna S Ekanayaka, Li-onel Tarassenko, Luc Rocher, and 1 others. 2026. Reliability of llms as medical assistants for the gen-eral public: a randomized preregistered study. Nature Medicine , pages 1–7. ByteDance Seed Team. 2026. Seed1.8 model card: To-wards generalized real-world agency. arXiv preprint arXiv:2603.20633 .Canyu Chen, Jian Yu, Shan Chen, Che Liu, Zhong-wei Wan, Danielle Bitterman, Fei Wang, and Kai Shu. 2024. Clinicalbench: Can llms beat traditional ml models in clinical prediction? arXiv preprint arXiv:2411.06469 .Trisha Das, Dina Albassam, and Jimeng Sun. 2024. Synthetic patient-physician dialogue generation from clinical notes using llm. arXiv preprint arXiv:2408.06285 .DeepSeek-AI. 2026. DeepSeek-V4: Towards highly ef-ficient million-token context intelligence. Technical report, DeepSeek. Arsene Fansi Tchango, Rishab Goel, Zhi Wen, Julien Martel, and Joumana Ghosn. 2022. Ddxplus: A new dataset for automatic medical diagnosis. Advances in neural information processing systems , 35:31306– 31318. Matthew Gerber and Joyce Chai. 2010. Beyond nom-bank: A study of implicit arguments for nominal predicates. In Proceedings of the 48th Annual Meet-ing of the Association for Computational Linguistics ,pages 1583–1592. GLM-5 Team. 2026. GLM-5: from vibe coding to agen-tic engineering. arXiv preprint arXiv:2602.15763 .Google. 2026. Gemini 3.1 Pro: A smarter model for your most complex tasks. https://blog.google/ innovation-and-ai/models-and-research/ gemini-models/gemini-3-1-pro/ .Google DeepMind. 2025. Gemini 2.5: Pushing the fron-tier with advanced reasoning, multimodality, long context, and next generation agentic capabilities. 
+
+arXiv preprint arXiv:2507.06261 .Yixing Jiang, Kameron C Black, Gloria Geng, Danny Park, James Zou, Andrew Y Ng, and Jonathan H Chen. 2025. Medagentbench: a virtual ehr environ-ment to benchmark medical llm agents. Nejm Ai ,2(9):AIdbp2500144. Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William Co-hen, and Xinghua Lu. 2019. Pubmedqa: A dataset for biomedical research question answering. In Proceed-ings of the 2019 conference on empirical methods in natural language processing and the 9th interna-tional joint conference on natural language process-ing (EMNLP-IJCNLP) , pages 2567–2577. Alistair EW Johnson, Lucas Bulgarelli, Lu Shen, Alvin Gayles, Ayad Shammout, Steven Horng, Tom J Pol-lard, Sicheng Hao, Benjamin Moody, Brian Gow, and 1 others. 2023. Mimic-iv, a freely accessible elec-tronic health record dataset. Scientific data , 10(1):1. Kimi Team. 2025. Kimi K2: Open agentic intelligence. 
+
+arXiv preprint arXiv:2507.20534 .Kimi Team. 2026. Kimi K2.6: Advancing open-source coding. https://www.kimi.com/blog/ kimi-k2-6 . Accessed: 2026-05-24. Varada Kolhatkar and Graeme Hirst. 2014. Resolving shell nouns. In Proceedings of the 2014 conference on empirical methods in natural language processing (EMNLP) , pages 499–510. 
+
+10 Satyapriya Krishna, Kalpesh Krishna, Anhad Mo-hananey, Steven Schwarcz, Adam Stambler, Shyam Upadhyay, and Manaal Faruqui. 2025. Fact, fetch, and reason: A unified evaluation of retrieval-augmented generation. In Proceedings of the 2025 Conference of the Nations of the Americas Chap-ter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Pa-pers) , pages 4745–4759. Tiffany H. Kung, Morgan Cheatham, Arielle Medenilla, Czarina Sillos, Lorie De Leon, Camille Elepaño, Maria Madriaga, Rimel Aggabao, Giezel Diaz-Candido, James Maningo, and Victor Tseng. 2023. Performance of ChatGPT on USMLE: Potential for AI-assisted medical education using large language models. PLOS Digital Health , 2(2):e0000198. Sunjun Kweon, Jiyoun Kim, Heeyoung Kwak, Dongchul Cha, Hangyul Yoon, Kwanghyun Kim, Se-unghyun Won, and Edward Choi. 2024. Ehrnoteqa: A patient-specific question answering benchmark for evaluating large language models in clinical settings. 
+
+arXiv preprint arXiv:2402.16040 .Peter Kyle. 2025. AI opportunities action plan. Techni-cal report, UK Government. Philippe Laban, Hiroaki Hayashi, Yingbo Zhou, and Jennifer Neville. 2025. Llms get lost in multi-turn conversation. arXiv preprint arXiv:2505.06120 .Gyubok Lee, Elea Bach, Eric Yang, Tom Pollard, Alis-tair Johnson, Edward Choi, Yugang Jia, and Jong Ha Lee. 2025. FHIR-AgentBench: Benchmarking LLM agents for realistic interoperable EHR question an-swering. In Proceedings of Machine Learning for Health (ML4H) , volume 297 of Proceedings of Ma-chine Learning Research . ArXiv:2509.19319. Gyubok Lee, Hyeonji Hwang, Seongsu Bae, Yeonsu Kwon, Woncheol Shin, Seongjun Yang, Minjoon Seo, Jong-Yeup Kim, and Edward Choi. 2022. Ehrsql: A practical text-to-sql benchmark for electronic health records. Advances in Neural Information Processing Systems , 35:15589–15601. Kenton Lee, Luheng He, Mike Lewis, and Luke Zettle-moyer. 2017. End-to-end neural coreference reso-lution. In Proceedings of the 2017 conference on empirical methods in natural language processing ,pages 188–197. Kenton Lee, Luheng He, and Luke Zettlemoyer. 2018. Higher-order coreference resolution with coarse-to-fine inference. In Proceedings of the 2018 Confer-ence of the North American Chapter of the Associ-ation for Computational Linguistics: Human Lan-guage Technologies, Volume 2 (Short Papers) , pages 687–692. Minghao Li, Yingxiu Zhao, Bowen Yu, Feifan Song, Hangyu Li, Haiyang Yu, Zhoujun Li, Fei Huang, and Yongbin Li. 2023a. Api-bank: A comprehensive benchmark for tool-augmented llms. In Proceedings of the 2023 conference on empirical methods in natu-ral language processing , pages 3102–3116. Zhuoyan Li, Hangxiao Zhu, Zhuoran Lu, and Ming Yin. 2023b. Synthetic data generation with large language models for text classification: Potential and limitations. In Proceedings of the 2023 conference on empirical methods in natural language processing ,pages 10443–10461. Yunsong Liu, Zunamys I Carrero, Xiaofeng Jiang, Dyke Ferber, Georg Wölflein, Li Zhang, Sanddhya Jaya-balan, Tim Lenz, Zhouguang Hui, and Jakob Nikolas Kather. 2026. Benchmarking large language model-based agent systems for clinical decision tasks. npj Digital Medicine .Luyang Luo, Sung Eun Kim, Xiaoman Zhang, Julius M Kernbach, Roshan Kenia, Julian N Acosta, Larry A Nathanson, Adrian D Haimovich, Adam Rodman, Ethan Goh, and 1 others. 2026. A clinical environ-ment simulator for dynamic ai evaluation. Nature medicine , pages 1–8. Joshua C Mandel, David A Kreda, Kenneth D Mandl, Isaac S Kohane, and Rachel B Ramoni. 2016. Smart on fhir: a standards-based, interoperable apps plat-form for electronic health records. Journal of the american medical informatics association , 23(5):899– 908. Ana Marasovi´ c, Leo Born, Juri Opitz, and Anette Frank. 2017. A mention-ranking model for abstract anaphora resolution. In Proceedings of the 2017 Con-ference on Empirical Methods in Natural Language Processing , pages 221–232. Nikita Mehandru, Niloufar Golchini, David Bamman, Travis Zack, Melanie F Molina, and Ahmed Alaa. 2025. Er-reason: A benchmark dataset for llm-based clinical reasoning in the emergency room. arXiv preprint arXiv:2505.22919 .MiniMax. 2026. MiniMax M2.7: Early echoes of self-evolution. https://www.minimax.io/news/ minimax-m27-en .Michael Moor, Oishi Banerjee, Zahra Shakeri Hossein Abad, Harlan M. Krumholz, Jure Leskovec, Eric J. Topol, and Pranav Rajpurkar. 2023. Foundation mod-els for generalist medical artificial intelligence. Na-ture , 616:259–265. NHS England-South East. 2024. Digital access – a ‘front door’ to the NHS. Technical report, NHS Eng-land. Yujia Qin, Shihao Liang, Yining Ye, Kunlun Zhu, Lan Yan, Yaxi Lu, Yankai Lin, Xin Cong, Xiangru Tang, Bill Qian, and 1 others. 2023. Toolllm: Facilitating large language models to master 16000+ real-world apis. arXiv preprint arXiv:2307.16789 .Qwen Team. 2025. Qwen3 technical report. arXiv preprint arXiv:2505.09388 .Qwen Team. 2026. Qwen3.5-omni technical report. 
+
+arXiv preprint arXiv:2604.15804 .
+
+11 Pranav Rajpurkar, Emma Chen, Oishi Banerjee, and Eric J. Topol. 2022. AI in health and medicine. Na-ture Medicine , 28:31–38. Samuel Schmidgall, Rojin Ziaei, Carl Harris, and 1 oth-ers. 2026. AgentClinic: A multimodal benchmark for tool-using clinical AI agents. npj Digital Medicine .Seungyeon Seo and Gary Geunbae Lee. 2024. Diagesc: Dialogue synthesis for integrating depression diag-nosis into emotional support conversation. In Pro-ceedings of the 25th Annual Meeting of the Special interest Group on Discourse and Dialogue , pages 686–698. Wenqi Shi, Ran Xu, Yuchen Zhuang, Yue Yu, Jieyu Zhang, Hang Wu, Yuanda Zhu, Joyce C. Ho, Carl Yang, and May Dongmei Wang. 2024. EHRA-gent: Code empowers large language models for few-shot complex tabular reasoning on electronic health records. In Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing ,pages 22315–22339, Miami, Florida, USA. Associa-tion for Computational Linguistics. Aaditya Singh, Adam Fry, Adam Perelman, Adam Tart, Adi Ganesh, Ahmed El-Kishky, Aidan McLaughlin, Aiden Low, AJ Ostrow, Akhila Ananthram, and 1 oth-ers. 2025. Openai gpt-5 system card. arXiv preprint arXiv:2601.03267 .Karan Singhal, Tao Tu, Juraj Gottweis, Rory Sayres, Ellery Wulczyn, Le Hou, Kevin Clark, Stephen Pfohl, Heather Cole-Lewis, Darlene Neal, Mike Senevi-ratne, Paul Gamble, Chris Kelly, Nathanael Schärli, Aakanksha Chowdhery, Philip Mansfield, Blaise Agüera y Arcas, Dale Webster, Greg S. Corrado, and 7 others. 2023. Towards expert-level medical ques-tion answering with large language models. Comput-ing Research Repository , arXiv:2305.09617. Xiangru Tang, Daniel Shao, Jiwoong Sohn, Jiapeng Chen, Jiayi Zhang, Jinyu Xiang, Fang Wu, Yilun Zhao, Chenglin Wu, Wenqi Shi, and 1 others. 2025. Medagentsbench: Benchmarking thinking models and agent frameworks for complex medical reasoning. 
+
+arXiv preprint arXiv:2503.07459 .Arun James Thirunavukarasu, Darren Shu Jeng Ting, Kabilan Elangovan, Laura Gutierrez, Ting Fang Tan, and Daniel Shu Wei Ting. 2023. Large language mod-els in medicine. Nature Medicine , 29:1930–1940. U.S. Food and Drug Administration. 2025. Artificial intelligence in software as a medical device. Con-tent current as of March 25, 2025; accessed May 25, 2026. Junda Wang, Zonghai Yao, Zhichao Yang, Huixue Zhou, Rumeng Li, Xun Wang, Yucheng Xu, and Hong Yu. 2024. Notechat: a dataset of synthetic patient-physician conversations conditioned on clinical notes. In Findings of the Association for Computational Lin-guistics: ACL 2024 , pages 15183–15201. Shirui Wang, Zhihui Tang, Huaxia Yang, Qiuhong Gong, Tiantian Gu, Hongyang Ma, and 1 others. 2025. A novel evaluation benchmark for medical LLMs illu-minating safety and effectiveness in clinical domains. 
+
+npj Digital Medicine .World Health Organization. 2021. Ethics and gov-ernance of artificial intelligence for health: Who guidance. https://www.who.int/publications/ i/item/9789240029200 . Published June 28, 2021; accessed May 25, 2026. Ran Xu, Yuchen Zhuang, Yishan Zhong, Yue Yu, Zifeng Wang, Xiangru Tang, Hang Wu, May Dongmei Wang, Peifeng Ruan, Donghan Yang, Tao Wang, Guanghua Xiao, Xin Liu, Carl Yang, Yang Xie, and Wenqi Shi. 2026a. Medagentgym: A scalable agentic training environment for code-centric reasoning in biomed-ical data science. In The Fourteenth International Conference on Learning Representations .Shijia Xu, Yu Wang, Xiaolong Jia, Zhou Wu, Kai Liu, and April Xiaowen Dong. 2026b. Rcbsf: A multi-agent framework for automated contract revision via stackelberg game. arXiv preprint arXiv:2604.10740 .Peijie Yu, Wei Liu, Yifan Yang, Jinjian Li, Zelong Zhang, Xiao Feng, and Feng Zhang. 2026. Bench-marking llm tool-use in the wild. arXiv preprint arXiv:2604.06185 .Andrew Zhang, Tong Ding, Sophia J Wagner, Caiwei Tian, Ming Y Lu, Rowland Pettit, Joshua E Lewis, Alexandre Misrahi, Dandan Mo, Long Phi Le, and 1 others. 2026. A multimodal and temporal foundation model for virtual patient representations at healthcare system scale. arXiv Preprint .Hantao Zhang, Yuhe Liu, Jiancheng Yang, Shouhong Wan, Xinyuan Wang, Wei Peng, and Pascal Fua. 2025. Lefusion: Controllable pathology synthesis via lesion-focused diffusion models. In International Conference on Learning Representations , volume 2025, pages 13232–13253. Shuang Zhou, Wenya Xie, Jiaxi Li, Zaifu Zhan, Mei-jia Song, Han Yang, Cheyenna Espinoza, Lindsay Welton, Xinnie Mai, Yanwei Jin, and 1 others. 2025. Automating expert-level medical reasoning evalua-tion of large language models. npj Digital Medicine .
+
+A Data, Licensing, and Ethical Considerations 
+
+A.1 Data Licence and Distribution 
+
+PHYS ASSIST BENCH is built on MIMIC-IV (John-son et al., 2023), released on PhysioNet under the PhysioNet Credentialed Health Data Li-cence 1.5.0 . Access requires completing a recog-nised human-subjects research training programme (e.g. CITI “Data or Specimens Only Research” course) and signing a data-use agreement on Phys-ioNet. Because every P HYS ASSIST BENCH session 12 is a derivative of MIMIC-IV patient records, the benchmark session files inherit the same licence conditions and may not be redistributed publicly .We release all artefacts independently under sep-arate terms: • Code and evaluation harness (tool API, judge prompts, scoring scripts): MIT Licence, freely distributable without restriction. • Benchmark session files (JSONL containing patient-derived data): distributed through a PhysioNet-linked repository; requesters must hold an active MIMIC-IV data-use agreement before access is granted. • Pre-computed evaluation results (model out-puts, rubric scores): released openly as they contain no patient-level data. 
+
+A.2 Consistency with Intended Use 
+
+MIMIC-IV was created to support clinical and translational research, quality improvement, and the development of clinical decision-support tools (Johnson et al., 2023). Constructing a bench-mark to evaluate LLMs on physician–EHR interac-tion is fully consistent with that intent. We impose the following restrictions on down-stream use of P HYS ASSIST BENCH :• The benchmark is intended for research and evaluation only and must not be deployed in real clinical workflows. • Benchmark sessions must not be used as train-ing data for evaluated models, to prevent leader-board contamination. • Derivative works must respect the original Phy-sioNet access conditions and must not be used outside research contexts. 
+
+A.3 Privacy and De-identification 
+
+MIMIC-IV is de-identified by the MIT Laboratory for Computational Physiology following HIPAA Safe Harbor standards (Johnson et al., 2023): • Direct identifiers removed: patient names, ge-ographic subdivisions finer than state, telephone numbers, and device identifiers are absent from the released data. • Date shifting: all dates are offset by a random, per-patient amount anchored to the patient’s 
+
+anchor_year , making true calendar dates un-recoverable. • Age capping: patients older than 89 are grouped into a single 90 + anchor-year bin to prevent age-based re-identification. PHYS ASSIST BENCH preserves all of these pro-tections and introduces no additional identifiers. Session files contain MIMIC-IV subject_id val-ues, which are surrogate keys with no mapping to real-world identities outside the MIMIC-IV access-controlled environment. Clinical note content re-produced in sessions (discharge summaries, radiol-ogy reports) retains no names or explicit dates. Despite these protections, re-identification risk is non-zero: discharge summaries may describe unusual disease combinations that, combined with external auxiliary information, could narrow a pa-tient’s identity. We therefore require credentialed access for all session files, consistent with Phys-ioNet terms. We additionally note that MIMIC-IV clinical text reflects real physician language, which may contain implicit demographic biases or culturally specific clinical framing. Systematic content audit-ing beyond the PhysioNet de-identification pipeline was not performed; this is acknowledged as a limi-tation in §6. 
+
+A.4 Artefact Documentation and Coverage Domain and source. All patient data origi-nate from Beth Israel Deaconess Medical Center (BIDMC), Boston, MA, USA, collected approxi-mately 2008–2019. BIDMC is a large academic tertiary-care centre with a heavy ICU and internal-medicine case mix. Benchmark performance may not generalise to community hospitals, non-US healthcare systems, or populations with substan-tially different disease prevalence. 
+
+Languages. All sessions are provided in English and Mandarin Chinese. English queries are gen-erated directly from MIMIC-IV data; Chinese queries are produced via a round-trip translation pipeline with semantic verification. Underlying clinical notes (discharge summaries, radiology re-ports) remain in English throughout, as MIMIC-IV contains no Chinese-language source records. Patient-simulation responses are available in both languages. 
+
+A.5 Dataset Statistics 
+
+Full statistics are reported in Appendix G. In brief: PHYS ASSIST BENCH comprises 324 ses-sions and 1,296 turns per language (2,592 turn instances across EN and ZH combined). Sessions are distributed equally across four scenarios and three difficulty levels (27 sessions per scenario-13 difficulty cell). There is no train/development split: PHYS ASSIST BENCH is a pure evaluation bench-mark. Implicitness subtypes ( NA , PE , Æ) are dis-tributed approximately uniformly across Turns 1– 3. 
+
+B Data and Code Availability 
+
+Our dataset is derived from MIMIC-IV (Johnson et al., 2023) under the PhysioNet Credentialed Health Data License. Following the re-distribution requirements of the original license, the dataset will be released via PhysioNet. Access requires a valid PhysioNet credentialed account and accep-tance of the corresponding data use agreement. The released dataset includes: (1) de-identified EHR snapshots extracted from MIMIC-IV admis-sions used as session inputs; (2) per-subject pa-tient records partitioned by subject_id , contain-ing structured clinical data (diagnoses, medications, observations, procedures); (3) 324 annotated clin-ical sessions 1296 turns in both English and Chi-nese; (4) gold-standard tool-call trajectories and reference answers for each turn; and (5) evaluation rubrics per turn with per-item pass/fail annotations. All protected health information (PHI) has been removed. The codebase will be released on GitHub under the Apache License 2.0. It will include scripts to extract and partition raw MIMIC-IV records by 
+
+subject_id , convert them into EHR snapshots, run the scalable multi-agent synthetic data pipeline for constructing agentic patients (Section 4), repro-duce reported evaluations, and provide sample data for setup without requiring full MIMIC-IV access. 
+
+C Human Evaluation Details 
+
+C.1 Expert Reviewer Backgrounds Clinical Expert. We recruited one volunteer se-nior physician (female), board-certified in her coun-try of practice and with 15 years of clinical experi-ence. Participation was voluntary and uncompen-sated (no monetary reward). The participant used English and Chinese as the language of instruction. 
+
+Trained Annotators. We recruited 8 volunteer trained annotators (two female, six male), each with several years of clinical AI and NLP research experience. Those with more than 8 years of NLP research experience are regarded as NLP experts. Participation was voluntary and uncompensated (no monetary reward). The participants used En-glish and Chinese as the languages of instruction. 
+
+C.2 Two-Stage Review Process 
+
+The dataset was reviewed by the 8 trained anno-tators and validated by a physician above in two stages. 
+
+Stage 1: Clinical Plausibility Review. After the pipeline produced the initial dataset, we sampled 25% of the sessions for clinical review. The clin-ical expert assessed each sampled dialogue for clinical plausibility, i.e., whether the interaction could realistically occur in practice and whether the content contained any internal medical contra-dictions. On the sampled subset, 95% of sessions were judged clinically plausible. Two NLP experts then collected the sessions flagged as implausible, distilled the clinical expert’s comments into addi-tional pipeline prompt constraints, and regenerated those sessions. 
+
+Stage 2: Field-Level Verification. In the sec-ond stage, all seven trained annotators verified the correctness of each annotated field of every ses-sion, covering both the previously approved ses-sions and the regenerated ones. Three fields were checked: (i) the implicitness type, i.e., whether the assigned type matches the actual implicit query; (ii) the rubric, i.e., whether each item corresponds one-to-one with its gold answer; and (iii) the gold tool calls, i.e., whether their parameters are cor-rect. The implicitness-type assignment matched the query in 87% of cases, and only 8% of rubric items required revision. Eight trained annotators reviewed and corrected all flagged fields. 
+
+C.3 Judger Model Reliability 
+
+To validate the reliability of the GPT-5.4-mini judge, we measured agreement between GPT-5.4-mini’s rubric scores and human expert annotations on a sample of 128 turns drawn from 32 sessions across all four scenarios. One human expert and the judge scored each turn independently on the same rubric items. The judge achieved an over-all item-level agreement of 94% with human an-notations, demonstrating that the GPT-5.4-mini’s scoring closely mirrors expert clinical judgment. 
+
+D EHR Tool Inventory 
+
+EHRT OOL BENCH exposes 18 tools to the evalu-ated agent, organized into four groups: EHR read 14 tools, EHR write tools, patient-interview tools, and one control tool. All EHR tools follow the FHIR R4 naming convention ( ResourceType.operation ); patient-interview tools use the patient.* names-pace. Each tool call requires a subject_id 
+
+(MIMIC-IV patient identifier); most read tools also accept an optional hadm_id to scope results to a single admission. 
+
+D.1 EHR Read Tools (9) 
+
+As shown in Table D1, these 9 read-only tools ex-pose MIMIC-IV structured records via a FHIR R4–compatible interface, covering patient de-mographics, encounters, diagnoses, observations (lab, vitals, microbiology), medications, diag-nostic reports, clinical notes, and care plans. 
+
+Observation.search is the most heavily used tool, unifying laboratory, vital-sign, and microbiol-ogy data under one parameterised call. 
+
+D.2 EHR Write Tools (3) 
+
+As shown in Table D2, these 3 tools simulate EHR write operations and are used primarily in 
+
+Write/Update turns (T3) of the Discharge Planning scenario, and also appear in Diagnostic Workup, Medication Safety, and Treatment Response turns that require ordering or flagging actions. 
+
+D.3 Patient Interview Tools (5) 
+
+As shown in Table D3, patient-interview tools ex-pose a simulated patient agent to the evaluated model. Each call is routed to a patient LLM that generates a natural-language response grounded in the patient’s MIMIC-IV record. All patient tools require subject_id and session_id .
+
+D.4 Control Tool (1) 
+
+prepare_to_answer (Table D4) is a mandatory bookkeeping call that every turn must end with. It separates the information-gathering phase from the 
+
+answer-generation phase: the benchmark records whether the agent issues this call, and omitting it is penalised as an incomplete plan regardless of the quality of the final answer. 
+
+D.5 Tool Usage by Scenario 
+
+Table D5 shows which tools appear as gold-standard actions in at least one session of each benchmark scenario. During data generation ,the reference trajectories were constructed under scenario-specific constraints: only clinically rele-vant tools were included in the gold plans to ensure grounded and parsimonious annotations. During 
+
+evaluation , however, all 18 tools are exposed to the model without restriction, so that the benchmark can assess whether the model selects the appropri-ate tools, avoids unnecessary calls, and handles the full tool vocabulary rather than a curated subset. 
+
+E Physician Query Implicitness Example 
+
+Table E1 shows representative examples about dif-ferent physician query implicitness. 
+
+F Full Session Example 
+
+Figure F1 and F2 present two representative full-session examples illustrating the tool calls, explicit and implicit query reformulations, and the corre-sponding evaluation rubrics. 
+
+G Benchmark Statistics 
+
+Table G1 reports session counts by clinical scenario and data-richness tier. Table G2 reports turn counts by task type and turn position. Table G3 reports implicitness-type counts over Turns 1–3. PHYS ASSIST BENCH contains 324 sessions and 1,296 turns drawn evenly from four clinical scenar-ios (81 sessions each) and three data-richness tiers (108 sessions each), yielding a balanced coverage across both dimensions. Across all turns, Infor-mation Lookup accounts for 540 turns (41.7%), reflecting its role as the fixed anchor turn (Turn 0) as well as its appearance in later positions; Data Gathering and Clinical Reasoning each contribute 324 turns (25.0%), and Write/Update accounts for the remaining 108 turns (8.3%), restricted to Turn 3. Among the 972 turns carrying an implic-itness type (Turns 1–3), the three types: Nominal Anaphora, Predicate Ellipsis, and Abstract Event Anaphora are approximately uniformly distributed (≈324 each), enforced by a global balance counter during generation. 
+
+H Data Generation Pipeline 
+
+H.1 Patient Pre-Filtering 
+
+Patients are pre-filtered in two stages. Stage 1 ap-plies file-size thresholds to exclude patients with sparse records. Stage 2 enforces scenario-specific content criteria: each scenario requires that the rele-vant FHIR resource types contain sufficient records within the target admission (e.g., at least two time-stamped infection markers for treatment_response ;at least three active prescriptions and a discharge 15 Tool name Description Key opt. params 
+
+Patient.read Returns demographic information (gender, anchor age, de-ceased date). —
+
+Encounter.search Retrieves all hospital admissions with admission/discharge times, admission type, ward, and discharge disposition. 
+
+hadm_id Condition.search Returns ICD diagnosis conditions ordered by seq_num (princi-pal diagnosis first). Supports filtering by ICD code prefix (e.g. 
+
+K74 ) or clinical status ( active / resolved / inactive ). 
+
+hadm_id , code ,
+
+clinical_status Observation.search The primary data-retrieval tool. Covers laboratory results (category=laboratory ), ICU vital signs (category=vital-signs ), and microbiology culture re-sults (category=microbiology ). The code parameter accepts a free-text lab/vital name (e.g. Creatinine , Heart Rate ); results are sorted newest-first. 
+
+hadm_id , category ,
+
+code , date_from ,
+
+date_to , _count MedicationRequest.search Returns prescription (medication order) records sorted by start time newest-first. Accepts drug-name substring filter and order-status filter ( active / completed / stopped ). 
+
+hadm_id ,
+
+medication ,
+
+status MedicationAdministration.search Returns eMAR records showing which medications were actu-ally administered , when, and at what dose—distinct from what was prescribed. 
+
+hadm_id ,
+
+medication DiagnosticReport.search Returns radiology and other diagnostic reports with full report text. Accepts modality filter ( CT, MRI, X-ray, Echo ). 
+
+hadm_id ,
+
+report_type DocumentReference.search Searches clinical notes (discharge summaries and radiology re-ports). Supports document-type selection ( discharge-summary / radiology ) and full-text keyword search. 
+
+hadm_id ,
+
+type_code ,
+
+keyword CarePlan.search Returns post-discharge care plan sections extracted from MIMIC-IV discharge notes: discharge instructions, follow-up schedules, and inpatient treatment plans. Filter by category (discharge-planning / followup / treatment ). 
+
+hadm_id , category 
+
+Table D1: EHR read tools (FHIR R4 naming). All tools require subject_id ; most accept an optional hadm_id to scope results to a single hospital admission. 
+
+Tool name Description Required params 
+
+MedicationRequest.create Creates a new medication order (prescription). Used for discharge medication additions or inpatient dose changes. 
+
+medication , dose , route ,
+
+frequency ServiceRequest.create Creates a referral or service request for discharge plan-ning (e.g. home health, physical therapy, social work, specialist follow-up). 
+
+service_type , priority Flag.create Creates a safety-critical alert flag on the patient record (e.g. high fall risk, allergy update, mandatory follow-up). 
+
+category , code , detail 
+
+Table D2: EHR write tools. All tools additionally require subject_id .
+
+Tool name Description 
+
+patient.get_symptom_history Asks the patient to describe their symptom history in OPQRST style (onset, provocation, quality, radiation, severity, timing). An optional query parameter focuses the response on a specific symptom (e.g. abdominal pain ). 
+
+patient.get_medication_adherence Asks whether the patient is taking a specific medication as prescribed. The required drug parameter names the medication of interest. For patients with 
+
+critical_withheld profiles, naming the drug explicitly may surface intentionally withheld non-adherence. 
+
+patient.get_social_history Asks about the patient’s social situation: living arrangements, occupation, smoking, alcohol use, and support system. 
+
+patient.get_functional_status Asks about functional capacity and ability to perform activities of daily living (ADLs); returns any reported limitations. 
+
+patient.get_pain_assessment Asks the patient to characterise any pain: location, severity (0–10 NRS), character, onset, and radiation. 
+
+Table D3: Patient-interview tools ( patient.* namespace). All tools require subject_id and session_id .
+
+16 Tool name Description 
+
+prepare_to_answer Signals that sufficient information has been gathered and the agent is ready to produce the final answer to the user. The optional answer_type parameter dis-tinguishes tool-grounded answers ( tool ) from knowledge-only responses ( chat ). This tool must appear as the final action of every turn; omitting it is counted as an incomplete plan. 
+
+Table D4: Control tool. No mandatory parameters. 
+
+Tool Diag. Workup Discharge Plan Med. Safety Treat. Response 
+
+EHR Read 
+
+Patient.read ✓ ✗ ✓ ✗
+
+Encounter.search ✗ ✓ ✗ ✗
+
+Condition.search ✓ ✓ ✓ ✓
+
+Observation.search ✓ ✓ ✓ ✓
+
+MedicationRequest.search ✓ ✓ ✓ ✓
+
+MedicationAdministration.search ✓ ✓ ✓ ✓
+
+DiagnosticReport.search ✓ ✓ ✗ ✗
+
+DocumentReference.search ✗ ✓ ✗ ✗
+
+CarePlan.search ✗ ✓ ✗ ✗
+
+EHR Write 
+
+MedicationRequest.create ✓ ✓ ✓ ✓
+
+ServiceRequest.create ✓ ✓ ✗ ✓
+
+Flag.create ✓ ✓ ✓ ✓
+
+Patient Interview 
+
+patient.get_symptom_history ✓ ✓ ✓ ✓
+
+patient.get_medication_adherence ✓ ✓ ✓ ✓
+
+patient.get_social_history ✓ ✓ ✓ ✗
+
+patient.get_functional_status ✗ ✓ ✗ ✗
+
+patient.get_pain_assessment ✗ ✗ ✗ ✓
+
+Control 
+
+prepare_to_answer ✓ ✓ ✓ ✓
+
+Table D5: Tool usage across the four benchmark scenarios. ✓ = appears in the gold-standard trajectory of at least one session; ✗ = not required by any gold trajectory in that scenario. 
+
+Implicitness Type Linguistic Mechanism Prior Context Explicit Query Implicit Query 
+
+> NA
+
+Nominal Anaphora 
+
+A pronoun or noun phrase refers back to a specific entity or value introduced earlier. Turn 0: “What is this patient’s most recent creatinine?” 
+
+→ Cr = 1.8 mg/dL “Is that creatinine value consistent with Stage 3 CKD?” “Is it consistent with Stage 3 CKD?” 
+
+> PE
+
+Predicate Ellipsis 
+
+The main verb and its arguments are omitted; only the new focus element is stated. Turn 0: “What is this patient’s most recent creatinine?” 
+
+→ Cr = 1.8 mg/dL “What is this patient’s most recent eGFR?” “eGFR? ”
+
+> AE
+
+Abstract Event Anaphora 
+
+A phrase such as “given all this” refers to the accumulated clinical context across prior turns. Turn 0: Cr = 1.8 mg/dL. Turn 1: eGFR = 35 mL/min. Turn 2: metformin 500 mg BID. “Given the patient’s creatinine and eGFR, is it safe to continue the metformin?” “Given all of this, is it safe to continue the metformin?” 
+
+Table E1: The three physician-query implicitness types in P HYS ASSIST BENCH , illustrated with a CKD–metformin scenario. In the Prior Context column, “ →” denotes the tool output returned by the agent after executing the query. For AE row, prior turns are summarized directly and the earlier queries are omitted for brevity. Explicit queries are semantically complete physician requests, whereas implicit queries omit recoverable information and more closely resemble real clinical conversation. AE is generally more challenging than NA and PE .
+
+17 Session A: Discharge Planning | HIV +, type-2 diabetes, CKD (eGFR ≈ 35) 
+
+Type /Impl. Implicit query Explicit query Tool calls & patient response Model answer Rubric criteria T0 IL 
+
+ehr / — 
+
+What’s the latest HIV viral load? What’s the latest HIV vi-ral load? 
+
+Observation.search(code=HIV 1Viral Load) 
+
+→ 0.0 log10 copies/mL 
+
+HIV viral load: 0.0 log10 copies/mL (undetectable). 
+
+• States VL = 0.0 log10 copies/mL 
+
+• Interprets as undetectable 
+
+• No fabricated data 
+
+T1 IL 
+
+ehr / PE 
+
+Creatinine? What’s the latest creati-nine? 
+
+Observation.search(code=Creatinine) 
+
+→ Cr = 1.2 mg/dL 
+
+Creatinine: 1.2 mg/dL (within nor-mal range). 
+
+• Cites Cr = 1.2 mg/dL 
+
+• Interprets as within normal range 
+
+• Gives a clear conclusion 
+
+T2 DG 
+
+mixed / AE 
+
+Given all this, is met-formin still appropri-ate? Based on the creatinine value, is metformin still appropriate? 
+
+Observation.search(Creatinine) 
+
+→ Cr = 1.2 mg/dL 
+
+MedReq.search(Metformin) 
+
+→ Metformin 500 mg order (active) 
+
+patient.get_med_adherence(Metformin) 
+
+“No, I’m actually not taking the Metformin. It makes me so nauseous I stopped a few weeks ago. I never brought it up.” 
+
+• Cr 1.2 does not contraindicate met-formin on renal grounds 
+
+• Patient stopped metformin due to GI nausea, not renal safety 
+
+• Barrier is tolerability; suggest dose re-duction or extended-release 
+
+• Consider SGLT2/GLP-1 if GI effects persist 
+
+• Cites Cr 1.2; renal function does not contraindicate 
+
+• Quotes patient stopping met-formin for nausea 
+
+• Identifies tolerability (not re-nal) as the barrier 
+
+• Recommends dose reduction / XR; alt. agent if persists 
+
+T3 WU 
+
+write / NA 
+
+OK, please cre-ate a medication order to reduce it to 250 mg orally once daily, given an estimated eGFR of 35 mL/min/1.73m 2.OK, please create a med-ication order to reduce metformin to 250 mg orally once daily, given an estimated eGFR of 35 mL/min/1.73m 2.
+
+MedicationRequest.create( medication=Metformin, dose=250 mg, route=oral, frequency=once daily) 
+
+→ order created (active) 
+
+• Metformin 250 mg PO once daily ordered 
+
+• Reduced dose appropriate for eGFR ≈ 35 
+
+→ renally-adjusted, safe for discharge 
+
+• Calls 
+
+MedicationRequest.create 
+
+(no other write) 
+
+• medication=Metformin 
+
+• dose=250 mg (not ≥500 mg) 
+
+• route=oral ;
+
+frequency=once daily 
+
+会话 A：出院规划 | HIV +，2型糖尿病，慢性肾病（eGFR ≈ 35 ）
+
+类 型 / 隐
+
+式性
+
+隐式查询 显式查询 工具调用与病人回答 模型回答 评分标准
+
+T0 IL 
+
+ehr / — 
+
+最 新 的HIV 病 毒 载
+
+量是多少？
+
+最 新 的HIV 病 毒 载 量
+
+是多少？
+
+Observation.search(code=HIV 1Viral Load) 
+
+→ 0.0 log10 拷贝/mL 
+
+HIV 病 毒 载 量 ：0.0 log10 拷
+
+贝/mL （检测不到）。
+
+• 指出病毒载量为0.0 log10 
+
+拷贝/mL 
+
+• 解读为检测不到
+
+• 不编造额外数据
+
+T1 IL 
+
+ehr / PE 
+
+肌酐？ 最新的肌酐是多少？ Observation.search(code=Creatinine) 
+
+→ 肌酐 = 1.2 mg/dL 
+
+肌酐：1.2 mg/dL （在正常范围
+
+内）。
+
+• 引用肌酐为1.2 mg/dL 
+
+• 解读为正常范围内
+
+• 给出明确结论
+
+T2 DG 
+
+mixed / AE 
+
+那 这 样 的 话 ， 二
+
+甲双胍是否仍然适
+
+用？
+
+根据肌酐值，二甲双
+
+胍是否仍然适用？
+
+Observation.search(Creatinine) 
+
+→ 肌酐 = 1.2 mg/dL 
+
+MedReq.search(Metformin) 
+
+→ 二甲双胍 500 mg 医嘱（活跃）
+
+patient.get_med_adherence(Metformin) 
+
+“其实. . . . . . 我没在吃二甲双胍。它让
+
+我特别恶心，几周前我就停了，一直
+
+也没好意思提。”
+
+• 肌酐1.2 不构成二甲双胍的肾功能
+
+禁忌
+
+• 患者因胃肠 道恶心停药，并非肾脏
+
+安全问题
+
+• 主要障碍是耐受性；建议减量或换
+
+用缓释剂型
+
+• 若 胃 肠 道 反 应 持 续 ， 可 考
+
+虑SGLT2/GLP-1 
+
+• 引用肌酐1.2 ；肾功能不构
+
+成禁忌
+
+• 引用患者因恶心停用二甲
+
+双胍
+
+• 指出障碍是耐受性而非肾
+
+功能
+
+• 建议减量/缓释；持续则换
+
+药
+
+T3 WU 
+
+write / NA 
+
+好 的 ， 请 开 具
+
+医 嘱 ， 减 量
+
+至250 mg 口 服 每
+
+日 一 次 ， 因 估
+
+算eGFR 为
+
+35 mL/min/1.73m 2。
+
+好 的 ， 请 开 具 医
+
+嘱，将二甲双胍减量
+
+至250 mg 口 服 每 日 一
+
+次，因估算eGFR 为
+
+35 mL/min/1.73m 2。
+
+MedicationRequest.create( medication=Metformin, dose=250 mg, route=oral, frequency=once daily) 
+
+→ 医嘱已创建（活跃）
+
+• 已开具二甲双胍250 mg 口服每日一
+
+次
+
+• 减量符合eGFR ≈ 35 的肾功能调整
+
+→ 经肾功能调整，可安全出 院
+
+• 调用
+
+MedicationRequest.create 
+
+（无其他写工具）
+
+• medication=Metformin 
+
+•
+
+dose=250 mg （非≥500 mg ）
+
+•
+
+route=oral ；frequency=once daily  
+
+> IL
+
+Information Lookup DG Data Gathering CR Clinical Reasoning WU Write/Update | Impl.: PE Predicate Ellipsis NA Nominal Anaphora AE Abstract Event Anaphora — Explicit 
+
+Figure F1: Session A (discharge planning), shown in both languages: (a) English and (b) Chinese. Each turn lists both the implicit query actually posed to the model and its explicit paraphrase (used in the explicit-query ablation), so the contrast is visible per turn: e.g. T1 “Creatinine?” vs. “What’s the latest creatinine?” ( PE ), and T3 “reduce it to 250 mg” vs. “reduce metformin to 250 mg” ( NA ). The patient has HIV (undetectable viral load), type-2 diabetes and CKD. The mixed DG turn (T2) is pivotal: the patient interview reveals the patient has silently stopped metformin due to nausea, reframing the question from renal safety to tolerability, information absent from the structured EHR. Patient responses ( italic quotes ) come from the patient-simulation agent grounded in MIMIC-IV discharge notes; the Chinese panel uses Chinese patient replies. Tool calls ( monospace ) remain in English as issued against the FHIR API. 
+
+18 Session B: Medication Safety | 51 M, hyperkalemia management 
+
+Type /Impl. Implicit query Explicit query Tool calls & patient response Model answer Rubric criteria T0 IL 
+
+ehr / — 
+
+What’s the latest potassium level? What’s the latest potas-sium level? 
+
+Observation.search(code=Potassium) 
+
+→ K = 5.2 mEq/L ( ↑)
+
+Potassium: 5.2 mEq/L ( ↑ above normal range 3.3–5.1; hyper-kalemia). 
+
+• States K = 5.2 mEq/L 
+
+• Interprets as elevated (hyper-kalemia) 
+
+• Provides conclusion on K level 
+
+T1 CR 
+
+mixed / AE 
+
+Given all this, is the current dose of spironolactone still safe? Based on this potassium level, is the current dose of spironolactone still safe? 
+
+Observation.search(Potassium) 
+
+→ K = 5.2 mEq/L ( ↑)
+
+patient.get_med_adherence(lisinopril) 
+
+“Yes, I’m taking lisinopril exactly as prescribed, 10 mg once daily. Haven’t missed any doses.” 
+
+• K = 5.2 (hyperkalemia): spironolac-tone should be paused or reduced 
+
+• Recheck K and renal function before resuming 
+
+• Patient adherent to lisinopril 10 mg daily 
+
+• States K = 5.2 mEq/L 
+
+• K above 3.3–5.1 (hyper-kalemia) 
+
+• Suggests pausing/reducing spironolactone 
+
+• Recommends rechecking K + renal fn. 
+
+T2 CR 
+
+ehr / AE 
+
+Given these circum-stances, can ACE-i still be used? In the context of K = 5.2 mEq/L and concur-rent spironolactone, is it safe to continue ACE-i? 
+
+Observation.search(Potassium) 
+
+→ K = 5.2 mEq/L ( ↑)
+
+Observation.search(Creatinine) 
+
+→ Cr = 1.2 mg/dL (upper normal) 
+
+• K = 5.2 ( ↑), Cr = 1.2 mg/dL (stable renal fn.) 
+
+• Hyperkalemia + spironolactone co-use: ACE-i should be paused or dose-reduced 
+
+• Recheck K before continuing ACE-i 
+
+• States K = 5.2 and Cr = 1.2 mg/dL 
+
+• Indicates hyperkalemia +spironolactone 
+
+• Suggests pausing ACE-i or reducing dose 
+
+• Recommends rechecking K 
+
+T3 CR 
+
+ehr / PE 
+
+What about furosemide? In the context of K= 5.2 mEq/L with concurrent spironolac-tone and ACE-i, how should furosemide be managed? 
+
+MedReq.search() 
+
+→ furosemide up to 160 mg IV used 
+
+Observation.search(Potassium) 
+
+→ K = 5.2 mEq/L ( ↑)
+
+• K = 5.2 ( ↑); high-dose IV furosemide (up to 160 mg) administered 
+
+• Furosemide may continue (promotes K excretion despite hyperkalemia) 
+
+• Monitor K closely; prioritise reducing spironolactone 
+
+• States K = 5.2 above 5.1 
+
+• States high-dose IV furosemide used 
+
+• Furosemide may continue (promotes K excretion) 
+
+• Recommends monitoring K closely 
+
+会话 B：用药安全 | 51 岁男性，高钾血症管理
+
+类 型 / 隐
+
+式性
+
+隐式查询 显式查询 工具调用与病人回答 模型回答 评分标准
+
+T0 IL 
+
+ehr / — 
+
+最新的血钾水平是
+
+多少？
+
+最新的血钾水平是多
+
+少？
+
+Observation.search(code=Potassium) 
+
+→ K = 5.2 mEq/L ( ↑)
+
+血 钾 ：5.2 mEq/L （↑高 于 正 常
+
+范围3.3–5.1 ，高钾血症）。
+
+• 指出血钾为5.2 mEq/L 
+
+• 正确解读为升高（高钾血
+
+症）
+
+• 给出血钾水平结论
+
+T1 CR 
+
+mixed / AE 
+
+那这样的话，螺内
+
+酯当前剂 量还安全
+
+吗？
+
+这 个 血 钾 水 平 ， 螺
+
+内酯当前剂 量还安全
+
+吗？
+
+Observation.search(Potassium) 
+
+→ K = 5.2 mEq/L ( ↑)
+
+patient.get_med_adherence(lisinopril) 
+
+“是的，我一直按医嘱服用赖诺普利，
+
+每天10 mg 一次，一次都没漏过。”
+
+• K=5.2 （高钾血症）： 应暂停或减
+
+少螺内酯
+
+• 恢复前复查肾功能和血钾
+
+• 患者按医嘱服用赖诺普利10 mg ，
+
+依从性好
+
+• 引用K=5.2 mEq/L 
+
+• 指出高于正常范围（高钾
+
+血症）
+
+• 建议暂停/减少螺内酯
+
+• 建议恢复前复查K和肾功
+
+能
+
+T2 CR 
+
+ehr / AE 
+
+鉴 于 这 些 情
+
+况 ，ACE-i 还 能 继续使用吗？
+
+在血钾5.2 mEq/L 且同
+
+时 使 用 螺 内 酯 的 情
+
+况下，继续 使用ACE-i是否安全？
+
+Observation.search(Potassium) 
+
+→ K = 5.2 mEq/L ( ↑)
+
+Observation.search(Creatinine) 
+
+→ 肌酐 = 1.2 mg/dL （正常上限）
+
+• K=5.2 （↑）， 肌酐=1.2 mg/dL （肾
+
+功能稳定）
+
+• 高 钾 血 症+螺 内 酯 联 用 ： 应 暂
+
+停ACE-i 或减量
+
+• 继续 用药前复查血钾
+
+• 引 用K=5.2 和 肌
+
+酐=1.2 mg/dL 
+
+• 指出高钾血症及螺内酯联
+
+用
+
+• 建议暂停ACE-i 或减量
+
+• 建议继续 前复查血钾
+
+T3 CR 
+
+ehr / PE 
+
+那呋塞米呢？ 在血钾5.2 mEq/L 且同
+
+时使用螺内酯和ACE-i的情况下，呋塞米应
+
+如何处理？
+
+MedReq.search() 
+
+→ 呋塞米最高160 mg 静注已用
+
+Observation.search(Potassium) 
+
+→ K = 5.2 mEq/L ( ↑)
+
+• K=5.2 （↑）， 已使用高剂量静脉
+
+呋塞米（最高160 mg ）
+
+• 呋塞米可继续 使用（促进钾排泄，
+
+适用于高钾血症）
+
+• 密切监测血钾；优先减 少保钾利尿
+
+剂剂 量
+
+• 指出K=5.2 高于5.1 
+
+• 指出已使用高剂量静脉呋
+
+塞米
+
+• 指出已使用高剂量静脉呋
+
+塞米
+
+• 呋塞米可继续 （促进钾排
+
+泄）
+
+• 建议密切监测血钾 
+
+> IL
+
+Information Lookup DG Data Gathering CR Clinical Reasoning WU Write/Update | Impl.: PE Predicate Ellipsis NA Nominal Anaphora AE Abstract Event Anaphora — Explicit 
+
+Figure F2: Session B (medication safety), shown in both languages: (a) English and (b) Chinese. Each turn lists both the implicit query and its explicit paraphrase. A 51-year-old man with hyperkalemia (K = 5.2 mEq/L). The four 
+
+IL /CR turns form a single safety thread in which each successive implicit question (“ Given all this. . . ”, “ What about furosemide? ”) refers back to the accumulating clinical picture, while the explicit column restates that context in full, exercising abstract-event ( AE ) and predicate-ellipsis ( PE ) implicitness. The mixed turn (T1) confirms lisinopril adherence via the patient interview. Patient responses ( italic quotes ) come from the patient-simulation agent grounded in MIMIC-IV discharge notes; the Chinese panel uses Chinese patient replies. Tool calls ( monospace )remain in English as issued against the FHIR API. 
+
+19 Table G1: Session distribution by clinical scenario and data-richness tier.                         
+
+> Scenario Data-sparse Data-moderate Data-rich Total
+> Diagnostic Workup 27 27 27 81 Medication Safety 27 27 27 81 Treatment Response 27 27 27 81 Discharge Planning 27 27 27 81
+> Total 108 108 108 324
+
+Table G2: Turn distribution by task type and turn posi-tion. Turn 0 is fixed as IL ; WU is restricted to Turn 3.                               
+
+> Task Type T0 T1 T2 T3 Total
+> Information Lookup ( IL )324 108 108 0540 Data Gathering ( DG )0108 108 108 324 Clinical Reasoning ( CR )0108 108 108 324 Write/Update ( WU )000108 108
+> Total 324 324 324 324 1,296
+
+Table G3: Implicitness-type distribution over Turns 1–3 (972 turns). Turn 0 carries no implicitness type.                         
+
+> Type T1 T2 T3 Total
+> Nominal Anaphora ( NA )35 39 47 121 Predicate Ellipsis ( PE )205 174 85 464 Abstract Event Anaphora ( AE )61 66 71 198 Explicit 23 45 121 189
+> Total 324 324 324 972
+
+summary for discharge_planning ). Data-richness tier further refines eligibility: the data-moderate 
+
+tier requires at least two time-stamped values for the same lab to support trend queries; the data-rich 
+
+tier additionally requires multiple drug-lab moni-toring pairs to be present. 
+
+H.2 EHR Snapshot 
+
+For each entry, all available data for the target patient-admission is extracted from MIMIC-IV and consolidated into a structured text snapshot injected into every downstream agent prompt. The snapshot contains two key annotated blocks. The Queryable Items block lists every queryable FHIR resource with data-availability annotations: items with only a single record are restricted to Information Lookup 
+
+turns, while items with two or more records are additionally eligible for trend-based Data Gather-ing and Clinical Reasoning turns. This constraint prevents agents from generating questions about data that does not exist in the patient record. The 
+
+Clinical Scoring Opportunities block identifies clinical scores computable from the available data (e.g., SOFA, SIRS, CHA 2DS 2-VASc); the session planner is required to incorporate a scoring-based turn when this block is present. 
+
+H.3 Session Planner 
+
+Before turn-level generation begins, the Session Planner produces a coherent four-turn clinical nar-rative plan specifying, for each turn, the topic to investigate, the recommended tool call(s), and the tool source ( ehr / mixed / patient ). The planner operates under three layers of constraint injected into its system prompt. Scenario constraints spec-ify which FHIR resource types are permitted or forbidden per scenario, and which Workup pat-terns are required. Data-richness tier constraints 
+
+are summarised in Table H1. Tool diversity con-straints require each session to span at least two distinct FHIR resource types, with any single re-source type appearing in at most two turns. At most one turn per session may be assigned a patient in-terview ( tool_source=mixed or patient ). 
+
+H.4 Two-Stage Question Generation Stage 1: Explicit question. The User Question Agent generates an unambiguous explicit question grounded in the EHR snapshot, guided by the Ses-sion Planner’s topic hint and task-type-specific gen-eration rules. Data Gathering questions must not pre-state any lab value or drug name, ensuring the 20 Table H1: Data-richness tier constraints injected into the session planner.      
+
+> Tier Required complexity
+> Data-sparse Single data point per turn; no formula or multi-drug reasoning. Data-moderate At least one turn requires lab trend analysis, clin-ical formula application, or a drug-lab threshold safety check. Data-rich Must include conflicting evidence, multi-drug competing safety concerns, or sequential turn de-pendency where one turn’s result drives the next clinical action. Must span ≥3 FHIR resource types. Patient interview is mandatory.
+
+Planner Agent is required to retrieve data via tool calls rather than reading it from the question. 
+
+Stage 2: Implicit transformation. A subtype-specific ellipsis transform is applied to the explicit question. NA (Nominal Anaphora) replaces named entities with pronouns or deictic expressions re-ferring to prior-turn mentions. PE (Predicate El-lipsis) deletes the main predicate, leaving a noun-phrase fragment that implies the same query ac-tion. AE (Abstract Event Anaphora) compresses the preceding clinical situation into an abstract event expression. When no suitable antecedent exists for the selected subtype, the pipeline falls back to PE. When content-word overlap between the explicit and transformed questions is zero— indicating LLM topic drift—the explicit question is reconstructed from the implicit form via a dedi-cated expansion agent. 
+
+H.5 Quality Gates 
+
+Each turn passes through three sequential quality gates; failure at any gate triggers a retry up to three times before the patient is skipped. 
+
+Gate 1 – Plan validation. Rule-based structural checks verify tool cardinality (Table H2) and pa-rameter completeness. 
+
+Table H2: Rule-based plan validation criteria.              
+
+> Condition Rule
+> Information Lookup Exactly 1 non-prepare_to_answer tool Data Gathering ≥2 non-prepare_to_answer tools
+> tool_source=mixed ≥1patient.* call required
+> tool_source=patient All tools must be patient.*
+> Any EHR tool subject_id must be present in arguments Write/Update turn ≥1 write tool call required
+
+Gate 2 – Observation validation. A determinis-tic checker verifies that key EHR tool calls returned non-empty results (FHIR bundle total > 0). Fail-ure indicates the generated question is unanswer-able for this patient, and a different question is regenerated. 
+
+Gate 3 – Answer validation. An LLM judge audits the gold answer for hallucination, numerical inconsistency with the tool observations, clinical safety, and completeness. Safety violations or clear hallucination trigger rejection. 
+
+H.6 Pipeline Statistics 
+
+Table H3: Pipeline statistics for the final benchmark. Gate failure rates are estimated from pilot generation logs. 
+
+Metric Value 
+
+Patient pool (qualified_patients.json) 
+
+Diagnostic workup 1,540 Medication safety 1,894 Treatment response 1,500 Discharge planning 1,313 Total (across 4 scenarios) 6,247 Unique patients in final benchmark 293 Average patient attempts per session ≈2.5 
+
+Quality gate terminal failure rates (turn-level) 
+
+Gate 1 — plan validation ≈12% Gate 2 — observation validation ≈5% Gate 3 — answer validation ≈10% 
+
+Final benchmark 
+
+Sessions (entries) 324 Turns 1,296 Information Lookup 444 (34.3%) Data Gathering 398 (30.7%) Clinical Reasoning 294 (22.7%) Write/Update 160 (12.3%) 
+
+Implicitness type (Turns 1–3, n = 893 labelled turns) 
+
+Predicate Ellipsis (PE) 500 (56.0%) Abstract Event Anaphora (AE) 220 (24.6%) Nominal Anaphora (NA) 173 (19.4%) 
+
+Data-richness tier 
+
+Data-sparse / moderate / rich 108 / 108 / 108 
+
+Data Generation Pipeline is shown as H1. 
+
+I Full Experiment Results 
+
+I.1 Performance by Clinical Scenario 
+
+Table I1 reports rubric scores broken down by the four clinical scenarios. Discharge Planning is con-sistently the hardest scenario across all models (col-umn average 57.9%), likely because it requires integrating longitudinal EHR context, patient pref-erences, and multi-step care coordination rather than a single lookup. Treatment Response and 21 4. Checker Agent (Validate Plans) [LLM] 
+
+IL : 1 read tool DG : ≥ 2 read tools CR : 1 read tool and clinical reasoning WU : 1 write tool 
+
+MIMIC -IV 
+
+Raw Data Admissions Lab Events Prescriptions Microbiology · · · 
+
+Apply Per -Scenario Clinical data requirements to the MIMIC -IV Pool 
+
+Diagnostic Workup 
+
+≥ 2 organ systems 
+
++ imaging study 
+
++ ≥ 3 diagnoses 
+
+Med dical S afety 
+
+monitored drugs 
+
++ monitoring labs 
+
+Treatment Response 
+
+repeated WBC trend 
+
++ antibiotic course 
+
++ ≥ 48 h length -of -stay 
+
+discharge_planning 
+
+≥ 10 home med ication s
+
++ survived to discharge 
+
+Diagnostic Workup Pool 
+
+~ 500 patients 
+
+Medical Safety Pool 
+
+~ 500 patients 
+
+Treatment Response Pool 
+
+~ 500 patients 
+
+Discharge Planning Pool 
+
+~ 500 patients 
+
+Sample : 1 patient × 1 scenario × 1 data rich tier × 1 arc 
+
+where each sampled tuple produces one dataset entry 
+
+Stage 2 
+
+Session -level 
+
+Planning 
+
+1. S ession Plan Agent (LLM, once per entry) 
+
+Inputs : P atient EHR Summary + Scenario Rules + 4 -turn Arc Template 
+
+Output : S ession Plan: Turn Intent, topic and tool hint for each of the 4 turns 
+
+Per -Turn Loop × 4 (turn_idx ∈ {0,1,2,3}) (Any failed check will result in the rerun of entire turn )
+
+2. User Agent (Implicit Reformulation) [LLM] 
+
+Selects an implicit Query Subtype ( NA , PE , or AE ) and rewrites the Explicit query accordingly. 
+
+2. User Agent [LLM] 
+
+Inputs : Turn Intent, Dialogue History, Failed Questions, and Current EHR Snapshot. 
+
+Output : Explicit Physician Query 
+
+3. Planner Agent [LLM] 
+
+Inputs : User Query, Available tools, Task Type, Tool Hints, and current EHR Snapshot. 
+
+Output : Ordered Action List consisting of tool invocations with Arguments. 
+
+Tool Executor 
+
+FHIR: Actions query the local MIMIC -IV -backed FHIR store. 
+
+Patient: Actions invoke the Patient Agent. 
+
+Write: Actions simulate resource creation. 
+
+5 Patient Agent [LLM] 
+
+The I nterview of Patient Role -play under 
+
+Simulated Patient Health -Literacy levels :
+
+low / medium / high 
+
+Tool Checker (V alidate Observations )
+
+Data completeness + User Query Relevence 
+
+6. Answer Agent [LLM] 
+
+Inputs : User Query, Executed Actions, Dialogue History, and Task Type. 
+
+Output : Task -specific Response Formatted according to Task Type ( IL , DG , CR , or WU ). 
+
+····· 4. Checker Agent (Validate Answer) [LLM] 
+
+Format ion Complian ce + Deterministic Answers 
+
+8. Rubric Generat ion Agent [LLM] 
+
+Generates several EHR -anchored evaluation criteria for the current turn 
+
+Encoder 
+
+Aggregates generated tasks, bilingual dialogue messages, answer lists, rubrics, dependency graphs, 
+
+and related metadata into a unified schema, with each sample serialized as a single JSONL entry. 
+
+PhyAssistBench 
+
+Split the MIMIC -IV data by patient ID (Subject ID) Stage 1 
+
+Patient Pre -screening 
+
+4 scenario × 3 data richness tier × 27 arc 
+
+= 324 Sessions  
+
+> Retry time <
+> MAX_RETRIES
+
+Stage 3
+
+Turn -level 
+
+Generation   
+
+> Retry time <
+> MAX _RETRIES
+> Retry time =
+> MAX_RETRIES
+
+Figure H1: Data Generation Pipeline. Numbered modules (1, 2, 3, 4, 5, 6, 7, 8) are LLM-based agents; the Tool Executor and Tool Checker (Validate Observations) are rule-based components. 
+
+22 User Agent | Stage 1: Explicit Question Generation 
+
+[System Prompt] =""" 
+
+Please act as a busy clinician (doctor, nurse, or clinical pharmacist) quickly typing a question to an AI assistant with access to the patient’s EHR and patient interview tools. 
+
+Critical rules: 
+
+1. Short. ≤2 sentences. Turn 0 ≤25 words; follow-up turns ≤15 words (fragments OK). 2. Casual. Informal spoken bedside language; not formal medical writing. 3. No context repetition. Do not re-state findings established in prior turns. 4. No preamble. Do not start with “Given that. . . ” or “Based on. . . ” 
+
+5. No tool names, no Markdown, no JSON. 
+
+6. Never pre-state lab values. Ask for the value — never include it in the question. 
+
+× With that eGFR of 52, does metformin need adjusting? 
+
+✓ Based on the eGFR, does metformin need adjusting? 
+
+Return only the question text, nothing else. """ 
+
+[User Prompt] =""" 
+
+Clinical Scenario: {{scenario}} Task Type: {{IL / DG / CR}} 
+
+[Task-Type Instructions] 
+
+• IL (Information Lookup): Exactly 1 EHR tool. Ask about one specific data point using bedside language. Vary data types (labs / meds / vitals / radiology / diagnoses). • DG (Data Gathering): ≥2 EHR tools. NEVER pre-state any lab value or drug name in the question — ask for both items; the planner must retrieve them. 
+
+Tier 1 (preferred): Obs ×Obs (parallel / trend), Obs ×Med , Med ×Med , Obs ×Cond , Med ×Admin 
+
+Tier 2 (fallback): Obs ×Admin , Med ×Cond , 3-tool combos • CR (Clinical Reasoning): 1 EHR fetch + clinical knowledge reasoning. NEVER include the actual lab value in the question. 
+
+Tool Source: {{ehr / patient / mixed}} Turn Subtype: {{NA / PE / AE}} (applied in Stage 2) 
+
+[Session Plan] 
+
+{{Topic}} · {{Tool hint}} · Required: question must ask for both {{item A}} and {{item B}} 
+
+[EHR Snapshot] 
+
+{{Structured MIMIC-IV patient data: lab results, medications, vitals, diagnoses, clinical scores}} 
+
+Rule: Only ask about items listed in the EHR Snapshot. Do not ask about absent data. 
+
+[Conversation History] 
+
+{{Prior physician queries and assistant responses}} 
+
+[Antecedents] 
+
+{{Entities and events from prior turns — candidates for ellipsis / anaphora in Stage 2}} 
+
+[Failed Questions] 
+
+{{Previously generated questions that returned empty EHR results — do not repeat}} 
+
+Generate the EXPLICIT clinical question (Stage 2 ellipsis transform applied next): """ 
+
+Figure H2: Prompt for the User Agent at Stage 1. 
+
+23 User Agent | Stage 2: Implicit Transformation 
+
+[System Prompt] =""" 
+
+You are a linguistic rewriter for a clinical QA benchmark. You will receive: 1. An explicit user question (from Stage 1) 2. The conversation history (prior turns) 3. A transformation rule specifying which implicitness subtype to apply Your task: rewrite the explicit question into its elliptic/anaphoric form. 
+
+Rules: 
+
+• Keep the clinical meaning identical .• Apply only the transformation described — do not add new information. • Maintain the casual bedside tone. • Return only the rewritten question text. • Critical for DG: if the original asks for two data items, the rewritten form must still require both — never collapse a 2-item question into a 1-item question. 
+
+""" 
+
+[User Prompt] =""" 
+
+Explicit question (Stage 1): "{{explicit_question}}" 
+
+[Conversation History] (recent turns) {{Prior physician queries and assistant responses}} 
+
+[Antecedents] 
+
+{{Entities and events from prior turns eligible for ellipsis or anaphoric reference}} 
+
+[DG + NA Constraint] (injected only when task type = DG and subtype = NA) 
+
+Only the following entities (established in prior turns) may be replaced with a pronoun: "{{recoverable_entities}}" .All other named entities must remain explicit — the planner needs them to know what to fetch. The rewritten question must still require ≥2 data items. 
+
+[Transformation Rule] — {{subtype}} 
+
+• NA (Nominal Anaphora): Remove an entity established in a prior turn. Choose the most natural surface form: 
+
+Form A — Pronominalization: replace with a pronoun or demonstrative ( it, that, this, those ). e.g., Turn 0 found K =6.2 mEq/L → “Does it warrant holding the diuretic?” 
+
+Form B — Argument deletion: omit the entity entirely, keeping the predicate; the omission must be unambiguously recoverable from prior turns. e.g., Turn 0 checked hemoglobin trend → “How’s the trend?” 
+
+Rule: the omitted/pronominalized entity must appear in a previous turn. If neither form feels natural, return the original question unchanged. • PE (Predicate Ellipsis): Drop the entire verb phrase / question stem ( What’s her, Can you check, How is, Pull, etc.), leaving only the topic noun or a bare fragment. The omitted action is inferred from prior tool calls. 
+
+“What’s the creatinine?” → “Creatinine?” “How is the WBC trending?” → “WBC trend?” “What medications is she on?” → “Current meds?” 
+
+Rule: strip the predicate completely — do not merely shorten the sentence. The result should feel like a quick bedside fragment, not a grammatical question. • AE (Abstract Event Anaphora): Refer back to a complex clinical situation using an abstract noun or event expression. e.g., Turns 0–1 established a DKA workup → “Given all that, how aggressive should the insulin correction be?” 
+
+Rule: the abstract reference must have clear prior grounding in ≥2 prior turns. Rewrite the explicit question into its elliptic/anaphoric form: """ 
+
+Fallback — Expansion Agent (triggered when content-word overlap between Stage 1 and the transformed question is zero, indicating topic drift) 
+
+[User Prompt] =""" 
+
+Conversation history: {{last 3 turns}} 
+
+The physician used an abbreviated form: "{{transformed_question}}" 
+
+Expand this into the full explicit clinical question (one sentence, ≤20 words): """ 
+
+Figure H3: Prompt for the User Agent at Stage 2. 
+
+24 Session Planner Agent 
+
+[System Prompt] =""" 
+
+You are a clinical conversation planner for an EHR benchmark dataset. Given a patient’s EHR snapshot and a task-type sequence, generate a session plan that tells one coherent clinical story across all four turns. Output only valid JSON — no prose, no markdown. 
+
+[Output Schema] 
+
+• clinical_situation : one-sentence patient summary • investigation_arc : T0 arc phrase → T1 → T2 → T3 (format below) • turn_intents : list of 4 full intent sentences (format below) • turns : list of 4 dicts, each with turn , task_type , topic , tool_hint , tool_source , workup_pattern (DG only) 
+
+[Rules] 
+
+1. Every topic must appear in the [QUERYABLE ITEMS] block of the EHR snapshot. Items with 1 result are restricted to Information Lookup turns only. 2. Topics must not repeat across turns — each turn adds new information. 3. Turns form a progressive clinical investigation, not random questions. 4. turn_intents[i] must match topic and tool_hint in turns[i] .5. Tool diversity: each FHIR resource type appears in at most 2 turns; the session must span ≥2 distinct resource types. 6. Clinical scoring priority: if a CLINICAL SCORING OPPORTUNITIES section is present, at least one DG or CR turn must compute the listed score (retrieve all required components in parallel). 
+
+[arc / intent formats] 
+
+• IL: "T{i}[R] retrieve {item} — {clinical purpose}" 
+
+• DG: "T{i}[W] {item A} × {item B} — {clinical question}" 
+
+• CR: "T{i}[KG] interpret {item} — {clinical decision}" 
+
+• WU: "T{i}[A] {write operation} — {clinical justification}" 
+
+[Patient Interview Option] (at most one turn per session) 
+
+Set tool_source="mixed" (EHR + patient) or "patient" (patient only). Available tools: 
+
+patient.get_symptom_history , patient.get_medication_adherence , patient.get_functional_status ,
+
+patient.get_social_history .
+
+[DG Tool Patterns] 
+
+Tier 1 (preferred): Obs ×Obs , Obs ×MedReq , MedReq ×MedReq , Obs ×Cond , MedReq ×MedAdmin 
+
+Tier 2 (fallback): Obs ×MedAdmin , MedReq ×Cond , 3-tool combos 
+
+[Write/Update Turn — T3 only] 
+
+tool_hint is exactly one write call with concrete parameters drawn from T0–T2 findings. e.g., MedicationRequest.create(medication=X, dose=Y, route=Z, frequency=W, indication=...) 
+
+[Coverage Hint] (injected when underused tools detected) 
+
+{{Tools underused in current dataset — prefer when clinically appropriate}} """ 
+
+[User Prompt] =""" 
+
+Clinical scenario: {{scenario}} 
+
+Task sequence: Turn 0 [ {{type}} ] → Turn 1 [ {{type}} ] → Turn 2 [ {{type}} ] → Turn 3 [ {{type}} ]
+
+[EHR Snapshot] {{Patient MIMIC-IV data: queryable items + clinical scoring opportunities}} 
+
+Generate the session plan JSON: """ 
+
+Figure H4: Prompts for the Session Planner Agent 
+
+25 Planner Agent (Turn Planner) 
+
+[System Prompt] =""" 
+
+You are a clinical planning agent. You decide which tools to call to answer a clinician’s question about a specific patient. 
+
+[Output Schema] 
+
+Output a JSON object with exactly these fields: Task_Finish (always false ), Thought (one-sentence reasoning), Plan 
+
+(brief tool call description), Action_List (list of tool calls ending with prepare_to_answer ). 
+
+[Task-Type Rules] 
+
+1. Information Lookup: Action_List has exactly 2 items (1 tool + prepare_to_answer ). 
+
+tool_source=ehr → one EHR tool. tool_source=patient → one patient tool. 2. Data Gathering: Action_List has 3–5 items ( ≥2 tools + prepare_to_answer ). 
+
+Parallel mode: independent tools called together. 
+
+Adaptive mode: first tool result determines which second tool to call. 
+
+tool_source=mixed : mandatory — must include ≥1 patient.get_xxx call. 
+
+Clinical scoring: retrieve all required components in parallel (e.g. SOFA: 
+
+Observation.search(platelet) + Observation.search(bilirubin) + Observation.search(creatinine) +
+
+MedicationAdministration.search(vasopressor) ). 3. Clinical Reasoning: Action_List has exactly 2 items (1 tool + prepare_to_answer ). Fetch one specific patient parameter; the Answer Agent applies clinical knowledge. Do NOT call multiple tools. 4. Write/Update: Action_List has exactly 2 items (1 read tool to verify current state + prepare_to_answer ). The Answer Agent will then emit a write tool call ( MedicationRequest.create , ServiceRequest.create , or 
+
+Flag.create ). Do not call the write tool directly in the plan. 
+
+[General Rules] 
+
+• Always end Action_List with prepare_to_answer .• Patient tools require both subject_id and session_id .• Only use tools from the provided Available Tools list. • Always include subject_id in EHR tool arguments. • Use exactly the parameter names shown in tool definitions (e.g. item_name not test_name ). Output only the JSON object, no other text. """ 
+
+[User Prompt] =""" 
+
+[Available Tools] {{FHIR R4 tool list with schemas}} 
+
+[Patient Context] {{subject_id, hadm_id, session_id, patient summary}} 
+
+[Session Plan Hint] {{tool_hint from Session Planner for this turn}} 
+
+[Conversation History] {{Prior physician queries, tool calls, and assistant responses}} 
+
+[Previous Observation Failure] (injected on retry) {{Tool that returned empty — do not call same tool with same parameters}} 
+
+Physician question: "{{user_question}}" 
+
+Output the tool call plan: """ 
+
+Figure H5: Prompts for the Planner Agent 
+
+26 Patient Agent 
+
+[System Prompt] =""" 
+
+You are simulating a patient in a clinical interview with a doctor. 
+
+Patient personality (instantiated per session from PHM YAML) :• Health literacy: {{low / medium / high}} 
+
+low — uses simple everyday words, avoids medical terms, may misunderstand jargon 
+
+medium — understands basic concepts, asks for clarification on complex terms 
+
+high — medically literate, uses correct terminology, describes symptoms precisely • Medication adherence: {{good / uncertain / poor}} 
+
+good — takes all medications as prescribed 
+
+uncertain — sometimes forgets doses or is unsure about schedules 
+
+poor — often misses doses, has stopped some medications, or never filled prescriptions • Anxiety level: {{low / medium / high}} 
+
+low — calm and matter-of-fact medium — somewhat anxious high — visibly worried, may emphasize worst symptoms 
+
+Rules: 
+
+1. Respond in natural spoken language as the patient. 2. Stay strictly in character based on the personality above. 3. Base your response only on the provided PHM data nodes — do not invent symptoms or medications. 4. Do not use medical jargon if health_literacy=low .5. If asked about a medication you never filled, express this naturally. 6. For symptom history, follow OPQRST: Onset, Provocation, Quality, Radiation, Severity, Timing. 7. Keep responses concise (2–5 sentences) unless probed for details. 8. Stay consistent with what was already disclosed in prior conversation turns. 
+
+[WithheldFlags — critical_withheld persona only] 
+
+Critical information (e.g. a recently stopped anticoagulant) is suppressed from initial responses. It is revealed only when the physician’s follow-up query explicitly targets the relevant drug. Once revealed, the information remains disclosed for all subsequent turns. """ 
+
+[User Prompt] =""" 
+
+[PHM Data Nodes] (retrieved and filtered by WithheldFlags before injection) 
+
+{{Relevant diagnoses, medications, lab trends, warning signs from PHM YAML}} 
+
+[Prior Conversation Context] 
+
+{{Symptom log from previous turns — ensures consistency across turns}} 
+
+[Clinical Query] Query type: one of: • get_chief_complaint — what brought the patient in today • get_symptom_history — symptom onset/quality/severity (OPQRST); query=<keyword> 
+
+• get_medication_adherence — adherence for a specific drug; drug=<name> 
+
+• get_functional_status — mobility, ADL, activity limitations • get_social_history — smoking, alcohol, living situation, occupation • get_pain_assessment — pain location, character, severity scale 
+
+Query: "{{symptom keyword or drug name, if applicable}}" 
+
+Respond as the patient: """ 
+
+Figure H6: Prompts for the Patient Agent 
+
+27 Checker Planner (Gate 1 — Plan Validation) 
+
+[System Prompt] =""" 
+
+You are a clinical planning validator. Given a user question, task type, tool source, and an action plan, check whether the plan is correct. Return JSON: {"valid": <bool>, "reason": "<brief explanation>"} 
+
+Validation rules: 
+
+1. Information Lookup: exactly 1 non-prepare_to_answer tool. 
+
+tool_source=ehr → EHR tool; tool_source=patient → patient.xxx tool. 2. Data Gathering: 2–4 non-prepare_to_answer tools. 
+
+tool_source=mixed : may combine EHR and patient.xxx tools. 3. Clinical Reasoning: ≥1 non-prepare_to_answer tool. Typically 1 tool fetching a clinical parameter; 2 allowed when correlating two data points. 4. Write/Update: exactly 1 write tool ( MedicationRequest.create , ServiceRequest.create , or Flag.create ) +
+
+prepare_to_answer . No read/search tools allowed. 5. All tools must exist in the Available Tools list. 6. subject_id must be present in EHR tool arguments when the patient is known. 7. Patient tools ( patient.xxx ): both subject_id and session_id required. 8. Tool arguments must match their schema (no missing required parameters). 9. The tools chosen must be relevant to the question asked. 10. Action_List must end with prepare_to_answer .Output only the JSON, no other text. """ 
+
+[User Prompt] =""" 
+
+User question: "{{user_question}}" 
+
+Task type: {{Information Lookup / Data Gathering / Clinical Reasoning / Write/Update}} 
+
+Tool source: {{ehr / patient / mixed / write}} 
+
+Plan: {{Action_List from Planner Agent}} 
+
+Available tools: {{tool name list}} 
+
+Is this plan correct and appropriate? Output JSON. """ 
+
+Two-stage validation: Rule-based structural checks run first (tool count per task type, subject_id presence, tool name membership). Only plans passing all structural checks proceed to the LLM semantic check. On valid=false , the Planner Agent is re-invoked with the rejection reason injected as a warning (up to 3 retries per turn). 
+
+Figure H7: Prompts for the Planner Checker Agent 
+
+28 Clinical Checker (Gate 3 — Answer Validation) 
+
+[System Prompt] =""" 
+
+You are a clinical quality reviewer. Given a clinician’s question, the tool observations (real EHR data), and the AI assistant’s answer, check for: 1. Hallucination: Does the answer cite values not present in the observations? 2. Contradiction: Does the answer contradict values in the observations? 3. Safety: Does the answer make any obviously dangerous clinical recommendations? 4. Completeness: Does the answer address the actual question asked? Return JSON: • valid : boolean • hallucination : boolean • contradiction : boolean • safety_issue : boolean • incomplete : boolean • issues : list of issue strings • score : integer 0–10 Be lenient — minor omissions are acceptable. Flag only clear errors. A safety_issue=true unconditionally sets 
+
+valid=false . """ 
+
+[User Prompt] =""" 
+
+Clinical Task: {{task_type / scenario}} 
+
+Question asked: "{{user_question}}" 
+
+[EHR Data Retrieved] (ground truth — truncated to 800 chars per tool call) 
+
+[{{tool_name}}]: {{FHIR R4 Bundle JSON}} 
+
+AI Assistant’s answer: 
+
+{{generated_answer}} 
+
+Validate this answer. Output JSON. """ 
+
+Retry logic: on valid=false , the failed answer is discarded and the Answer Agent is re-invoked (up to 3 retries). If all retries fail, the patient is skipped and the next candidate is selected. 
+
+Figure H8: Prompts for the Clinical Checker Agent 
+
+29 Answer Agent 
+
+[System Prompt — Information Lookup] =""" 
+
+You are an AI clinical assistant reporting EHR data to a clinician. 
+
+Format rules: 
+
+• Report only the directly retrieved value(s). • Format each item as: [Item]: [Value] [Unit] ( ↑/↓/normal) — one line per item. • No introductory sentences, no closing remarks, no clinical commentary unless the question explicitly asks for interpretation. • If data is missing: [Item]: not found in EHR 
+
+• Maximum 2 lines total. 
+
+""" 
+
+[System Prompt — Data Gathering] =""" 
+
+You are an AI clinical assistant synthesizing multi-source EHR findings. 
+
+Format rules: 
+
+• Bullet list, maximum 3 bullets: • [Finding]: [clinical implication] 
+
+• No introductory or closing sentences. • If a tool returned no data: • [item]: not available in EHR 
+
+Clinical scoring (when retrieved data contains scoring components) :• Compute score inline using the exact value-to-subscore lookup tables (SOFA, SIRS, MELD, Child-Pugh, CURB-65, CHA 2DS 2-VASc, HAS-BLED, Ranson, Cockcroft-Gault, Wells PE). • Format: component = value → X pts; sum total → category. • Critical: do not default to 2 pts for "abnormal" — look up the exact range. • List missing components as assumed 0 (note in answer). 
+
+""" 
+
+[System Prompt — Clinical Reasoning] =""" 
+
+You are an AI clinical assistant combining a retrieved patient value with clinical knowledge. 
+
+Format rules: 
+
+• Respond in exactly 2 sentences — no more. • Sentence 1: state the retrieved patient value with units and whether it is normal/abnormal. • Sentence 2: give one specific, actionable clinical recommendation based on that value. • Do not give generic advice. Do not add a third sentence. 
+
+""" 
+
+[User Prompt] =""" (shared across all task types) 
+
+Task type: {{Information Lookup / Data Gathering / Clinical Reasoning}} 
+
+[Conversation History] 
+
+{{Prior physician queries and assistant responses}} 
+
+[Tool Observations] (real MIMIC-IV data returned by executed tool calls) 
+
+[{{tool_name}}]: {{FHIR R4 Bundle JSON — ground truth EHR values}} 
+
+Physician question: "{{user_question}}" 
+
+Generate the clinical response: """ 
+
+Figure H9: Prompts for the Answer Agent 
+
+30 Rubric Generator Agent 
+
+[System Prompt — General Turns (IL / DG / CR)] =""" 
+
+You are a clinical benchmark rubric designer for an EHR-based QA evaluation. Given a clinical question, the EHR data retrieved, and a reference answer, generate 3–6 atomic rubric criteria to evaluate another LLM’s response. 
+
+Design rules: 
+
+1. Each item describes an outcome or clinical goal — never a tool call, API name, or process step. 2. Ground items in actual EHR values. 
+
+Write: “The answer correctly cites creatinine as 0.9 mg/dL” — not “mentions the creatinine value” 
+
+3. Each item must be independently evaluable as YES or NO .4. Include ≥1 reasoning or recommendation item (not just fact retrieval). 5. For safety-critical decisions, include one item checking a dangerous recommendation is absent .6. Do not mention tool names, function names, or system internals. 7. Clinical accuracy: verify the reference answer’s conclusions before echoing them. If a claim is debatable, write the rubric to check the reasoning process , not the specific conclusion. 8. Mixed/patient turns: cover both dimensions — (a) EHR data cited and interpreted correctly; (b) patient-reported symptoms/adherence quoted and clinically interpreted. 
+
+Item count by task type: 
+
+• IL: 3 items — value cited, value interpreted, conclusion stated • DG: 4–5 items — each value cited, relationship stated, conclusion • CR: 5–6 items — value cited, threshold applied, reasoning chain, recommendation, safety check • Mixed/Patient: 5–6 items — 2–3 on EHR findings, 2–3 on patient-reported findings Output only a valid JSON array of strings. No prose, no markdown. Example: ["The answer cites creatinine as 0.9 mg/dL", "The answer concludes no metformin adjustment is needed"] """ 
+
+[System Prompt — Write/Update Turns (T3 Action)] =""" 
+
+You design rubric items evaluating a model’s FHIR write tool call (MedicationRequest.create ,
+
+ServiceRequest.create , or Flag.create ). 
+
+Design rules: 
+
+1. Each item names a specific field of tool_call.arguments (e.g. medication , dose , route , frequency ,
+
+indication ). 2. Each item has a clear PASS / FAIL criterion checkable from the field value. 3. Explicitly allow clinically equivalent values (drug synonyms, dose ranges, frequency synonyms). 4. Include exactly one negative safety item that FAILS when a dangerous value is present (e.g. dose ≥ contraindicated threshold, wrong drug class, unjustified stat priority). 5. Do not write items about clinical reasoning or prose justification. 
+
+""" 
+
+[User Prompt] =""" (shared across all turn types) 
+
+Clinical question: "{{user_question}}" 
+
+[EHR Data Retrieved] 
+
+[{{tool_name}}]: {{actual FHIR R4 Bundle values used in the gold answer}} 
+
+[Reference Answer] 
+
+{{gold_answer generated by Answer Agent}} 
+
+Generate the rubric criteria: """ 
+
+Figure H10: Prompts for the Rubric Generation Agent 
+
+31 Medication Safety are comparatively easier (68.8% and 67.7%), and show the largest spread between strong and weak models. Notably, Qwen3.5-35B-A3B achieves 74.9% on Medication Safety—on par with GLM-5 and well above its overall aver-age (66.0%)—suggesting that some open-weight models have uneven scenario-level strengths. 
+
+I.2 Performance by Data Richness 
+
+Table I2 reports rubric scores across the three data richness tiers (High / Medium / Low EHR record completeness). Across all models, the performance gap between tiers is small—typically within 2–3 pp—indicating that current models do not strongly exploit additional EHR context when it is available. The counter-intuitive pattern that High-richness sessions score slightly above Low-richness ses-sions (65.1% vs. 64.1% on average) suggests that denser records provide useful disambiguation cues that offset the added complexity. Weaker models (Qwen3.5-9B, Qwen3.5-4B) show a monotone de-cline from High to Low, while stronger models exhibit no consistent trend, implying that record completeness matters more when overall capacity is limited. 
+
+I.3 Pass Rate Curves across Thresholds 
+
+Figure I1 plots Pass@Turn and Pass@Session as a function of threshold τ ∈ [0 , 1] for all fourteen models, shown separately for English and Chinese. Three patterns are consistent across both lan-guages. First, Pass@Session decays far faster than Pass@Turn as τ increases, reflecting the multiplica-tive penalty of requiring every turn in a session to pass: at τ =0 .60 , Claude-Opus-4.7 achieves 67.7% Pass@Turn (EN) but only 23.5% Pass@Session— a ratio of 0.35. By τ =0 .75 the ratio collapses further, with most models dropping below 10% Pass@Session even when their Pass@Turn re-mains above 40%. Second, the spread between strong and weak models is amplified at the session level: Qwen3.5-4B records 1.5% Pass@Session at 
+
+τ =0 .60 (EN), a gap of over 20 pp below Claude and GLM-5, despite a smaller difference at the turn level. Third, Chinese scores are consistently slightly higher than English at the same threshold across all models (e.g., Claude: 23.5% →26.9% and GLM-5: 21.3% →26.5% at τ =0 .60 ), a pattern that persists across the full τ range. 32 0.0 0.2 0.4 0.6 0.8 1.0  
+
+> Threshold
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Pass rate (%)
+> =.60 =.75
+
+English Pass@Turn       
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Threshold
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Pass rate (%)
+> =.60 =.75
+
+English Pass@Session       
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Threshold
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Pass rate (%)
+> =.60 =.75
+
+Chinese Pass@Turn       
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Threshold
+> 0
+> 20
+> 40
+> 60
+> 80
+> 100
+> Pass rate (%)
+> =.60 =.75
+
+Chinese Pass@Session 
+
+Pass@Turn and Pass@Session vs. Threshold (EN and ZH) 
+
+> Claude Opus 4.7
+> GPT-5.4 (high)
+> Gemini 3.1 Pro
+> Seed 1.8
+> GPT-5.4 Mini
+> GLM-5
+> Kimi K2.6
+> DS V4 Pro
+> DS V4 Flash
+> MiniMax M2.7
+> Qwen3.5-35B-A3B
+> Qwen3.5-27B
+> Qwen3.5-9B
+> Qwen3.5-4B
+
+Figure I1: Pass@Turn (left column) and Pass@Session (right column) as a function of threshold τ for English (top) and Chinese (bottom). Solid lines = closed-source models; dashed lines = open-weight models. Vertical dotted lines mark τ =0 .60 and τ =0 .75 .IL DG CR WU 
+
+Expl. 
+
+NA 
+
+PE 
+
+AE 
+
+> Impl. Type
+
+76 60 62 67 
+
+78 54 59 89 
+
+81 55 61 20 
+
+59 59 47 
+
+GPT-5.4-high 
+
+IL DG CR WU 
+
+83 66 71 63 
+
+96 51 65 91 
+
+89 53 66 30 
+
+56 62 89 
+
+Claude-Opus-4.7 
+
+IL DG CR WU 
+
+75 51 52 67 
+
+67 46 62 93 
+
+71 46 51 17 
+
+50 51 81 
+
+DS-V4-Flash 
+
+IL DG CR WU 
+
+79 59 55 66 
+
+100 51 59 96 
+
+82 50 58 30 
+
+44 55 92 
+
+DS-V4-Pro 
+
+IL DG CR WU 
+
+81 54 46 70 
+
+100 49 63 85 
+
+86 49 55 33 
+
+56 55 78 
+
+Qwen-3.5-35b-a3b 
+
+IL DG CR WU 
+
+Expl. 
+
+NA 
+
+PE 
+
+AE 
+
+> Impl. Type
+
+77 63 61 69 
+
+89 57 64 83 
+
+84 56 65 43 
+
+56 58 89 
+
+Gemini-3.1-Pro 
+
+IL DG CR WU 
+
+84 67 67 71 
+
+100 59 60 90 
+
+92 55 67 37 
+
+60 60 83 
+
+GLM-5 
+
+IL DG CR WU 
+
+81 65 66 75 
+
+89 56 60 95 
+
+79 52 63 40 
+
+56 63 89 
+
+Seed-1.8 
+
+IL DG CR WU 
+
+85 65 66 72 
+
+96 54 63 94 
+
+89 54 62 27 
+
+54 56 78 
+
+Kimi-K2.6 
+
+IL DG CR WU 
+
+85 58 58 76 
+
+74 51 57 95 
+
+87 50 60 33 
+
+53 56 83 
+
+MiniMax 2.7 
+
+IL DG CR WU 
+
+Task Type 
+
+Expl. 
+
+NA 
+
+PE 
+
+AE 
+
+> Impl. Type
+
+74 47 64 63 
+
+52 50 52 86 
+
+83 46 55 27 
+
+46 53 89 
+
+GPT-5.4-mini 
+
+IL DG CR WU 
+
+Task Type 
+
+77 49 53 69 
+
+89 46 56 77 
+
+85 46 50 37 
+
+43 49 81 
+
+Qwen3.5-27B 
+
+IL DG CR WU 
+
+Task Type 
+
+65 51 48 75 
+
+61 48 49 87 
+
+73 48 51 43 
+
+51 53 83 
+
+Qwen3.5-9B 
+
+IL DG CR WU 
+
+Task Type 
+
+70 36 38 70 
+
+59 33 38 90 
+
+61 32 40 53 
+
+30 33 83 
+
+Qwen3.5-4B 
+
+IL DG CR WU 
+
+Task Type 
+
+78 57 58 70 
+
+82 50 58 90 
+
+81 49 57 34 
+
+51 54 82 
+
+Average (14 models) 
+
+> 40
+> 50
+> 60
+> 70
+> 80
+> 90
+> Rubric Score (%)
+
+Rubric Score: Implicitness type × Task Type (ZH) 
+
+Figure I2: Rubric score (%) by implicitness type × task type (ZH), for 14 models and their average. 
+
+33 Model English Chinese Diag. Dischg. Med. Treat. Avg Diag. Dischg. Med. Treat. Avg Closed-Source 
+
+Claude-Opus-4.7 67.7 60.8 71.1 73.4 68.3 70.1 60.2 71.8 77.5 69.9 GPT-5.4-high 62.2 60.6 69.3 67.9 65.0 66.7 62.8 68.1 68.0 66.4 Gemini-3.1-Pro 58.9 57.5 63.7 68.3 62.1 66.0 64.1 69.4 72.5 68.0 Seed-1.8 67.8 60.1 68.2 73.4 67.4 69.5 63.4 68.1 73.7 68.7 GPT-5.4-mini 56.3 52.0 60.3 62.4 57.8 61.6 56.1 63.6 64.8 61.5 
+
+Open-Weight 
+
+GLM-5 67.6 61.6 74.6 73.7 69.4 68.9 64.7 75.1 77.4 71.5 Kimi-K2.6 64.7 61.8 71.3 74.3 68.0 65.5 63.2 74.9 75.9 69.9 DS-V4-Pro 65.2 59.3 72.6 75.1 68.1 62.4 60.3 66.3 70.2 64.8 DS-V4-Flash 62.1 54.0 70.3 70.7 64.3 54.6 58.7 63.5 65.5 60.6 MiniMax-M2.7 65.7 57.3 68.1 69.7 65.2 68.5 60.4 71.3 73.0 68.3 Qwen3.5-35B-A3B 61.7 58.4 75.1 70.0 66.3 62.2 54.5 74.7 71.4 65.7 Qwen3.5-27B 57.8 52.7 67.4 61.8 59.9 61.8 50.4 68.5 66.4 61.8 Qwen3.5-9B 57.1 53.9 58.0 57.6 56.7 59.3 55.1 61.3 60.8 59.1 Qwen3.5-4B 47.8 51.1 55.5 53.8 52.0 48.2 46.1 52.3 55.8 50.6 
+
+Table I1: Rubric score (%) per clinical scenario, English and Chinese separately. Diag.=Diagnostic Workup, Dischg.=Discharge Planning, Med.=Medication Safety, Treat.=Treatment Response. Numbers in red and blue are the best and second-best per column within each language group.                                                                                                                          
+
+> Model English Chinese High Med. Low Avg High Med. Low Avg Closed-Source
+> Claude-Opus-4.7 69.3 67.7 67.8 68.3 71.2 67.5 70.9 69.9 GPT-5.4-high 64.8 65.5 64.6 65.0 66.8 65.4 67.0 66.4 Gemini-3.1-Pro 62.3 61.2 62.8 62.1 67.1 68.3 68.6 68.0 Seed-1.8 66.7 67.6 68.0 67.4 68.1 68.0 69.9 68.7 GPT-5.4-mini 59.8 57.1 56.4 57.8 64.8 59.2 60.7 61.5
+> Open-Weight
+> GLM-5 71.0 69.1 68.2 69.4 72.7 70.3 71.6 71.5 Kimi-K2.6 69.4 68.1 66.5 68.0 71.0 68.9 69.7 69.9 DS-V4-Pro 68.3 67.2 68.7 68.1 67.0 61.5 65.9 64.8 DS-V4-Flash 65.7 63.1 64.0 64.3 62.2 62.0 57.6 60.6 MiniMax-M2.7 64.9 64.4 66.3 65.2 69.4 68.0 67.6 68.3 Qwen3.5-35B-A3B 66.4 65.7 66.9 66.3 65.1 66.2 65.8 65.7 Qwen3.5-27B 62.2 58.2 59.4 59.9 62.7 61.0 61.7 61.8 Qwen3.5-9B 58.4 55.1 56.5 56.7 60.4 58.0 58.9 59.1 Qwen3.5-4B 52.9 51.0 52.2 52.0 51.6 50.2 49.9 50.6
+
+Table I2: Rubric score (%) per data richness tier, English and Chinese separately. High / Medium / Low correspond to EHR record completeness levels 1–3. Numbers in red and blue are the best and second-best per column within each language group. 
+
+34
