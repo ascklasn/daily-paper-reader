@@ -6,80 +6,83 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-19
-- 运行时间：2026-06-19 22:15:05 UTC
+- 最新运行日期：2026-06-20
+- 运行时间：2026-06-20 21:40:46 UTC
 - 运行状态：成功
-- 本次总论文数：20
+- 本次总论文数：21
 - 精读区：8
-- 速读区：12
+- 速读区：13
 
 ### 今日简报（AI）
-今日精读聚焦病理学跨尺度推理视觉语言模型与基础模型驱动的细胞分割及肿瘤微环境表征，速读覆盖弱监督分割、皮肤病变分类及组学基础设施。推荐优先关注两篇9.0分工作：病理视觉语言模型的跨尺度推理增强方法，以及通用多类细胞分割与LLM驱动的微环境分析框架。建议普通读者后续留意弱监督层次校正和图变换器在医学图像中的融合趋势。
-- 详情：[/202606/19/README](/202606/19/README)
+今日共处理21篇论文，其中精读8篇、速读13篇。最值得关注的是多模态病理基础模型预测免疫标志物（满分10分）和轻量级推理AI诊断罕见病（9分）。建议聚焦AI在精准医疗与罕见病辅助诊断中的实践进展。
+- 详情：[/202606/20/README](/202606/20/README)
 
 ### 精读区论文标签
-1. [Enhancing Pathological VLMs with Cross-scale Reasoning](/202606/19/2606.17412v2-enhancing-pathological-vlms-with-cross-scale-reasoning)  
+1. [Predicting Immune Biomarkers with MultiModal Mixture-of-Expert Pathology Foundation Models Empowers Precision Oncology](/202606/20/2606.18123v1-predicting-immune-biomarkers-with-multimodal-mixture-of-expert-pathology-foundation-models-empowers-precision-oncology)  
+   标签：评分：10.0/10、query:hmm
+   evidence：多模态混合专家病理基础模型预测免疫标志物
+2. [LiteOdyssey: A Lightweight Reasoning AI Agent for Interpretable Rare-Disease Diagnosis](/202606/20/2606.16149v1-liteodyssey-a-lightweight-reasoning-ai-agent-for-interpretable-rare-disease-diagnosis)  
+   标签：评分：9.0/10、query:agent
+   evidence：轻量级推理AI代理用于罕见病诊断
+3. [Water oxidation-driven histidine dioxidation enables probe-free proximity labeling](/202606/20/biorxiv-10-64898-2026-06-10-731337-v1-water-oxidation-driven-histidine-dioxidation-enables-probe-free-proximity-labeling)  
+   标签：评分：9.0/10、query:spatialprot
+   evidence：无探针邻近标记用于空间蛋白组学
+4. [Morpho-FM: spatial molecular reconstruction from routine H&E histology using transcriptomic foundation-model priors](/202606/20/biorxiv-10-64898-2026-06-15-732498-v1-morpho-fm-spatial-molecular-reconstruction-from-routine-he-histology-using-transcriptomic-foundation-model-priors)  
    标签：评分：9.0/10、query:hmm
-   evidence：病理视觉语言模型跨尺度推理增强
-2. [SegTME-UNI2: A Foundation Model-Based Framework for Generalisable Multiclass Cell Segmentation and LLM-Driven Tumour Microenvironment Characterisation in Histopathology](/202606/19/2606.17702v1-segtme-uni2-a-foundation-model-based-framework-for-generalisable-multiclass-cell-segmentation-and-llm-driven-tumour-microenvironment-characterisation-in-histopathology)  
-   标签：评分：9.0/10、query:hmm
-   evidence：组织病理学中的多类细胞分割与LLM驱动的肿瘤微环境表征
-3. [Predicting Immune Biomarkers with MultiModal Mixture-of-Expert Pathology Foundation Models Empowers Precision Oncology](/202606/19/2606.18123v1-predicting-immune-biomarkers-with-multimodal-mixture-of-expert-pathology-foundation-models-empowers-precision-oncology)  
-   标签：评分：9.0/10、query:hmm
-   evidence：用于免疫生物标志物预测的多模态病理基础模型
-4. [Semantic-Anchored Evidential Fusion for Domain-Robust Whole-Slide Survival Analysis](/202606/19/2606.19966v1-semantic-anchored-evidential-fusion-for-domain-robust-whole-slide-survival-analysis)  
-   标签：评分：9.0/10、query:hmm
-   evidence：全切片图像生存分析，结合领域鲁棒语义锚定
-5. [Configurable Clinical Information Extraction with Agentic RAG: What Works, What Breaks, and Why](/202606/19/2606.19602v1-configurable-clinical-information-extraction-with-agentic-rag-what-works-what-breaks-and-why)  
+   evidence：利用转录组基础模型从H&E图像预测空间基因表达，多模态组织病理学方法
+5. [APOE4 Drives Uniquely Dysfunctional Human Microglial States in Alzheimer's Disease](/202606/20/biorxiv-10-64898-2026-06-18-733295-v1-apoe4-drives-uniquely-dysfunctional-human-microglial-states-in-alzheimers-disease)  
+   标签：评分：9.0/10、query:spatialprot
+   evidence：阿尔茨海默病小胶质细胞的空间分辨蛋白组分析
+6. [Are LLMs Ready to Assist Physicians? PhysAssistBench for Interactive Doctor-Patient-EHR Assistance](/202606/20/2606.18613v2-are-llms-ready-to-assist-physicians-physassistbench-for-interactive-doctor-patient-ehr-assistance)  
    标签：评分：8.0/10、query:agent
-   evidence：用于临床信息提取的Agent RAG管线
-6. [Prompt, Plan, Extract: Zero-Shot Agentic LLMs Workflows for Lung Pathology Extraction from Clinical Narratives](/202606/19/2606.19852v1-prompt-plan-extract-zero-shot-agentic-llms-workflows-for-lung-pathology-extraction-from-clinical-narratives)  
+   evidence：交互式医患电子病历辅助基准与智能体患者
+7. [MedRLM: Recursive Multimodal Health Intelligence for Long-Context Clinical Reasoning, Sensor-Guided Screening, Evidence-Grounded Decision Support, and Community-to-Tertiary Referral Optimization](/202606/20/2606.20164v1-medrlm-recursive-multimodal-health-intelligence-for-long-context-clinical-reasoning-sensor-guided-screening-evidence-grounded-decision-support-and-community-to-tertiary-referral-optimization)  
    标签：评分：8.0/10、query:agent
-   evidence：用于病理报告提取的零样本智能体LLM工作流
-7. [QG-MIL: A Gated Transformer Aggregator for Domain-Agnostic Multiple Instance Learning in Medical Imaging](/202606/19/2606.20027v1-qg-mil-a-gated-transformer-aggregator-for-domain-agnostic-multiple-instance-learning-in-medical-imaging)  
-   标签：评分：8.0/10、query:hmm
-   evidence：用于全切片病理多实例学习的门控变换器聚合器
-8. [MedRLM: Recursive Multimodal Health Intelligence for Long-Context Clinical Reasoning, Sensor-Guided Screening, Evidence-Grounded Decision Support, and Community-to-Tertiary Referral Optimization](/202606/19/2606.20164v1-medrlm-recursive-multimodal-health-intelligence-for-long-context-clinical-reasoning-sensor-guided-screening-evidence-grounded-decision-support-and-community-to-tertiary-referral-optimization)  
+   evidence：用于临床决策支持和推理的递归多模态框架
+8. [scIsoAgent enables autonomous isoform-resolved characterization and sequence-informed interpretation of long-read single-cell transcriptomes](/202606/20/biorxiv-10-64898-2026-06-11-731519-v1-scisoagent-enables-autonomous-isoform-resolved-characterization-and-sequence-informed-interpretation-of-long-read-single-cell-transcriptomes)  
    标签：评分：8.0/10、query:agent
-   evidence：用于临床决策支持的递归多模态LLM框架
+   evidence：基于LLM的科学智能体用于长读单细胞转录组
 
 ### 速读区论文标签
-1. [Single-Stage Hierarchical Rectification for Weakly Supervised Histopathology Segmentation](/202606/19/2606.20250v1-single-stage-hierarchical-rectification-for-weakly-supervised-histopathology-segmentation)  
+1. [Trimodal Glioma Representation Alignment via Volumetric Contrastive Learning](/202606/20/2606.14568v1-trimodal-glioma-representation-alignment-via-volumetric-contrastive-learning)  
    标签：评分：8.0/10、query:hmm
-   evidence：用于全切片图像的单阶段弱监督组织病理学分割
-2. [Geometry-Aware Superpixel Graph Transformer with Metadata for Skin Lesion Classification](/202606/19/2606.20390v1-geometry-aware-superpixel-graph-transformer-with-metadata-for-skin-lesion-classification)  
-   标签：评分：8.0/10、query:hmm
-   evidence：基于图的多模态皮肤病变分类，融合元数据
-3. [OmicOS: A Comprehensive Omics Ecosystem Infrastructure and Agent System for the AI Era](/202606/19/biorxiv-10-64898-2026-06-11-731775-v1-omicos-a-comprehensive-omics-ecosystem-infrastructure-and-agent-system-for-the-ai-era)  
+   evidence：使用组织病理学、基因表达和MRI多模态对齐，空间整合方法
+2. [Cross-linked volumetric DNA microscopy for dense molecular-network phenotyping in intact tissue](/202606/20/biorxiv-10-64898-2026-06-01-729154-v2-cross-linked-volumetric-dna-microscopy-for-dense-molecular-network-phenotyping-in-intact-tissue)  
+   标签：评分：8.0/10、query:spatialprot
+   evidence：新型体积分子表型方法，利用DNA编码蛋白质基质网络实现分子层面空间分析
+3. [Orion: Towards Lab Automation with Computer-Using Agents](/202606/20/biorxiv-10-64898-2026-06-13-732095-v1-orion-towards-lab-automation-with-computer-using-agents)  
    标签：评分：8.0/10、query:agent
-   evidence：组学生态系统代理系统支持自主生物学
-4. [MedEasy: Designing AI Standardized Patients for Clinical Consultation Training](/202606/19/2606.17512v1-medeasy-designing-ai-standardized-patients-for-clinical-consultation-training)  
+   evidence：用于生物医学图像分析和实验室自动化的计算机操作智能体
+4. [Vessel Spatial Analysis (VeSpA): a tool for whole slide image segmentation, morphometry, and QuPath extension.](/202606/20/biorxiv-10-64898-2026-06-15-732366-v1-vessel-spatial-analysis-vespa-a-tool-for-whole-slide-image-segmentation-morphometry-and-qupath-extension)  
+   标签：评分：8.0/10、query:spatialprot
+   evidence：VeSpA工具用于WSI中血管自动分割和空间分析
+5. [ContinuumCellAgent: A Framework-Guided Agent for Long-Horizon Scientific Research](/202606/20/biorxiv-10-64898-2026-06-15-732409-v1-continuumcellagent-a-framework-guided-agent-for-long-horizon-scientific-research)  
+   标签：评分：8.0/10、query:agent
+   evidence：自主智能体框架用于科学研究，符合医学AI智能体和工作流自动化需求
+6. [Human-on-the-Bridge: Scalable Evaluation for AI Agents](/202606/20/2606.16871v1-human-on-the-bridge-scalable-evaluation-for-ai-agents)  
    标签：评分：7.0/10、query:agent
-   evidence：临床咨询训练的多代理系统
-5. [Are LLMs Ready to Assist Physicians? PhysAssistBench for Interactive Doctor-Patient-EHR Assistance](/202606/19/2606.18613v2-are-llms-ready-to-assist-physicians-physassistbench-for-interactive-doctor-patient-ehr-assistance)  
+   evidence：Human-on-the-Bridge是一种可扩展的AI代理评估范式，可用于临床决策支持代理的评估
+7. [MedEasy: Designing AI Standardized Patients for Clinical Consultation Training](/202606/20/2606.17512v1-medeasy-designing-ai-standardized-patients-for-clinical-consultation-training)  
    标签：评分：7.0/10、query:agent
-   evidence：面向交互式医疗辅助的基准测试，包含智能体患者模拟
-6. [DOMINO: graph diffusion learning identifies spatial domain structures with enhanced accuracy and scalability](/202606/19/biorxiv-10-64898-2025-12-15-694536-v2-domino-graph-diffusion-learning-identifies-spatial-domain-structures-with-enhanced-accuracy-and-scalability)  
-   标签：评分：7.0/10、query:spatialprot
-   evidence：图扩散学习用于空间转录组学领域检测，方法可迁移至空间蛋白质组学
-7. [Cross-linked volumetric DNA microscopy for dense molecular-network phenotyping in intact tissue](/202606/19/biorxiv-10-64898-2026-06-01-729154-v2-cross-linked-volumetric-dna-microscopy-for-dense-molecular-network-phenotyping-in-intact-tissue)  
-   标签：评分：7.0/10、query:spatialprot
-   evidence：体积DNA显微镜用于完整组织分子表型分析
-8. [Orion: Towards Lab Automation with Computer-Using Agents](/202606/19/biorxiv-10-64898-2026-06-13-732095-v1-orion-towards-lab-automation-with-computer-using-agents)  
+   evidence：临床咨询训练的多智能体系统
+8. [BioHarness: Substrate-Aware Evidence Assembly for Biomedical Question Answering across Literature, Knowledge Bases, and Biological Atlases](/202606/20/2606.19396v1-bioharness-substrate-aware-evidence-assembly-for-biomedical-question-answering-across-literature-knowledge-bases-and-biological-atlases)  
    标签：评分：7.0/10、query:agent
-   evidence：用于生物医学图像分析和实验室自动化的计算机使用AI智能体
-9. [sebis at CRF Filling 2026: A Two-Stage Local LLM Pipeline for Medical CRF Filling](/202606/19/2606.13082v1-sebis-at-crf-filling-2026-a-two-stage-local-llm-pipeline-for-medical-crf-filling)  
-   标签：评分：6.0/10、query:agent
-   evidence：两阶段本地LLM管道用于医疗CRF填充
-10. [FlowBench: separating planning, fault recovery and interpretation in agentic bioinformatics](/202606/19/biorxiv-10-64898-2026-06-12-731844-v1-flowbench-separating-planning-fault-recovery-and-interpretation-in-agentic-bioinformatics)  
-   标签：评分：6.0/10、query:agent
-   evidence：生物信息学代理基准和模块化框架，可迁移到医学AI代理
-11. [Correcting spatial transcriptomics data affected by a prevalent transcript leakage problem across platforms, species, and tissues](/202606/19/biorxiv-10-64898-2026-06-13-732076-v1-correcting-spatial-transcriptomics-data-affected-by-a-prevalent-transcript-leakage-problem-across-platforms-species-and-tissues)  
+   evidence：基于LLM的底物感知生物医学问答证据组装
+9. [Configurable Clinical Information Extraction with Agentic RAG: What Works, What Breaks, and Why](/202606/20/2606.19602v1-configurable-clinical-information-extraction-with-agentic-rag-what-works-what-breaks-and-why)  
+   标签：评分：7.0/10、query:agent
+   evidence：基于智能体RAG的临床信息提取
+10. [HadBalance: A Plug-and-Play Unified Global Geometric Prior Framework for Generalizable Biomedical Segmentation](/202606/20/2606.15976v1-hadbalance-a-plug-and-play-unified-global-geometric-prior-framework-for-generalizable-biomedical-segmentation)  
+   标签：评分：6.0/10、query:hmm
+   evidence：HadBalance提供统一的几何先验用于可泛化生物医学分割，可应用于病理图像分析
+11. [Beyond Visual Cues: CoT-Enhanced Reasoning for Semi-supervised Medical Image Segmentation](/202606/20/2606.17958v1-beyond-visual-cues-cot-enhanced-reasoning-for-semi-supervised-medical-image-segmentation)  
+   标签：评分：6.0/10、query:hmm
+   evidence：链式推理增强的半监督医学图像分割
+12. [Scalable Training of Spatially Grounded 2D Vision-Language Models for Radiology](/202606/20/2606.20477v1-scalable-training-of-spatially-grounded-2d-vision-language-models-for-radiology)  
+   标签：评分：6.0/10、query:hmm
+   evidence：训练空间接地视觉语言模型用于放射学，可迁移至病理学
+13. [Cellfm-datasets: A Unified Data Infrastructure for Single-Cell and Spatial Transcriptomics Foundation Model Pretraining](/202606/20/biorxiv-10-64898-2026-06-11-731508-v1-cellfm-datasets-a-unified-data-infrastructure-for-single-cell-and-spatial-transcriptomics-foundation-model-pretraining)  
    标签：评分：6.0/10、query:spatialprot
-   evidence：空间转录组数据校正，与空间组学整合相关
-12. [Deciphering shared and divergent tissue architectures from cross-species spatial transcriptomics](/202606/19/biorxiv-10-64898-2026-06-16-732760-v1-deciphering-shared-and-divergent-tissue-architectures-from-cross-species-spatial-transcriptomics)  
-   标签：评分：6.0/10、query:spatialprot
-   evidence：空间转录组整合方法可迁移至空间蛋白组学
+   evidence：用于单细胞和空间转录组基础模型预训练的数据基础设施
 
 
 <div class="dpr-home-promo-card">
