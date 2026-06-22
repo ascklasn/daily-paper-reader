@@ -6,65 +6,68 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-21
-- 运行时间：2026-06-21 21:04:44 UTC
+- 最新运行日期：2026-06-22
+- 运行时间：2026-06-22 22:47:20 UTC
 - 运行状态：成功
-- 本次总论文数：15
-- 精读区：6
-- 速读区：9
+- 本次总论文数：16
+- 精读区：8
+- 速读区：8
 
 ### 今日简报（AI）
-今日推荐15篇论文，精读2篇聚焦大模型在临床诊疗中的评估应用。最值得关注《AIPatient Arena》和《PhysAssistBench》，分别从端到端诊疗流程和医生辅助能力两方面评测LLM表现。建议读者重点了解这些评估基准，为临床AI落地提供参考。
-- 详情：[/202606/21/README](/202606/21/README)
+今日精选16篇论文，重点解析空间转录组学与蛋白质组学两大突破；最值得关注：空间域结构识别新方法DOMINO实现高精度可扩展，零样本框架πDIA-CLIP高效处理蛋白质异质性数据；建议读者聚焦这些工具在生物医学研究中的落地应用，尤其是结合无光学成像与智能代理加速分析。
+- 详情：[/202606/22/README](/202606/22/README)
 
 ### 精读区论文标签
-1. [AIPatient Arena: EHR-grounded evaluation of large language models in end-to-end clinical consultation workflows](/202606/21/2606.17474v1-aipatient-arena-ehr-grounded-evaluation-of-large-language-models-in-end-to-end-clinical-consultation-workflows)  
+1. [DOMINO: graph diffusion learning identifies spatial domain structures with enhanced accuracy and scalability](/202606/22/biorxiv-10-64898-2025-12-15-694536-v2-domino-graph-diffusion-learning-identifies-spatial-domain-structures-with-enhanced-accuracy-and-scalability)  
+   标签：评分：9.0/10、query:spatialprot
+   evidence：图扩散学习用于空间转录组学中的空间域检测
+2. [πDIA-CLIP: efficient identification of highly heterogeneous proteomics data via a generalized zero-shot framework](/202606/22/biorxiv-10-64898-2026-02-09-704949-v4-dia-clip-efficient-identification-of-highly-heterogeneous-proteomics-data-via-a-generalized-zero-shot-framework)  
+   标签：评分：9.0/10、query:spatialprot
+   evidence：针对空间蛋白组学的零样本DIA分析框架
+3. [Cross-linked volumetric DNA microscopy for dense molecular-network phenotyping in intact tissue](/202606/22/biorxiv-10-64898-2026-06-01-729154-v2-cross-linked-volumetric-dna-microscopy-for-dense-molecular-network-phenotyping-in-intact-tissue)  
+   标签：评分：9.0/10、query:spatialprot
+   evidence：提出xVDM方法在完整组织中进行包括蛋白质和转录本的密集分子网络表型分析
+4. [OmicOS: A Comprehensive Omics Ecosystem Infrastructure and Agent System for the AI Era](/202606/22/biorxiv-10-64898-2026-06-11-731775-v1-omicos-a-comprehensive-omics-ecosystem-infrastructure-and-agent-system-for-the-ai-era)  
    标签：评分：9.0/10、query:agent
-   evidence：基于电子病历的临床咨询工作流中LLM评估框架
-2. [Are LLMs Ready to Assist Physicians? PhysAssistBench for Interactive Doctor-Patient-EHR Assistance](/202606/21/2606.18613v2-are-llms-ready-to-assist-physicians-physassistbench-for-interactive-doctor-patient-ehr-assistance)  
-   标签：评分：9.0/10、query:agent
-   evidence：医学AI代理：用于医生-患者-EHR交互辅助的基准
-3. [DeepRoot: A KG-Coordinated Multi-Agent System for Therapeutic Reasoning over Historical Medical Texts](/202606/21/2606.15931v1-deeproot-a-kg-coordinated-multi-agent-system-for-therapeutic-reasoning-over-historical-medical-texts)  
+   evidence：面向组学的综合智能体系统基础设施
+5. [Morpho-FM: spatial molecular reconstruction from routine H&E histology using transcriptomic foundation-model priors](/202606/22/biorxiv-10-64898-2026-06-15-732498-v1-morpho-fm-spatial-molecular-reconstruction-from-routine-he-histology-using-transcriptomic-foundation-model-priors)  
+   标签：评分：9.0/10、query:spatialprot
+   evidence：利用转录组基础模型从H&E图像重建空间分子图谱
+6. [Multi-Agent Transactive Memory](/202606/22/2606.19911v1-multi-agent-transactive-memory)  
    标签：评分：8.0/10、query:agent
-   evidence：多代理LLM系统用于历史医学文本的治疗推理
-4. [SING: Synthetic Intention Graph for Scalable Active Tool Discovery in LLM Agents](/202606/21/2606.16591v2-sing-synthetic-intention-graph-for-scalable-active-tool-discovery-in-llm-agents)  
+   evidence：多智能体系统与知识共享；面向智能体群体的检索增强生成
+7. [Trustworthy agentic genomics through versioned skill libraries](/202606/22/biorxiv-10-64898-2026-06-11-731523-v1-trustworthy-agentic-genomics-through-versioned-skill-libraries)  
    标签：评分：8.0/10、query:agent
-   evidence：LLM代理工具发现
-5. [ToolChain-CRC: Conformal Risk Control for Agentic AI Under Retrieval and Tool-Use Drift](/202606/21/2606.18467v1-toolchain-crc-conformal-risk-control-for-agentic-ai-under-retrieval-and-tool-use-drift)  
-   标签：评分：8.0/10、query:agent
-   evidence：检索和工具使用漂移下代理AI的共形风险控制
-6. [Configurable Clinical Information Extraction with Agentic RAG: What Works, What Breaks, and Why](/202606/21/2606.19602v1-configurable-clinical-information-extraction-with-agentic-rag-what-works-what-breaks-and-why)  
-   标签：评分：8.0/10、query:agent
-   evidence：用于临床信息提取的代理RAG管道，可配置工作流
+   evidence：评估临床基因组学中LLM代理的可信度
+8. [Trajectory inference of epithelial-centered neighborhood profiles reconstructs a pseudo-temporal continuum in idiopathic pulmonary fibrosis](/202606/22/biorxiv-10-64898-2026-06-15-732243-v1-trajectory-inference-of-epithelial-centered-neighborhood-profiles-reconstructs-a-pseudo-temporal-continuum-in-idiopathic-pulmonary-fibrosis)  
+   标签：评分：8.0/10、query:spatialprot
+   evidence：使用Xenium平台对肺纤维化组织进行空间转录组分析推断上皮邻域轨迹
 
 ### 速读区论文标签
-1. [SING: Synthetic Intention Graph for Scalable Active Tool Discovery in LLM Agents](/202606/21/2606.16591v1-sing-synthetic-intention-graph-for-scalable-active-tool-discovery-in-llm-agents)  
+1. [Optics-free reconstruction of shapes, images and volumes with DNA barcode proximity graphs](/202606/22/biorxiv-10-1101-2024-08-06-606834-v3-optics-free-reconstruction-of-shapes-images-and-volumes-with-dna-barcode-proximity-graphs)  
+   标签：评分：7.0/10、query:spatialprot
+   evidence：通过DNA条形码邻近图实现空间基因组学
+2. [FlowBench: separating planning, fault recovery and interpretation in agentic bioinformatics](/202606/22/biorxiv-10-64898-2026-06-12-731844-v1-flowbench-separating-planning-fault-recovery-and-interpretation-in-agentic-bioinformatics)  
    标签：评分：7.0/10、query:agent
-   evidence：大语言模型智能体工具发现框架，支持可扩展工具选择
-2. [Treatment Response Optimized Clinical Decision Support AI System via Digital Twin Simulation](/202606/21/2606.17405v1-treatment-response-optimized-clinical-decision-support-ai-system-via-digital-twin-simulation)  
+   evidence：基于LLM的智能体生物信息学基准和模块化框架
+3. [ContinuumCellAgent: A Framework-Guided Agent for Long-Horizon Scientific Research](/202606/22/biorxiv-10-64898-2026-06-15-732409-v1-continuumcellagent-a-framework-guided-agent-for-long-horizon-scientific-research)  
    标签：评分：7.0/10、query:agent
-   evidence：使用数字孪生和强化学习的临床决策支持AI系统，与CDSS和医疗AI代理相关
-3. [MedEasy: Designing AI Standardized Patients for Clinical Consultation Training](/202606/21/2606.17512v1-medeasy-designing-ai-standardized-patients-for-clinical-consultation-training)  
-   标签：评分：7.0/10、query:agent
-   evidence：用于临床咨询培训的多代理系统，包含AI标准化患者
-4. [Mind Companion: An Embodied Conversational Agent for Process-Based Psychotherapy](/202606/21/2606.17789v1-mind-companion-an-embodied-conversational-agent-for-process-based-psychotherapy)  
-   标签：评分：7.0/10、query:agent
-   evidence：基于LLM的具身对话代理用于心理治疗，属于医疗AI代理
-5. [Compositional Skill Routing for LLM Agents: Decompose, Retrieve, and Compose](/202606/21/2606.18051v1-compositional-skill-routing-for-llm-agents-decompose-retrieve-and-compose)  
-   标签：评分：7.0/10、query:agent
-   evidence：适用于医学领域的LLM智能体组合技能路由框架
-6. [Unified Multimodal Model for Brain MRI Imputation and Understanding](/202606/21/2606.16484v1-unified-multimodal-model-for-brain-mri-imputation-and-understanding)  
-   标签：评分：6.0/10、query:hmm
-   evidence：用于脑MRI填补和理解的统一多模态模型
-7. [Distributed General-Purpose Agent Networks: Architecture, Key Mechanisms, and Prototypes](/202606/21/2606.17368v1-distributed-general-purpose-agent-networks-architecture-key-mechanisms-and-prototypes)  
+   evidence：用于科学研究的自主智能体；框架引导的智能体架构
+4. [From Specification to Execution: AI Assisted Scientific Workflow Management](/202606/22/2606.18425v1-from-specification-to-execution-ai-assisted-scientific-workflow-management)  
    标签：评分：6.0/10、query:agent
-   evidence：使用LLM的分布式通用代理网络
-8. [Confidence Calibration for Multimodal LLMs: An Empirical Study through Medical VQA](/202606/21/2606.19950v1-confidence-calibration-for-multimodal-llms-an-empirical-study-through-medical-vqa)  
+   evidence：基于LLM的科学工作流生成与自动调试，可应用于医学工作流自动化
+5. [Scalable Training of Spatially Grounded 2D Vision-Language Models for Radiology](/202606/22/2606.20477v1-scalable-training-of-spatially-grounded-2d-vision-language-models-for-radiology)  
    标签：评分：6.0/10、query:hmm
-   evidence：医学多模态大模型的置信度校准研究
-9. [PACMS: Submodular Context Selection as a Pluggable Engine for LLM Agents](/202606/21/2606.20047v1-pacms-submodular-context-selection-as-a-pluggable-engine-for-llm-agents)  
+   evidence：用于放射学的空间基础视觉语言模型
+6. [Cellfm-datasets: A Unified Data Infrastructure for Single-Cell and Spatial Transcriptomics Foundation Model Pretraining](/202606/22/biorxiv-10-64898-2026-06-11-731508-v1-cellfm-datasets-a-unified-data-infrastructure-for-single-cell-and-spatial-transcriptomics-foundation-model-pretraining)  
+   标签：评分：6.0/10、query:spatialprot
+   evidence：空间转录组学数据基础设施；空间组学基础模型预训练
+7. [AutoZyme: An Autonomous Agentic Framework to Optimize Bioinformatics Software](/202606/22/biorxiv-10-64898-2026-06-12-731250-v1-autozyme-an-autonomous-agentic-framework-to-optimize-bioinformatics-software)  
    标签：评分：6.0/10、query:agent
-   evidence：针对LLM代理的子模上下文选择，与医疗代理架构相关
+   evidence：自主代理框架用于科学软件优化，可迁移至医学AI代理领域
+8. [BioBrain: A Multi-Agent Framework for Natural Language Driven Quantitative Microscopy Data Analysis](/202606/22/biorxiv-10-64898-2026-06-17-732700-v1-biobrain-a-multi-agent-framework-for-natural-language-driven-quantitative-microscopy-data-analysis)  
+   标签：评分：6.0/10、query:agent
+   evidence：自然语言驱动的显微镜数据分析多智能体框架
 
 
 <div class="dpr-home-promo-card">

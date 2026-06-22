@@ -1,0 +1,2327 @@
+Title: Morpho‑FM: spatial molecular reconstruction from routine H&E histology using transcriptomic foundation-model priors
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.06.15.732498v1.full.pdf
+
+Number of Pages: 42
+
+Markdown Content:
+Morpho‑FM: spatial molecular reconstruction from routine H&E 1
+
+histology using transcriptomic foundation -model priors 2
+
+Jinjin Huang 1, Xiao Feng 1, Lianghu  Qu 1, Lingling Zheng 1,* 
+
+3
+
+4 
+
+> 1
+
+MOE Key Laboratory of Gene Function and Regulation, State Key Laboratory for 5
+
+Biocontrol, Innovation Center for Evolutionary Synthetic Biology, School of Life 6
+
+Sciences / School of Agriculture and Biotechnology,  Sun Yat -sen University Shenzhen 7
+
+Campus, Shenzhen  518107 , China .8
+
+9
+
+*Correspondence: Lingling Zheng (zhengll33@mail.sysu.edu.cn; Tel. +86 -0755 -10 
+
+23260262) 11 
+
+12 
+
+13 
+
+Abstract 14 
+
+Routine haematoxylin and eosin (H&E) histology captures tissue architecture at clinical 15 
+
+scale, but lacks a direct molecular readout of the transcriptional programmes that 16 
+
+organise tumour epithelium, stroma, vasculature and immune compartments.  Spatial 17 
+
+transcriptomics provides this context, yet cost, workflow complexity and sparse 18 
+
+sampling limit routine use.  Most existing histology -to -expression models are trained de 19 
+
+novo on small paired cohorts and therefore remain weakly constrained when 20 
+
+extrapolating from sparse measurements to dense, tissue -wide molecular maps.  Here 21 
+
+we introduce Morpho -FM, a weakly supervised framework that predicts spatial gene 22 
+
+expression from routine H&E whole -slide images by conditioning a pretrained single -23 
+
+cell transcriptomic foundation -model prior on local histological neighbourhoods.  A24 
+
+lightweight morphology -to -transcriptome adapter maps cached whole -slide histology 25 
+
+features into a transcriptomic decoder, enabling prediction at measured locations, dense 26 
+
+full -section reconstruction, and re -aggregation to the original measurement support .27 
+
+Across harmonized prostate cancer benchmarks, Morpho -FM achieved the strongest 28 
+
+overall performance among five representative methods, reaching mean per -gene 29 
+
+Pearson correlations of  0.286  in rotating single -slide evaluation and  0.298  in multi -slide 30 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+held -out validation.  The framework reproduced this advantage across kidney cancer 31 
+
+sections, achieved a mean correlation of  0.210  across 56 directed single -slide 32 
+
+evaluations and retained measurable predictive signal after external transfer to clear -33 
+
+cell renal cell carcinoma sections.  Controlled ablation analyses identified pretrained 34 
+
+transcriptomic initialization as a reproducible source of performance gain exceeding 35 
+
+that attributable to changes in the histology feature backbone.  Beyond predictive 36 
+
+accuracy benchmarks, Morpho -FM recovered  ERBB2 -enriched tumour compartments, 37 
+
+boundary -associated molecular gradients, and annotation -aligned tissue domains across 38 
+
+Xenium and HER2ST breast cancer datasets.  Together, these results support 39 
+
+transcriptomic foundation -model priors as an effective constraint for morphology -40 
+
+conditioned molecular decoding and demonstrate the potential of Morpho -FM to extend 41 
+
+spatial transcriptomic insight across routine pathology sections .42 
+
+Introduction 43 
+
+Routine haematoxylin and eosin (H&E) histology remains the most widely deployed 44 
+
+assay for tumour diagnosis and tissue assessment, because it captures cellular 45 
+
+morphology, stromal organization and tissue architecture at whole -slide scale  1. Yet 46 
+
+H&E images provide only an indirect view of the molecular programmes that shape 47 
+
+tumour epithelium, stroma, vasculature and immune compartments  2. Transcriptional 48 
+
+states that influence progression, therapy response and tissue microenvironmental 49 
+
+organization often remain hidden behind morphologically similar regions.  Bridging this 50 
+
+gap between routine histology and spatially resolved molecular characterization has 51 
+
+therefore become a central goal of computational pathology and spatial omics  3–6.52 
+
+Spatial transcriptomics (ST) provides a direct route to this molecular context by 53 
+
+measuring gene expression within native tissue architecture  7–9. These technologies 54 
+
+have revealed spatial tumour states, tissue boundaries, immune niches and multicellular 55 
+
+programmes that cannot be recovered from dissociated sequencing alone. However, 56 
+
+their routine use remains limited by cost, workflow complexity, variable resolution and 57 
+
+incomplete sampling of large tissue sections  9,10 . In many practical settings, only sparse 58 
+
+spatial measurements are available, whereas neighbouring or archived H&E sections 59 
+
+are abundant. A scalable framework that can use sparse spatial transcriptomic 60 
+
+supervision to molecularly reannotate routine histology would therefore expand the 61 
+
+reach of spatial omics beyond directly assayed locations  11 .62 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+This need has motivated models that predict spatial gene expression from H&E images .63 
+
+Existing approaches have shown that histology contains measurable transcriptomic 64 
+
+signal, but most are trained de novo on small paired cohorts and treat gene expression 65 
+
+as a high -dimensional output vector to be learned almost entirely from local image 66 
+
+supervision  12 –17 . This design leaves the output space weakly constrained, even though 67 
+
+real expression profiles are structured by co -expression relationships, cell -state 68 
+
+programmes and biological dependencies across genes.  This limitation is particularly 69 
+
+relevant in cancer, where local histomorphology reflects not only cell -intrinsic 70 
+
+transcriptional states but also spatially contextual interactions within the tumour 71 
+
+microenvironment that may not be adequately captured from limited paired examples 72 
+
+alone .73 
+
+Two classes of foundation model have advanced rapidly but remain largely 74 
+
+disconnected in the task of inferring spatial gene expression from histology. In 75 
+
+computational pathology, pretrained whole -slide encoders can represent tissue 76 
+
+morphology at clinical scale  18 –20 . In single -cell genomics, transcriptomic foundation 77 
+
+models have learned the structure of gene -expression space, including co -expression 78 
+
+patterns, cell -state programmes and gene –gene dependencies  21,22 . Existing histology -79 
+
+to -expression models have mainly asked whether stronger image representations can 80 
+
+improve prediction from limited paired H&E -ST data. A more consequential question 81 
+
+is whether morphology should be decoded through a transcriptomic foundation -model 82 
+
+prior that constrains the space of biologically plausible expression states. In this view, 83 
+
+pathology -derived representations identify local tissue context, while a single -cell 84 
+
+transcriptomic prior restricts molecular decoding to states compatible with that context. 85 
+
+We reasoned that coupling these two priors could address a central limitation of sparse 86 
+
+paired datasets: learning not only where morphology varies across a tissue section, but 87 
+
+also which transcriptional states, spatial distributions and tumour –microenvironment 88 
+
+interactions those variations are likely to reflect .89 
+
+Here we introduce Morpho -FM, a weakly supervised framework for spatial molecular 90 
+
+reconstruction from routine H&E whole -slide images using transcriptomic foundation -91 
+
+model priors. Morpho -FM represents each measured spatial location as a local 92 
+
+histological neighbourhood, maps cached whole -slide morphology features into the 93 
+
+CellFM  23  transcriptomic latent space and decodes gene expression under sparse spatial 94 
+
+transcriptomic supervision. The same trained model supports prediction at measured 95 
+
+locations, dense full -section reconstruction and re -aggregation to the original 96 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+measurement support for validation. Across prostate and kidney cancer benchmarks, 97 
+
+external clear -cell renal cell carcinoma transfer, Xenium breast cancer reconstruction 98 
+
+and HER2ST cross -platform analysis, Morpho -FM links benchmark accuracy to 99 
+
+biologically interpretable molecular tissue architecture. 100 
+
+Results 101 
+
+Morpho -FM connects pathology -scale morphology to a transcriptomic 102 
+
+foundation -model decoder 103 
+
+Morpho -FM was designed to test whether the pathology and transcriptomic foundation -104 
+
+model streams described above can be coupled for spatial molecular prediction.  Rather 105 
+
+than predicting each gene directly from an isolated H&E patch, the framework uses 106 
+
+local histological neighbourhoods as the conditioning signal and decodes them through 107 
+
+a pretrained single -cell transcriptomic foundation -model prior. This design separates 108 
+
+the prediction problem into two coupled constraints: pathology -derived features capture 109 
+
+where tissue architecture varies across the section, whereas the transcriptomic decoder 110 
+
+constrains which expression states are plausible at those locations. To support both 111 
+
+prediction at measured locations and dense full -section reconstruction, Morpho -FM 112 
+
+implements this coupling within a shared coordinate system that links measured ST 113 
+
+locations, cached whole -slide histology features, and dense prediction coordinates over 114 
+
+the tissue mask  (Fig. 1a) .115 
+
+The workflow begins by converting each raw H&E whole -slide image into cached 116 
+
+whole -slide histology features using a Hierarchical Image Pyramid Transformer (HIPT) 117  
+
+> 19
+
+encoder as the histology feature backbone (Fig. 1a). These features provide a reusable 118 
+
+morphological representation for both spot -supervised training and dense decoding. 119 
+
+Because measured assay locations and unmeasured tissue regions are indexed within 120 
+
+the same spatial reference, Morpho -FM avoids constructing separate representations 121 
+
+for spot -level prediction and tissue -wide reconstruction. Dense outputs can therefore be 122 
+
+re -aggregated to the original measurement support, enabling quantitative consistency 123 
+
+checking rather than serving only as qualitative super -resolution maps. 124 
+
+For sparse ST supervision, each measured location is represented by a local disk -shaped 125 
+
+multiple -instance learning (MIL) bag sampled from the cached feature grid (Fig. 1b). 126 
+
+Grid positions within the spot -radius neighbourhood are selected as instance features, 127 
+
+so that each measurement is associated with its surrounding histological context rather 128 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+than a single isolated image patch. This formulation matches the regional nature of ST 129 
+
+measurements and provides the local H&E morphology used to condition 130 
+
+transcriptomic decoding .131 
+
+A lightweight morphology -to -transcriptome adapter then maps the instance features 132 
+
+from each MIL bag into a transcriptomic decoder implemented with CellFM  23 , a133 
+
+pretrained single -cell transcriptomic foundation model (Fig. 1c).  The decoder produces 134 
+
+instance -level expression rates, which are mean -aggregated to obtain a bag -level 135 
+
+prediction aligned with the original ST measurement support. Thus, Morpho -FM does 136 
+
+not simply append a regression head to a pathology encoder.  Instead, i t inserts a 137 
+
+transcriptomic foundation model at the molecular readout stage, so that morphology -138 
+
+derived signals are interpreted within an expression space shaped by gene -gene 139 
+
+dependencies and cell -state structure learned from large -scale single -cell data. 140 
+
+After spot -supervised training, Morpho -FM can be used in two complementary modes: 141 
+
+prediction at measured locations and dense full -section reconstruction over the tissue 142 
+
+mask (Fig. 1a). The resulting continuous expression fields can be visualized as tissue -143 
+
+wide molecular maps or re -aggregated to the original measurement support for 144 
+
+comparison with measured ST data. We therefore organized the Results as a sequence 145 
+
+of tests of the central hypothesis: first, whether this coupled decoder improves cross -146 
+
+section prediction; second, whether the gain is attributable to the transcriptomic 147 
+
+foundation -model prior; and third, whether the resulting predictions and latent 148 
+
+representations recover interpretable molecular tissue architecture beyond benchmark -149 
+
+level predictive performance .150 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+151 
+
+Fig. 1 |  Morpho -FM couples local H&E morphology to transcriptomic foundation -model 152 
+
+decoding in a shared coordinate system . a,  Workflow from raw haematoxylin and eosin (H&E) 153 
+
+whole -slide images and paired spatial transcriptomics (ST) measurements to two outputs: prediction 154 
+
+at measured locations and dense full -section reconstruction. A cached whole -slide histology feature 155 
+
+grid is constructed offline using a Hierarchical Image Pyramid Transformer (HIPT) encoder and 156 
+
+used for both spot -supervised multiple -instance learning (MIL) and dense decoding over the tissue 157 
+
+mask, with dense outputs re -aggregated to the original measurement support for consistency 158 
+
+checking.  b,  Local disk -shaped MIL bag construction. For each ST measurement location, grid 159 
+
+positions within the corresponding spot -radius neighbourhood are selected from the feature grid to 160 
+
+form a MIL bag.  c,  Visual adapter and transcriptomic decoding. Instance features from the MIL bag 161 
+
+are projected through a lightweight morphology -to -transcriptome adapter into CellFM, used here as 162 
+
+the single -cell transcriptomic foundation -model decoder. The resulting instance -level expression 163 
+
+rates are mean -aggregated to obtain the bag -level prediction. 164 
+
+Morpho -FM improves cross -section histology -to -expression prediction in prostate 165 
+
+cancer 166 
+
+We first evaluated Morpho -FM in prostate cancer, a setting designed to stress the 167 
+
+limited -pairing regime in which transcriptomic priors should be most valuable. Four 168 
+
+prostate cancer sections from the HEST -1k (HEST) collection  24  (INT25 –INT28)  were 169 
+
+used, each comprising an H&E whole -slide image paired with spatial transcriptomics 170 
+
+measurements. Five representative histology -to -expression methods were used for 171 
+
+comparison: HisToGene, iStar, mclSTExp, sCellST and HiST. To ensure that 172 
+
+performance differences reflected modelling rather than data handling, all methods 173 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+were evaluated using the same preprocessing and data -splitting pipeline, with spatial 174 
+
+coordinates aligned to the H&E image space and predictions assessed on a common 175 
+
+prostate gene panel  (Supplementary Note 1 ).176 
+
+To test performance under the most data -limited condition, each prostate section was 177 
+
+used in turn as the sole training slide, with each remaining section held out for testing, 178 
+
+yielding 12 ordered train –test comparisons. Across these comparisons, Morpho -FM 179 
+
+showed the strongest overall performance, achieving the highest mean per -gene 180 
+
+Pearson correlation (mean, 0.286; median, 0.241). This exceeded the best -performing 181 
+
+baseline, iStar (mean, 0.155; median, 0.132), as well as the other methods (mean, 182 
+
+0.038 –0.055; Fig. 2a,b and Supplementary Figs. 1 –3). The improvement was consistent 183 
+
+across splits: Morpho -FM ranked first in all train –test directions. Performance was 184 
+
+highest for INT27 -to -INT28 (mean Pearson correlation, 0.367), whereas even the 185 
+
+lowest -scoring Morpho -FM direction, INT25 -to -INT26, outperformed iStar on the 186 
+
+same test section (0.215 versus 0.149). The largest separation was observed for INT28 -187 
+
+to -INT26 (0.223 versus 0.068; Supplementary Table 1) .188 
+
+Morpho -FM’s improvement extended across the gene panel rather than being restricted 189 
+
+to a small subset of genes. In the representative INT25 -to -INT28 comparison, Morpho -190 
+
+FM shifted the distribution of per -gene correlations towards higher values and 191 
+
+preserved the largest proportion of genes above increasingly stringent Pearson 192 
+
+correlation thresholds (Fig. 2c,d). Similar trends were observed across the remaining 193 
+
+train –test directions (Supplementary Figs. 1 and 2). We next tested whether this 194 
+
+advantage persisted among highly variable genes (HVGs), which capture prominent 195 
+
+spatial expression variability across measurement locations  25 –27 . Across top -K HVG 196 
+
+cutoffs, Morpho -FM consistently occupied the high -recovery, high -correlation regime, 197 
+
+recovering a larger fraction of measured HVGs while maintaining a higher mean 198 
+
+Pearson correlation on the predicted HVG set than any baseline method (Fig. 2e and 199 
+
+Supplementary Fig. 3). For the top 1,000 HVGs, Morpho -FM achieved a mean per -200 
+
+gene Pearson correlation of 0.778, compared with 0.443 for iStar and lower values for 201 
+
+the remaining methods .202 
+
+To determine whether improved gene -level accuracy translated into spatially coherent 203 
+
+marker reconstruction, we examined  KLK3 , which encodes prostate -specific antigen 204 
+
+(PSA) and is a clinically relevant marker in prostate adenocarcinoma 28 . In the 205 
+
+representative INT25 -to -INT28 comparison, Morpho -FM recapitulated the main spatial 206 
+
+structure of the observed  KLK3  expression pattern after re -aggregation to the original 207 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+measurement support (Fig. 2f). The reconstructed map captured broad low -expression 208 
+
+regions and focal high -expression hotspots, yielding a Pearson correlation of 0.9 20  at 209 
+
+the re -aggregated measurement locations  (Fig. 2f) . This marker -level result linked the 210 
+
+genome -wide benchmark advantage to spatial reconstruction at measured locations. 211 
+
+We next asked whether the same advantage persisted when more paired sections were 212 
+
+available. In a rotating multi -slide setting, two prostate sections were used for training, 213 
+
+a third for validation and the remaining section for held -out testing. Across four held -214 
+
+out folds, Morpho -FM again ranked first among all methods, achieving a mean per -215 
+
+gene Pearson correlation of 0.298 (median, 0.260; top -1,000 HVG mean, 0.785; 216 
+
+Extended Data Fig. 1a,b and Supplementary Fig. 4). The strongest baseline was again 217 
+
+iStar (mean, 0.114; median, 0.092; top -1,000 HVG mean, 0.315), whereas the 218 
+
+remaining baselines achieved mean Pearson correlations of 0.052 -0.066 (Extended 219 
+
+Data Fig. 1b). Morpho -FM was the top -performing method for each held -out prostate 220 
+
+section, with fold -wise mean Pearson correlations ranging from 0.235 to 0.369 221 
+
+(Extended Data Fig. 1a). Together, the single -slide and multi -slide prostate benchmarks 222 
+
+show that the coupled morphology -to -transcriptome decoder improves cross -section 223 
+
+prediction under both sparse and richer supervision, rather than only under one 224 
+
+favourable training regime .225 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+226 
+
+Fig. 2 | Single -slide cross -section benchmarking of Morpho -FM on prostate spatial 227 
+
+transcriptomics data.  a,  Rotating single -slide train -test design across four prostate cancer sections, 228 
+
+yielding 12 directed train -test comparisons. Heatmap values indicate the Morpho -FM mean per -229 
+
+gene Pearson correlation for each train –test direction; diagonal entries denote the training slide.  b, 230 
+
+Mean per -gene Pearson correlation across all 12 train -test directions for Morpho -FM and competing 231 
+
+methods. Points denote individual train -test directions, and boxplots summarize the distribution 232 
+
+across directions.  c,  Per -gene Pearson correlation distributions for the representative INT25 -to -233 
+
+INT28 transfer comparison.  d,  Fraction of genes with Pearson correlation above each threshold in 234 
+
+the INT25 -to -INT28 comparison.  e,  Highly variable gene (HVG) recovery and prediction quality 235 
+
+across top -K predicted gene sets. Recall@ K measures overlap with measured HVGs, the x axis 236 
+
+shows the mean Pearson correlation for the predicted top -K gene set, and point size denotes  K = 50, 237 
+
+500 or 2,000.  f,  Spatial visualization of  KLK3  expression in the representative INT25 -to -INT28 238 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+comparison. Ground truth and method predictions are shown after re -aggregation to the original 239 
+
+measurement support; values in parentheses denote Pearson correlation coefficients between 240 
+
+predicted and measured  KLK3  expression .241 
+
+Morpho -FM generalizes histology -to -expression prediction to kidney cancer and 242 
+
+external clear -cell renal cell carcinoma section s243 
+
+We next tested whether the prostate result reflected a generalizable modelling 244 
+
+advantage or a tissue -specific fit. Applying the same rotating single -slide design to eight 245 
+
+HEST kidney cancer sections  29  yielded 56 directed train -test comparisons. Morpho -246 
+
+FM again achieved the highest mean per -gene Pearson correlation across directions 247 
+
+(mean, 0.210; median, 0.194; top -1,000 HVG mean, 0.570), outperforming iStar, the 248 
+
+strongest baseline (mean, 0.049; median, 0.038; top -1,000 HVG mean, 0.154), and all 249 
+
+remaining methods, which had mean Pearson correlations below 0.027 (Fig. 3a and 250 
+
+Supplementary Table 2). As in prostate cancer, Morpho -FM ranked first across the 251 
+
+rotating comparisons, indicating that its advantage was reproduced in a second tumour 252 
+
+context with different tissue architecture and expression programmes. 253 
+
+We then moved from internal cross -section benchmarking to external transfer. A 254 
+
+kidney -trained Morpho -FM model was selected using six HEST kidney sections for 255 
+
+training, INT24 for validation and INT21 for held -out internal testing. On INT21, 256 
+
+Morpho -FM achieved a mean per -gene Pearson correlation of 0.255 (median, 0.261; 257 
+
+top -1,000 HVG mean, 0.620), remaining above the baseline methods on the same held -258 
+
+out kidney section (Fig. 3a). The resulting checkpoint was then applied without 259 
+
+additional fitting, target -section -specific tuning or hyperparameter adjustment to two 260 
+
+external clear -cell renal cell carcinoma (ccRCC) Visium sections  30 . Morpho -FM 261 
+
+retained measurable predictive signal in both external sections. In external sections 1 262 
+
+and 2, respectively, it achieved mean per -gene Pearson correlations of 0.294 and 0.138, 263 
+
+section -level global expression correlations of 0.504 and 0.467, and mean spot -level 264 
+
+expression -profile Pearson correlations of 0.658 and 0.501  (Fig. 3b,c) . The reduction 265 
+
+in external section 2 illustrates the difficulty of cross -dataset transfer, but the retained 266 
+
+global and spot -level correlations show that the model did not collapse when moved 267 
+
+outside the benchmark source cohort .268 
+
+Representative marker maps showed that external predictions retained biological 269 
+
+interpretability beyond numerical correlation alone . In the higher -performing external 270 
+
+section 1, Morpho -FM  recovered  the spatial patterns of  SMARCB1  (r = 0.717), a 271 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+SWI/SNF -complex component, and  TFE3  (r = 0.674),  which is associated with 272 
+
+MiT/TFE -family transcriptional programmes in renal tumours  31,32 . In external section 273 
+
+2, the model recapitulated the distributions of  AQP1  (r = 0.530) and  VCAM1  (r = 0.410), 274 
+
+markers of proximal tubular differentiation and inflammatory adhesion signal ling, 275 
+
+respectively  33,34  (Fig. 3d,e).  Additional marker -gene comparisons in both external 276 
+
+sections showed  similar recovery of spatial patterns associated with renal tumours 277 
+
+(Supplementary Fig. 10) . Together, these kidney analyses extend the prostate 278 
+
+benchmark by showing both reproducible  method  ranking in a second tumour type and 279 
+
+preservation of interpretable molecular signal after transfer to independently processed 280 
+
+ccRCC sections .281 
+
+282 
+
+Fig. 3 |  Morpho -FM reproduces kidney benchmark performance and transfers to external 283 
+
+clear -cell renal cell carcinoma sections.  a,  Split violin plots of per -gene Pearson correlations 284 
+
+across methods. Multi -slide and single -slide training results are shown on the left and right halves 285 
+
+of each violin, respectively.  b,  Fraction of genes exceeding Pearson correlation thresholds for the 286 
+
+internal kidney holdout and two external clear -cell renal cell carcinoma (ccRCC) sections.  c,  HVG 287 
+
+recovery versus prediction quality across top -K cutoffs; point size denotes K.  d,e,  Representative 288 
+
+external -section spatial maps comparing measured expression (top) and Morpho -FM prediction 289 
+
+(bottom). In external section 1,  SMARCB1  and  TFE3  were recovered with  r = 0.717 and  r = 0.674, 290 
+
+respectively ( d). In external section 2,  AQP1  and  VCAM1  were recovered with  r = 0.530 and  r =291 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+0.410, respectively ( e). Colour scale indicates relative expression within each gene map .292 
+
+Pretrained CellFM initialization is the dominant controlled source of Morpho -FM 293 
+
+performance gain 294 
+
+The benchmark results were consistent with the hypothesis that a transcriptomic 295 
+
+foundation -model decoder improves morphology -conditioned expression prediction, 296 
+
+but benchmark comparisons alone do not identify the source of this advantage. We 297 
+
+therefore isolated the contribution of pretrained transcriptomic initialization by 298 
+
+comparing Morpho -FM models initialized with either pretrained CellFM weights or 299 
+
+randomly initialized CellFM weights under matched multi -slide and single -slide 300 
+
+prostate training settings. All remaining implementation details were controlled as 301 
+
+described in Supplementary Note 2, enabling a direct test of whether pretrained single -302 
+
+cell transcriptomic priors improve prediction when training data, model architecture 303 
+
+and optimization settings are otherwise held fixed. 304 
+
+Pretrained CellFM initialization improved prediction in both matched training settings, 305 
+
+as measured by mean per -gene Pearson correlation and supported by per -gene 306 
+
+correlation distributions and Pearson -threshold curves (Fig. 4a,b). In the multi -slide 307 
+
+setting, the pretrained -initialized Morpho -FM model achieved a mean per -gene Pearson 308 
+
+correlation of 0.360, compared with 0.299 for random initialization, an absolute 309 
+
+increase of  0.061. In the single -slide setting, the corresponding values were 0.346 and 310 
+
+0.265,  an absolute increase of 0.081 . The larger gain in the single -slide comparison 311 
+
+indicates that pretrained transcriptomic structure  is especially beneficial when paired 312 
+
+spatial transcriptomic supervision is sparse, supporting its role as a constraint on 313 
+
+morphology -conditioned expression prediction .314 
+
+Expression -stratified analysis showed that the gain from pretrained transcriptomic 315 
+
+initialization was not a uniform offset across all genes. Gains were small among low -316 
+
+expression genes, for which per -gene correlations remained low across the pretrained 317 
+
+and randomly initialized models in both training settings, but increased in the mid - and 318 
+
+high -expression strata (Fig. 4c). This pattern was reproduced in both the multi -slide and 319 
+
+single -slide settings, with the largest improvement observed for high -expression genes 320 
+
+in the data -limited single -slide comparison. A fixed prostate marker panel provided a 321 
+
+gene -level view of the same effect: pretrained initialization improved correlations for 322 
+
+several markers, including  AR , AMACR , ERG , EPCAM  and  KRT8 , whereas  KLK3 323 
+
+showed near -ceiling correlations across all model variants (Pearson r ≈ 0.99; Fig. 4d). 324 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+Thus, the gain from pretrained transcriptomic initialization was not driven by a single 325 
+
+marker, but was most evident among genes with detectable spatial expression structure. 326 
+
+We next asked whether a comparable gain could be obtained by changing the histology 327 
+
+feature backbone while keeping the pretrained transcriptomic decoder fixed. Replacing 328 
+
+HIPT features with ImageNet -pretrained ResNet -50 features produced comparable 329 
+
+mean per -gene Pearson correlations in both prostate settings: ResNet -50 was slightly 330 
+
+higher in the single -slide comparison, whereas HIPT was slightly higher in the multi -331 
+
+slide comparison (Supplementary Fig. 11). Expression -stratified summaries, Pearson -332 
+
+threshold curves and marker -panel correlations similarly showed no stable advantage 333 
+
+for either histology feature backbone. 334 
+
+These controls do not indicate that histology features are unimportant; local 335 
+
+morphology remains the conditioning signal for all Morpho -FM predictions. Rather, 336 
+
+they separate two possible explanations for the benchmark gains. Within the present 337 
+
+Morpho -FM design, replacing the histology feature backbone did not provide a 338 
+
+consistent additional gain, whereas pretrained transcriptomic initialization produced a 339 
+
+reproducible improvement in both data -rich and data -limited settings. The ablations 340 
+
+therefore support the central design claim: in sparse H&E -ST learning, constraining the 341 
+
+molecular decoder with a transcriptomic foundation -model prior is a clearer and more 342 
+
+reproducible source of improvement than simply changing the upstream image feature 343 
+
+backbone. 344 
+
+345 
+
+Fig. 4 | Pretrained CellFM initialization improves Morpho -FM performance across prostate 346 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+training settings. a,  Per -gene Pearson correlation distributions for Morpho -FM models with 347 
+
+pretrained or random CellFM initialization under matched multi -slide and single -slide prostate 348 
+
+training settings.  b,  Fraction of genes with Pearson correlation above each threshold for the four 349 
+
+model variants shown in  a. c,  Mean per -gene Pearson correlation stratified by measured gene -350 
+
+expression level. Genes were grouped into low -, mid - and high -expression strata based on their 351 
+
+measured expression levels, and performance is shown for each model variant.  d,  Gene -level 352 
+
+Pearson correlations for a fixed prostate marker panel across the four model variants. Heatmap 353 
+
+values indicate Pearson correlation coefficients between predicted and measured expression for each 354 
+
+marker gene. 355 
+
+Morpho -FM enables measurement -constrained reconstruction of molecular tissue 356 
+
+architecture in Xenium breast cance r357 
+
+Having established  robust benchmark performance  and isolated the contribution of 358 
+
+transcriptomic initialization, we next asked whether Morpho -FM could do more than 359 
+
+predict expression at measured coordinates.  This task reflects the intended use case of 360 
+
+molecularly reannotating tissue architecture, in which sparse spatial transcriptomic 361 
+
+measurements are used to project molecular information across H&E -stained sections 362 
+
+while retaining quantitative agreement with measured coordinates . Xenium provides a 363 
+
+stringent setting for this analysis because its cell -resolved measurements support 364 
+
+evaluation both at measured Xenium locations and after re -aggregation of dense 365 
+
+predictions to the original measurement support  35 . We applied Morpho -FM to two 366 
+
+consecutive 10x Genomics Xenium formalin -fixed paraffin -embedded (FFPE) breast 367 
+
+cancer sections  36 , denoted section 1 (S1) and section 2 (S2) . After matching the 368 
+
+measured gene panel to the CellFM vocabulary, 306 genes were retained  for 369 
+
+downstream analysis.  We evaluated four train –test settings: S1 -to -S1, S1 -to -S2, S2 -to -370 
+
+S2 and S2 -to -S1 (Fig. 5a). 371 
+
+Across these settings, within -section reconstruction consistently outperformed cross -372 
+
+section transfer, as expected, but reciprocal transfer retained measurable signal for 373 
+
+biologically structured marker sets. For all 306 genes, mean per -gene Pearson 374 
+
+correlations at measured Xenium locations were 0.448 and 0.501 for within -section 375 
+
+prediction in S1 and S2, respectively, and decreased to 0.249 and 0.266 under reciprocal 376 
+
+cross -section transfer (Fig. 5b and Supplementary Table 3). A fixed 29 -gene panel 377 
+
+spanning tumour/luminal, epithelial, proliferation, stromal, vascular and immune 378 
+
+programmes showed higher absolute correlations while preserving the same hierarchy, 379 
+
+with correlations of 0.651 and 0.708 within section compared with 0.396 and 0.427 380 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+across sections. Dense grid -level predictions showed a similar pattern after re -381 
+
+aggregation to the original Xenium measurement support, with mean Pearson 382 
+
+correlations of 0.503 and 0.571 within section and 0.247 and 0.287 across sections (Fig. 383 
+
+5b and Supplementary Table 4).  Thus, dense full -section reconstruction remained 384 
+
+quantitatively coupled to the measured support, rather than functioning only as a visual 385 
+
+extrapolation. Marker -category summaries further indicated that epithelial markers 386 
+
+showed the strongest reproducibility, whereas vascular and immune markers showed 387 
+
+larger cross -section loss (Supplementary Fig. 12). Representative marker -class maps 388 
+
+for  FOXA1 , EPCAM , MKI67 , LUM , PECAM1  and  PTPRC  further illustrate these 389 
+
+trends at both measured and dense supports (Extended Data Fig. 3). 390 
+
+ERBB2  provided a marker -level example of how prediction at measured locations 391 
+
+related to dense full -section reconstruction.  In both Xenium sections, Morpho -FM 392 
+
+recovered  the major  ERBB2 -high compartments observed in the measured Xenium 393 
+
+counts and preserved the broad contrast between tumour -dominant high -expression 394 
+
+regions and surrounding low -expression tissue (Fig. 5c). Observation -level  ERBB2 395 
+
+correlations were high in the within -section setting, reaching 0.907 in S1 and 0.924 in 396 
+
+S2, and remained positive under reciprocal transfer, with correlations of 0.778 for S1 -397 
+
+to -S2 and 0.769 for S2 -to -S1. Re -aggregation of dense predictions to the original 398 
+
+measurement support produced lower, but still structured, correlations: 0.565 and 0.692 399 
+
+within section and 0.397 and 0.392 across sections. Dense decoding extended the 400 
+
+ERBB2  expression field from measured Xenium locations to 392,884 tissue -valid grid 401 
+
+locations in S1 and 355,487 in S2,  providing  a tissue -wide molecular view of  ERBB2 -402 
+
+rich tumour compartments anchored to the same measurement support used for 403 
+
+quantitative evaluation. Together with the representative marker -class examples in 404 
+
+Extended Data Fig. 3, this result shows that dense reconstruction extended across 405 
+
+tumour/luminal, epithelial, proliferation, stromal, vascular and immune marker 406 
+
+programmes rather than being limited to  ERBB2 .407 
+
+We further asked whether dense predictions preserved molecular organization at tissue 408 
+
+boundaries and regions of interest (ROIs), where histological architecture and 409 
+
+expression programmes are spatially coupled. Using curated tissue -compartment 410 
+
+annotations, we computed the signed distance to the tumour edge and compared 411 
+
+measured and predicted signature profiles across tumour -adjacent spatial bins (Fig. 5d). 412 
+
+Within -section dense profiles closely matched measured boundary trends, with 413 
+
+signature -wise Pearson correlations of 0.954 -0.985. Cross -section profiles preserved 414 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+the same broad gradients, although with lower correlations of 0.871 -0.970. At the ROI 415 
+
+level, enrichment scores across  ERBB2 -high tumour, tumour core, tumour boundary, 416 
+
+adjacent stroma, ductal carcinoma in situ (DCIS)/myoepithelial, stromal/vascular and 417 
+
+immune -enriched regions were also concordant with measured Xenium signatures; 418 
+
+across 80 ROI -signature pairs, correlations were 0.889 for within -section 419 
+
+reconstruction and 0.770 for cross -section transfer (Fig. 5e). These analyses move the 420 
+
+evaluation beyond pointwise gene correlation by showing that Morpho -FM preserved 421 
+
+boundary -level and region -level molecular organization in the tissue architecture. Full 422 
+
+signature -level boundary -gradient profiles and ROI -level enrichment summaries are 423 
+
+provided in Supplementary Fig. 13 .424 
+
+425 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+Fig. 5 |  Measurement -constrained dense reconstruction in Xenium breast cancer sections.  a, 426 
+
+Schematic of the Xenium reconstruction analysis. Two consecutive Xenium formalin -fixed paraffin -427 
+
+embedded (FFPE) breast cancer sections, section 1 (S1) and section 2 (S2), were harmonized with 428 
+
+the CellFM vocabulary, yielding 306 retained genes. Morpho -FM was evaluated for prediction at 429 
+
+observed Xenium measurement locations and dense full -section reconstruction across four 430 
+
+reciprocal settings: S1 -to -S1, S1 -to -S2, S2 -to -S2 and S2 -to -S1.  b,  Prediction performance across 431 
+
+the four settings for all 306 retained genes, a fixed 29 -gene breast marker panel, and the same marker 432 
+
+panel after re -aggregation to the original Xenium measurement support. Points denote individual 433 
+
+genes; boxplots summarize per -gene Pearson correlation distributions.  c,  Representative  ERBB2 434 
+
+reconstruction in S1, showing the haematoxylin and eosin (H&E) image, measured Xenium 435 
+
+expression, within -section prediction and cross -section prediction. Colour intensity indicates 436 
+
+relative expression.  d,  Boundary -gradient agreement between measured and predicted signature 437 
+
+profiles across tumour -adjacent spatial bins.  e,  Region of interest (ROI) enrichment agreement 438 
+
+between measured and predicted Xenium signatures across curated tissue regions. Each point 439 
+
+denotes an ROI -signature pair. 440 
+
+Morpho -FM supports latent -domain discovery and candidate tissue -domain 441 
+
+recovery across breast spatial transcriptomics platform s442 
+
+We next examined whether the coupled morphology -to -transcriptome representation 443 
+
+organized tissue before gene -specific readout. In the default Xenium S1 analysis with 444 
+
+k = 15, the 1,536 -dimensional pre -readout latent embeddings formed spatially 445 
+
+contiguous domains that aligned with major tumour -rich, DCIS/myoepithelial, 446 
+
+stromal/vascular and immune compartments in the curated tissue annotation (Fig. 6a 447 
+
+and Supplementary Fig. 14). To assess robustness to clustering resolution and 448 
+
+initialization, we repeated clustering for  k = 10, 15 and 20 across five random seeds on 449 
+
+the S1 grid -valid subset for which full -section latent features were available (Fig. 6b). 450 
+
+Morpho -FM latent clustering consistently outperformed raw morphology clustering in 451 
+
+coarse compartment agreement. Across  k = 10, 15 and 20, Morpho -FM achieved 452 
+
+normalized mutual information (NMI) values of 0.396 ± 0.004, 0.376 ± 0.006 and 0.362 453 
+
+± 0.004, and adjusted Rand index (ARI) values of 0.285 ± 0.021, 0.227 ± 0.026 and 454 
+
+0.175 ± 0.009, respectively. Raw morphology clustering yielded substantially lower 455 
+
+NMI values of 0.105 ± 0.007, 0.112 ± 0.009 and 0.121 ± 0.006, and ARI values of 0.070 456 
+
+± 0.009, 0.057 ± 0.007 and 0.051 ± 0.003 across the same settings. Thus, the 457 
+
+transcriptomic latent space sharpened tissue -domain structure beyond raw morphology 458 
+
+features alone. 459 
+
+Beyond coarse compartment agreement, latent -domain analysis recovered local 460 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+structures with clear histopathological relevance. In both Xenium sections, 461 
+
+KRT14 /KRT5 -enriched latent domains spatially overlapped annotated myoepithelial 462 
+
+layers, with domain 3 in S1 and domain 2 in S2 marking regions around DCIS structures 463 
+
+(Fig. 6c). These layers formed stratified structures around DCIS regions and were 464 
+
+depleted from invasive tumour regions. This pattern highlights a microenvironmental 465 
+
+distinction between non -invasive and invasive breast tumour states and is consistent 466 
+
+with established evidence that disruption of the myoepithelial cell -basement membrane 467 
+
+interface is a defining feature of progression from in situ carcinoma to invasive breast 468 
+
+cancer  37,38 . Domain -level enrichment analyses further supported this interpretation, 469 
+
+showing that DCIS/myoepithelial -enriched latent domains were concordant with 470 
+
+curated annotations and basal/myoepithelial marker positivity across both Xenium 471 
+
+sections. Thus, Xenium provided primary evidence that Morpho -FM can convert 472 
+
+routine H&E morphology into a transcriptomically organized latent tissue map, not 473 
+
+only a set of gene -wise predictions .474 
+
+We then asked whether this domain -recovery workflow extended beyond Xenium to an 475 
+
+independent breast spatial transcriptomics platform  39 . Leave -one -section -out transfer 476 
+
+on three consecutive HER2ST sections from patient H provided a cross -platform 477 
+
+validation setting, with each section predicted from the remaining two; in this 478 
+
+configuration, no target section contributed to model fitting (Supplementary Note 3). 479 
+
+Across 13,080 retained genes, Morpho -FM achieved mean per -gene Pearson 480 
+
+correlations of 0.140, 0.149 and 0.140 for H1, H2 and H3, respectively, with stronger 481 
+
+prediction on the top 1,000 HVGs (mean correlations of 0.390, 0.422 and 0.383; Fig. 482 
+
+6d). A biologically motivated marker set spanning epithelial/tumour -associated genes 483 
+
+(ERBB2 , KRT19  and  CD24 ), a stromal programme marker ( MGP ) and immune -484 
+
+associated genes ( CD74  and  IGKC ), selected to represent major breast cancer epithelial, 485 
+
+stromal and immune compartments described in single -cell and spatial atlases  40,41 ,486 
+
+showed reproducible held -out correlations across the three sections and preserved 487 
+
+spatially organized expression patterns at the original HER2ST measurement locations 488 
+
+(Extended Data Fig. 4). In the annotated H1 section, these marker patterns were 489 
+
+consistent with the known tissue architecture  39 , and similar spatial trends were 490 
+
+observed in H2 and H3 .491 
+
+Finally, we evaluated whether prediction -derived representations could support tissue -492 
+
+domain recovery in HER2ST. In the annotated H1 section, clustering of predicted 493 
+
+expression at the original HER2ST measurement locations showed measurable 494 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+agreement with manual tissue labels (ARI/NMI, 0.188/0.194), comparable in scale to 495 
+
+clustering of measured expression under the same setting (Fig. 6e). We further applied 496 
+
+dense latent clustering to the whole -section latent grid, using the high -resolution 497 
+
+representation instead of sparse measurement locations. This analysis produced 498 
+
+coherent candidate domains aligned with the broad tissue architecture of H1 and 499 
+
+highlighted cancer -enriched regions supported by epithelial/tumour marker fields (Fig. 500 
+
+6e). For the unlabelled H2 and H3 sections, dense clusters were treated as candidate 501 
+
+domains rather than validated tissue classes. Dense latent clustering generated 502 
+
+organized domains spatially concordant with epithelial/tumour -associated, stromal and 503 
+
+immune marker fields in both held -out sections (Supplementary Fig. 15). Together, the 504 
+
+Xenium and HER2ST analyses show that Morpho -FM supports candidate tissue -505 
+
+domain recovery across breast spatial transcriptomics platforms, while appropriately 506 
+
+treating domain -level outputs as hypotheses for marker -guided inspection rather than 507 
+
+independently validated tissue classes. 508 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+509 
+
+Fig. 6 |  Latent -domain discovery and candidate tissue -domain recovery across breast spatial 510 
+
+transcriptomics platforms.  a, Curated tissue annotation, region of interest (ROI) visualization, 511 
+
+Morpho -FM latent -domain clustering and full -section dense latent clustering in Xenium section 1 512 
+
+(S1). Latent domains were obtained by clustering the 1,536 -dimensional pre -readout Morpho -FM 513 
+
+latent embeddings using  k = 15.  b, Robustness of latent -domain clustering across  k = 10, 15 and 20, 514 
+
+evaluated against curated tissue annotations by normalized mutual information (NMI) and adjusted 515 
+
+Rand index (ARI). Points and error bars indicate mean ± s.d. across five random seeds. Annotation 516 
+
+and latent -domain colour keys are shown for the spatial maps in  a and  c. c, Spatial correspondence 517 
+
+between myoepithelial annotations, measured  KRT14  and  KRT5  expression, and matched Morpho -518 
+
+FM latent domains in S1 and S2. The matched latent domains shown are domain 3 in S1 and domain 519 
+
+2 in S2, which spatially overlap KRT14/KRT5 -enriched myoepithelial layers around DCIS 520 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+structures.  d, Leave -one -section -out prediction performance in HER2ST patient H sections. For 521 
+
+each target section, the remaining two sections were used for training, and Pearson correlations were 522 
+
+computed at the original HER2ST measurement locations. Boxplots summarize per -gene 523 
+
+correlations for all retained genes, the top 1,000 highly variable genes and a selected marker panel. 524 
+
+e, Label -anchored tissue -domain recovery in the held -out HER2ST H1 section. Manual annotation, 525 
+
+measured -expression clustering, Morpho -FM predicted -expression clustering and dense latent 526 
+
+clustering are shown for the same section. ARI and NMI quantify agreement with manual tissue 527 
+
+labels for measured - and predicted -expression clustering at the original measurement locations. 528 
+
+Yellow boxes indicate candidate regions not delineated in the manual annotation but identified by 529 
+
+Morpho -FM dense latent clustering; their interpretation is supported by concordant 530 
+
+epithelial/tumour marker expression across all three sections .531 
+
+Discussion 532 
+
+Morpho -FM addresses a central unresolved problem at the interface of computational 533 
+
+pathology and spatial omics: whether routine H&E morphology can be decoded 534 
+
+through a transcriptomic foundation -model prior to recover spatial molecular states 535 
+
+when paired H&E -ST data are limited. The main contribution of this study is therefore 536 
+
+not simply another histology -to -expression predictor, but a framework that connects 537 
+
+two previously parallel foundation -model streams. Pathology foundation models 538 
+
+provide scalable representations of tissue architecture, whereas single -cell 539 
+
+transcriptomic foundation models encode structured constraints over gene -expression 540 
+
+states. By inserting the transcriptomic foundation model at the molecular readout stage, 541 
+
+Morpho -FM allows morphology -derived signals to be interpreted within a biologically 542 
+
+constrained expression space rather than through an unconstrained regression head. 543 
+
+Across prostate and kidney cancer benchmarks, external clear -cell renal cell carcinoma 544 
+
+transfer, Xenium breast cancer reconstruction and HER2ST cross -platform analysis, 545 
+
+this coupling improved prediction and supported spatial molecular reannotation of 546 
+
+routine histology. 547 
+
+The ablation experiments sharpen this interpretation. Pretrained histology encoders are 548 
+
+valuable because local morphology remains the conditioning signal for every prediction, 549 
+
+but changing the upstream histology feature backbone did not produce a stable 550 
+
+independent gain in the matched prostate controls. In contrast, pretrained CellFM 551 
+
+initialization reproducibly improved prediction, with the larger gain observed in the 552 
+
+single -slide setting where paired supervision was most limited. This result suggests that, 553 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+under sparse H&E -ST supervision, the dominant bottleneck is not only how tissue 554 
+
+morphology is represented, but also how the molecular output space is constrained. 555 
+
+Treating gene expression as a high -dimensional vector learned de novo from a small 556 
+
+number of paired sections forces the model to rediscover co -expression structure, 557 
+
+expression distributions and cell -state dependencies from limited data. Morpho -FM 558 
+
+instead transfers part of this structure from a pretrained single -cell transcriptomic model, 559 
+
+helping stabilize morphology -conditioned decoding. 560 
+
+This design also reframes dense histology -to -expression prediction. Dense molecular 561 
+
+maps from H&E are often visually compelling, but unmeasured positions do not have 562 
+
+direct ground truth. We therefore linked dense full -section decoding to the original 563 
+
+measurement support through re -aggregation, so that tissue -wide molecular 564 
+
+reconstruction remained anchored to quantitative evaluation. In Xenium breast cancer 565 
+
+sections, Morpho -FM recovered  ERBB2 -rich tumour compartments, preserved marker 566 
+
+programmes spanning epithelial, stromal, vascular, proliferative and immune categories, 567 
+
+and retained boundary - and ROI -level molecular trends after re -aggregation. The latent -568 
+
+domain analyses further showed that pre -readout Morpho -FM representations aligned 569 
+
+more closely with curated tissue compartments than raw morphology features alone and 570 
+
+recovered  KRT14 /KRT5 -enriched myoepithelial structures around DCIS regions. These 571 
+
+findings indicate that the transcriptomic decoder contributes not only gene -wise 572 
+
+accuracy, but also a latent organization of tissue that is more compatible with molecular 573 
+
+compartment structure. 574 
+
+At the same time, the results define the appropriate scope of the framework. Morpho -575 
+
+FM does not replace spatial transcriptomics, and its dense fields should not be 576 
+
+interpreted as directly measured expression. The method still requires paired H&E and 577 
+
+spatial transcriptomic data for training, and it inherits sequencing noise, registration 578 
+
+uncertainty, gene -panel limitations and platform -specific biases from those 579 
+
+measurements. Re -aggregation to the original measurement support provides an 580 
+
+important consistency check, but it cannot validate every unmeasured grid position. 581 
+
+Similarly, latent domains and HER2ST candidate domains should be regarded as 582 
+
+hypotheses for marker -guided inspection, orthogonal validation or pathological review, 583 
+
+rather than independently established tissue classes. The reduced performance in one 584 
+
+external ccRCC section also emphasizes that cross -dataset transfer remains sensitive to 585 
+
+tissue heterogeneity, preprocessing differences and platform effects. 586 
+
+These limitations point to several priorities for future development. First, broader multi -587 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+centre testing across tumour types, staining protocols, scanners and spatial 588 
+
+transcriptomic platforms will be needed to determine the operating range of 589 
+
+morphology -to -transcriptome decoding. Second, calibrated gene - and location -specific 590 
+
+uncertainty estimates should accompany dense molecular maps, so that users can 591 
+
+distinguish confident molecular reannotation from low -confidence extrapolation. Third, 592 
+
+future models should improve cross -platform harmonization and explicitly model 593 
+
+differences in spatial resolution, gene -panel coverage and measurement noise. Finally, 594 
+
+the most important validation will be prospective and orthogonal: using Morpho -FM -595 
+
+derived molecular maps to prioritize regions for additional spatial profiling, multiplex 596 
+
+imaging or pathological review, and then testing whether the predicted transcriptional 597 
+
+states, spatial distributions and tumour -microenvironmental interactions are confirmed. 598 
+
+Overall, Morpho -FM supports a shift from de novo morphology -to -transcriptome 599 
+
+regression toward foundation -model -constrained molecular decoding from routine 600 
+
+histology. By coupling pathology -scale morphology with a single -cell transcriptomic 601 
+
+prior, the framework uses sparse spatial transcriptomic supervision to extend molecular 602 
+
+information across H&E sections while preserving a clear distinction between 603 
+
+measured data and model -inferred maps. This makes Morpho -FM relevant for 604 
+
+molecular reannotation of pathology archives, selection of regions for orthogonal 605 
+
+profiling and exploration of spatial gene -expression programmes in tissue regions that 606 
+
+were not directly assayed. More broadly, the study suggests that the next step for 607 
+
+computational pathology may not be only larger image encoders, but architectures that 608 
+
+connect visual tissue structure to pretrained biological state spaces. 609 
+
+Methods 610 
+
+Study design and data preprocessin g611 
+
+Morpho -FM was developed to predict spatial gene expression from routine H&E 612 
+
+whole -slide images using weak supervision from measured ST locations, and to extend 613 
+
+the same trained model to dense full -section reconstruction. To evaluate whether this 614 
+
+framework generalizes beyond a single tissue type, ST platform or analysis setting, we 615 
+
+designed a study comprising multiple complementary evaluation regimes: cross -section 616 
+
+prediction under harmonized ST benchmarks, transfer to independently processed 617 
+
+external sections, measurement -constrained dense reconstruction in higher -resolution 618 
+
+spatial assays and downstream analyses testing whether predicted expression or latent 619 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+representations preserve biologically meaningful tissue domains. This design was 620 
+
+intended to assess both predictive accuracy and biological utility across variations in 621 
+
+tissue context, measurement density, platform format and train –test separation. The 622 
+
+specific datasets, sample identifiers and experimental splits used for each evaluation 623 
+
+regime are reported in the corresponding subsections below. All datasets analysed in 624 
+
+this study were publicly available, and no new human tissue specimens were collected. 625 
+
+Across all evaluation regimes, Morpho -FM requires input data to follow a unified 626 
+
+preprocessing format. Spatial measurement coordinates were projected into H&E pixel 627 
+
+space so that image features, measurement locations and dense prediction grids resided 628 
+
+in a shared coordinate system. Raw expression counts were loaded as integers for the 629 
+
+negative -binomial training objective, and model outputs were interpreted as normalized 630 
+
+expression -rate predictions. Gene identifiers were intersected across samples and 631 
+
+further intersected with the CellFM vocabulary to ensure that each input gene set was 632 
+
+aligned with the pretrained representation space. The resulting gene -panel size for each 633 
+
+dataset after this unified procedure, including 17,512 genes for the Visium -style 634 
+
+prostate and kidney benchmarks, 306 genes for the Xenium breast cancer analysis and 635 
+
+13,080 genes for the HER2ST breast cancer analysis, is reported in the corresponding 636 
+
+experimental subsections. Platform -specific adaptations required to accommodate 637 
+
+differences in raw data formats, including AnnData count -layer naming conventions, 638 
+
+slide -level scale -factor handling and Xenium cell -centroid coordinate conversion, are 639 
+
+described in Supplementary Note 4 .640 
+
+Whole -slide histology feature caching 641 
+
+Morpho -FM does not train directly from raw whole -slide pixels. Instead, each H&E 642 
+
+whole -slide image was first converted into a cached whole -slide histology feature grid 643 
+
+using a pretrained histology feature encoder. H&E whole -slide images were resized 644 
+
+when necessary to limit the maximum image dimension, padded to ensure exact tiling 645 
+
+and encoded using HIPT. The resulting feature grid was defined at one -sixteenth of the 646 
+
+H&E pixel resolution. For each grid location, HIPT -derived local and sub -patch 647 
+
+representations were concatenated with low -resolution red -green -blue (RGB) 648 
+
+information to obtain a 579 -dimensional morphology feature vector. Feature channels 649 
+
+were smoothed and normalized per slide before downstream model training. All 650 
+
+subsequent operations, including local bag construction, model training, dense 651 
+
+decoding and re -aggregation to the original measurement support, used this cached 652 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+feature grid rather than raw image patches. Feature -grid construction and normalization 653 
+
+are detailed in Supplementary Note 5. 654 
+
+For comparison of histology feature backbones, a ResNet -50 feature cache was also 655 
+
+generated in a controlled ablation. In this control, H&E images were tiled using the 656 
+
+same cached -grid convention, ImageNet -pretrained ResNet -50 features were extracted 657 
+
+and projected to match the downstream cache interface. All Morpho -FM components 658 
+
+downstream of the feature cache were held fixed, allowing the analysis to isolate the 659 
+
+effect of changing the histology feature backbone .660 
+
+Coordinate system and local disk -shaped MIL bag s661 
+
+Morpho -FM represents each spatial measurement location as a local disk -shaped MIL 662 
+
+bag on the cached feature grid. Let  𝑝 𝑛  
+
+> px
+
+denote the H&E pixel coordinate of 663 
+
+measurement location  𝑛 , and let  𝑟 𝑛  
+
+> px
+
+denote the corresponding measurement radius in 664 
+
+pixel space. These quantities were mapped to the cached feature grid as 665 
+
+𝑝 𝑛  = round (𝑝 𝑛 
+
+> px
+
+/16 ), 𝑟 𝑛  = 𝑟 𝑛 
+
+> px
+
+/16 .666 
+
+The MIL bag for location  𝑛  was defined as the set of grid features falling within a disk 667 
+
+centred at  𝑝 𝑛 :668 
+
+𝑋 𝑛  = {𝑥 𝑛 ,𝑖 : ∥ 𝑞 𝑛 ,𝑖  − 𝑝 𝑛  ∥2≤ 𝑟 𝑛 },669 
+
+where  𝑥 𝑛 ,𝑖  ∈ ℝ579  is the cached morphology feature vector at grid position  𝑞 𝑛 ,𝑖  .670 
+
+Locations whose disk neighbourhood extended outside the valid feature grid or tissue 671 
+
+mask were excluded before training. This formulation treats each measured spot or cell -672 
+
+resolved Xenium location as a weakly supervised bag: expression supervision is 673 
+
+available only at the measurement location, whereas the model learns from a set of local 674 
+
+histological instances within the corresponding measurement support . MIL bag 675 
+
+construction and validity filtering are detailed in Supplementary Note 6. 676 
+
+Morpho -FM architecture 677 
+
+Morpho -FM couples a lightweight morphology -to -transcriptome adapter to a678 
+
+transcriptomic decoder implemented with CellFM. Each instance feature  𝑥 𝑛 ,𝑖  from the 679 
+
+local MIL bag is first projected into the CellFM latent space by a two -layer fully 680 
+
+connected adapter with layer normalization, nonlinear activation and dropout. The 681 
+
+adapter maps the 579 -dimensional histology feature vector to the 1,536 -dimensional 682 
+
+CellFM latent space. 683 
+
+The projected morphology representation was used to condition transcriptomic 684 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+decoding in the CellFM latent space. For each gene  𝑔 , the decoder produced a non -685 
+
+negative normalized expression -rate prediction for each instance: 686 
+
+𝜇 𝑛 ,𝑖 ,𝑔  = softplus (𝐷 (𝑧 𝑛 ,𝑖 , 𝑔 )),687 
+
+where  𝑧 𝑛 ,𝑖  is the adapter output and  𝐷 (⋅, 𝑔 ) denotes the CellFM -based gene -688 
+
+conditioned decoder. Instance -level rates within each bag were aggregated by 689 
+
+unweighted mean pooling: 690 
+
+𝜇 ˉ𝑛 ,𝑔  = 1
+
+𝐾 𝑛 
+
+∑ 𝜇 𝑛 ,𝑖 ,𝑔 
+
+> 𝐾 𝑛
+> 𝑖 =1
+
+,691 
+
+where  𝐾 𝑛  is the number of grid instances in the bag. The bag -level rate  𝜇 ˉ𝑛 ,𝑔  is the 692 
+
+primary output used for spot -level or Xenium -location -level evaluation. 693 
+
+During fine -tuning, most CellFM backbone parameters were frozen to preserve the 694 
+
+pretrained transcriptomic prior. Trainable parameters were restricted to the 695 
+
+morphology -to -transcriptome adapter, the CellFM gene embedding matrix, the decoder 696 
+
+projection and gene -specific dispersion parameters. This parameter -efficient training 697 
+
+design was used for all primary Morpho -FM models and was also retained in the 698 
+
+transcriptomic initialization ablation, ensuring that pretrained and randomly initialized 699 
+
+CellFM variants had identical trainable parameter scope . Adapter, decoder and 700 
+
+trainable -parameter details are provided in Supplementary Note 7. 701 
+
+Negative -binomial training objectiv e702 
+
+Morpho -FM was optimized using a negative -binomial count objective to account for 703 
+
+overdispersion in ST measurements. For measurement location  𝑛  and gene  𝑔 , the bag -704 
+
+level rate  𝜇 ˉ𝑛 ,𝑔  predicted by the architecture described above was scaled by a location -705 
+
+specific size factor  𝑠 𝑛  to obtain the count -scale mean  𝑠 𝑛 𝜇 ˉ𝑛 ,𝑔  . The size factor was 706 
+
+computed as the ratio of the total raw count at location  𝑛  to the mean library size across 707 
+
+the corresponding training set. The training loss was defined as 708 
+
+ℒNB  = − 1
+
+𝑁𝐺  ∑ ∑ log 
+
+> 𝐺
+> 𝑔 =1
+
+NB (𝑦 𝑛 ,𝑔  ∣ 𝑠 𝑛 𝜇 ˉ𝑛 ,𝑔 , 𝜃 𝑔 )
+
+> 𝑁
+> 𝑛 =1
+
+,709 
+
+where  𝑦 𝑛 ,𝑔  is the raw count at location  𝑛  for gene  𝑔 , and  𝜃 𝑔  = exp  (𝜙 𝑔 ) is a gene -710 
+
+specific dispersion parameter, with  𝜙 𝑔  learned jointly with the other trainable model 711 
+
+parameters. This formulation separates the model output, a normalized histology -712 
+
+conditioned expression rate, from the count -scale likelihood used for parameter 713 
+
+estimation. For large gene panels, the loss was evaluated using shuffled gene chunks as 714 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+a memory -control strategy; full implementation details are provided in Supplementary 715 
+
+Note 8 .716 
+
+Model training and checkpoint selectio n717 
+
+All Morpho -FM models were trained using AdamW optimization with separate 718 
+
+learning -rate groups for the transcriptomic decoder parameters and the morphology -to -719 
+
+transcriptome adapter and dispersion parameters. Training used automatic mixed 720 
+
+precision, early stopping on validation negative -binomial loss and retention of the 721 
+
+checkpoint with the lowest validation loss for all downstream inference and evaluation. 722 
+
+The default training configuration used 100 maximum epochs, a batch size of four 723 
+
+measurement locations, a weight decay of  10 −2 , an early -stopping patience of five 724 
+
+epochs and a random seed of 42. Gene chunk size was set to 256 genes for large panels 725 
+
+and was increased accordingly for smaller panels to ensure full coverage within fewer 726 
+
+forward passes. Complete hyperparameters, learning -rate schedules and 727 
+
+implementation details are provided in Supplementary Note 8. 728 
+
+The inference workflow accepted an explicit checkpoint and target section as inputs, 729 
+
+enabling both within -section dense reconstruction and cross -section transfer without 730 
+
+modifying the training procedure or the dense -decoding pipeline .731 
+
+Dense full -section reconstruction and re -aggregation 732 
+
+After spot -supervised or location -supervised training, the same adapter -conditioned 733 
+
+transcriptomic decoder was applied to every valid grid position under the tissue mask 734 
+
+to generate a dense expression -rate field, 735 
+
+𝑀  ∈ ℝ𝐻 ′×𝑊 ′×𝐺 ,736 
+
+where  𝐻 ′ and  𝑊 ′ denote the cached feature -grid dimensions and  𝐺  is the number of 737 
+
+genes being decoded. Dense inference did not apply spot -specific library -size scaling; 738 
+
+therefore,  𝑀  was interpreted as a normalized spatial expression -rate field rather than 739 
+
+an absolute count matrix. Grid positions outside the tissue mask or outside the finite 740 
+
+feature region were excluded from downstream analyses. 741 
+
+To assess whether dense predictions remained consistent with measured expression at 742 
+
+the original measurement support, dense predictions were re -aggregated to the 743 
+
+measurement support using the same disk kernel used for MIL bag construction. For 744 
+
+location  𝑛  and gene  𝑔 , the re -aggregated dense prediction was computed as the mean 745 
+
+of  𝑀 𝑢 ,𝑣 ,𝑔  over the grid positions  (𝑢 , 𝑣 ) within the disk centred at  𝑝 𝑛  . The Pearson 746 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+correlation between the re -aggregated dense prediction and measured expression at the 747 
+
+original measurement support was used as an internal consistency measure for dense 748 
+
+reconstruction. This re -aggregation analysis does not constitute direct validation at 749 
+
+unmeasured grid locations; rather, it tests whether dense full -section predictions remain 750 
+
+coupled to the measured expression signal when projected back to the measurement 751 
+
+scale . Dense decoding and re -aggregation are detailed in Supplementary Note 9. 752 
+
+Prostate benchmark protocol 753 
+
+The prostate benchmark compared Morpho -FM with five representative histology -to -754 
+
+expression methods: HisToGene, iStar, mclSTExp, sCellST and HiST. Four HEST 755 
+
+prostate cancer sections, INT25, INT26, INT27 and INT28, were used. Each section 756 
+
+comprised an H&E whole -slide image, an ST count matrix, spatial measurement 757 
+
+coordinates and assay scale -factor metadata. All methods were evaluated on the same 758 
+
+sections, the same H&E -aligned spatial coordinates and the same 17,512 -gene panel. 759 
+
+Prediction outputs from all methods were converted to a common spot -ordered and 760 
+
+gene -ordered matrix before evaluation. Method -specific input conversion, validation 761 
+
+handling and output alignment were implemented as needed, but the core architectures 762 
+
+and loss functions of the baseline methods were not modified. 763 
+
+Two prostate benchmark protocols were used. In the rotating single -slide protocol, each 764 
+
+of the four prostate sections served once as the sole training slide, and the remaining 765 
+
+three sections were held out for independent testing. This yielded 12 directed train –test 766 
+
+comparisons. Validation in the single -slide setting was constructed within the training 767 
+
+slide using a spatially blocked partition rather than a random spot split, reducing 768 
+
+leakage from local spatial autocorrelation. In the rotating multi -slide protocol, two 769 
+
+prostate sections were used for training, one section for validation and one section for 770 
+
+held -out testing. The held -out test section was rotated across the four prostate sections, 771 
+
+yielding four folds. The validation slide or blocked validation subset was used only for 772 
+
+checkpoint selection and early stopping .773 
+
+Kidney benchmark and external ccRCC transfer 774 
+
+The kidney HEST benchmark used the same harmonized evaluation framework as the 775 
+
+prostate benchmark. Eight HEST kidney sections, INT13, INT14, INT15, INT17, 776 
+
+INT18, INT19, INT21 and INT24, were evaluated under a rotating single -slide design, 777 
+
+yielding 56 directed train –test comparisons. All methods were aligned to the shared 778 
+
+kidney gene panel after CellFM vocabulary mapping, and performance was evaluated 779 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+using the same per -gene correlation metrics as in the prostate benchmark. 780 
+
+For external transfer, a fixed multi -slide kidney setting was used to select a kidney -781 
+
+trained Morpho -FM checkpoint. Six HEST kidney sections were used for training, 782 
+
+INT24 was used for validation and INT21 was used as an internal held -out test section. 783 
+
+The resulting checkpoint was then applied without further fitting, target -section -784 
+
+specific tuning or hyperparameter adjustment to two external ccRCC Visium sections. 785 
+
+External sections were converted to the same Morpho -FM input interface, including 786 
+
+count -matrix processing, gene harmonization, coordinate handling and HIPT feature -787 
+
+cache generation. Transfer performance was evaluated on the shared gene panel using 788 
+
+per -gene Pearson correlation, global expression correlation, mean spot -level 789 
+
+expression -profile correlation and marker -level spatial inspection .790 
+
+Transcriptomic initialization and histology feature -backbone ablation s791 
+
+To isolate the contribution of pretrained transcriptomic initialization, we performed a 792 
+
+controlled  2 × 2 ablation crossing two training regimes with two initialization 793 
+
+conditions. The training regimes were a multi -slide prostate setting and a single -slide 794 
+
+prostate setting. The initialization conditions were pretrained CellFM weights and 795 
+
+randomly initialized CellFM weights. All four branches used the same data partitions, 796 
+
+gene panel, MIL bag geometry, negative -binomial objective, trainable parameter scope, 797 
+
+training budget, early -stopping procedure and inference pipeline. Performance gain 798 
+
+from pretrained transcriptomic initialization was defined as the difference in the chosen 799 
+
+evaluation metric between the pretrained and randomly initialized CellFM branches 800 
+
+under the same training regime. 801 
+
+To evaluate the influence of the histology feature backbone, a separate encoder -control 802 
+
+ablation replaced the HIPT feature cache with an ImageNet -pretrained ResNet50 803 
+
+feature cache while keeping the pretrained CellFM branch and all downstream Morpho -804 
+
+FM components fixed. This control was evaluated under matched prostate single -slide 805 
+
+and multi -slide settings. This design allowed the ablation analysis to distinguish the 806 
+
+contribution of pretrained transcriptomic initialization from the effect of replacing the 807 
+
+cached histology feature representation .808 
+
+Xenium breast reconstruction analysis 809 
+
+The Xenium analysis used two consecutive 10x Genomics Xenium FFPE breast cancer 810 
+
+sections, S1/XEN1 and S2/XEN2. Xenium cell centroids were mapped into H&E 811 
+
+coordinates using the vendor -provided morphology -to -H&E alignment information, 812 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+and an effective location diameter was estimated from cell area so that the same disk -813 
+
+based geometric framework could be reused. The effective measurement radius was 814 
+
+used to define local histological neighbourhoods and re -aggregation support. After 815 
+
+intersection with the CellFM vocabulary and across -section harmonization, 306 genes 816 
+
+were retained for downstream analysis. 817 
+
+Four reconstruction and transfer settings were evaluated: S1 -to -S1, S1 -to -S2, S2 -to -S2 818 
+
+and S2 -to -S1. The within -section settings were interpreted as measurement -constrained 819 
+
+dense reconstruction analyses because the same section provided the measured 820 
+
+locations used to constrain the model; these settings were not interpreted as cross -821 
+
+section generalization tests. The reciprocal cross -section settings tested whether the 822 
+
+learned morphology -to -expression mapping transferred between consecutive sections. 823 
+
+For each setting, predictions were evaluated at observed Xenium measurement 824 
+
+locations and, after dense full -section decoding, by re -aggregation to the original 825 
+
+Xenium measurement support. 826 
+
+To avoid relying on a single marker, we evaluated both the full 306 -gene panel and a 827 
+
+fixed 29 -gene breast marker panel spanning tumour/luminal, epithelial, proliferative, 828 
+
+stromal, vascular and immune programmes.  ERBB2  was used as a well -characterized 829 
+
+visualization marker, but section -level conclusions were based on the full -gene and 830 
+
+balanced marker -panel analyses. Boundary -gradient analyses used curated tissue -831 
+
+compartment annotations to define tumour -adjacent spatial bins by signed distance to 832 
+
+the tumour edge. ROI -level analyses compared measured and predicted signature 833 
+
+enrichment across curated regions, including  ERBB2 -high tumour, tumour core, tumour 834 
+
+boundary, adjacent stroma, DCIS/myoepithelial, stromal/vascular and immune -835 
+
+enriched areas . The Xenium reconstruction settings, marker panel and region -level 836 
+
+analyses are detailed in Supplementary Note 10. 837 
+
+Xenium latent -domain analysis 838 
+
+To determine whether Morpho -FM captured tissue organization before gene -specific 839 
+
+readout, we extracted the 1,536 -dimensional pre -readout Morpho -FM latent 840 
+
+representation, corresponding to the CellFM latent space, before the final gene decoder. 841 
+
+Latent vectors were computed at valid Xenium measurement locations and reduced by 842 
+
+principal component analysis. MiniBatch K -means clustering was then applied to the 843 
+
+reduced latent space, with  𝑘  = 15  used as the default clustering resolution. The fitted 844 
+
+dimensionality -reduction and clustering models were projected to all valid grid 845 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+positions in the tissue mask to generate dense full -section latent -domain maps whose 846 
+
+cluster identities were aligned with the measurement -location latent representation. 847 
+
+Robustness to clustering resolution and initialization was evaluated by repeating latent 848 
+
+clustering for  𝑘  = 10 , 𝑘  = 15  and  𝑘  = 20  across five random seeds. Agreement with 849 
+
+curated tissue -compartment annotations was quantified using NMI and ARI. Raw 850 
+
+morphology clustering was used as a baseline to determine whether Morpho -FM latent 851 
+
+representations provided more transcriptomically aligned tissue -domain structure than 852 
+
+morphology features alone. Domain -level biological interpretation was performed post 853 
+
+hoc by cross -tabulating latent domains with curated annotations and by assessing 854 
+
+enrichment of measured basal/myoepithelial markers, including  KRT14  and  KRT5 .855 
+
+These annotations and marker enrichments were not used during model training, dense 856 
+
+inference or unsupervised clustering .857 
+
+HER2ST breast -platform support analysis 858 
+
+The HER2ST patient H analysis was designed as a supporting breast -platform testbed 859 
+
+rather than as a co -primary validation cohort. Sections H1, H2 and H3 were converted 860 
+
+into the same Morpho -FM input format used in the Visium and Xenium analyses, 861 
+
+including H&E image input, spatial coordinates, count matrices and slide metadata. 862 
+
+After gene harmonization across H1 –H3 and CellFM vocabulary mapping, 13,080 863 
+
+genes were retained. 864 
+
+HER2ST prediction was evaluated using a leave -one -section -out transfer design. For 865 
+
+each target section, the remaining two sections were used for model fitting and 866 
+
+checkpoint selection, and the target section was excluded from training and validation. 867 
+
+Checkpoint selection used validation data drawn only from the training sections. Thus, 868 
+
+H1 was predicted from models trained on H2 and H3, H2 from H1 and H3, and H3 869 
+
+from H1 and H2. Prediction performance was summarized at the original HER2ST 870 
+
+measurement locations across all retained genes, across the top 1,000 HVGs and across 871 
+
+a selected epithelial, stromal and immune marker panel. 872 
+
+To test whether predicted expression retained sufficient structure for downstream 873 
+
+domain recovery, measured and predicted expression profiles were clustered at the 874 
+
+original HER2ST measurement locations. Section H1, the only section with available 875 
+
+tissue labels in the released metadata, was used for label -agreement evaluation with 876 
+
+ARI and NMI. Whole -section dense latent clustering was then applied to the held -out 877 
+
+target sections to generate higher -resolution candidate domains from the Morpho -FM 878 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+latent representation. Sections H2 and H3 were treated as unlabelled exploratory 879 
+
+sections; their dense latent clusters and marker maps were used to generate candidate 880 
+
+spatial domains for marker -based inspection rather than validated tissue classes. Whole -881 
+
+section dense decoding was performed for selected variable and marker genes to 882 
+
+visualize epithelial, stromal and immune -associated spatial patterns .883 
+
+Evaluation metrics 884 
+
+The primary prediction metric was per -gene Pearson correlation between predicted and 885 
+
+measured expression across spatial locations on the held -out test section or target 886 
+
+section. Genes with zero variance or undefined correlation were excluded from 887 
+
+correlation summaries. For each experiment, per -gene correlations were summarized 888 
+
+by mean and median values across the retained gene panel. For external kidney transfer, 889 
+
+we also reported global expression correlation across the full location -by -gene matrix 890 
+
+and mean spot -level expression -profile correlation across locations. 891 
+
+HVG analyses were performed post hoc and were not used for training, checkpoint 892 
+
+selection or hyperparameter tuning. For HVG subset evaluation, HVGs were identified 893 
+
+from the measured expression matrix in the relevant test section. Prediction quality on 894 
+
+the top 1,000 measured HVGs was summarized by mean per -gene Pearson correlation. 895 
+
+For HVG recovery analysis, top - 𝐾  predicted variable genes were compared with 896 
+
+measured HVGs across  𝐾  cutoffs, and Recall@ 𝐾  was reported together with the mean 897 
+
+Pearson correlation of the predicted top -𝐾  gene set. 898 
+
+For dense full -section reconstruction, evaluation was restricted to the original 899 
+
+measurement support after re -aggregation because unmeasured grid locations do not 900 
+
+have direct ground truth. Dense -to -measurement re -aggregation Pearson correlation 901 
+
+was therefore interpreted as an internal consistency metric rather than as direct 902 
+
+validation of unmeasured positions. For clustering analyses, agreement between 903 
+
+inferred domains and curated annotations was quantified using NMI and ARI. Marker -904 
+
+level and ROI -level analyses were used as biological consistency checks rather than as 905 
+
+independent supervised training signals . Metric definitions and finite -value aggregation 906 
+
+rules are detailed in Supplementary Note 11. 907 
+
+Data availability 908 
+
+All spatial transcriptomics datasets analysed in this study are publicly available. The 909 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+primary source for prostate and kidney sections was the HEST collection hosted on 910 
+
+Hugging Face (MahmoodLab/hest), which also provides cell segmentation 911 
+
+outputs:  https://huggingface.co/datasets/MahmoodLab/hest . The Xenium breast cancer 912 
+
+data were obtained from the 10x Genomics Xenium in situ preview 913 
+
+dataset:  https://www.10xgenomics.com/products/xenium -in -situ/preview -dataset -914 
+
+human -breast . The HER2ST patient H breast cancer sections (H1 –H3) were 915 
+
+downloaded from Zenodo:  https://zenodo.org/records/4751624 . The two external 916 
+
+ccRCC Visium sections used for transfer evaluation were obtained from Davidson  et 917 
+
+al.  (GEO accession GSE210038) .918 
+
+Code availability 919 
+
+Code for Morpho -FM and the harmonized benchmark evaluation workflows is 920 
+
+available at  https://github.com/StickTaTa/Morpho -FM . Detailed implementation 921 
+
+settings, feature -cache construction, model hyperparameters, baseline adaptations, split 922 
+
+definitions, ablation protocols and evaluation scripts are described in Supplementary 923 
+
+Notes 1 -12 . Reproducibility and auditability are summarized in Supplementary Note 924 
+
+12. 925 
+
+Funding 926 
+
+This research was funded by  the  National Key R&D Program of China 927 
+
+(2022YFC3400401 ),  the National Natural Science Foundation of China (32270604 ，928 
+
+32470599 ),  the Guangdong Basic and Applied Basic Research Foundation 929 
+
+(2026A1515010528) , and  the  Shenzhen Natural Science Foundation in Basic Research 930 
+
+Fund  (JCYJ20250604175316022 ). 931 
+
+Acknowledgements 932 
+
+We acknowledge computing support from the National Supercomputer Center in 933 
+
+Guangzhou (Tianhe -2A) and from the High -performance Computing Public Platform 934 
+
+(Shenzhen Campus) of Sun Yat -sen University. 935 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+Author contributions 936 
+
+J.H. developed the method, designed and performed the experiments, analysed the data, 937 
+
+prepared the figures and wrote the manuscript. X.F. and L.Q. assisted with data 938 
+
+processing, benchmark evaluation and interpretation of the results. L.Z. conceived and 939 
+
+supervised the project, provided scientific guidance and revised the manuscript. All 940 
+
+authors reviewed and approved the final manuscript .941 
+
+Competing interests 942 
+
+The authors declare no competing interests. 943 
+
+Reference s944 
+
+1.  Lin, J. -R.  et al.  High -plex immunofluorescence imaging and traditional histology of 945 
+
+the same tissue section for discovering image -based biomarkers.  Nat. Cancer  4,946 
+
+1036 –1052 (2023). 947 
+
+2.  Pizurica, M.  et al.  Digital profiling of gene expression from histology images with 948 
+
+linearized attention.  Nat. Commun.  15 , 9886 (2024). 949 
+
+3.  Zheng, Y.  et al.  LazySlide: accessible and interoperable whole -slide image analysis. 950 
+
+Nat. Methods  https://doi.org/10.1038/s41592 -026 -03044 -7 (2026) 951 
+
+doi:10.1038/s41592 -026 -03044 -7. 952 
+
+4.  Schmauch, B.  et al.  A deep learning -based multiscale integration of spatial omics 953 
+
+with tumor morphology.  Nat. Commun.  16 , 11674 (2025). 954 
+
+5.  Li, Z.  et al.  AI -enabled virtual spatial proteomics from histopathology for 955 
+
+interpretable biomarker discovery in lung cancer.  Nat. Med.  32 , 231 –244 (2026). 956 
+
+6.  Chen, W.  et al.  A visual -omics foundation model to bridge histopathology with 957 
+
+spatial transcriptomics.  Nat. Methods  22 , 1568 –1582 (2025). 958 
+
+7.  Arora, R.  et al.  Spatial transcriptomics reveals distinct and conserved tumor core and 959 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+edge architectures that predict survival and targeted therapy response.  Nat. Commun. 960 
+
+14 , 5029 (2023). 961 
+
+8.  Rao, A., Barkley, D., França, G. S. & Yanai, I. Exploring tissue architecture using 962 
+
+spatial transcriptomics.  Nature  596 , 211 –220 (2021). 963 
+
+9.  Liu, Y.  et al.  High -parameter spatial multi -omics through histology -anchored 964 
+
+integration.  Nat. Methods  23 , 373 –386 (2026). 965 
+
+10.  Plummer, J. T.  et al.  Standardized metrics for assessment and reproducibility of 966 
+
+imaging -based spatial transcriptomics datasets.  Nat. Biotechnol. 967 
+
+https://doi.org/10.1038/s41587 -025 -02811 -9 (2025) doi:10.1038/s41587 -025 -968 
+
+02811 -9. 969 
+
+11.  Fu, X.  et al.  Spatial gene expression at single -cell resolution from histology using 970 
+
+deep learning with GHIST.  Nat. Methods  22 , 1900 –1910 (2025). 971 
+
+12.  Jia, Y., Liu, J., Chen, L., Zhao, T. & Wang, Y. THItoGene: a deep learning method 972 
+
+for predicting spatial transcriptomics from histological images.  Brief. Bioinform.  25 ,973 
+
+bbad464 (2023). 974 
+
+13.  Chadoutaud, L.  et al.  sCellST predicts single -cell gene expression from H& E 975 
+
+images.  Nat. Commun.  https://doi.org/10.1038/s41467 -025 -67965 -1 (2026) 976 
+
+doi:10.1038/s41467 -025 -67965 -1. 977 
+
+14.  Li, B.  et al.  Gene expression prediction from histology images via hypergraph 978 
+
+neural networks.  Brief. Bioinform.  25 , bbae500 (2024). 979 
+
+15.  Li, W.  et al.  HiST: Histological Images Reconstruct Tumor Spatial Transcriptomics 980 
+
+via MultiScale Fusion Deep Learning.  Adv. Sci.  e14351 (2026) 981 
+
+doi:10.1002/advs.202514351. 982 
+
+16.  Zhang, D.  et al.  Inferring super -resolution tissue architecture by integrating spatial 983 
+
+transcriptomics with histology.  Nat. Biotechnol.  42 , 1372 –1377 (2024). 984 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+17.  Min, W., Shi, Z., Zhang, J., Wan, J. & Wang, C. Multimodal contrastive learning 985 
+
+for spatial gene expression prediction using histology images.  Brief. Bioinform.  25 ,986 
+
+bbae551 (2024). 987 
+
+18.  Chen, R. J.  et al.  Scaling Vision Transformers to Gigapixel Images via Hierarchical 988 
+
+Self -Supervised Learning. Preprint at https://doi.org/10.48550/arXiv.2206.02647 989 
+
+(2022). 990 
+
+19.  Xu, H.  et al.  A whole -slide foundation model for digital pathology from real -world 991 
+
+data.  Nature  630 , 181 –188 (2024). 992 
+
+20.  Vorontsov, E.  et al.  A foundation model for clinical -grade computational pathology 993 
+
+and rare cancers detection.  Nat. Med.  30 , 2924 –2935 (2024). 994 
+
+21.  Cui, H.  et al.  scGPT: toward building a foundation model for single -cell multi -995 
+
+omics using generative AI.  Nat. Methods  21 , 1470 –1480 (2024). 996 
+
+22.  Theodoris, C. V.  et al.  Transfer learning enables predictions in network biology. 997 
+
+Nature  618 , 616 –624 (2023). 998 
+
+23.  Zeng, Y.  et al.  CellFM: a large -scale foundation model pre -trained on 999 
+
+transcriptomics of 100 million human cells.  Nat. Commun.  16 , 4679 (2025). 1000 
+
+24.  Almagro -Pérez, C.  et al.  HEST -1k: A Dataset For Spatial Transcriptomics and 1001 
+
+Histology Image Analysis. in  Advances in Neural Information Processing Systems 1002 
+
+37  53798 –53833 (Neural Information Processing Systems Foundation, Inc. 1003 
+
+(NeurIPS), Vancouver, BC, Canada, 2024). doi:10.52202/079017 -1704. 1004 
+
+25.  Stuart, T.  et al.  Comprehensive Integration of Single -Cell Data.  Cell  177 , 1888 -1005 
+
+1902.e21 (2019). 1006 
+
+26.  Svensson, V., Teichmann, S. A. & Stegle, O. SpatialDE: identification of spatially 1007 
+
+variable genes.  Nat. Methods  15 , 343 –346 (2018). 1008 
+
+27.  Hafemeister, C. & Satija, R. Normalization and variance stabilization of single -cell 1009 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+RNA -seq data using regularized negative binomial regression.  Genome Biol.  20 , 296 1010 
+
+(2019). 1011 
+
+28.  Dahm, P. Future of screening for prostate cancer.  BMJ  358 , j4200 (2017). 1012 
+
+29.  Meylan, M.  et al.  Tertiary lymphoid structures generate and propagate anti -tumor 1013 
+
+antibody -producing plasma cells in renal cell cancer.  Immunity  55 , 527 -541.e5 1014 
+
+(2022). 1015 
+
+30.  Davidson, G.  et al.  Mesenchymal -like Tumor Cells and Myofibroblastic Cancer -1016 
+
+Associated Fibroblasts Are Associated with Progression and Immunotherapy 1017 
+
+Response of Clear Cell Renal Cell Carcinoma.  Cancer Res.  83 , 2952 –2969 (2023). 1018 
+
+31.  Wang, X.  et al.  SMARCB1 -mediated SWI/SNF complex function is essential for 1019 
+
+enhancer regulation.  Nat. Genet.  49 , 289 –295 (2017). 1020 
+
+32.  Qu, Y.  et al.  Proteogenomic characterization of MiT family translocation renal cell 1021 
+
+carcinoma.  Nat. Commun.  13 , 7494 (2022). 1022 
+
+33.  Lake, B. B.  et al.  An atlas of healthy and injured cell states and niches in the human 1023 
+
+kidney.  Nature  619 , 585 –594 (2023). 1024 
+
+34.  Osborn, L.  et al.  Direct expression cloning of vascular cell adhesion molecule 1, a 1025 
+
+cytokine -induced endothelial protein that binds to lymphocytes.  Cell  59 , 1203 –1211 1026 
+
+(1989). 1027 
+
+35.  Zormpas, E., Queen, R., Comber, A. & Cockell, S. J. Mapping the transcriptome: 1028 
+
+Realizing the full potential of spatial data analysis.  Cell  186 , 5677 –5689 (2023). 1029 
+
+36.  Janesick, A.  et al.  High resolution mapping of the tumor microenvironment using 1030 
+
+integrated single -cell, spatial and in situ analysis.  Nat. Commun.  14 , 8353 (2023). 1031 
+
+37.  Hu, M.  et al.  Regulation of in situ to invasive breast carcinoma transition.  Cancer 1032 
+
+Cell  13 , 394 –406 (2008). 1033 
+
+38.  Risom, T.  et al.  Transition to invasive breast cancer is associated with progressive 1034 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+changes in the structure and composition of tumor stroma.  Cell  185 , 299 -310.e18 1035 
+
+(2022). 1036 
+
+39.  Andersson, A.  et al.  Spatial deconvolution of HER2 -positive breast cancer 1037 
+
+delineates tumor -associated cell type interactions.  Nat. Commun.  12 , 6012 (2021). 1038 
+
+40.  Wu, S. Z.  et al.  A single -cell and spatially resolved atlas of human breast cancers. 1039 
+
+Nat. Genet.  53 , 1334 –1347 (2021). 1040 
+
+41.  Janesick, A.  et al.  High resolution mapping of the tumor microenvironment using 1041 
+
+integrated single -cell, spatial and in situ analysis.  Nat. Commun.  14 , 8353 (2023). 1042 
+
+1043 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+1044 
+
+Extended  Data  Fig. 1 |  Multi -slide cross -section benchmarking of Morpho -FM on prostate 1045 
+
+spatial transcriptomics data.  a,  Rotating multi -slide train –validation –test design across four 1046 
+
+prostate cancer sections. In each fold, two sections were used for training, a third section was used 1047 
+
+for validation and the remaining section was held out for testing. Heatmap values indicate mean per -1048 
+
+gene Pearson correlation for each method on each held -out test section.  b,  Mean per -gene Pearson 1049 
+
+correlation across the four held -out folds for Morpho -FM and competing methods. Points denote 1050 
+
+individual held -out folds, and boxplots summarize the distribution across folds.  c,  Per -gene Pearson 1051 
+
+correlation distributions for the representative INT26+INT27 -to -INT28 fold, with INT25 used for 1052 
+
+validation.  d,  Fraction of genes with Pearson correlation above each threshold in the representative 1053 
+
+INT26+INT27 -to -INT28 fold.  e,  HVG recovery and prediction quality across top -K predicted gene 1054 
+
+sets in the representative fold. Recall@ K measures overlap with highly variable genes, mean 1055 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+Pearson correlation is computed for the predicted top -K gene set, and point size denotes  K = 50, 200, 1056 
+
+500, 1,000 or 2,000.  f,  Spatial visualization of  KLK3  expression in the representative 1057 
+
+INT26+INT27 -to -INT28 fold. Ground truth and method predictions are shown after aggregation to 1058 
+
+the original measurement locations; values in parentheses denote Pearson correlation coefficients 1059 
+
+between predicted and measured  KLK3  expression. 1060 
+
+1061 
+
+Extended  Data  Fig. 2 | Single -slide cross -section benchmarking of Morpho -FM on kidney 1062 
+
+cancer spatial transcriptomics data.  a,  Rotating single -slide train –test design across eight HEST 1063 
+
+kidney cancer sections. In each train –test direction, one section was used for training and a different 1064 
+
+section was held out for testing, yielding 56 train –test directions. Heatmap values indicate mean 1065 
+
+per -gene Pearson correlation for each training and test section pair.  b,  Mean per -gene Pearson 1066 
+
+correlation across the 56 kidney cancer train –test directions for Morpho -FM and competing methods. 1067 
+
+Points denote individual train –test directions, and boxplots summarize the distribution across 1068 
+
+directions.  c,  Per -gene Pearson correlation distributions across the kidney cancer single -slide 1069 
+
+benchmark for Morpho -FM and competing methods.  d,  Fraction of genes with Pearson correlation 1070 
+
+above each threshold in the kidney cancer single -slide benchmark.  e,  HVG recovery and prediction 1071 
+
+quality across top -K predicted gene sets in the kidney cancer single -slide benchmark. Recall@ K1072 
+
+measures overlap with highly variable genes, mean Pearson correlation is computed for the 1073 
+
+predicted top -K gene set, and point size denotes  K = 50, 200 or 1,000. 1074 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+1075 
+
+Extended  Data  Fig.  3 | Representative marker -class Xenium prediction and dense 1076 
+
+reconstruction maps. a,b,  Representative genes spanning the six marker classes in Xenium section 1077 
+
+1 ( a) and section 2 ( b):  FOXA1  for tumour/luminal,  EPCAM  for epithelial,  MKI67  for proliferation, 1078 
+
+LUM  for stromal,  PECAM1  for vascular and  PTPRC  for immune programmes. For each section, 1079 
+
+rows show measured Xenium expression at observed measurement locations, within -section 1080 
+
+prediction at the same locations, reciprocal cross -section prediction at the same locations, within -1081 
+
+section dense full -section reconstruction and reciprocal cross -section dense full -section 1082 
+
+reconstruction. Pearson correlation coefficients are shown for the observed -location prediction rows. 1083 
+
+These examples provide spatial marker -level context for the 29 -gene panel summaries and illustrate 1084 
+
+> .CC-BY-NC 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 19, 2026. ;https://doi.org/10.64898/2026.06.15.732498 doi: bioRxiv preprint
+
+that Morpho -FM preserves major tissue -scale expression patterns across multiple biological 1085 
+
+programmes, with stronger within -section reconstruction and attenuated but visible reciprocal 1086 
+
+transfer. 1087 
+
+1088 
+
+Extended Data Fig. 4 | Spot -level marker prediction in held -out HER2ST patient H sections. 1089 
+
+Measured and Morpho -FM -predicted expression maps are shown for six representative marker 1090 
+
+genes across three HER2ST patient H sections. For each target section, leave -one -section -out 1091 
+
+transfer was used: H1 was predicted from H2 and H3, H2 from H1 and H3, and H3 from H1 and 1092 
+
+H2, so the target section was not used for model fitting. Rows show epithelial/tumour -associated 1093 
+
+markers ( ERBB2 , KRT19  and  CD24 ), a stromal -associated marker ( MGP ) and immune -associated 1094 
+
+markers ( CD74  and  IGKC ). For each section and gene, measured expression at the original 1095 
+
+HER2ST measurement locations is shown next to the corresponding predicted expression. Pearson 1096 
+
+correlation coefficients between measured and predicted spot -level expression are indicated in the 1097 
+
+predicted panels. Colour intensity denotes relative expression within each map. 1098
