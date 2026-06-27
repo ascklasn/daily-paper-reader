@@ -1,0 +1,488 @@
+Title: Evo-RAD: Navigating Rare Retinal Disease Diagnosis via Self-Evolving Agentic Retrieval
+
+URL Source: https://arxiv.org/pdf/2606.22955v1
+
+Published Time: Tue, 23 Jun 2026 02:45:31 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Evo-RAD: Navigating Rare Retinal Disease Diagnosis via Self-Evolving Agentic Retrieval 
+
+Wangding Xia 1*, Ye Du 1*, Jiashi Lin 2, Meng Wang 3,4, Danli Shi 5,6, and Shujun Wang 1B 
+
+> 1
+
+Department of Biomedical Engineering, The Hong Kong Polytechnic University, Hong Kong SAR, China  
+
+> 2
+
+School of Computer Science, Northwestern Polytechnical University, Xi’an, China  
+
+> 3
+
+Centre for Innovation and Precision Eye Health, Yong Loo Lin School of Medicine, National University of Singapore, Singapore 119228, Singapore  
+
+> 4
+
+Department of Ophthalmology, Yong Loo Lin School of Medicine, National University of Singapore, Singapore 119228, Singapore  
+
+> 5
+
+School of Optometry, The Hong Kong Polytechnic University, Hong Kong SAR, China  
+
+> 6
+
+Research Centre for SHARP Vision (RCSV), The Hong Kong Polytechnic University, Hong Kong SAR, China 
+
+shu-jun.wang@polyu.edu.hk 
+
+B Corresponding author *These authors contributed equally to this work. 
+
+Abstract. Large-scale pretrained foundation models have revolution-ized general medical screening, but often falter on rare diseases because such conditions are underrepresented in real-world clinical datasets. While retrieval-augmented diagnosis attempts to mitigate this, conventional static methods frequently succumb to the hubness problem , retrieving visually similar but semantically incorrect common diseases. To address this, we propose Evo-RAD , a self-evolving agentic framework that trans-forms evidence acquisition into a dynamic decision-making task. We for-mulate retrieval as a Markov Decision Process (MDP) where a graph-based agent observes the reference set state and executes actions to purge discordant evidence (DELETE), acquire pathologically consistent sam-ples (INSERT), or conclude the evolution (TERMINATE). Optimized via Group Relative Policy Optimization (GRPO) with a homogeneity-aware reward, the agent learns to maximize the diagnostic homogene-ity of the support reference set. Experiments on retinal disease bench-marks show that Evo-RAD substantially improves rare-disease diagnosis, outperforming retinal foundation models by +21.04% , while also sur-passing retrieval-based and parameter-efficient fine-tuning methods by 
+
++3.56% . Code is available at https://github.com/SDH-Lab/Evo-RAD. 
+
+Keywords: Retinal Disease · Rare Disease Diagnosis · Vision Language Model · Retrieval Augmented Diagnosis  
+
+> arXiv:2606.22955v1 [cs.CV] 22 Jun 2026 2W. Xia et al.
+
+1 Introduction 
+
+Foundation models are rapidly reshaping ophthalmic diagnosis by learning uni-fied representations across retinal images and clinical language [20,17,13,14,16]. Recent Vision-Language Models (VLMs), such as FLAIR [14] and RetiZero [16], demonstrate strong performance on public benchmarks by aligning retinal im-agery with clinical narratives, and have thus become attractive for automated screening. However, deploying these VLMs into rare retinal diseases diagnosis re-mains challenging. Rare diseases are infrequent and clinically heterogeneous [11], so their features are weakly constrained during pretraining and can be entangled with visually similar common diseases, leading to degraded real-world perfor-mance (lower sensitivity and higher confusion with prevalent diagnoses). To mitigate this degradation, an intuitive strategy is to adapt foundation models via Parameter-Efficient Fine-Tuning (PEFT) , such as prompt tuning [22,18,7,3,8,10] and adapter-based methods [19,4]. PEFT freezes the backbone and updates only a small set of additional or selected parameters, thereby reduc-ing computational costs. However, PEFT can be unreliable for rare classes. With only a handful of rare cases, even this limited trainable capacity can overfit to acquisition-specific noise and spurious cues. Conversely, when trained on the full imbalanced corpus, optimization is dominated by common classes, biasing the learned adaptation toward prevalent conditions and limiting gains in rare-disease sensitivity where robustness is most critical. Besides PEFT, a more robust alternative is Retrieval-Augmented Diagnosis (RAD) . Given a query image, RAD retrieves a small set of similar reference cases from an external database and conditions diagnosis on the retrieved examples as supporting evidence. However, most existing RAD pipelines [13,9] still rely on one-shot nearest-neighbor retrieval with a fixed similarity metric, producing a static reference set. This rigidity design is fragile for rare diseases due to the hub-ness problem [12], where a small subset of common-disease samples repeatedly appears as nearest neighbors. As a result, the retrieved evidence can be visu-ally similar but semantically incorrect, which biases prediction toward common classes and undermines the reliability of retrieval-based support. To overcome these limitations, we argue that retrieval for rare-disease di-agnosis should move beyond passive nearest-neighbor matching to an iterative, context-aware reasoning process, analogous to how clinicians refine hypotheses by accumulating consistent evidence and excluding mimics [2]. Motivated by this, we propose Evo-RAD , a self-evolving agentic retrieval framework that formu-lates retrieval as a Markov Decision Process (MDP) [15]: a graph-based agent observes the current reference-set state and sequentially evolves it via DELETE 
+
+(purge discordant hub samples), INSERT (add pathologically consistent cases from external memory), or TERMINATE . We optimize the policy with Group Relative Policy Optimization (GRPO) [5] under a homogeneity-aware reward 
+
+that promotes diagnostic coherence, so final prediction is conditioned on pro-gressively evolved evidence, improving support for rare retinal disease diagnosis. To summarize, our contributions are threefold. First , we propose Evo-RAD ,an agentic retrieval framework moving beyond static similarity search to itera-Evo-RAD: Self-Evolving Agentic Retrieval for Rare Retinal Diagnosis 3Image 
+
+Encoder 
+
+Text 
+
+Encoder          
+
+> Top KCandidates
+> Retinitis
+> Pigmentosa Retinitis
+> Pigmentosa Retinoschisis Stargardt
+> Disease
+> Stargardt disease ,
+> with xxx,
+> xxx, xxx,
+> an …
+> Text Embeddings
+
+Nodes 
+
+Edges 
+
+Initial Graph 𝓖 𝟎 
+
+> Retrieval
+> LLM
+
+Policy  
+
+> 𝝅 𝜽 (𝒂 𝟎 |𝒔 𝟎 )
+> Action 𝒂 𝟎
+
+𝒔 𝟎 : (𝓖 𝟎 , 𝐇 𝟎 )
+
+Policy  
+
+> 𝝅 𝜽 (𝒂 𝟏 |𝒔 𝟏 )
+> Action 𝒂 𝟏
+
+𝒔 𝟏 : (𝓖 𝟏 , 𝐇 𝟏 )
+
+Policy  
+
+> 𝝅 𝜽 (𝒂 𝟐 |𝒔 𝟐 )
+> Action 𝒂 𝑵
+
+Purified Graph 𝓖 ∗
+
+Query Image 
+
+…
+
+…
+
+Ad jacency Metrix    
+
+> Query Node
+> Noisy Nodes
+> Homogeneous Nodes
+> DELETE
+> INSERT
+> TERMIN.
+
+𝒔 𝟐 : (𝓖 𝟐 , 𝐇 𝟐 )        
+
+> Retinoschisis ,
+> with xxx,
+> xxx, xxx,
+> an …
+> Retinitis
+> Pigmentosa, with
+> night blindness,
+> tunnel vision,
+> and …
+> =TERMIN +INSERT -DELET E
+> DELETE
+> INSERT
+> TERMIN.
+> DELETE
+> INSERT
+> TERMIN.
+
+. . .
+
+. . .
+
+> Retinitis Pigmentosa
+> VOTE
+
+Self -Evolving Over Time  
+
+> Reference Set
+
+Fig. 1: Overview of Evo-RAD. Evo-RAD models retrieval as a Markov De-cision Process where a graph policy evolves the evidence set through discrete 
+
+DELETE , INSERT , and TERMINATE operations. tive, dynamic reference set refinement. Second , we design a homogeneity-aware 
+
+optimization objective and train the retrieval agent with GRPO, enabling dis-crete evidence evolving operations. Third , We conduct extensive experiments on retinal disease benchmarks, demonstrating that Evo-RAD yields a +21.04% 
+
+improvement over retinal foundation models and a +3.56% gain over state-of-the-art static retrieval and PEFT methods. 
+
+2 Method 
+
+Evo-RAD (Fig. 1) is a self-evolving agentic retrieval framework for rare-disease diagnosis. It reformulates Top-K retrieval as a sequential decision process that iteratively evolves the reference set to remove hub-driven distractors and admit clinically concordant cases, terminating once the evidence is diagnostically co-herent. Technically, Evo-RAD introduces: (i) a Markov Decision Process-based self-evolving agentic retrieval formulation; (ii) a GRPO-trained graph policy that jointly optimizes query affinity and intra-set agreement; and (iii) a final evidence-conditioned prediction head. 
+
+2.1 Markov Decision Process based Self-Evolving Agentic Retrieval 
+
+Given a query image q, we extract its visual embedding vq using a frozen retinal foundation model and retrieve the Top-K most similar images with corresponding labels to form the initial reference set X0 ⊂ D , where D is a 4 W. Xia et al. 
+
+rare disease database ( e.g. , the training subset). To enable reference set up-date, we model the self-evolving agentic retrieval as a Markov Decision Process 
+
+M = ⟨S , A, T , R⟩ [15], where the environment maintains an continual updating reference set Xt ⊂ D and the agent learns to evolve from X0 to Xt to suppress hub-induced distractors and retain diagnostically consistent references. 
+
+1. State S. At time step t, the state st ∈ S summarizes the current reference set Xt with respect to the query q and the intra-set semantic coherence. We represent st as a graph st = ( Gt, Ht), where Gt specifies the topology over the current references and Ht stores node features. 
+
+1) Graph topology. The topology Gt is instantiated by a semantic-consistency adjacency matrix defined within Xt. Because raw disease labels are often coarse, for each disease label y ∈ Y we perform clinical concept expansion using a large language model (GPT-5.1), producing a set of fine-grained clinical tags Tags( y)
+
+(e.g., “bone-spicule pigmentation” and “cotton-wool spots”). For each reference case x, we attach its tag text Tags( yx) and encode it with the frozen text encoder of the vision–language model to obtain a semantic embedding ux. We then build the adjacency matrix At ∈ R|X t|×|X t| by pairwise cosine similarity: 
+
+(At)ij := u⊤ 
+
+> xi
+
+uxj
+
+∥uxi ∥2 ∥uxj ∥2
+
+, xi, x j ∈ X t. (1) This construction links reference cases that share consistent expanded clinical semantics. 
+
+2) Node features. The matrix Ht ∈ R|X t|× D stacks node features h(x) ∈
+
+Ht, defined as: 
+
+h(x) = [ vx∥ϕstat (x, Xt, q ) ] , (2) where ∥ denotes concatenation. Descriptor ϕstat ∈ R8 stacks four base metrics and their mean deviations, capturing similarity between x and: (i) query q (vi-sual), (ii) the initial rank, and set Xt regarding (iii) clinical text and (iv) disease categories. 
+
+2. Action A. We use a discrete action space A = Adel ∪A ins ∪{ aterm }. Deletion. 
+
+For each reference case x ∈ X t, a deletion action adel (x) ∈ A del removes x
+
+from Xt, subject to a minimum-size constraint |X t| ≥ min_size . Insertion. An insertion action ains ∈ A ins expands the set by adding one case from a pre-fetched candidate buffer B ⊂ D . To avoid searching the full datastore at each step, the environment deterministically inserts the most query-similar candidate not already selected: xins = arg max x∈B\X t sim( q, x ). This design lets the agent learn when to expand the evidence set, while a fixed similarity prior determines 
+
+what to insert, thereby reducing the effective action dimensionality. Termination. 
+
+The agent stops the refinement process by selecting aterm when Xt is deemed sufficiently coherent. 
+
+3. Transition T . Given action at, transition T updates the reference set as 
+
+Xt+1 =
+
+
+
+Xt \ { x}, at ∈ A del ,
+
+Xt ∪ { xins }, at ∈ A ins ,
+
+Xt, at = aterm ,
+
+(3) Evo-RAD: Self-Evolving Agentic Retrieval for Rare Retinal Diagnosis 5
+
+and reconstructs the graph Gt+1 and node features Ht+1 accordingly. 
+
+4. Homogeneity-aware Reward R. We design a homogeneity-aware reward 
+
+to encourage the agent to evolve a diagnostically coherent reference set. The total return of a trajectory τ = {(st, a t)}Tt=0 is 
+
+R(τ ) = Rtraj (XT ) +  
+
+> T−1
+
+X
+
+> t=0
+
+rstep (st, a t), (4) where Rtraj evaluates the quality of the final reference set and rstep provides immediate feedback for each evolving operation. 
+
+1) Trajectory-Level Reward. Let ˆy(X ) be the final diagnosis conditioned on reference set X . To guide the policy toward label consistency and semantic homogeneity, we define the label purity Pur (X ) and the mean pairwise text-density Den (X ) as: Pur (X ) = 1
+
+|X | 
+
+X
+
+> x∈X
+
+I[yx = y⋆], Den (X ) = 2
+
+|X | (|X | − 1) 
+
+X
+
+> i<j
+
+cos( uxi , u xj ), (5) where y⋆ is the ground-truth label and ux is the text embedding of clinical tags for x. We then construct the trajectory reward as: 
+
+Rtraj (XT ) = α I[ˆ y(XT ) = y⋆]
+
+| {z }
+
+> Racc
+
++ β
+
+
+
+Pur (XT ) − Pur (X0)
+
+| {z }
+
+> Rpurity
+
++ γ Den (XT )
+
+| {z }
+
+> Rdensity
+
+, (6) which rewards correct prediction, purity gain over the initial set X0, and intra-set semantic density. 
+
+2) Step-Level Reward. For each action, we provide positive-only feedback: 
+
+rstep (st, a t) = ηins I[at ∈ A ins ] I[yxins = y⋆]
+
+| {z }
+
+> rins
+
++ ηdel I[at ∈ A del ] I[yxdel ̸ = y⋆]
+
+| {z }
+
+> rdel
+
+. (7) We adopt a zero-penalty principle by assigning 0 reward to incorrect inser-tions/deletions, avoiding negative shaping that can hinder early exploration. 
+
+2.2 Relational Policy Learning via Group-Relative Optimization 
+
+With the MDP defined above, we learn a retrieval evolving policy πθ (at | st)
+
+that iteratively updates the reference set Xt toward a diagnostically consistent and semantically coherent subset. Instead of treating instances independently, we instantiate πθ as a relational reasoner over the evidence graph and optimize it using a group-relative objective to stabilize learning without a value network. 
+
+Graph Policy Network. Given the state graph st = ( Gt, Ht) with adjacency matrix At, we adopt a Graph Convolutional Network (GCN) [6] to propagate consistency signals among references. With self-loops ˆAt = At + I and degree matrix ˆDt, the l-th layer updates node features as 
+
+H(l+1)  
+
+> t
+
+= σ
+
+ ˆD− 12 
+
+> t
+
+ˆAt ˆD− 12 
+
+> t
+
+H(l) 
+
+> t
+
+W(l)
+
+, H(0)  
+
+> t
+
+= Ht, (8) 6 W. Xia et al. 
+
+where σ(·) denotes a nonlinear activation. After L layers ( L = 2 ), we parameter-ize the action distribution by combining node-level deletion scores with graph-level operation scores: 
+
+πθ (at | st) = Softmax 
+
+h 
+
+{MLP local (h(L) 
+
+> x
+
+)}x∈X t , MLP global (Pool( H(L) 
+
+> t
+
+)) 
+
+i 
+
+> at
+
+,
+
+(9) where MLP local and MLP global are two MLP heads and Pool is mean pooling. 
+
+GRPO Optimization. We optimize πθ with Group Relative Policy Optimiza-tion (GRPO) [5], which eliminates the need for a learned critic by using group statistics as a dynamic baseline. For each query q, we sample a group of trajec-tories TG = {τ1, . . . , τ G} from πθold , compute their returns {R(τi)}Gi=1 , and form the normalized advantage 
+
+ˆAi = R(τi) − Mean( {R(τj )}Gj=1 )Std( {R(τj )}Gj=1 ) + ϵ . (10) We then update the policy by maximizing 
+
+J (θ) = Eq
+
+"
+
+1
+
+G
+
+> G
+
+X
+
+> i=1
+
+ πθ (τi)
+
+πθold (τi) ˆAi − β DKL (πθ (· | q) ∥ πref (· | q)) 
+
+#
+
+, (11) where πref is a reference policy and the KL term regularizes updates. 
+
+2.3 Evidence-Conditioned Prediction 
+
+After the agent terminates, we obtain the evolved reference set XT . We then use majority voting over the labels of evolved references for diagnosis: 
+
+ˆy = arg max 
+
+> c∈Y
+
+X
+
+> x∈X T
+
+I(yx = c). (12) 
+
+3 Experiments 
+
+3.1 Experimental Setup Datasets. Public fundus benchmarks are increasingly saturated for rare-disease diagnosis because recent retinal foundation models have been trained exten-sively on them [13,14], making generalization hard to assess. We therefore eval-uate on the Retina Image Bank (RIB) [1], a public and continuously updated clinical repository that is less coupled to standard benchmarks. From RIB, we collect 30,662 images and curate a single-label fundus dataset to reduce co-morbidity confounding. We construct Rare-20 (20 rare diseases; 15 < N ≤ 75 
+
+images/class) and Retina-31 by adding 11 common diseases ( N > 200 im-ages/class). We use a 70/15/15 train/val/test split; for retrieval-based methods, the retrieval corpus is restricted to the training split to prevent test leakage. Evo-RAD: Self-Evolving Agentic Retrieval for Rare Retinal Diagnosis 7
+
+Table 1: Comparison with foundation models under zero-shot and linear probing settings. Performance is reported as mean ±std for linear probing evaluation. 
+
+Method Rare-20 Retina-31 Acc[%] F1-score[%] Sensitivity[%] ACC[%] F1-score[%] Sensitivity[%] 
+
+Zero-shot Evaluation: 
+
+BiomedCLIP [20] 2.91 0.29 3.75 0.39 0.10 2.49 MedCLIP [17] 4.85 3.77 7.08 1.08 0.65 3.58 EyeCLIP [13] 23.95 10.10 11.50 21.60 12.79 13.13 FLAIR [14] 20.39 15.86 21.59 39.00 24.15 31.08 RetiZero [16] 25.24 26.37 29.35 11.53 12.86 19.34 
+
+Linear Probing Evaluation: 
+
+EyeCLIP [13] 27.64 ± 5.01 14.48 ± 2.10 18.90 ± 3.74 30.49 ± 1.72 17.28 ± 1.33 19.15 ± 3.96 FLAIR [14] 27.51 ± 1.12 8.54 ± 0.36 12.60 ± 0.50 55.16 ± 0.40 22.81 ± 0.22 24.79 ± 0.23 RetiZero [16] 26.86 ± 2.02 10.15 ± 0.84 13.05 ± 1.05 36.62 ± 0.31 13.86 ± 0.28 15.56 ± 0.13 
+
+Evo-RAD (Ours) 46.28 ± 0.56 40.99 ± 0.53 42.43 ± 0.21 65.33 ± 0.28 51.45 ± 0.43 49.53 ± 0.52 
+
+Table 2: Comparison with retrieval and PEFT methods (mean ±std). RetiZero is the foundation model. Params is number of trainable parameters on Retina-31.                                                                                                                                                                                                
+
+> METHOD Params Rare-20 Retina-31 Acc[%] F1-score[%] Sensitivity[%] Acc[%] F1-score[%] Sensitivity[%]
+> Zero-shot 025.24 26.37 29.35 11.53 12.86 19.34
+> Static Retrieval 042.72 35.13 36.64 60.41 43.93 41.21 CoOp [22] 3K 29.13 ±0.35 25.31 ±0.13 27.52 ±0.75 20.95 ±1.05 15.34 ±0.72 17.44 ±0.41 CLIP-Adapter [4] 263K 35.40 ±0.30 23.39 ±0.50 26.95 ±0.28 20.70 ±0.11 14.44 ±0.31 18.71 ±0.25 Tip-Adapter [19] 037.86 ±0.00 24.45 ±0.00 27.00 ±0.00 22.97 ±0.00 15.57 ±0.00 19.12 ±0.00 RAC [9] 23.8K 39.48 ±1.48 35.39 ±2.55 40.06 ±2.36 51.81 ±0.78 36.71 ±1.37 45.60 ±1.71 TDA [21] 030.10 ±1.12 25.73 ±0.13 30.08 ±0.11 15.62 ±0.15 14.33 ±0.32 20.72 ±0.52 XCoOp [18] 12.3K 36.57 ±0.97 31.75 ±0.91 31.97 ±1.19 44.28 ±1.62 25.53 ±1.25 25.08 ±1.09 DPC [8] 24.6K 30.74 ±1.48 25.66 ±0.74 27.02 ±1.28 34.77 ±0.31 19.79 ±3.03 19.32 ±2.39 BiomedCoOp [7] 12.3K 42.72 ±0.97 36.89 ±1.89 37.05 ±1.74 46.20 ±0.65 26.03 ±0.57 25.58 ±0.51
+> Evo-RAD (Ours) 116.4K 46.28 ±0.56 40.99 ±0.53 42.43 ±0.21 65.33 ±0.28 51.45 ±0.43 49.53 ±0.52
+
+Rare-20 contains 524/103/103 train/val/test images, and Retina-31 contains 4,737/1,001/1,023. 
+
+Baselines and Implementation Details. We compare Evo-RAD against three groups of methods. (1) Foundation models : general medical VLMs (Biomed-CLIP [20], MedCLIP [17]) and retina-specific models (EyeCLIP [13], FLAIR [14], RetiZero [16]). (2) PEFT methods : CoOp [22], CLIP-Adapter [4], XCoOp [18], BiomedCoOp [7], TDA [21], Tip-Adapter [19], and DPC [8]. (3) Retrieval-based methods : Static Retrieval and RAC [9]. We implement Evo-RAD atop RetiZero [16] with a candidate buffer |B| = 100 and initial retrieval size K = 8 . The policy allows at most 10 actions min _size =2 and is trained via GRPO with G = 8 .We report 3-seed averages using an NVIDIA RTX 4090 (24GB). 
+
+3.2 Main Results Comparison with Foundation Models. Table 1 shows that Evo-RAD con-sistently outperforms both general medical VLMs and retina-specific founda-tion models. On Rare-20, Evo-RAD achieves 46.28% ACC / 40.99% macro-F1 / 42.43% sensitivity, outperforming the strongest baseline (RetiZero zero-shot) by 8 W. Xia et al. 
+
+Table 3: Ablation study on state representation, step-wise rewards, and terminal rewards.                                                                                   
+
+> Setting Acc [%] F1-score [%] Sensitivity [%] Full (all components) 46.28 ±0.56 40.99 ±0.53 42.43 ±0.21
+> (a) Ablation on State Representation:
+> −Mean deviations 42.74 ±0.42 35.46 ±0.54 36.21 ±0.63
+> −Base metrics 44.56 ±0.43 36.21 ±0.58 38.41 ±0.44
+> (b) Ablation on Trajectory-Level Rewards:
+> −Racc 43.68 ±0.63 35.82 ±0.68 36.40 ±0.63
+> −Rpurity 40.14 ±1.23 33.11 ±1.92 33.30 ±0.90
+> −Rdensity 43.89 ±1.60 36.06 ±1.28 36.80 ±0.94
+> (c) Ablation on Step-Level Rewards:
+> −rins 39.69 ±0.84 34.84 ±0.61 34.85 ±0.42
+> −rdel 40.61 ±0.64 35.04 ±0.54 35.65 ±0.36
+
+Fig. 2: Impact of inital re-trieval size K on Rare-20. 4 8 16 32 64  
+
+> K
+> 25
+> 30
+> 35
+> 40
+> 45
+> 50
+> Performance (%)
+> Top-K
+> 43.8
+> 46.3
+> 41.7
+> 45.0
+> 39.1
+> 36.3
+> 41.0
+> 34.9 36.8
+> 27.1
+> 38.0
+> 42.4
+> 35.3
+> 36.6
+> 27.4
+> ACC
+> F1-score
+> Sensitivity
+
+a wide margin. On Retina-31, Evo-RAD reaches 65.33% ACC / 51.45% macro-F1, substantially exceeding linear-probing results of FLAIR and RetiZero, indi-cating stronger generalization across both rare and common diseases. 
+
+Comparison with Retrieval and PEFT Methods. As reported in Table 2, Evo-RAD improves over retrieval, and PEFT approaches built on the same foun-dation model. Notably, compared with Static Retrieval , Evo-RAD yields consis-tent gains on both Rare-20 and Retina-31, and it also outperforms RAC and prompt tuning baselines, demonstrating the advantage of the self-evolving agen-tic retrieval framework over fixed retrieval or lightweight prompt tuning. 
+
+Efficiency Analysis. Evo-RAD contains only 116 .4K trainable parameters (Ta-ble 2), yet achieves substantially better performance. This indicates the gains mainly come from evolving retrieval rather than heavy fine-tuning, making Evo-RAD efficient to train and deploy. 
+
+3.3 Ablation Study Ablation on State Representation. Table 3(a) shows that removing either component reduces ACC. Dropping the mean deviations (set-wise consistency) lowers ACC to 42.74%, and removing base metrics (individual similarity) reduces it to 44.56%. This confirms the synergy between individual relevance and group-level consensus. 
+
+Ablation on Trajectory-Level Rewards. As shown in Table 3(b), remov-ing any trajectory-level reward reduces ACC: dropping Racc lowers ACC to 43.68%, while among auxiliary terms Rpurity is most critical (40.14% ACC with-out it). Removing Rdensity also degrades ACC to 43.89%, suggesting that a well-connected reference set benefits evidence evolution. 
+
+Ablation on Step-Level Rewards. As shown in Table 3(c), removing step-wise shaping rewards hurts ACC, dropping to 39.69% without rins and 40.61% without rdel , confirming the value of dense feedback during evidence evolution. 
+
+Ablation on Initial Reference Set Size K. As shown in Fig. 2, performance peaks at K = 8 . Smaller K provides insufficient evidence, whereas larger K
+
+introduces more redundant/noisy references. We therefore use K = 8 by default. Evo-RAD: Self-Evolving Agentic Retrieval for Rare Retinal Diagnosis 9
+
+4 Conclusion 
+
+We presented Evo-RAD, a self-evolving agentic retrieval framework for rare reti-nal disease diagnosis that formulates evidence refinement as sequential DELETE/ INSERT/ TERMINATE decisions and learns an evidence-evolution policy via GRPO with a homogeneity-aware reward. By explicitly suppressing hub-driven distractors and consolidating clinically coherent support sets before prediction, Evo-RAD delivers consistent improvements over foundation-model baselines, standard retrieval, and PEFT variants. Future work will extend Evo-RAD to multi-label and co-morbidity settings, enabling evidence evolution under realis-tic mixed-pathology supervision. 
+
+Acknowledgments. This work was partially supported by PolyU Undergrad-uate Research and Innovation Scheme (No. P0058439), RGC Collaborative Re-search Fund (No. C5055-24G), the Start-up Fund of The Hong Kong Polytechnic University (No. P0045999), the Seed Fund of the Research Institute for Smart Ageing (No. P0050946), and Tsinghua-PolyU Joint Research Initiative Fund (No. P0056509), and PolyU UGC funding (No. P0053716 and P0058848). 
+
+References 
+
+1. American Society of Retina Specialists (ASRS): Retina image bank. https://www. asrs.org/clinical/retina-image-bank (2026), accessed: 2026-02-25. An open-access library of nearly 30,000 downloadable retina images. 2. Croskerry, P.: A universal model of diagnostic reasoning. Academic medicine 84 (8), 1022–1028 (2009) 3. Du, Y., Yu, N., Wang, S.: Medical knowledge intervention prompt tuning for med-ical image classification. IEEE Transactions on Medical Imaging (2025) 4. Gao, P., Geng, S., Zhang, R., Ma, T., Fang, R., Zhang, Y., Li, H., Qiao, Y.J.: Clip-adapter: Better vision-language models with feature adapters. International Journal of Computer Vision 132 , 581 – 595 (2021) 5. Guo, D., Yang, D., Zhang, H., Song, J., Wang, P., Zhu, Q., Xu, R., Zhang, R., Ma, S., Bi, X., et al.: Deepseek-r1 incentivizes reasoning in llms through reinforcement learning. Nature 645 (8081), 633–638 (2025) 6. Kipf, T.N., Welling, M.: Semi-supervised classification with graph convolutional networks. In: International Conference on Learning Representations (2017) 7. Koleilat, T., Asgariandehkordi, H., Rivaz, H., Xiao, Y.: BiomedCoOp: Learning to Prompt for Biomedical Vision-Language Models . In: 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 14766–14776 (2025) 8. Li, H., Wang, L., Wang, C., Jiang, J., Peng, Y., Long, G.: Dpc: Dual-prompt collaboration for tuning vision-language models. In: Proceedings of the Computer Vision and Pattern Recognition Conference. pp. 25623–25632 (2025) 9. Long, A., Yin, W., Ajanthan, T., Nguyen, V., Blair, R., Shen, C., van den Hengel, A.: Retrieval-augmented classification for long-tail visual recognition. In: Proceed-ings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 6959–6969 (2023) 10. Luo, Y., Li, W., Chen, C., Li, X., Liu, T., Niu, T., Yuan, Y.: Llm-guided decou-pled probabilistic prompt for continual learning in medical image diagnosis. IEEE Transactions on Medical Imaging (2025) 10 W. Xia et al. 11. Phillips, C., Parkinson, A., Namsrai, T., Chalmers, A., Dews, C., Gregory, D., Kelly, E., Lowe, C., Desborough, J.: Time to diagnosis for a rare disease: managing medical uncertainty. a qualitative study. Orphanet journal of rare diseases 19 (1), 297 (2024) 12. Radovanović, M., Nanopoulos, A., Ivanović, M.: Hubs in space: Popular nearest neighbors in high-dimensional data. J. Mach. Learn. Res. 11 , 2487–2531 (2010) 13. Shi, D., Zhang, W., Yang, J., Huang, S., Chen, X., Xu, P., Jin, K., Lin, S., Wei, J., Yusufu, M., Liu, S., Zhang, Q., Ge, Z., Xu, X., He, M.: A multimodal visual–language foundation model for computational ophthalmology. npj Digital Medicine 8(1), 381 (6 2025) 14. Silva-Rodríguez, J., Chakor, H., Kobbi, R., Dolz, J., Ben Ayed, I.: A foundation language-image model of the retina (flair): encoding expert knowledge in text su-pervision. Medical Image Analysis 99 , 103357 (2025) 15. Sutton, R., Barto, A.: Reinforcement learning: An introduction. IEEE Transactions on Neural Networks 9(5), 1054–1054 (1998) 16. Wang, M., Lin, T., Lin, A., Yu, K., Peng, Y., Wang, L., Chen, C., Zou, K., Liang, H., Chen, M., Yao, X., Zhang, M., Huang, B., Zheng, C., Zhang, P., Chen, W., Luo, Y., Chen, Y., Xia, H., Fu, H.: Enhancing diagnostic accuracy in rare and common fundus diseases with a knowledge-rich vision-language model. Nature Communica-tions 16 , 5528 (07 2025) 17. Wang, Z., Wu, Z., Agarwal, D., Sun, J.: Medclip: Contrastive learning from un-paired medical images and text. Proceedings of the Conference on Empirical Meth-ods in Natural Language Processing. Conference on Empirical Methods in Natural Language Processing 2022 , 3876–3887 (2022) 18. Zhan, Y., Wu, C., Zhang, Y., Wang, Y.: Xcoop: Explainable prompt learning for computer-aided diagnosis via concept-guided context optimization. In: Medical Im-age Computing and Computer Assisted Intervention (MICCAI) (2024) 19. Zhang, R., Zhang, W., Rong, R., Li, C., Qiu, Z., Qiao, Y., Gao, P.: Tip-adapter: Training-free adaption of clip for few-shot classification. In: European Conference on Computer Vision (ECCV). pp. 493–510 (2022) 20. Zhang, S., Xu, Y., Usuyama, N., Xu, H., Bagga, J., Tinn, R., Preston, S., Rao, R., Wei, M., Valluri, N., Wong, C., Tupini, A., Wang, Y., Mazzola, M., Shukla, S., Liden, L., Gao, J., Crabtree, A., Piening, B., Bifulco, C., Lungren, M.P., Naumann, T., Wang, S., Poon, H.: A multimodal biomedical foundation model trained from fifteen million image–text pairs. NEJM AI 2(1), AIoa2400640 (2025) 21. Zhao, Y., Zhu, H., Lin, W., et al.: Efficient Test-Time Adaptation of Vision-Language Models. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 14201–14211 (2024) 22. Zhou, K., Yang, J., Loy, C.C., Liu, Z.: Learning to prompt for vision-language models. International Journal of Computer Vision (IJCV) (2022)

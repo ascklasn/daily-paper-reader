@@ -1,0 +1,616 @@
+Title: MedGuards: Multi-Agent System for Reliable Medical Error Detection and Correction
+
+URL Source: https://arxiv.org/pdf/2606.25651v1
+
+Published Time: Thu, 25 Jun 2026 00:49:38 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# MedGuards: Multi-Agent System for Reliable Medical Error Detection and Correction 
+
+Congbo Ma 
+
+New York University Abu Dhabi 
+
+Hu Wang 
+
+Khalifa University 
+
+Yichun Zhang 
+
+New York University 
+
+Farah E. Shamout 
+
+New York University Abu Dhabi 
+
+## Abstract 
+
+As Large Language Models (LLMs) are increasingly deployed in healthcare set-tings, accurate error detection and correction in generated or existing text becomes critical, as even minor mistakes can pose risks to patient safety. Existing methods for error detection and correction, including automated checks and heuristic-based approaches, do not generalize well across unseen datasets. In this paper, we pro-pose MedGuards as a medical safety guardrail, which is a new framework that treats medical error detection and correction as a multi-agent in-context learning task. Specialized agents separately detect, localize, and correct errors, while a confidence-guided arbitration mechanism resolves disagreements using reasoning traces and confidence scores. This design enhances interpretability, robustness, and adaptability, without requiring additional training of the base LLMs. Additionally, we introduce the Keyword-Prioritized Correction Score (KPCS), a new evaluation metric that considers whether critical keywords within the reference text are gen-erated correctly, providing a more comprehensive assessment than conventional metrics. Experiments across four multilingual medical datasets consisting of clini-cal notes demonstrate significant improvements by the proposed framework across several metrics and models. Our aim is to enable safer deployment of LLMs in real-world healthcare applications. For reproducibility, we make our code publicly available at https://github.com/congboma/MedErrBench .
+
+## 1 Introduction 
+
+Large Language Models (LLMs) have demonstrated remarkable potential in various medical domains, including clinical documentation [ 16 , 41 ], diagnostic assistance [ 45 , 24 ], and personalized treatment recommendations [ 47 , 4]. Their capacity to generate coherent and contextually relevant medical text has attracted substantial interest for aiding healthcare delivery [ 46 , 36 , 26 ]. Existing applications of LLMs often lack dedicated error detection and correction mechanisms, a gap that is particularly critical in high-stakes clinical settings [ 2]. Ensuring the clinical correctness and safety of existing or generated content remains an urgent and unresolved challenge. Current quality control methods focus on assessing outputs on the semantic level, which is insufficient for addressing errors that require deep structural understanding and clinical reasoning [10, 35]. To tackle the aforementioned problems, we frame medical error detection and correction as a multi-agent in-context learning problem. Our motivation is two-fold. First, the error correction process involves step-wise reasoning comprising detection, localization, and correction. This structure aligns well with the scenarios paradigm and Chain-of-Thought (CoT) reasoning [ 40 ], both of which decompose complex reasoning into interpretable, context-aware steps. Second, medical applications demand high reliability, which may be difficult to ensure when relying on a single model subject to 
+
+> Preprint.
+> arXiv:2606.25651v1 [cs.CL] 24 Jun 2026
+
+uncertainty, bias, or failure in out-of-distribution scenarios [ 17 , 3]. Inspired by self-consistency [ 39 ], we propose multiple specialized agents that compute predictions separately and then aggregate their outputs where necessary, thereby reducing prediction variance and improving robustness. We also leverage In-Context Learning (ICL) [ 44 ], allowing agents to incorporate the reasoning traces and confidence scores of peer agents directly into their prompts. By combining these three principles, CoT for task decomposition, self-consistency for performance robustness, and ICL for adaptive decision-making, we design a principled framework that is both interpretable and practically effective for medical error detection and correction. In terms of evaluation, existing metrics for natural language processing applications, such as BLEU [ 29 ], ROUGE [ 22 ], and BERTScore [ 51 ], treat each token equally when computing sim-ilarity between the generated and reference text. However, this token-level equality assumption introduces a critical limitation: these metrics fail to account for the varying importance of different tokens, especially those representing key clinical entities within the reference text. As a result, errors in generating essential terms may be overlooked despite high overall similarity scores. For example, a model may generate a suspected causal organism based on the patient’s symptoms as: “ Patient’s symptoms are suspected to be due to hepatitis A ”, compared to the reference text of “ Patient’s symp-toms are suspected to be due to Schistosoma mansoni ”. Although the surrounding sentence remains largely unchanged, the diagnostic entity itself is fundamentally different. Such clinically critical entities, e.g., causal organism or diagnoses, play a decisive role in determining whether a correction is clinically meaningful. Therefore, treating each token as equally important may be insufficient to reliably evaluate the quality of generated clinical notes. In this paper, we propose a systematic approach to error detection and correction, aiming to enhance reliability and facilitate safer deployment of LLMs in clinical environments. We also propose a novel evaluation metric, which emphasizes the identification and validation of critical clinical entities in the reference text. Our main contributions can be summarized as follows: • We design MedGuards , the first multi-agent system tailored for medical error detection and correction. MedGuards consists of three collaborative modules: detection, localization, and correction. Each agent specializes in a sub-task, and the system is plug-and-play and highly flexible, making it easy to integrate with existing LLM-based medical agents without additional re-training. This design also provides fine-grained interpretability and supports scalable deployment across diverse medical domains. • We propose a confidence-guided ICL framework to reach consensus when disagreements arise. Specifically, when two agents output conflicting predictions, their reasoning steps and confidence scores are passed to a third decision agent, which adjudicates the conflict. This improves robustness in uncertain scenarios, enabling more reliable error correction. • We introduce a new evaluation metric that prioritizes domain-critical medical keywords. Unlike traditional metrics that treat all tokens equally, the proposed metric checks whether critical keywords within the reference text are generated correctly and assesses the overall semantics. This balanced design better reflects the clinical safety and reliability requirements of medical error correction. • We extensively evaluate our system on four datasets, covering three languages (English, Ara-bic, and Chinese) and show consistent improvements over strong baselines, demonstrating the method’s generalizability and robustness across diverse medical settings. 
+
+## 2 Related Work 
+
+2.1 Medical Error Detection, Correction, and Evaluation 
+
+The release of the MEDIQA-CORR 2024 Shared Task [ 1] provided the first benchmark for medical error detection and correction. Submitted systems included prompting-based LLMs with few-shot ICL and CoT reasoning [ 43 , 31 ] and retrieval-augmented pipelines grounding corrections in external knowledge [ 20 ]. One study proposed a hybrid framework combining classifiers with Question-Answering (QA)-style modules [ 32 ], while in another study the authors leveraged multiple expert prompts and self-consistency to improve robustness [38]. Evaluation in this shared task relied on BLEU [ 29 ], ROUGE [ 22 ], and embedding-based metrics, such as BERTScore [ 51 ]. However, these metrics show weak alignment with expert judgments 2Error Detection Module 
+
+MedGuards : Multi -Agent System for Reliable Medical Error Detection & Correction         
+
+> Agent 1
+> Agent 2
+> Agreement No error! OR Error!
+> Evaluation
+> ACCURACY
+> Disagreement
+> Agent 3
+> Corrected
+> clinical notes
+> Agents Output:
+> result, explanation
+> & confidence score
+> Input:
+> Clinical note
+> Module Output
+> Error sentences!
+> Correction
+> Agent
+> Step 1: Detection Step 2: Arbitration
+> Error Detection Module
+> Agent 1
+> Agent 2
+> Agreement Error sentences!
+> Evaluation
+> ACCURACY
+> Disagreement
+> Agent 3
+> Agents Output:
+> result, explanation
+> & confidence score
+> Input:
+> Clinical note
+> Module Output
+> Step 3: Localization Step 4: Arbitration
+> Error Correction Module
+> Step 5: Correction
+> Evaluation
+> KPCS ,
+> ROUGE -1,
+> BERTScore ,
+> BLEURT
+> Principle 1: Chain of Thought Decomposition Principle 2: Multi -agent Self -consistency Principle 3: In -context Learning -based Arbitration
+
+Figure 1: High-level Overview of MedGuards .when factual accuracy and domain-specific terminology are critical [ 27 , 25 , 13 ]. Domain-adapted metrics address this gap. CUI F-score measures overlap in UMLS concepts [ 14 ], SapBERTScore leverages biomedical embeddings to capture terminology similarity [ 23 ], and Clinical-BLEURT adapts BLEURT for clinical summarization and dialogue [ 8]. Overall, these metrics were developed for broader clinical NLP rather than error detection and correction, and no standardized framework yet exists to prioritize domain-critical entities. 
+
+2.2 Medical Multi-Agent Systems 
+
+Multi-agent systems have been studied as a way to improve reasoning, reliability, and interpretability of LLMs. General frameworks decompose tasks, enable debate, or use arbitration to aggregate reasoning traces [ 42 , 21 , 48 , 38 ]. Recent work adapts these ideas to clinical settings, by designing agentic teams for diagnosis and decision support [ 50 , 19 ], clinical simulation and evaluation [ 33 ], rare-disease or knowledge-graph–aware differential diagnosis [ 52 , 5 ], and radiology report generation with radiologist-in-the-loop agents [ 49 ]. These approaches highlight the promising prospects of multi-agent coordination in clinical NLP, but none have been designed specifically for medical error detection and correction. The systematic use of arbitration to identify, localize, and correct errors remains underexplored. 
+
+## 3 Methodology 
+
+We frame medical error detection and correction as a multi-agent reasoning problem, where multiple specialized agents collaborate to analyze, debate, and refine solutions. Rather than presenting our system merely as a sequential pipeline, we ground it in three core principles that we believe are central to our multi-agent system using LLMs: • Principle 1: CoT decomposition more explicitly articulates intermediate reasoning steps, mimicking clinical reasoning processes. • Principle 2: Multi-agent self-consistency leverages multiple agents whose outputs can be compared, debated, thereby reducing the brittleness of relying on a single agent prediction. • Principle 3: ICL-based arbitration enables agents to condition their judgments on the reasoning traces and confidence scores of other agents, fostering more robust decision-making. We hypothesize that the three principles enable meta-level reasoning without additional model training. By combining these principles, we cast medical error correction not only as a practical system but also as an instantiation of generalizable reasoning paradigms in LLM research. The following sections detail the methodological details. The high-level overview of MedGuards and the complete algorithm is shown in Figure 1 and Algorithm 1. 
+
+3.1 CoT-Guided Task Decomposition 
+
+Following the CoT paradigm, we decompose the overall task into three reasoning stages. 3Algorithm 1: Overview of MedGuards framework consisting of three steps for error detection (f Det ), localization ( f Loc ), and correction ( f Corr ), where r and c indicates a reasoning trace and confidence score, respectively, without loss of generality, and M is the number of matching characters among the longest common subsequences. 
+
+Input: Clinical note x
+
+Output: Corrected sentence set ˆs if error exists Initialize error detection agents Agent Det  
+
+> i
+
+where i ∈ { 1, 2}
+
+1. Error Detection Step (f Det ) ▷ Agents process input text 
+
+(di, r Det  
+
+> i
+
+, c Det  
+
+> i
+
+) ← Agent Det  
+
+> i
+
+(x), i ∈ { 1, 2}
+
+If d1 == d2:
+
+d ← d1
+
+Else, initialize & invoke arbitration agent: 
+
+d ← Agent Det 
+
+> 3
+
+ x ∥ (d1, r Det  
+
+> 1
+
+, c Det  
+
+> 1
+
+), (d2, r Det  
+
+> 2
+
+, c Det  
+
+> 2
+
+)
+
+2. Error Localization Step (f Loc ) ▷ Initialize if d = 1 (si, r Loc  
+
+> i
+
+, c Loc  
+
+> i
+
+) ← Agent Loc  
+
+> i
+
+(x), i ∈ { 1, 2}
+
+If s1 == s2:
+
+s ← s1
+
+Else, initialize & invoke arbitration agent: 
+
+s ← Agent Loc 
+
+> 3
+
+ x ∥ (s1, r Loc  
+
+> 1
+
+, c Loc  
+
+> 1
+
+), (s2, r Loc  
+
+> 2
+
+, c Loc  
+
+> 2
+
+)
+
+Align predicted erroneous sentence s to original sentence in x using string similarity: 
+
+s∗ = arg max  
+
+> xi⊂x
+
+sim( xi, s ), sim( xi, s ) = 2 · M
+
+|xi| + |s| .
+
+3. Error Correction Step (f Corr ) ▷ Generate corrected sentences 
+
+ˆs ← Agent Corr (s∗ | x)
+
+Return ˆs
+
+Error Detection. In the first step, denoted as f Det , multiple agents collaborate to detect whether an error exists in the input clinical note x, such that d = f Det , where d ∈ { 0, 1} indicates the presence of an error. 
+
+Error Localization. In the second step, the goal of the multi-agent system is to identify the sentences s ⊂ x containing the error with a multi-agent error localization function f Loc , such that 
+
+s = f Loc (x | d).
+
+Error Correction. In the final step, an agent is expected to generate a corrected version ˆs of the erroneous sentences. Once the erroneous sentence set s is localized, a dedicated correction agent, with the function f Corr , generates the corrected version ˆs, such that ˆs = f Corr (s | x). Formally: 
+
+d = f Det (x), s = f Loc (x | d), ˆs = f Corr (s | x). (1) 
+
+This decomposition aligns task structure with CoT reasoning, ensuring explicit intermediate steps. 
+
+3.2 Multi-Agent Self-Consistency 
+
+To enhance reliability under uncertainty, we propose a multi-agent self-consistency framework. Rather than committing to the output of a single model, multiple agents separately reason over the same input, and their outputs are brought to consensus through structured arbitration. This design extends the classical notion of self-consistency [ 39 ] from single-model sampling to a multi-agent setting, where disagreement itself becomes a signal to trigger higher-order deliberation. We propose this framework for two complementary tasks: error detection and error localization. 4Error Detection. Two base agents, Agent Det  
+
+> 1
+
+and Agent Det  
+
+> 2
+
+, separately analyze the clinical text 
+
+x and produce binary predictions d1, d 2 ∈ { 0, 1}, accompanied by reasoning traces rDet  
+
+> 1
+
+, r Det  
+
+> 2
+
+and confidence scores cDet  
+
+> 1
+
+, c Det  
+
+> 2
+
+:           
+
+> (di, r Det
+> i, c Det
+> i) = Agent Det
+> i(x),i∈ { 1,2}, c Det
+> i∈[0 ,1] .(2)
+
+Agreement between d1 and d2 yields a direct consensus. In case of disagreement, an arbitration agent Agent Det  
+
+> 3
+
+is activated to reach consensus, thereby converting the binary conflict into a resolved decision. The arbitration agent will consider the original inputs, candidate sets, reasoning traces, and confidence scores for a final decision. 
+
+Error Localization. For localization, each agent Agent Loc  
+
+> i
+
+examines the full input text x and outputs a candidate erroneous sentence si ⊆ x together with a reasoning trace rLoc  
+
+> i
+
+and a confidence score cLoc  
+
+> i
+
+: (si, r Loc            
+
+> i, c Loc
+> i) = Agent Loc
+> i(x),i∈ { 1,2}, c Loc
+> i∈[0 ,1] .(3)
+
+Consensus is immediately reached if s1 = s2, otherwise, an arbitration agent Agent Loc  
+
+> 3
+
+consolidates the original inputs, candidate sets, reasoning traces, and confidence scores for a final decision. This process generalizes the principle of self-consistency: detection is resolved through binary consensus with arbitration, whereas localization requires deliberative reconciliation of structured outputs. In both cases, multi-agent disagreement is not treated as noise, but rather enables more reliable inference. To automatically align an erroneous sentence with a correction candidate, we use the SequenceMatcher [30 ] to compute character-level similarity between the generated sentence xi and each sentence in the reference clinical notes, selecting the sentence s with the highest score based on the computed similarity ratio. We adopt character-level similarity because localization aims to identify the exact sentence from the reference text, not a paraphrased or semantically similar one. This could be possible within a long medical note and LLMs may occasionally produce minor lexical variations or hallucinations. The similarity ratio is defined as:        
+
+> sim( xi, s ) = 2·M
+> |xi|+|s|,(4)
+
+where M is the number of matching characters in the longest common subsequences between xi and 
+
+y. The resulting score lies in [0,1], with higher values indicating greater string-level similarity. This metric allows us to identify the sentence in the report that is most similar to the candidate erroneous sentence, without relying on any semantic representations. 
+
+3.3 ICL-based Prediction 
+
+We formulate arbitration as an ICL problem. The arbitration agents do not rely on additional parameter updates but instead condition their reasoning on the entire contexts, including original inputs, candidate sets, reasoning traces, and confidence scores of other agents provided in the prompt. 
+
+Error Detection. The arbitration agent Agent Det  
+
+> 3
+
+receives as context the reasoning traces and confidence scores from Agent Det  
+
+> 1
+
+and Agent Det  
+
+> 2
+
+:          
+
+> d=Agent Det
+> 3
+>  x∥(d1, r Det
+> 1, c Det
+> 1),(d2, r Det
+> 2, c Det
+> 2),(5)
+
+where ∥ denotes concatenation into the input prompt. In this way, the arbitrator leverages prior reasoning as demonstrations to guide its final decision. 
+
+Error Localization. Similarly, Agent Loc  
+
+> 3
+
+is prompted with the candidate sentences and rationales from Agent Loc  
+
+> 1
+
+and Agent Loc  
+
+> 2
+
+:          
+
+> s=Agent Loc
+> 3
+> 
+> x∥(s1, r Loc
+> 1, c Loc
+> 1),(s2, r Loc
+> 2, c Loc
+> 2)
+> 
+> .(6)
+
+This setting reframes debate resolution as an ICL task, where the arbitrator agent learns to synthesize final decisions from conflicting rationales provided in-context. 
+
+3.4 Keyword-Prioritized Correction Score 
+
+To better evaluate medical error correction, we propose the Keyword-Prioritized Correction Score (KPCS), which explicitly incorporates domain-specific keywords to ensure corrections remain both fluent and clinically accurate. The keywords refer to key clinical concepts in the reference text, such as diagnoses, medications or therapeutic actions, that are central to the clinical meaning of each note 5and particularly relevant to potential errors. Examples of the annotated keywords can be found in Appendix A.10. The metric is computed in three steps: 
+
+Step 1: Keyword Check. Given a corrected sentence Sc and the reference sentence Sr , we first check whether Sc contains the required keywords extracted from Sr . n and m denote the number of keywords in Sc and Sr . If no keyword is present in Sc, the score is set to zero:    
+
+> K(Sc, S r) = n/m. (7)
+
+Step 2: Semantic and Lexical Similarity. We further compute the average of three widely used similarity metrics, which are ROUGE-1, BERTScore, and BLEURT:           
+
+> M(Sc, S r) = ROUGE-1 (Sc, S r) + BERTScore (Sc, S r) + BLEURT (Sc, S r)3.(8)
+
+Step 3: Weighted Score. The final KPCS is a weighted combination of the keyword indicator and the similarity score:             
+
+> KPCS (Sc, S r) = α·K(Sc, S r) + (1 −α)·M(Sc, S r),(9)
+
+where α ∈ [0 , 1] is a tunable parameter that balances the importance of keyword presence and overall semantic similarity. This flexible design enables penalizing outputs that do not include critical clinical keywords, while still rewarding overall fluency and semantic alignment. 
+
+## 4 Experiments & Results 
+
+4.1 Datasets, baseline models and evaluation metrics 
+
+We conducted experiments on the publicly available MEDEC [2 ] and MedErrBench dataset [ 6]consisting of English, Arabic and Chinese subsets. The details of the datasets are provided in Appendix A.1. Our baselines include a set of state-of-the-art error detection and correction models, including knowlab_AIMed [ 43 ], EM-mixer [ 31 ], Medifact [ 32 ], IryoNLP [ 7 ], and IKIM [ 37 ]. We also include state-of-the-art LLMs, including Gemini 2.0 Flash, Gemini 2.5 Flash Lite, GPT-4o-mini, Doubao-1.5-thinking-pro, Deepseek-V3, and Llama-3.3-70B-Instruct. We evaluate model performance on three sub-tasks: error detection, error localization, and sentence correction. For detection and localization, we use accuracy as the main metric. For correction, we report ROUGE-1 [ 22 ], BERTScore [ 51 ], BLEURT [ 34 ], and our proposed evaluation metric KPCS. More details on experimental settings can be found in Appendix A.2. 
+
+4.2 Overall performance 
+
+Table 1: Comparison with existing error detection and correction methods on the MEDEC dataset. The last row reports the performance of our framework MedGuards , which is the best variant with Doubao-1.5 thinking pro as the base LLM. Best results per column are highlighted in bold.                                      
+
+> Error Detection Error Localization Error Correction Models Accuracy Accuracy ROUGE-1 BERTScore BLEURT
+> knowlab_AIMed [43] 0.694 0.620 0.644 0.677 0.654 EM-mixer [31] 0.680 0.640 0.571 0.595 0.596 Medifact [32] 0.737 0.600 0.454 0.444 0.439 IryoNLP [7] 0.671 0.610 0.561 0.592 0.591 IKIM [37] 0.678 0.590 0.523 0.564 0.588 MedGuards 0.770 0.716 0.724 0.731 0.695
+
+Table 1 summarizes the performance of existing error detection and correction methods on the MEDEC dataset. We selected comparable error detection and correction baseline models that do not require introducing additional databases. Overall, these models show balanced but limited performance: for example, Medifact achieves the high detection accuracy (0.737) but performs worse on correction quality (ROUGE-1 = 0.454), while others like EM-mixer and IKIM remain 6Table 2: Evaluation of LLM backbones with and without MedGuards on the MEDEC dataset. Bold numbers indicate best results. ∆% shows average improvement across all metrics over the baseline.                                                                                                           
+
+> Error Detection Error Localization Error Correction Models Accuracy Accuracy ROUGE-1 BERTScore BLEURT KPCS P-value s∆%Gemini 2.0 Flash 0.589 0.415 0.379 0.380 0.395 0.370 4.03E-04 –+ MedGuards 0.713 0.609 0.537 0.549 0.549 0.472 –+35.6% GPT-4o-mini 0.539 0.374 0.300 0.296 0.335 0.210 8.31E-05 –+ MedGuards 0.695 0.535 0.571 0.581 0.574 0.461 –+66.2% Doubao-1.5-thinking-pro 0.696 0.318 0.596 0.618 0.624 0.219 1.33E-02 –+ MedGuards 0.770 0.716 0.724 0.731 0.695 0.554 –+36.4% Deepseek-V3 0.533 0.413 0.562 0.547 0.557 0.257 3.15E-04 –+ MedGuards 0.681 0.679 0.708 0.712 0.682 0.556 –+40.0% Gemini 2.5 Flash Lite 0.583 0.224 0.339 0.350 0.367 0.127 5.69E-03 –+ MedGuards 0.595 0.538 0.513 0.521 0.499 0.385 –+53.3% Llama-3.3-70B-Instruct 0.621 0.330 0.397 0.395 0.401 0.360 4.23E-03 –+ MedGuards 0.684 0.576 0.528 0.530 0.536 0.487 –+33.10%
+
+unideal across some metrics. Our model ( MedGuards with the base LLM as Doubao-1.5 thinking pro) outperforms the best existing methods by a large margin, highlighting the generalizability and effectiveness of our framework in medical error detection and correction. Table 2 summarizes the performance of different LLM base models with and without our multi-agent framework MedGuards . Overall, the results highlight the overall effectiveness of MedGuards .Across all backbones, MedGuards delivers substantial gains over the plain LLMs, with improvements spanning error detection, localization, and generation quality. For instance, Doubao-1.5-thinking-pro with MedGuards achieves state-of-the-art performance, reaching 0.770 in detection and 0.716 in localization, along with strong correction metrics. MedGuards consistently narrows the gap between weaker backbones (e.g., Gemini 2.0 Flash and GPT-4o-mini) and stronger ones, demonstrating robustness across heterogeneous LLMs. All results indicate statistically significant improvements (p <
+
+0.05), demonstrating that the proposed MedGuards framework reliably enhances model performance. Notably, the improvement is especially evident in KPCS, where MedGuards consistently raises scores greatly, for example, from 0.370 to 0.472 on Gemini-2.0-Flash, from 0.210 to 0.461 on GPT-4o-mini and from 0.219 to 0.554 on Doubao-1.5-thinking-pro, indicating that corrections not only match the reference text but also preserve clinical key-phrase fidelity. Moreover, we conduct human evaluations, further validating the effectiveness of MedGuards , with detailed results provided in the Appendix A.3. Table 3 shows that integrating MedGuards consistently improves performance across all three lan-guages in the second dataset. In English, MedGuards yields substantial gains over backbone LLMs, with improvements of over 20 points in error detection (e.g., Gemini 2.0 Flash: 0.514 → 0.755) and large boosts in generation quality. Similar trends are observed in Arabic, where MedGuards 
+
+enhances both detection and localization accuracy, with Deepseek-v3 + MedGuards achieving the strongest overall performance. In Chinese, we observe similar improvements, where Deepseek-v3 + MedGuards achieves state-of-the-art results across all metrics, surpassing both its backbone and other models by a clear margin. These results demonstrate that MedGuards is model-agnostic and consistently strengthens LLMs in both safety-critical error identification and faithful correction across datasets with diverse languages. 
+
+4.3 Additional Analysis 4.3.1 Ablation study 
+
+Table 4 presents an ablation study of MedGuards on the MEDEC dataset with select models due to resource constraints, where we vary the ICL inputs by including reasoning and confidence signals for detection and localization steps. We observe that including detection confidence and localization reasoning consistently improves both error detection and localization across different backbones. For Gemini 2.0 Flash, localization reasoning yields gain in localization accuracy and generation quality, while interestingly, localization confidence does not help much. For GPT-4o-mini, the trend is complementary, such that including localization confidence boosts generation fidelity, with the complete MedGuards setup delivering the strongest ROUGE and BLEURT scores. 7Table 3: Evaluation of LLM backbones with and without MedGuards on the multilingual dataset , in English, Arabic, and Chinese. Bold numbers indicate best results. ∆% shows average improvement across all metrics over the baseline. 
+
+Error Detection Error Localization Error Correction Languages Models Accuracy Accuracy ROUGE-1 BERTScore BLEURT ∆%
+
+English Gemini 2.0 Flash 0.514 0.168 0.281 0.294 0.288 –+ MedGuards 0.755 0.322 0.651 0.694 0.613 96.1% GPT-4o-mini 0.664 0.524 0.487 0.498 0.472 –+ MedGuards 0.683 0.580 0.498 0.511 0.488 4.38% Deepseek-v3 0.529 0.318 0.330 0.570 0.381 –+ MedGuards 0.808 0.414 0.516 0.499 0.610 33.7% Gemini 2.5 Flash Lite 0.567 0.264 0.349 0.362 0.346 –+ MedGuards 0.731 0.274 0.544 0.615 0.548 43.5% Arabic Gemini 2.0 Flash 0.598 0.299 0.315 0.503 0.332 –+ MedGuards 0.711 0.330 0.418 0.600 0.445 22.4% GPT-4o-mini 0.577 0.175 0.260 0.469 0.292 –+ MedGuards 0.563 0.196 0.363 0.777 0.388 28.9% Deepseek-v3 0.670 0.309 0.366 0.570 0.389 –+ MedGuards 0.711 0.371 0.463 0.622 0.480 14.8% Gemini 2.5 Flash Lite 0.495 0.268 0.303 0.432 0.318 –+ MedGuards 0.722 0.289 0.367 0.689 0.380 34.8% Chinese Gemini 2.0 Flash 0.705 0.455 0.569 0.659 0.577 –+ MedGuards 0.761 0.415 0.684 0.712 0.634 8.16% GPT-4o-mini 0.505 0.115 0.244 0.390 0.257 –+ MedGuards 0.600 0.235 0.595 0.536 0.529 65.2% Deepseek-v3 0.655 0.390 0.615 0.578 0.621 –+ MedGuards 0.815 0.420 0.748 0.782 0.708 21.4% Gemini 2.5 Flash Lite 0.600 0.375 0.448 0.533 0.455 –+ MedGuards 0.625 0.405 0.516 0.773 0.501 17.0% Table 4: Ablation study on our proposed MedGuards using the MEDEC dataset. Columns indicate whether the corresponding strategy is enabled ( ✓) or disabled ( ✗). Best results per base model are highlighted in bold.                                                                         
+
+> Ablations Error Detection Error Localization Error Correction Base Models Detection reasoning Detection confidence Localization reasoning Localization confidence Accuracy Accuracy ROUGE-1 BERTScore BLEURT
+> Gemini 2.0 Flash
+> ✓✗✗✗0.673 0.493 0.403 0.419 0.451
+> ✓✓✗✗0.695 0.558 0.478 0.494 0.505
+> ✓✓✓✗0.682 0.629 0.557 0.565 0.558
+> ✓✓✓✓0.713 0.609 0.537 0.549 0.549 GPT-4o-mini
+> ✓✗✗✗0.636 0.409 0.342 0.361 0.434
+> ✓✓✗✗0.678 0.496 0.419 0.447 0.480
+> ✓✓✓✗0.676 0.537 0.483 0.486 0.484
+> ✓✓✓✓0.695 0.535 0.571 0.581 0.574
+
+4.3.2 Collaboration strategy 
+
+Table 5 compares the impact of voting and ICL debating strategies on error detection, localization, and correction quality. Enabling the ICL debating consistently improves all metrics for both Gemini 2.0 Flash and GPT-4o-mini. Notably, GPT-4o-mini benefits most from ICL, with error detection increasing from 0.653 to 0.695 and error localization from 0.474 to 0.535. These results indicate that structured multi-agent discussion substantially enhances performance beyond simple voting. Table 5: Comparison of voting and debating strategies for detection and localization. ✓indicates whether the corresponding strategy is enabled. Best results per base model are highlighted in bold. 
+
+Model Name Vote ICL Error Detection Error Localization ROUGE-1 BERTScore BLEURT 
+
+Gemini 2.0 Flash ✓ ✗ 0.693 0.557 0.466 0.482 0.490 
+
+✓ ✓ 0.713 0.609 0.537 0.549 0.549 
+
+GPT-4o-mini ✓ ✗ 0.653 0.474 0.407 0.417 0.447 
+
+✓ ✓ 0.695 0.535 0.571 0.581 0.574 
+
+8Figure 2: Distribution of self-consistency rate on the MEDEC dataset. 
+
+Figure 3: Soft vs hard match for error localization. 
+
+4.3.3 Self-consistency rate 
+
+To better understand the role of self-consistency in MedGuards , we analyze the proportions of consensus versus arbitration within the self-consistency framework across different base models and stages. Specifically, we report statistics on both detection and localization steps. Figure 2 presents the results on the MEDEC dataset. Additional results on the different languages are provided in Appendix A.4. As shown in Figure 2, for detection, the majority of predictions rely on consensus, with arbitration contributing only a small fraction (11.6% for Gemini 2.0 Flash and 20.2% for GPT-4o-mini). This indicates that detection is generally stable across agents. In contrast, for localization, the reliance on arbitration increases notably (31.9% for Gemini 2.0 Flash and 37.8% for GPT-4o-mini), suggesting that error localization is inherently more ambiguous and benefits from arbitration. Moreover, GPT-4o-mini shows higher arbitration usage than Gemini 2.0 Flash in both detection and localization, reflecting model-dependent differences in self-consistency dynamics. 
+
+4.3.4 Soft vs Hard Matching for Error Localization 
+
+Figure 3 compares soft and hard matching strategies for error sentence localization. In the soft matching setting, the model generates a complete sentence, which is then aligned with the most similar sentence within the clinical notes. The most similar candidate is selected as the final localized sentence. In contrast, the hard matching setting requires the model to directly output the sentence index, and the prediction is considered correct only if it exactly matches the ground-truth erroneous sentence. As shown in Figure 3, soft matching achieves substantially higher localization accuracy (0.61 for Gemini 2.0 Flash and 0.54 for GPT-4o-mini) than hard matching (0.36 and 0.29). This highlights that while strict sentence-level alignment remains challenging, allowing semantic similarity in the soft matching provides a more robust evaluation of localization ability. Additionally, we provide additional results on using mixtures of agents in Appendix A.5, latency and computational requirements in Appendix A.6, different multi-agent design structures in Appendix A.7, sensitivity analysis of KPCS in Appendix A.8, and assessment of qualitative behavior of agents in Appendix A.9. Overall, the results demonstrate the robustness of our proposed framework. 
+
+## 5 Conclusion 
+
+In this work, we introduce MedGuards , the first multi-agent framework specifically designed for medical error detection and correction in LLM-generated clinical text. By decomposing the task into error detection, localization, and correction, and coordinating these specialized agents through a confidence-guided arbitration mechanism, our approach achieves higher robustness and interpretabil-ity while remaining plug-and-play for existing medical assistants. To further ensure clinical reliability, we proposed KPCS, a novel evaluation metric that explicitly prioritizes domain-critical factual entities, offering a more safety-oriented and clinically meaningful assessment compared to existing metrics. Extensive experiments across four datasets and three languages demonstrated the effectiveness and generality of our framework, consistently outperforming strong baselines. MedGuards offers a sys-tematic solution towards safer deployment of medical LLMs, enabling more trustworthy integration of generative models into real-world clinical environments. 9References 
+
+[1] Asma Ben Abacha, Wen-wai Yim, Yujuan Fu, Zhaoyi Sun, Fei Xia, and Meliha Yetisgen-Yildiz. Overview of the mediqa-corr 2024 shared task on medical error detection and correction. In 
+
+Proceedings of the 6th Clinical Natural Language Processing Workshop , pages 596–603, 2024. [2] Asma Ben Abacha, Wen-wai Yim, Yujuan Fu, Zhaoyi Sun, Meliha Yetisgen, Fei Xia, and Thomas Lin. MEDEC: A benchmark for medical error detection and correction in clinical notes. In Findings of the Association for Computational Linguistics, ACL 2025, Vienna, Austria, July 27 - August 1, 2025 , pages 22539–22550, 2025. [3] Zahra Atf, Seyed Amir Ahmad Safavi-Naini, Peter R Lewis, Aref Mahjoubfar, Nariman Naderi, Thomas R Savage, and Ali Soroush. The challenge of uncertainty quantification of large language models in medicine. arXiv preprint arXiv:2504.05278 , 2025. [4] AKNL Aththanagoda, KASH Kulathilake, and NA Abdullah. Precision and personalization: How large language models redefining diagnostic accuracy in personalized medicine—a sys-tematic literature review. IEEE Journal of Biomedical and Health Informatics , 2025. [5] Xuanzhong Chen, Ye Jin, Xiaohao Mao, Lun Wang, Shuyang Zhang, and Ting Chen. Rareagents: Advancing rare disease care through llm-empowered multi-disciplinary team. arXiv preprint arXiv:2412.12475 , 2024. [6] Ma Congbo, Zhang Yichun, Al-Jazzazi Yousef, Foisal Ahamed, Sharma Laasya, Sadqi Yousra, Saleh Khaled, Mallat Jihad, and Shamout Farah E. Mederrbench: A fine-grained multilingual benchmark for medical error detection and correction with clinical expert annotations. In 
+
+Findings of the Association for Computational Linguistics, ACL 2026, San Diego, California, United States July 2–7, 2026 , 2026. [7] Jean-Philippe Corbeil. Iryonlp at MEDIQA-CORR 2024: Tackling the medical error detection & correction task on the shoulders of medical agents. In Proceedings of the 6th Clinical Natural Language Processing Workshop, ClinicalNLP@NAACL 2024, Mexico City, Mexico, June 21, 2024 , pages 570–580, 2024. [8] Emma Croxford, Yanjun Gao, Brian Patterson, Daniel To, Samuel Tesch, Dmitriy Dligach, Anoop Mayampurath, Matthew M Churpek, and Majid Afshar. Development of a human evaluation framework and correlation with automated metrics for natural language generation of medical diagnoses. medRxiv , 2024. [9] Mouath Abu Daoud, Chaimae Abouzahir, Leen Kharouf, Walid Al-Eisawi, Nizar Habash, and Farah E Shamout. Medarabiq: Benchmarking large language models on arabic medical tasks. 
+
+arXiv preprint arXiv:2505.03427 , 2025. [10] Anne de Hond, Tuur Leeuwenberg, Richard Bartels, Marieke van Buchem, Ilse Kant, Karel GM Moons, and Maarten van Smeden. From text to treatment: the crucial role of validation for generative large language models in health care. The Lancet Digital Health , 6(7):e441–e443, 2024. [11] DeepSeek AI. Deepseek-v3. https://huggingface.co/deepseek-ai/deepseek-vl-7b ,2024. Accessed: 2025-08-01. [12] Doubao Team, Volcano Engine. Doubao-1.5-thinking-pro. https://console.volcengine. com/ark/region:ark+cn-beijing/model/detail?Id=doubao-1-5-thinking-pro ,2024. Accessed: 2025-08-01. [13] Alexander R Fabbri, Chien-Sheng Wu, Wenhao Liu, and Caiming Xiong. Qafacteval: Improved qa-based factual consistency evaluation for summarization. arXiv preprint arXiv:2112.08542 ,2021. [14] Yanjun Gao, Timothy Miller, Dongfang Xu, Dmitriy Dligach, Matthew M Churpek, and Ma-jid Afshar. Summarizing patients’ problems from hospital progress notes using pre-trained sequence-to-sequence models. In Proceedings of COLING. International Conference on Com-putational Linguistics , volume 2022, page 2979, 2022. 10 [15] Google Research. Gemini 2.0 and 2.5 flash models. https://blog.google/technology/ ai/google-gemini-flash , 2025. Accessed: 2025-08-01. [16] Jiyeon Han, Jimin Park, Jinyoung Huh, Uran Oh, Jaeyoung Do, and Daehee Kim. Ascleai: A llm-based clinical note management system for enhancing clinician productivity. In Extended Abstracts of the CHI Conference on Human Factors in Computing Systems , pages 1–7, 2024. [17] Zesheng Hong, Yubiao Yue, Yubin Chen, Lele Cong, Huanjie Lin, Yuanmei Luo, Mini Han Wang, Weidong Wang, Jialong Xu, Xiaoqi Yang, et al. Out-of-distribution detection in medical image analysis: A survey. arXiv preprint arXiv:2404.18279 , 2024. [18] Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Applied Sciences , 11(14):6421, 2021. [19] Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik S Chan, Xuhai Xu, Daniel McDuff, Hyeon-hoon Lee, Marzyeh Ghassemi, Cynthia Breazeal, and Hae W Park. Mdagents: An adaptive collaboration of llms for medical decision-making. Advances in Neural Information Processing Systems , 37:79410–79452, 2024. [20] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel, et al. Retrieval-augmented generation for knowledge-intensive nlp tasks. Advances in neural information processing systems , 33:9459–9474, 2020. [21] Guohao Li, Hasan Hammoud, Hani Itani, Dmitrii Khizbullin, and Bernard Ghanem. Camel: Communicative agents for" mind" exploration of large language model society. Advances in Neural Information Processing Systems , 36:51991–52008, 2023. [22] Chin-Yew Lin. ROUGE: A package for automatic evaluation of summaries. In Text Summariza-tion Branches Out , pages 74–81, 2004. [23] Fangyu Liu, Ehsan Shareghi, Zaiqiao Meng, Marco Basaldella, and Nigel Collier. Self-alignment pretraining for biomedical entity representations. arXiv preprint arXiv:2010.11784 , 2020. [24] Xiaohong Liu, Hao Liu, Guoxing Yang, Zeyu Jiang, Shuguang Cui, Zhaoze Zhang, Huan Wang, Liyuan Tao, Yongchang Sun, Zhu Song, et al. A generalist medical language model for disease diagnosis assistance. Nature medicine , 31(3):932–942, 2025. [25] Joshua Maynez, Shashi Narayan, Bernd Bohnet, and Ryan McDonald. On faithfulness and factuality in abstractive summarization. arXiv preprint arXiv:2005.00661 , 2020. [26] Humza Naveed, Asad Ullah Khan, Shi Qiu, Muhammad Saqib, Saeed Anwar, Muhammad Usman, Naveed Akhtar, Nick Barnes, and Ajmal Mian. A comprehensive overview of large language models. ACM Transactions on Intelligent Systems and Technology , 16(5):1–72, 2025. [27] Jekaterina Novikova, Ondˇ rej Dušek, Amanda Cercas Curry, and Verena Rieser. Why we need new evaluation metrics for nlg. arXiv preprint arXiv:1707.06875 , 2017. [28] OpenAI. Gpt-4o-mini model card. https://platform.openai.com/docs/models# gpt-4o , 2024. Accessed: 2025-08-01. [29] Kishore Papineni, Salim Roukos, Todd Ward, and Wei-Jing Zhu. Bleu: a method for automatic evaluation of machine translation. In Proceedings of the 40th annual meeting of the Association for Computational Linguistics , pages 311–318, 2002. [30] Python Software Foundation. Python Standard Library: difflib — Helpers for computing deltas ,2025. Accessed: 2025-09-23. [31] Swati Rajwal, Eugene Agichtein, and Abeed Sarker. Em_mixers at mediqa-corr 2024: Knowledge-enhanced few-shot in-context learning for medical error detection and correction. In Proceedings of the 6th Clinical Natural Language Processing Workshop , 2024. 11 [32] Nadia Saeed. Medifact at MEDIQA-CORR 2024: Why AI needs a human touch. In Proceedings of the 6th Clinical Natural Language Processing Workshop, ClinicalNLP@NAACL 2024, Mexico City, Mexico, June 21, 2024 , pages 346–352, 2024. [33] Samuel Schmidgall, Rojin Ziaei, Carl Harris, Eduardo Reis, Jeffrey Jopling, and Michael Moor. Agentclinic: a multimodal agent benchmark to evaluate ai in simulated clinical environments. 
+
+arXiv preprint arXiv:2405.07960 , 2024. [34] Thibault Sellam, Dipanjan Das, and Ankur P. Parikh. BLEURT: learning robust metrics for text generation. In Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics, ACL 2020 , pages 7881–7892, 2020. [35] Joshua Strong, Qianhui Men, and J Alison Noble. Trustworthy and practical ai for healthcare: A guided deferral system with large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 39, pages 28413–28421, 2025. [36] Arun James Thirunavukarasu, Darren Shu Jeng Ting, Kabilan Elangovan, Laura Gutierrez, Ting Fang Tan, and Daniel Shu Wei Ting. Large language models in medicine. Nature medicine ,29(8):1930–1940, 2023. [37] Airat Valiev and Elena Tutubalina. Hse nlp team at mediqa-corr 2024 task: In-prompt ensemble with entities and knowledge graph for medical error correction. In Proceedings of the 6th Clinical Natural Language Processing Workshop , 2024. [38] Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language models. arXiv preprint arXiv:2203.11171 , 2022. [39] Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V. Le, Ed H. Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language models. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023 , 2023. [40] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. 
+
+Advances in neural information processing systems , 35:24824–24837, 2022. [41] Christopher YK Williams, Charumathi Raghu Subramanian, Syed Salman Ali, Michael Apoli-nario, Elisabeth Askin, Peter Barish, Monica Cheng, W James Deardorff, Nisha Donthi, Smitha Ganeshan, et al. Physician-and large language model–generated hospital discharge summaries. 
+
+JAMA Internal Medicine , 2025. [42] Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Shaokun Zhang, Jiale Liu, et al. Autogen: Enabling next-gen llm applications via multi-agent conversations. In First Conference on Language Modeling , 2024. [43] Zhaolong Wu, Abul Hasan, Jinge Wu, Yunsoo Kim, Jason Cheung, Teng Zhang, and Honghan Wu. Knowlab_aimed at mediqa-corr 2024: Chain-of-though (cot) prompting strategies for medical error detection and correction. In proceedings of the 6th clinical natural language processing workshop , pages 353–359, 2024. [44] Junjielong Xu, Ziang Cui, Yuan Zhao, Xu Zhang, Shilin He, Pinjia He, Liqun Li, Yu Kang, Qingwei Lin, Yingnong Dang, et al. Unilog: Automatic logging via llm and in-context learning. In Proceedings of the 46th ieee/acm international conference on software engineering , pages 1–12, 2024. [45] Bufang Yang, Siyang Jiang, Lilin Xu, Kaiwei Liu, Hai Li, Guoliang Xing, Hongkai Chen, Xiaofan Jiang, and Zhenyu Yan. Drhouse: An llm-empowered diagnostic reasoning system through harnessing outcomes from sensor data and expert knowledge. Proceedings of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies , 8(4):1–29, 2024. [46] Xi Yang, Aokun Chen, Nima PourNejatian, Hoo Chang Shin, Kaleb E Smith, Christopher Parisien, Colin Compas, Cheryl Martin, Anthony B Costa, Mona G Flores, et al. A large language model for electronic health records. NPJ digital medicine , 5(1):194, 2022. 12 [47] Zhongqi Yang, Elahe Khatibi, Nitish Nagesh, Mahyar Abbasian, Iman Azimi, Ramesh Jain, and Amir M Rahmani. Chatdiet: Empowering personalized nutrition-oriented food recommender chatbots through an llm-augmented framework. Smart Health , 32:100465, 2024. [48] Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan. Tree of thoughts: Deliberate problem solving with large language models. Ad-vances in neural information processing systems , 36:11809–11822, 2023. [49] Ziruo Yi, Ting Xiao, and Mark V Albert. A multimodal multi-agent framework for radiology report generation. arXiv preprint arXiv:2505.09787 , 2025. [50] Ling Yue, Sixue Xing, Jintai Chen, and Tianfan Fu. Clinicalagent: Clinical trial multi-agent system with large language model-based reasoning. In Proceedings of the 15th ACM Interna-tional Conference on Bioinformatics, Computational Biology and Health Informatics , pages 1–10, 2024. [51] Tianyi Zhang, Varsha Kishore, Felix Wu, Kilian Q. Weinberger, and Yoav Artzi. BERTScore: Evaluating text generation with BERT. In International Conference on Learning Representations (ICLR) , 2020. [52] Kaiwen Zuo, Yirui Jiang, Fan Mo, and Pietro Lio. Kg4diagnosis: A hierarchical multi-agent llm framework with knowledge graph enhancement for medical diagnosis. In AAAI Bridge Program on AI for Medicine and Healthcare , pages 195–204. PMLR, 2025. 
+
+## A Appendix 
+
+A.1 Datasets, Baseline Models and Evaluation Metrics 
+
+We conducted experiments on the publicly available MEDEC [ 2 ] and MedErrBench dataset [ 6] , consisting of English, Arabic, and Chinese subsets. MEDEC is the first benchmark for medical error detection and correction in clinical notes. It contains 3,848 clinical texts each either correct or containing a single error in one of five categories: Diagnosis, Management, Treatment, Pharma-cotherapy, or Causal Organism. The MedErrBench dataset is constructed to evaluate multilingual medical-error correction and contains 2,506 clinical texts across three languages: English (1,024), Chinese (1,000), and Arabic (482). The English and Chinese subsets are sampled and perturbed from MedQA [ 18 ], while the Arabic subset is derived from MedArabiQ [ 9 ]. Each item was designed to cover one of ten clinician-defined medical error categories: diagnosis, management, treatment, pharmacotherapy, causal organism/pathogen, lab/serum value interpretation, physiology, histology, anatomy, and epidemiology. Our baselines include both prior systems from the MEDIQA-CORR 2024 Shared Task and a set of recent large language models. Specifically, knowlab_AIMed [ 43 ] formulates the task using few-shot in-context learning with chain-of-thought prompting, where error detection is treated as a binary decision, localization requires extracting the erroneous sentence, and correction relies on constrained rewriting. EM-mixers [ 31 ] extend this paradigm by injecting entity- and knowledge-aware cues into the prompts and aggregating multiple exemplars to strengthen detection and guide correction. Medifact [ 32 ] adopts a hybrid design, combining a lightweight classifier for detection with a QA-style correction module that emphasizes factual consistency and interpretability. IryoNLP [ 7 ] decomposes the task into specialized roles whose outputs are aggregated through coordination rules. IKIM [ 37 ]employs in-prompt ensembling with entity-level signals and knowledge-graph constraints, generating multiple candidates and consolidating them to improve fidelity in both detection and correction. In addition, we compare against recent large language models, including Gemini 2.0 Flash [ 15 ], Gemini 2.5 Flash Lite [15], GPT-4o-mini [28], Doubao-1.5-thinking-pro [12], and Deepseek-V3 [11]. ROUGE-1 measures lexical overlap via unigram recall. BERTScore captures semantic similarity using contextualized embeddings. BLEURT, fine-tuned on human ratings, evaluates both fluency and semantic adequacy. Our proposed KPCS metric further addresses domain-specific evaluation needs by incorporating medical factual consistency and terminology alignment, better reflecting correction quality in the clinical context. 13 Table 6: Human evaluation results on the MEDEC dataset. Scores range from 0 to 3, with higher scores indicating better correction quality. The final MOS values were normalized to the range [0, 1].      
+
+> Model Normalized MOS Score
+> Gemini 2.0 Flash 0.425 + MedGuards 0.483 GPT-4o-mini 0.383 + MedGuards 0.475
+
+A.2 Experimental settings 
+
+All experiments were run using the following large-language models: Gemini 2.0 Flash 1, gemini-2.5-flash-lite 2, GPT-4o mini 3, doubao1.5-thinking-pro 4, and deepseek-v3 5. For gemini-2.0-flash, gemini-2.5-flash-lite, doubao1.5-thinking-pro and deepseek-v3 we used each model’s provider default API parameters and recorded the raw scores produced by the model calls. For GPT-4o mini we fixed the decoding parameters to temperature=0.2 , top_p=1.0 , max_tokens=512 , and logprobs=True .DeepSeek (the deepseek-v3-250324 checkpoint) was invoked via the Doubao API interface in our setup. To map a model prediction that identifies an erroneous sentence back to the original document, we used the Longest Common Subsequence (LCS) between the predicted text span and each candi-date sentence in the original document and selected the sentence with the highest LCS score as the located error sentence. For metric computation we report Error Sentence Location Accuracy, ROUGE-1, BERTScore, BLEURT and KPCS. When computing these metrics, cases in which the original sentence had no error and the model also predicted no error (true negatives) were counted as successful cases and included in the final scores. All reported numeric results were rounded to four decimal places. We asked models to expose structured outputs to simplify automatic parsing. Specifically, we encouraged models to emit the chain of thought inside <think>(.*?)</think> 
+
+tags, a confidence score inside <confidence>(\d{1,3})</confidence> tags, and the final deci-sion inside <result>(.*?)</result> tags. We then extracted those fields by regular-expression matching and used the extracted values in downstream evaluation and analysis. In our framework, self-consistency during the detection and localization stages is achieved by employing multiple models with distinct prompts, rather than relying on repeated prompting of a single model. Each model separately generates its output, and their results are compared to reach a consistent decision through arbitration if disagreement occurs. 
+
+A.3 Human evaluation 
+
+To evaluate the effectiveness of MedGuards , we conducted an evaluation involving two clinical doctors to calculate the Mean Opinion Score (MOS). Using the MEDEC dataset, we selected Gemini 2.0 Flash and GPT-4o-mini as the base models and assessed the impact of applying MedGuards .For each set of results, we randomly sampled 20 cases, resulting in a total of 20 × 4 = 80 cases for evaluation. Each case was rated on a 4-point scale (0–3), where 0 indicates a completely incorrect cor-rection (e.g., incorrect diagnosis or insufficient diagnostic evidence), 3 indicates excellent correction performance, and 1 and 2 represent intermediate levels of correction quality. For comparison with other evaluation metrics, the final MOS values were normalized to the range [0, 1]. The rating shows a 57.5% agreement, reflecting the consistency among clinicians while still allowing for reasonable variability. The agreement was computed as the proportion of cases where both clinicians assigned the same score to the corresponding model outputs for a given case. Since each clinician rated cases based on their own medical experience and judgment, some variation across ratings is expected and aligns with real-world practice.    
+
+> 1https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/2-0-flash
+> 2gemini-2.5-flash-lite-preview-06-17 ,https://cloud.google.com/vertex-ai/generative-ai/docs/ models/gemini/2-5-flash-lite
+> 3https://openai.com/index/gpt-4o-mini-advancing-cost-efficient-intelligence/
+> 4doubao-1-5-thinking-pro-250415 ,https://www.ohmygpt.com/pricing/model/doubao-1. 5-thinking-pro-250415
+> 5deepseek-v3-250324 ,https://huggingface.co/deepseek-ai/DeepSeek-V3-0324
+
+14 Table 6 reports human evaluation results on the MEDEC dataset. We observe that MedGuards consis-tently achieves higher scores than its corresponding base models, confirming that our method im-proves correction quality. This outcome resonates with the design of the KPCS metric, as MedGuards 
+
+demonstrates a stronger ability to capture and preserve critical keyword information, which human evaluators also recognize as central to correction quality. 
+
+A.4 Additional results on self-consistency rate 
+
+Figures 4, 5, and 6 show the proportions of Consensus versus Arbitration within the self-consistency framework across different base models and stages of the pipeline on the multilingual dataset. Across all three datasets, we observe that consensus dominates the outcomes, indicating that agents typically reach agreement without arbitration. In particular, for error detection tasks, on all three datasets and for both models, the arbitration rates range from 11.5% to 20.2%; while localization tasks have wider ranges, that is from 7.9% to 28.6%. On English, Gemini has a higher arbitration rate for detection, but similar rate for localization compared to GPT; while this phenomenon is totally opposite on Arabic. In general, both Gemini and GPT exhibit a comparable likelihood of arbitration, suggesting that the two models have higher or lower arbitration rates over each other in different cases and reflecting their distinct consistency across scenarios. 
+
+Figure 4: Distribution of self-consistency rate on the English dataset of MedErrBench test set. 
+
+Figure 5: Distribution of self-consistency rate on the Arabic dataset of MedErrbench test set. 
+
+Figure 6: Distribution of self-consistency rate on the Chinese dataset of MedErrbench test set 
+
+A.5 Mixture of agents 
+
+We conducted experiments covering representative configurations across the three stages on the MEDEC dataset, including: (a) variations where different models are mixed within one stage, and (b) 15 combinations where the different stages use distinct models. The results are shown in Tables 7, 8 and 9. Tables 7 and 8 use Gpt-4o-mini as the base model for MedGuards .In Table 7, most other model mixtures lead to slightly lower performance. However, we also observe an interesting case: when Gemini 2.0 Flash is introduced as an additional agent in the localization stage (serving as an agreement agent), the localization and correction performance increase. This suggests that combining complementary LLMs can bring marginal gains in specific sub-tasks but requires further investigation. Table 7: Mixed-model configurations within one stage on the MEDEC dataset using GPT-4o-mini and Gemini 2.0 Flash, denoted as GPT and Ge in the table without loss of brevity. We assume that the correction agent is always GPT-4o-mini. (2 GPT + 1 Ge): the two initial agents are GPT-4o-mini, and the arbitration agent is Gemini 2.0 Flash. (1 GPT + 1 Ge) + 1 Ge: the two initial agents are GPT-4o-mini and Gemini 2.0 Flash, with Gemini 2.0 Flash as the arbitration agent.                               
+
+> Detection Agent Localization Agent Detection Accuracy Localization Accuracy Correction ROUGE-1 Correction BERTScore Correction BLEURT
+> 3 GPT 3 GPT 0.695 0.535 0.571 0.581 0.574
+> 2 GPT + 1 Ge 3 GPT 0.652 0.563 0.506 0.509 0.504 (1 GPT + 1 Ge) + 1 Ge 3 GPT 0.674 0.576 0.517 0.521 0.515 3 GPT 2 GPT + 1 Ge 0.695 0.580 0.518 0.521 0.512 3 GPT (1 GPT + 1 Ge) + 1 Ge 0.695 0.638 0.577 0.577 0.565
+
+Tables 8 and 9 compare using distinct models (single type) across the different stages. We observe that using stronger detection agents as base models, such as Doubao-1.5-thinking-pro, can improve model performance. For instance, pairing Doubao with Gemini 2.0 Flash achieves the highest scores across all metrics. Pairing Doubao with GPT-4o-mini produces much better performance in error detection and localization, but not for the other metrics. Table 8: Performance comparison of different agent configurations on the MEDEC dataset.                                    
+
+> Detection Agent Localization Agent Correction Agent Detection Accuracy Localization Accuracy Correction ROUGE-1 Correction BERTScore Correction BLEURT
+> GPT-4o-mini GPT-4o-mini GPT-4o-mini 0.695 0.535 0.571 0.581 0.574
+> GPT-4o-mini Gemini 2.0 Flash GPT-4o-mini 0.695 0.583 0.543 0.543 0.533 GPT-4o-mini GPT-4o-mini Gemini 2.0 Flash 0.695 0.535 0.563 0.580 0.502 Gemini 2.0 Flash GPT-4o-mini GPT-4o-mini 0.713 0.484 0.547 0.536 0.573 Gemini 2.0 Flash Gemini 2.0 Flash Gemini 2.0 Flash 0.713 0.609 0.537 0.549 0.549
+
+Table 9: Performance comparison of using different detection and correction agent configurations on the MEDEC dataset. The localization agent is assumed to be Gemini 2.0 Flash.                         
+
+> Detection Agent Correction Agent Detection Accuracy Localization Accuracy Correction ROUGE-1 Correction BERTScore Correction BLEURT
+> Gemini 2.0 Flash Gemini 2.0 Flash 0.713 0.609 0.537 0.549 0.549 Doubao-1.5-thinking-pro Gemini 2.0 Flash 0.770 0.669 0.591 0.591 0.600
+> GPT-4o-mini GPT-4o-mini 0.695 0.535 0.571 0.581 0.574
+> Doubao-1.5-thinking-pro GPT-4o-mini 0.770 0.611 0.559 0.570 0.500
+
+A.6 Latency and Computational Cost Analysis 
+
+To quantitatively assess the computational overhead introduced by MedGuards, we measured the av-erage inference time per clinical note, as well as the average number of input and output tokens across all agents on the MEDEC dataset. We adopted Gemini 2.0 Flash, where the rate is approximately $0.10 per 1M input tokens, $0.40 per 1M output tokens, and $0.025 per 1M tokens with context caching. The results are shown in Table 10. While our proposed multi-agent framework MedGuards 
+
+introduces an increase in latency due to multiple specialized reasoning steps and API calls, the accu-racy improvement is crucial in time-sensitive clinical scenarios where decision reliability outweighs minor latency increases. In practical deployment, techniques such as agent parallelization and context caching can further mitigate latency without compromising performance. 16 Table 10: Latency and Computational Cost Analysis. 
+
+Models Latency (s) Input tokens (N) Output tokens (N) Performance improvement (%) 
+
+Gemini 2.0 Flash 1.61 1927 48 –+ MedGuards 6.99 Detection: 1047 Localization: 1127 Correction: 1135 Detection: 1159 Localization: 666 Correction: 623 
+
+96.10% 
+
+A.7 Analysis of the Multi-Agent Framework Structure 
+
+To further investigate the impact of structural design on multi-agent performance, we conduct an ablation study that examines different configurations of the multi-agent framework. We use Gemini 2.0 Flash as the base model. We vary the number and role allocation of agents and report the results in Table 11. The number of agents ranges from 1 to 8. In the two-agent correction setting, the first agent generates an initial correction based on the model’s output. This intermediate result is then passed to the second agent, which produces the final answer by considering both the original input and the first agent’s response. Overall, the detection and localization stages tend to show improved performance, although this trend is not strictly monotonic. For example, using one agent for each of the three stages performs worse than sharing a single agent between detection and localization. Compared to the single-agent baseline, the two-agent setting yields a 17.6% improvement in the overall average score, and expanding to four agents further increases the gain to 28.9%. When both detection and localization adopt three agents with arbitration, the performance reaches its best improvement of 36.8%. In contrast, the correction stage exhibits an opposite trend: increasing the number of correction agents leads to a drop in generation quality, with performance falling to only a 12.5% improvement when two correction agents are used. This is likely because correction is a generation task, where multiple agents may produce different valid outputs that are difficult to unify, making consensus-based arbitration challenging. The results show that our default MedGuards 
+
+configuration, three agents for detection, three for localization, and one for correction—achieves the best overall performance across all metrics. Table 11: Performance comparison across different agent configurations. ∆% shows average im-provement across all metrics over the one agent for all task.                                                          
+
+> Detection Agents (N) Localization Agents (N) Correction Agents (N) Total Agents (N) Detection Accuracy Localization Accuracy Correction ROUGE-1 Correction BERTScore Correction BLEURT Average Score ∆%
+> 1 Agent for all tasks 10.589 0.415 0.379 0.380 0.395 0.432 –1 Agent for detection & localization 120.688 0.484 0.410 0.446 0.511 0.508 17.6% 11130.650 0.250 0.439 0.416 0.513 0.454 5.09% 31 Agent for localization & correction 40.713 0.501 0.535 0.521 0.515 0.557 28.9% 33170.713 0.609 0.537 0.549 0.549 0.591 36.8% 33280.713 0.609 0.367 0.367 0.374 0.486 12.5%
+
+A.8 Sensitivity Analysis of the balance factor α
+
+The balance factor α is set to 0.5 in all experiments. To evaluate the sensitivity of the balance factor 
+
+α, we varied the weighting parameter α in the KPCS metric to 0.2, 0.5, and 0.8, and report the results in Table 12. As shown in the table, varying α does not lead to substantial changes in overall model ranking, but the margins between models shift because KPCS rebalances important-word vs. overall semantics as α changes A smaller α emphasizes overall semantics, while a larger α gives more weight to keywords. The results indicate that α = 0 .5 yields KPCS scores most consistent with human evaluation (in Table 6) trends. For both Gemini 2.0 Flash and GPT-4o-mini, the model ranking under α = 0 .5 best matches the human Normalized MOS results, while α = 0 .2 or 0.8 tends to over or under emphasize differences. 
+
+A.9 Qualitative behavior of the agents in the detection & localization stages 
+
+We further analyze the qualitative behavior of the agents at each stage on MEDEC dataset. The results in Table 13 indicate that the lower-performing GPT-4o-mini + MedGuards model exhibits a higher rate of agent disagreement in both the detection and localization stages, leading to more 17 Table 12: Performance comparison under different Alpha values in KPCS.                 
+
+> Alpha Gemini 2.0 Flash + MedGuards GPT-4o-mini + MedGuards Doubao-1.5-thinking-pro + MedGuards Deepseek-v3 + MedGuards Gemini 2.5 Flash Lite + MedGuards
+> 0.2 0.516 0.524 0.594 0.599 0.370 0.5 0.472 0.461 0.554 0.556 0.385 0.8 0.428 0.380 0.513 0.513 0.294
+
+frequent entries into the arbitration stage. Second, for both models, cases entering arbitration exhibit lower accuracy. The arbitration process still corrects about half of such cases, indicating partial complementarity between agents. Moreover, localization tasks generally show higher disagreement rates than detection, suggesting that fine-grained spatial reasoning remains more challenging. These analyses provide qualitative insights into the failure patterns of each LLM and demonstrate the robustness and diagnostic value of the MedGuards design. Table 13: Behavior of the agents in the detection and localization stages.                               
+
+> Models Statistics Detection Localization Agreement Arbitration Agreement Arbitration Doubao-1.5-Thinking-Pro + MedGuards
+> Number of Cases (%) 818 (88.43%) 107 (11.57%) 401 (86.61%) 61 (13.20%) Correctness Rate (No. of Correct Cases) 80.44% (658) 46.73% (50) 71.07% (285) 49.18% (30) Error Rate (No. of Wrong Cases) 19.56% (160) 53.27% (57) 28.93% (116) 50.82% (31)
+> GPT-4o-mini + MedGuards
+> Number of Cases (%) 725 (78.4%) 200 (21.6%) 274 (48.4%) 292 (51.6%) Correctness Rate (No. of Correct Cases) 69.24% (502) 48.5% (97) 47.4% (130) 33.2% (97) Error Rate (No. of Wrong Cases)) 30.76% (223) 51.5% (103) 52.6% (144) 66.8% (195)
+
+A.10 Examples of the annotated keywords 
+
+Table 14 shows examples of the annotated keywords from the MEDEC dataset. The domain-specific keywords are directly tied to error types, not to general clinical facts. For example, in MEDEC, the keywords correspond to five error categories: Diagnosis, Management, Treatment, Pharmacotherapy, and Causal Organism. Importantly, factual information such as patient symptoms or pre-existing conditions at admission is not included in the keywords, since we are concerned with the keywords that constitute an error. For instance, in the first clinical note in Table 14, “sepsis” is not treated as a keyword because it represents an existing diagnosis at admission (“ Mr. <NAME/> was treated for sepsis, present on admission ”), rather than an erroneous or modifiable statement. 
+
+A.11 The Prompts of MedGuards 
+
+The prompts used by MedGuard are shown in Table 15. 
+
+A.12 Additional Discussion 
+
+In our current implementation, the first component of the KPCS score relies on exact string matching. While this approach ensures precision, it may overlook clinically equivalent expressions. Developing a more flexible alternative would require a principled strategy for handling synonyms, ideally through the integration of medical ontologies or structured clinical knowledge bases. Given that structured generation with XML-like tags has proven effective and stable in our setup, an interesting future direction is to explore more principled or model-agnostic ways to ensure structural reliability, such as schema-constrained decoding or adaptive validation mechanisms. Our current work is methodology-oriented and serves primarily as a proof of concept, focusing on the feasibility of the proposed approach rather than immediate clinical integration. In future work, we plan to collaborate with clinical partners to evaluate the framework in controlled studies, systematically assessing its safety, usability, and compliance. Importantly, the framework is designed to support human-in-the-loop workflows, ensuring that clinicians can review and validate system outputs before use. Beyond documentation generation, such a setup could also facilitate downstream tasks such as error detection, quality audits, and clinical data validation. 18 Table 14: Examples of the annotated keywords. 
+
+Erroneous Clinical Note Corrected Clinical Note Keywords 
+
+Mr. <NAME/> was Mr. <NAME/> treated for sepsis, present on admission. Pt is a <AGE/> yo M who was admitted with hy-poxia, cough and AMS; pt is discovered to have pneumonia and blood cultures from ad-mission grew Strep pneumococcus. Pt pre-sented with WBC 29, tachypneic, with AKI and somnolence/lethargy. Mental status much improved and Fever and WBC coming down on hospital day #2 following IV abx and IVF; an 8 day course of antifungal medication at home will be completed. Mr. <NAME/> was Mr. <NAME/> treated for sepsis, present on admission. Pt is a <AGE/> yo M who was admitted with hy-poxia, cough and AMS; pt is discovered to have pneumonia and blood cultures from ad-mission grew Strep pneumococcus. Pt pre-sented with WBC 29, tachypneic, with AKI and somnolence/lethargy. Mental status much improved and Fever and WBC coming down on hospital day #2 following IV abx and IVF; an 8 day course of antibiotics at home will be completed. 
+
+antibiotics 
+
+Ms. <NAME/> is being managed for Stage 3 R and L coccyx pressure ulcers, present on admit (POA). Patient is a <AGE/> YO F recently discharged after a 1 month hos-pitalization for recurrent cirrhosis of trans-plant liver graft s/p TIPS, hepatic hydrotho-rax with VRE positive pleural fluid s/p re-moval of chest tubes, and pressure ulcers who presents with 24 hours of fever, rigors, nau-sea/vomiting. <DATE/> Wound RN - Patient has pressure ulcers over right and left coc-cyx. The right coccyx pressure ulcer is an un-stageable, at least stage three, pressure ulcer. Left coccyx wound is unstageable, at least stage 3 pressure ulcer. <DATE/> RN IVIEW -IVIEW <DATE/> - R & L butttocks pressure ulcers Stage 3. <DATE/> Skin: several sacral decubitus ulcers: non-infected appearing. in-stitute wound care per previous recommenda-tions. <DATE/> SKIN: Buttock ulcers stage 3. Other treatments include: Patient on pres-sure reducing surface, zinc citrate moisture barrier, Assist patient to obtain adequate nu-trition. Ms. <NAME/> is being managed for Stage 3 R and L coccyx pressure ulcers, present on admit (POA). Patient is a <AGE/> YO F recently discharged after a 1 month hos-pitalization for recurrent cirrhosis of trans-plant liver graft s/p TIPS, hepatic hydrotho-rax with VRE positive pleural fluid s/p re-moval of chest tubes, and pressure ulcers who presents with 24 hours of fever, rigors, nau-sea/vomiting. <DATE/> Wound RN - Patient has pressure ulcers over right and left coc-cyx. The right coccyx pressure ulcer is an unstageable, at least stage three, pressure ul-cer. Left coccyx wound is unstageable, at least stage 3 pressure ulcer. <DATE/> RN IVIEW - IVIEW <DATE/> - R & L butttocks pressure ulcers Stage 3. <DATE/> Skin: sev-eral sacral decubitus ulcers: non-infected ap-pearing. institute wound care per previous recommendations. <DATE/> SKIN: Buttock ulcers stage 3. Other treatments include: Pa-tient on pressure reducing surface, zinc oxide 
+
+moisture barrier, Assist patient to obtain ade-quate nutrition. 
+
+zinc oxide 
+
+Mr. <NAME/> is a <AGE/>-old man with gastrinoma metastatic to liver s/p Exploratory laparotomy, intra-operative ultrasound, par-tial hepatectomy (segment 4B, 5, 7), RFA of liver tumors (segment 3, 8), distal pancreatec-tomy and splenectomy on <DATE/>. Surgery note <DATE/> : New O2 requirement, CXR read as atelectasis or pneumoni with low lung volumes. <DATE/> Surgery note - PE w/ in-creased O2 requirement, tachypnea, currently on high flow 100% at 50L. <DATE/> Icu note: Respiratory distress, secondary to PE, con-cern for respiratory failure. Treatment CXR, admit to ICU, Continue Lepirudin drip, Con-tinue HFNC, Repeat ABG to determine wors-ening/stability of hypoxemia. This patient also being managed for Acute hypoxemic res-piratory insufficiency - multifactorial, from volume overload, hypoventilation from ileus, and from PE. Mr. <NAME/> is a <AGE/>-old man with gastrinoma metastatic to liver s/p Exploratory laparotomy, intra-operative ultrasound, par-tial hepatectomy (segment 4B, 5, 7), RFA of liver tumors (segment 3, 8), distal pancreatec-tomy and splenectomy on <DATE/>. Surgery note <DATE/> : New O2 requirement, CXR read as atelectasis or pneumoni with low lung volumes. <DATE/> Surgery note - PE w/ in-creased O2 requirement, tachypnea, currently on high flow 100% at 50L. <DATE/> Icu note: Respiratory distress, secondary to PE, con-cern for respiratory failure. Treatment CXR, admit to ICU, Continue heparin drip, Con-tinue HFNC, Repeat ABG to determine wors-ening/stability of hypoxemia. This patient also being managed for Acute hypoxemic res-piratory insufficiency - multifactorial, from volume overload, hypoventilation from ileus, and from PE. 
+
+heparin 
+
+In relation to the choice between open-source and proprietary models, we view this consideration as orthogonal to the core contribution of our work. The proposed framework is inherently model-agnostic, meaning it can be seamlessly applied to both open-source and proprietary LLMs, thereby providing flexibility across different deployment scenarios. While our study demonstrates the feasibility of automated medical error detection and correction using a controlled and well-defined benchmark dataset, an important direction for future work is the 19 Table 15: Prompts for MedGuards on MEDEC dataset. SC indicates self-consistency. 
+
+Prompt Name Prompt Content Detection prompt A The following is a medical narrative about a patient. You are a skilled medical doctor reviewing the clinical text. The text is either correct or has at most a medical error related to treatment, management, cause, diagnosis or causalOrganism. Write down your thinking process in <think> thinking process here </think> tags. Check every sentence of the text. If the text is correct return one word "CORRECT". If the text has a medical error return one word "INCORRECT". Also output your confidence in <confidence>(1-100 score)</confidence> tags. 
+
+Detection prompt B You are a skilled medical doctor reviewing the clinical text. The text is either correct or has a medical error related to diagnosis (put more focus), treatment, management, cause or causalOrganism. Write down your thinking process in <think> thinking process here </think> tags. Check every sentence of the text. If the text is correct return one word "CORRECT". If the text has a medical error return one word "INCORRECT". Also output your confidence in <confidence>(1-100 score)</confidence> tags. 
+
+Detection SC prompt You are a medical expert reviewing the clinical text and two junior doctors. The text is either accurate or contains at most a medical error, primarily related to diagnosis (pay closer attention), but may also involve treatment, management, cause, or causal organism. Document your reasoning within <think> your reasoning here </think> tags. Evaluate each sentence in the text. If the text is accurate, return the single word "CORRECT". If it contains a medical error, return the single word "INCORRECT". Also output your confidence in <confidence>(1-100 score)</confidence> tags. 
+
+Localization prompt A You are {agent_name}, a medical report quality assurance expert. The report is either correct or has at most a medical error related to treatment, management, cause, diagnosis or causalOrganism. Your task is to identify the one sentence that contains an error (or there are zero errors return ’NAN’) in the following medical report and put your prediction in <result>Ensure you have results here</result> tags. Document your reasoning within <think></think> tags. A useful tip is that the error sentence (if there is) is more likely to be found in a conclusion sentence. Please ONLY return the original erroneous sentence exactly as it appears in the text (the text may also contain zero errors. If you are sure about it, please return ’NAN’). Also output your confidence in <confidence>(1-100 score)</confidence> tags. 
+
+Localization prompt B You are {agent_name}, a medical report quality assurance expert. The report is either correct or has at most a medical error related to treatment, management, cause, diagnosis or causalOrganism. Your task is to identify the one sentence that contains an error (or there are zero errors return ’NAN’) in the following medical report. A useful tip is that the error sentence (if there is) is more likely to be found in a conclusion sentence. Put your prediction in <result>Ensure you have results here</result> tags and document your reasoning within <think></think> tags. Also output your confidence in <confidence>(1-100 score)</confidence> tags. If the text has an error, output: <result>The Error Sentence</result>. If the text has no error, output: NAN. 
+
+Localization SC prompt You are a senior medical report quality assurance expert. The report is either correct or has at most a medical error related to treatment, management, cause, diagnosis or causalOrganism. Here is the full report: {full_text}. Your 2 colleagues suggest that the following sentence is erroneous with reasons: "{partner_opinion}". Based on the above information, please provide the ONLY error sentence you believe (or there are zero errors return ’NAN’). Please put results in <result>Ensure you have results here</result> tags and document your reasoning within <think></think> tags. A useful tip is that the error sentence (if there is) is more likely to be found in a conclusion sentence. Also output your confidence in <confidence>(1-100 score)</confidence> tags. 
+
+Correction prompt You are a medical report quality assurance expert. The following sentence is incorrect and has a medical error related to treatment, management, cause, diagnosis or causalOrganism. Please provide a corrected version to <result>the corrected sentence</result> tags (your thinking reason can be provided in <think></think> tags). Also, ensure you output results between <result></result> tags and output your confidence in <confidence>(1-100 score)</confidence> tags. Here is the original full report: {full_text}. Predicted Erroneous Sentence: {error_sentence}. Corrected Sentence: 
+
+20 incorporation of real-world clinical data. At present, annotated datasets for this task are scarce, as the research area is still emerging and the creation of high-quality annotations requires substantial clinical expertise. Moving forward, we plan to collaborate closely with clinical practitioners to collect real-world clinical data, which we believe will enable a more comprehensive evaluation of our method and help bridge the gap between research and clinical application. 
+
+A.13 Confidence analysis in the detection stage 
+
+On the MEDEC dataset, we performed a confidence score analysis using the best performing 
+
+MedGuards model (based on Doubao-1.5-thinking-pro) focusing on agreement cases. We compared confidence scores between correct and wrong predictions. As shown in Table 16, we observe that the confidence scores are not directly related to whether a case is correct or incorrect. Among the agreement cases in the detection stage, the numbers of instances where both agents’ confidence scores are simultaneously: <90 is 18 (1.95%); <85 is 2 (0.22%) and <80 is 0 (0%). In cases where both agents have confidence scores below 85, the two agents agree 100% of the time, and all predictions are correct. Therefore, in this setting, the arbitration agent does not need to intervene for the low-confidence samples. In cases where both agents have confidence scores below 90, the agents agree in (17/18) 94.4% of instances, and all of these predictions are correct. In the remaining (1/18) 5.6% of instances, the two agents disagree. After entering the arbitration, the system makes an incorrect prediction. Hence, under this setting, the arbitration agent did not need to intervene for two low-confidence samples either. Table 16: Average confidence score analysis on MEDEC dataset. 
+
+Average confidence score Detection - agent 1 Detection - agent 2 
+
+All cases 96.3 95.8 Correct cases 96.2 95.8 Wrong cases 96.4 95.5 21
