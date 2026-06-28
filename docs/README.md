@@ -6,89 +6,85 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-06-27
-- 运行时间：2026-06-27 21:22:31 UTC
+- 最新运行日期：2026-06-28
+- 运行时间：2026-06-28 21:39:20 UTC
 - 运行状态：成功
-- 本次总论文数：23
-- 精读区：10
+- 本次总论文数：21
+- 精读区：8
 - 速读区：13
 
 ### 今日简报（AI）
-今日精选23篇论文，精读10篇，重点关注空间蛋白质组学推理与临床心理健康筛查多智能体审计两大方向。高分核心为《SP-Mind》与《Multi-Agent Audit Framework》，分别聚焦自主推理与可解释评估。建议优先精读这两篇，速读部分可关注生物医学知识发现与细胞分割基础模型。
-- 详情：[/202606/27/README](/202606/27/README)
+1) 今日21篇论文中精读8篇，两篇9.0分的蛋白质组学零样本框架与病理切片细胞匹配研究最亮眼。  
+2) 值得深读πDIA-CLIP的通用零样本框架应对高异质性数据，以及CellDF的质量控制标签转移方案。  
+3) 建议后续关注蛋白质组零样本在疾病标志物筛选中的落地，以及AI细胞匹配如何提升病理自动化流程的可靠性。
+- 详情：[/202606/28/README](/202606/28/README)
 
 ### 精读区论文标签
-1. [SP-Mind: An Autonomous Reasoning Agent for Spatial Proteomics Analysis](/202606/27/2606.24235v1-sp-mind-an-autonomous-reasoning-agent-for-spatial-proteomics-analysis)  
-   标签：评分：10.0/10、query:spatialprot
-   evidence：自主AI智能体，统一空间蛋白组学分析流程，从原始成像到表型发现
-2. [A Multi-Agent Audit Framework for High-Stakes Reasoning: Evaluation and Interpretability in Clinical Mental Health Screening](/202606/27/2606.21123v1-a-multi-agent-audit-framework-for-high-stakes-reasoning-evaluation-and-interpretability-in-clinical-mental-health-screening)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于高风险临床推理的多智能体审计框架，直接相关医学智能体架构
-3. [Dementia-Agents: A Multi-Modal Multi-Agent System for Dementia Staging and Phenotyping](/202606/27/2606.21168v1-dementia-agents-a-multi-modal-multi-agent-system-for-dementia-staging-and-phenotyping)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于痴呆症分期和表型的多模态多智能体系统，符合医学AI智能体框架
-4. [MEDLAYXPLAIN: Benchmarking the Expert-Lay Gap in Medical Vision-Language Models](/202606/27/2606.21194v1-medlayxplain-benchmarking-the-expert-lay-gap-in-medical-vision-language-models)  
+1. [πDIA-CLIP: efficient identification of highly heterogeneous proteomics data via a generalized zero-shot framework](/202606/28/biorxiv-10-64898-2026-02-09-704949-v4-dia-clip-efficient-identification-of-highly-heterogeneous-proteomics-data-via-a-generalized-zero-shot-framework)  
+   标签：评分：9.0/10、query:spatialprot
+   evidence：针对空间蛋白组学的零样本DIA数据分析框架
+2. [CellDF: Quality-controlled cell matching for whole-slide HE-IHC label transfer](/202606/28/biorxiv-10-64898-2026-06-18-733058-v1-celldf-quality-controlled-cell-matching-for-whole-slide-he-ihc-label-transfer)  
    标签：评分：9.0/10、query:hmm
-   evidence：医学视觉语言模型的可理解性描述基准
-5. [EHR-Complex: Benchmarking Medical Agents for Complex Clinical Reasoning](/202606/27/2606.23301v1-ehr-complex-benchmarking-medical-agents-for-complex-clinical-reasoning)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于复杂临床推理的医疗智能体基准测试，评估工具使用能力
-6. [Bridging the Post-discharge Gap: A Traceable Multi-agent Framework for Safe and Continuous Care](/202606/27/2606.25334v1-bridging-the-post-discharge-gap-a-traceable-multi-agent-framework-for-safe-and-continuous-care)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于出院后随访的多智能体框架，直接相关医疗AI辅助智能体
-7. [MedGuards: Multi-Agent System for Reliable Medical Error Detection and Correction](/202606/27/2606.25651v1-medguards-multi-agent-system-for-reliable-medical-error-detection-and-correction)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于医疗错误检测与纠正的多智能体系统
-8. [πDIA-CLIP: efficient identification of highly heterogeneous proteomics data via a generalized zero-shot framework](/202606/27/biorxiv-10-64898-2026-02-09-704949-v4-dia-clip-efficient-identification-of-highly-heterogeneous-proteomics-data-via-a-generalized-zero-shot-framework)  
+   evidence：整张切片HE-IHC细胞匹配以传递标签，实现连续切片病理的深度学习分析
+3. [SPEAK: Spatial Prompting with Expert Aligned Knowledge for Tissue Domain Identification in Spatial Transcriptomics](/202606/28/biorxiv-10-64898-2026-06-22-733750-v1-speak-spatial-prompting-with-expert-aligned-knowledge-for-tissue-domain-identification-in-spatial-transcriptomics)  
    标签：评分：9.0/10、query:spatialprot
-   evidence：针对高度异质性蛋白质组学（含空间蛋白组学）的零样本识别框架
-9. [Statistical tests for bivariate spatial association across multi-omics data with disjoint coordinates](/202606/27/biorxiv-10-64898-2026-06-19-732250-v1-statistical-tests-for-bivariate-spatial-association-across-multi-omics-data-with-disjoint-coordinates)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：多组学空间关联统计检验
-10. [An in vivo platform to jointly monitor cellular and metabolic responses to chemotherapy.](/202606/27/biorxiv-10-64898-2026-06-25-734296-v1-an-in-vivo-platform-to-jointly-monitor-cellular-and-metabolic-responses-to-chemotherapy)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：空间药理学平台结合CyCIF-MALDI数据用于空间蛋白质组学
+   evidence：利用大语言模型提示进行空间转录组领域识别
+4. [VISTA Architect: A graph database-oriented health AI system demonstrated in multidisciplinary tumor boards](/202606/28/2606.22692v1-vista-architect-a-graph-database-oriented-health-ai-system-demonstrated-in-multidisciplinary-tumor-boards)  
+   标签：评分：8.0/10、query:agent
+   evidence：利用LLM和知识图谱的医疗AI系统，为肿瘤委员会提供决策支持，具备智能代理功能
+5. [Bridging the Post-discharge Gap: A Traceable Multi-agent Framework for Safe and Continuous Care](/202606/28/2606.25334v1-bridging-the-post-discharge-gap-a-traceable-multi-agent-framework-for-safe-and-continuous-care)  
+   标签：评分：8.0/10、query:agent
+   evidence：利用大语言模型的记忆增强多智能体框架用于出院后随访
+6. [Proteomics-constrained deconvolution reveals spatial cell-type programs in tumours](/202606/28/biorxiv-10-64898-2026-06-01-729268-v2-proteomics-constrained-deconvolution-reveals-spatial-cell-type-programs-in-tumours)  
+   标签：评分：8.0/10、query:spatialprot
+   evidence：将空间转录组与蛋白质组约束整合用于肿瘤解卷积
+7. [PIGMENT: A deep learning framework for Porcine Immunohistochemistry seGMENTation](/202606/28/biorxiv-10-64898-2026-06-18-733245-v1-pigment-a-deep-learning-framework-for-porcine-immunohistochemistry-segmentation)  
+   标签：评分：8.0/10、query:spatialprot
+   evidence：用于免疫组织化学分割的深度学习框架，属于空间病理学
+8. [Client-server interfaces enable efficient agent-driven variant calling](/202606/28/biorxiv-10-64898-2026-06-25-734665-v1-client-server-interfaces-enable-efficient-agent-driven-variant-calling)  
+   标签：评分：8.0/10、query:agent
+   evidence：用于生物信息学中agent驱动变异调用的客户端-服务器接口
 
 ### 速读区论文标签
-1. [BioInsight: Multi-Agent Orchestration for Interactive Biomedical Knowledge Discovery](/202606/27/2606.20997v1-bioinsight-multi-agent-orchestration-for-interactive-biomedical-knowledge-discovery)  
+1. [BrainAgent: A Large Language Model-Driven Multi-Agent Framework for Autonomous Brain Signal Understanding](/202606/28/2606.25400v1-brainagent-a-large-language-model-driven-multi-agent-framework-for-autonomous-brain-signal-understanding)  
    标签：评分：8.0/10、query:agent
-   evidence：用于交互式生物医学知识发现的多智能体系统
-2. [Rethinking the Adaptation of Vision Foundation Models for Efficient Cell Segmentation](/202606/27/2606.21913v1-rethinking-the-adaptation-of-vision-foundation-models-for-efficient-cell-segmentation)  
-   标签：评分：8.0/10、query:hmm
-   evidence：高效适应视觉基础模型用于计算病理学中的细胞分割
-3. [EmbodiedUS-FS: Fast Slow Intelligence for Ultrasound Robotics](/202606/27/2606.22319v1-embodiedus-fs-fast-slow-intelligence-for-ultrasound-robotics)  
+   evidence：基于大语言模型的多智能体框架用于医学脑信号理解
+2. [Clinical Harness for Governable Medical AI Skill Ecosystems](/202606/28/2606.26494v1-clinical-harness-for-governable-medical-ai-skill-ecosystems)  
    标签：评分：8.0/10、query:agent
-   evidence：层次化快速慢速智能用于超声机器人，充当医疗AI智能体
-4. [Evo-RAD: Navigating Rare Retinal Disease Diagnosis via Self-Evolving Agentic Retrieval](/202606/27/2606.22955v1-evo-rad-navigating-rare-retinal-disease-diagnosis-via-self-evolving-agentic-retrieval)  
+   evidence：用于编排临床AI技能的运行时治理架构
+3. [biomeStat: Using Agentic AI for Scalable Genomic Epidemiology Demonstrated Through End-to-End Analysis of 1,000 Asian Dengue Virus Genomes](/202606/28/biorxiv-10-64898-2026-06-10-731380-v1-biomestat-using-agentic-ai-for-scalable-genomic-epidemiology-demonstrated-through-end-to-end-analysis-of-1000-asian-dengue-virus-genomes)  
    标签：评分：8.0/10、query:agent
-   evidence：自进化智能体框架，用于罕见病诊断，采用动态检索和决策
-5. [Reducing Redundancy in Whole-Slide Image Patching for Scalable Indexing and Retrieval](/202606/27/2606.26157v1-reducing-redundancy-in-whole-slide-image-patching-for-scalable-indexing-and-retrieval)  
-   标签：评分：8.0/10、query:hmm
-   evidence：减少WSI切片冗余以实现可扩展检索
-6. [GIM-ENDO: A Multimodal Endoscopic Image and Video Dataset for Gastric Intestinal Metaplasia Morphology and Pathology](/202606/27/2606.20919v1-gim-endo-a-multimodal-endoscopic-image-and-video-dataset-for-gastric-intestinal-metaplasia-morphology-and-pathology)  
+   evidence：用于可扩展基因组流行病学的自主AI代理
+4. [BioBrain: A Multi-Agent Framework for Natural Language Driven Quantitative Microscopy Data Analysis](/202606/28/biorxiv-10-64898-2026-06-17-732700-v1-biobrain-a-multi-agent-framework-for-natural-language-driven-quantitative-microscopy-data-analysis)  
+   标签：评分：8.0/10、query:agent
+   evidence：用于显微镜数据分析的多智能体框架
+5. [Spatial co-expression and cell-cell communication inference from spatially resolved transcriptomics with CONCISE](/202606/28/biorxiv-10-64898-2026-06-22-733860-v1-spatial-co-expression-and-cell-cell-communication-inference-from-spatially-resolved-transcriptomics-with-concise)  
+   标签：评分：8.0/10、query:spatialprot
+   evidence：空间转录组共表达与细胞通讯推断
+6. [MedBench v5: A Dynamic, Process-Oriented, and Hallucination-Aware Benchmark for Clinical Multimodal Models](/202606/28/2606.24155v3-medbench-v5-a-dynamic-process-oriented-and-hallucination-aware-benchmark-for-clinical-multimodal-models)  
    标签：评分：7.0/10、query:hmm
-   evidence：多模态内镜病理数据集含组织病理验证
-7. [Contrastive and Adaptive Multi-modal Masked Autoencoder for Spatial Transcriptomics](/202606/27/2606.21156v1-contrastive-and-adaptive-multi-modal-masked-autoencoder-for-spatial-transcriptomics)  
+   evidence：临床多模态模型基准，涵盖病理学
+7. [C2RM-Seg: Causal Counterfactual Reasoning with Structural-Semantic Priors for Weakly Supervised Histopathological Tissue Segmentation](/202606/28/2606.25508v1-c2rm-seg-causal-counterfactual-reasoning-with-structural-semantic-priors-for-weakly-supervised-histopathological-tissue-segmentation)  
+   标签：评分：7.0/10、query:hmm
+   evidence：组织病理学组织分割的深度学习方法
+8. [Mask to Concept: Auto-Promptable SAM3 via Efficient Test-Time Concept Embedding Search for Few-Shot Annotation](/202606/28/2606.26711v1-mask-to-concept-auto-promptable-sam3-via-efficient-test-time-concept-embedding-search-for-few-shot-annotation)  
+   标签：评分：7.0/10、query:hmm
+   evidence：改编SAM3基础模型用于医学少样本标注，可应用于数字病理学
+9. [OmniCell: Unified Foundation Modeling of Single-Cell and Spatial Transcriptomics for Cellular and Molecular Insights](/202606/28/biorxiv-10-64898-2025-12-29-696804-v3-omnicell-unified-foundation-modeling-of-single-cell-and-spatial-transcriptomics-for-cellular-and-molecular-insights)  
    标签：评分：7.0/10、query:spatialprot
-   evidence：利用多模态掩码自编码器从H&E和部分基因表达预测空间转录组
-8. [Performance and Interpretability of Convolutional, Transformer, and Hybrid Deep Learning Models in Colorectal Histology Classification](/202606/27/2606.23744v1-performance-and-interpretability-of-convolutional-transformer-and-hybrid-deep-learning-models-in-colorectal-histology-classification)  
-   标签：评分：7.0/10、query:hmm
-   evidence：结肠直肠组织学分类的深度学习模型对比
-9. [MedBench v5: A Dynamic, Process-Oriented, and Hallucination-Aware Benchmark for Clinical Multimodal Models](/202606/27/2606.24155v1-medbench-v5-a-dynamic-process-oriented-and-hallucination-aware-benchmark-for-clinical-multimodal-models)  
-   标签：评分：7.0/10、query:hmm
-   evidence：面向临床多模态模型（含病理与智能体系统）的动态基准
-10. [VISTA Architect: A graph database-oriented health AI system demonstrated in multidisciplinary tumor boards](/202606/27/2606.22692v1-vista-architect-a-graph-database-oriented-health-ai-system-demonstrated-in-multidisciplinary-tumor-boards)  
+   evidence：连接组织上下文的单细胞和空间转录组基础模型
+10. [MedBench v5: A Dynamic, Process-Oriented, and Hallucination-Aware Benchmark for Clinical Multimodal Models](/202606/28/2606.24155v2-medbench-v5-a-dynamic-process-oriented-and-hallucination-aware-benchmark-for-clinical-multimodal-models)  
    标签：评分：6.0/10、query:agent
-   evidence：基于图数据库的健康AI系统，使用大语言模型支持临床决策
-11. [TTFT-Aware Graph Chain-of-Thought:Distance-Indexed Neural A* for Low-Hallucination Multi-Hop Medical Reasoning](/202606/27/2606.23108v1-ttft-aware-graph-chain-of-thoughtdistance-indexed-neural-a-for-low-hallucination-multi-hop-medical-reasoning)  
+   evidence：包含智能体系统的临床多模态模型动态基准与过程审计
+11. [Enterprise Health Twins - Conceptual Framework, Design Principles,and Longitudinal Evaluation: Preliminary Results from EpiToMe](/202606/28/biorxiv-10-64898-2025-12-06-692733-v3-enterprise-health-twins---conceptual-framework-design-principlesand-longitudinal-evaluation-preliminary-results-from-epitome)  
    标签：评分：6.0/10、query:agent
-   evidence：基于大语言模型和图链式推理的医疗推理方法，使用知识图谱
-12. [3D Masked Autoencoders are Robust Learners of Volumetric and Multimodal Cellular Representations for Microscopy](/202606/27/2606.23964v1-3d-masked-autoencoders-are-robust-learners-of-volumetric-and-multimodal-cellular-representations-for-microscopy)  
+   evidence：企业健康孪生框架作为动态决策支持系统
+12. [IntegrateRigor: annotation-free integration optimization for cell identity recovery reveals cancer-immune interface niches](/202606/28/biorxiv-10-64898-2026-05-14-725078-v2-integraterigor-annotation-free-integration-optimization-for-cell-identity-recovery-reveals-cancer-immune-interface-niches)  
    标签：评分：6.0/10、query:spatialprot
-   evidence：3D掩码自编码器用于体积显微镜和蛋白质语言模型对齐，可应用于空间蛋白质组学
-13. [Transformation Behavior of Images in Latent Space](/202606/27/2606.24430v1-transformation-behavior-of-images-in-latent-space)  
-   标签：评分：6.0/10、query:hmm
-   evidence：组织病理学图像潜在空间变换分析
+   evidence：空间转录组整合用于癌症细胞身份恢复
+13. [NanoCellAnnotator: Formalizing Expert Cell Type Annotation with Large Language Models](/202606/28/biorxiv-10-64898-2026-06-21-728965-v1-nanocellannotator-formalizing-expert-cell-type-annotation-with-large-language-models)  
+   标签：评分：6.0/10、query:spatialprot
+   evidence：利用LLM进行空间转录组细胞类型注释
 
 
 <div class="dpr-home-promo-card">

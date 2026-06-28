@@ -1,0 +1,1674 @@
+Title: PIGMENT: A deep learning framework for Porcine Immunohistochemistry seGMENTation
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.06.18.733245v1.full.pdf
+
+Number of Pages: 29
+
+Markdown Content:
+PIGMENT: A deep learning framework 
+
+# for Porcine Immunohistochemistry 
+
+# seGMENTation 
+
+Pushkar Ambastha*², Javid Dadashkarimi*¹, Sai Krishna C. Annavazala¹, Drew Parker¹, Ramon Diaz -
+
+Arrastia¹, Hailong Song¹, Douglas H. Smith¹, Jean -Pierre Dollé¹, Victoria E. Johnson¹, John A. Wolf¹, 
+
+Ragini Verma¹ 
+
+¹University of Pennsylvania, Philadelphia, PA, USA. 
+
+²Indian Institute of Technology Guwahati, India. 
+
+*These authors contributed equally. 
+
+Correspondence: ragini.verma@pennmedicine.upenn.edu (R.V.); 
+
+javid.dadashkarimi@pennmedicine.upenn.edu (J.D.). 
+
+## Abstract 
+
+Traumatic brain injury produces widespread axonal damage can be assessed histologically using amyloid 
+
+precursor protein (APP) immunohistochemistry, which labels injured axonal profiles at cellular resolution 
+
+[1, 2] . However, quantification of APP pathology remains a major bottleneck: annotation is manual, time -
+
+consuming, spatially localized, and variable across raters, limiting scalability and reproducibility. This 
+
+limitation is particularly important in studies tha t use histology as a reference for neuro imaging or other 
+
+tissue -level measurements, where cellular APP pathology must be quantified in a spatial form that can 
+
+be aligned with imaging abnormalities. 
+
+Here , we introduce PIGMENT, an annotation -efficient deep -learning framework for automated 
+
+segmentation and quantification of APP -positive pathology in porcine white matter histology. PIGMENT 
+
+uses a compact SegFormer -B0 architecture trained on 525 expert -annotated 512 × 512 -pixel tiles from 
+
+four APP -stained sections across three pigs. Because APP -positive profiles are sparse, fragmented, 
+
+stain -variable, and morphologic ally diverse, PIGMENT combines limited expert labels with APP -specific 
+
+augmentation designe d to model variation in APP -positive intensity, size, continuity, fragmentation, and 
+
+local tissue context. 
+
+We evaluated PIGMENT using an instance -level detection rate that measures whether discrete APP -
+
+positive components are localized. Across held -out APP -stained data, PIGMENT achieved a mean 
+
+instance -level detection rate of 0.86. Across the configurations tested, the highest mean detection rate 
+
+was achieved by a training set that included sections from different animals, suggesting that annotation 
+
+diversity may be an important factor under limited -label conditions. 
+
+By extending limited high -confidence expert annotations into whole -section APP burden maps, PIGMENT 
+
+provides a scalable framework for characterizing the extent and spatial distribution of traumatic axonal 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+injury. These maps may support future studies that align histological injury burden with imaging -derived 
+
+measures. 
+
+Keywords : traumatic brain injury; traumatic axonal injury; amyloid precursor protein; 
+
+immunohistochemistry; deep learning; histology segmentation; data augmentation; SegFormer. 
+
+## Introduction 
+
+Traumatic brain injury (TBI ) results in widespread axonal damage that underlies long -term neurological 
+
+disability. At the cellular level, traumatic axonal injury can be identified using amyloid precursor protein 
+
+(APP) immunohistochemistry, a widely used marker of injured axonal profiles with high spatial resolution 
+
+[3 -7] . APP staining provides a detailed map of axonal injury that cannot be obtained through 
+
+neuroimaging, making it a critical tool for characterizing the extent and spatial distribution of tissue 
+
+damage. 
+
+APP pathology is difficult to quantify because annotation is typically performed manually, requiring expert 
+
+delineation of APP -positive structures across histological sections [8] . This manual workflow is time -
+
+consuming and labor -intensive, and it requires contextual judgment because APP -positive staining must 
+
+be distinguished from blood vessels, tissue artifacts, and nonspecific background staining that do not 
+
+represent injured axons. Additional variability can arise because three -dimensional axonal profiles are 
+
+interpreted from two -dimensional histological sections [9] . These constraints limit the scalability and 
+
+reproducibility of APP quantification and make it difficult to generate spatially resolved maps of axonal 
+
+injury burden across large tissue areas. 
+
+This limitation becomes a major barrier in studies that aim to use histology as a reference standard for 
+
+validating neuroimaging. Imaging techniques can detect changes in tissue microstructure, but their 
+
+interpretation in TBI depends on linking these signals to underlying cellular injury. Establishing this 
+
+relationship requires quantitative maps of axonal damage that preserve anatomical location and can be 
+
+aligned with imaging data. Without scalable methods to generate such maps, histology remains limited 
+
+as a reference for imaging validation .
+
+In addition to the scal ing , porcine APP histology presents a difficult image -analysis problem. Staining 
+
+intensity can vary across batches, scanner settings can affect image appearance, and tissue preparation 
+
+can introduce artifacts such as folds, tearing, uneven background staining, and section -edge effects [10, 
+
+11] . APP -positive structures are multifocal and morphologically diverse, appearing as stereotypical 
+
+axonal swellings, terminal bulbs, and fusiform profiles [12] . Beyond shape diversity, APP annotation also 
+
+requires anatomical context, because brown APP -positive immunostaining is interpreted as pathology 
+
+only when it is consistent with an injured axonal profile, whereas similar brown signal around blood 
+
+vessels, tis sue folds, or nonspecific background staining may introduce false -positive interpretation .
+
+Together, these factors make APP segmentation difficult because the model must distinguish true injured 
+
+axonal profiles from staining variation, tissue artifacts, and APP -like false -positive structures. 
+
+These annotation and image -analysis challenges motivate a task -specific automatic segmentation 
+
+approach. Supervised segmentation models generally benefit from large and diverse annotated datasets, 
+
+while expert APP annotations are limited and drawn from selected tissue regions [13, 14] . The model 
+
+must therefore learn from a small set of high -confidence examples while generalizing to new sections, 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+animals, staining conditions, and injury models. Generic augmentation can improve robustness to image -
+
+appearance changes such as brightness, contrast, blur, and color variation [15] , but it does not 
+
+necessarily model the APP -specific variation that matters for this task, including fragmented profiles, faint 
+
+deposits, elongated axonal structures, and APP -like false -positive staining . Similarly, standard 
+
+segmentation metrics such as Dice coefficient and intersection -over -union are useful for measuring pixel -
+
+level agreement, but they can be dominated by larger or geometrically complex APP -positive structures. 
+
+For burden quantification, the relevant question is also whether individual APP -positive profiles are 
+
+present and localized, not only how many pixels overlap [16] . .
+
+Here, we introduce PIGMENT, an annotation -efficient deep -learning framework for automated 
+
+segmentation and quantification of APP -positive pathology in porcine white -matter histology. PIGMENT 
+
+uses a compact SegFormer -B0 segmentation model trained from limit ed expert annotations (Figure 1).
+
+Rather than attempting to replace expert judgment, PIGMENT uses high -confidence expert -labeled 
+
+image regions (tiles) as the foundation for a scalable workflow that extends APP quantification over larger 
+
+tissue areas . The goal is to use expert annotations as training data to generat e reproducible APP burden 
+
+maps that support downstream anatomical and imaging analyses. 
+
+We designed the workflow around the main requirements of APP histology segmentation. First, because 
+
+APP -positive profiles vary in appearance and local tissue context, our proposed augmentation strategy 
+
+varies both image appearance and APP -positive structures while preserving transformed image –mask 
+
+correspondence. Second, because expert annotations are limited, the sampling strategy tests whether 
+
+training examples sampled across animals and sections improve held -out performance compared with 
+
+adding samples f rom related tissue contexts. Third, because APP burden mapping depends on recovery 
+
+of individual pathological profiles, the evaluation strategy includes both pixel -overlap metrics and 
+
+component -level detection [17, 18] .
+
+Using 525 expert -annotated 512 × 512 -pixel tiles from four APP -stained sections across three pigs, we 
+
+evaluated whether PIGMENT could generalize across held -out test tiles from each section. We tested 
+
+whether APP -specific augmentation improves robustness, whether cross -animal and cross -section 
+
+annotation diversity affects performance, and whether component -level detection provides a biologically 
+
+meaningful summary at the end . We also applied the trained model to an independent controlled cortical 
+
+impact (CC I) swine brain sample as a qualitative stress test outside the development cohort. 
+
+PIGMENT addresses a key histological bottleneck in large -animal TBI research: the lack of scalable 
+
+methods for quantifying APP pathology across large tissue areas. By learning from limited expert 
+
+annotations, PIGMENT generates tissue -level APP maps that retain anatomical location and quantify the 
+
+distribution of axonal damage. These maps may support future studies that align APP pathology with 
+
+neuroimaging -derived me asures especially in white -matter injury . The present study does not claim to 
+
+validate neuro imaging biomarkers directly; rather, it establishes the automated histology quantification 
+
+needed to make such validation studies feasible at larger scale. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Figure 1 Overview of the PIGMENT workflow. (a) A whole -slide image (WSI) of an APP -stained porcine white -
+
+matter section. Each section was first imaged as a full WSI. (b) A trained anatomist manually selected and annotated 
+
+rectangular patches within the WSI. Patch size varied across annotations and was m uch smaller than the full 
+
+section. (c,d) Fixed 512 × 512 -pixel tiles were then extracted from within the annotated patches and used as the 
+
+unit for model training. Example tiles are shown together with representative augmentation operations applied 
+
+during training. (e) SegFormer -B0 architecture used for APP -positive segmentation. The model takes a 512 × 512 
+
+input tile and predicts a corresponding binary APP mask. (f) Testing and deployment pipeline. Model predictions 
+
+from individual tiles are aggregated to generate section -level spatial maps and heatmap summaries, including 
+
+examples from rotational -injury and precision -injury tissue. 
+
+## Materials and Methods 
+
+Animals, sections, and annotation. 
+
+The dataset consisted of four APP -immunostained white -matter sections (D1 -D4) from three pigs (P1 -
+
+P3) in an established rotational acceleration injury cohort [19] . Each stained section was scanned at 200× 
+
+magnification as a whole -slide image. The dataset contained both within - and across -animal variation ,
+
+where pig P1 contributed section D1, pig P2 contributed sections D2 and D3, and pig P3 contributed 
+
+section D4. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+A trained investigator manually selected rectangular white -matter regions (patches) within each whole -
+
+slide image and annotated APP -positive axonal profiles inside those regions (see  Figure 2) [20] . Whole -
+
+slide image dimensions ranged from 88,536 to 100,912 pixels in width and from 61,565 to 82,386 pixels 
+
+in height. Patch dimensions varied across annotations and were smaller than the full whole -slide image; 
+
+for example, the annotated patch shown in Figure 2 measured approximately 2,356 × 1,294 pixels. Fixed 
+
+512 × 512 -pixel tiles were then extracted from the annotated patches using a sliding -window procedure 
+
+and served as the unit for model training and evaluation . This tile size was chosen to provide sufficient 
+
+local tissue context around APP -positive profiles while remaining compatible with batch -level training on 
+
+a s ingle GPU . Each tile was paired with a binary mask labeling APP -positive tissue versus APP -negative 
+
+tissue and background .
+
+Pixels near patch and tile boundaries were handled conservatively for different reasons. A patch 
+
+boundary reflects the edge of the anatomist -selected annotation region; APP -positive structures crossing 
+
+this boundary may be only partially annotated. A tile boundary reflects the edge of the 512 × 512 -pixel 
+
+computational crop used for model training and evaluation; APP -positive structures crossing this 
+
+boundary may be only partially visible to the model. Therefore boundary -truncated structures below the 
+
+minimu m-size threshold were excluded from both training loss and evaluation, preventing uncertain edge 
+
+pixels from contributing to model optimization. 
+
+The dataset of annotated tiles was split into training (80%) and testing (20%) samples, which are reported 
+
+in  Table 1 for each dataset . In every training configuration, performance was evaluated on held -out tiles 
+
+from all four sections independently .
+
+Immunohistochemistry. 
+
+Standard staining protocol was followed, as previously described [19] . Briefly, 8 μm sections were 
+
+prepared from formalin -fixed paraffin -embedding tissue blocks and mounted on Superfrost microscope 
+
+slides. Sections were then deparaffinized, followed by rehydration using a series of graded ethanol and 
+
+water. Next, sections were incubated with 3% hydrogen peroxide to quench endogenous peroxidase 
+
+activity, then processed for heat -induced antigen retrieval in Tris -EDTA buffer (pH 8.0). Thereafter, 
+
+sections were blocked with normal serum and incubated with amyloid precursor prote in (APP) (Millipore, 
+
+MAB348 , 1:80,000) overnight, followed by incubation with biotinylated secondary antibody and 
+
+visualization using an avidin -biotin complex and DAB peroxidase substrate kit. Sections were 
+
+counterstained with hematoxylin for cell nucleus and digitally scanned with a 20x objective on an Aperio 
+
+AT2 slide scanner .
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Figure 2. Patch -based expert annotation and tile extraction define the PIGMENT training data. Representative APP -
+
+immunostained porcine histology section from dataset D2, illustrating the relationship between the whole -slide 
+
+image, expert -annotated patch, and fixed -size training tile. The left panel shows the full histology section with the 
+
+annotated regio ns . The middle panel shows the corresponding high -resolution annotation patch, where APP -
+
+positive axonal profiles were manually labeled by expert annotators. Patch size was constrained by the practical 
+
+field -of -view and screen -size limitations of the annotat ion workflow, including Aperio ImageScope and Photoshop. 
+
+The right panel shows a 512 × 512 -pixel tile extracted from the annotated patch using sliding -window sampling. 
+
+These standardized tiles allow the paired histology image and binary APP mask to fit int o GPU memory during 
+
+training while preserving local cellular -resolution annotation. 
+
+Table 1 Per -section tile counts in the porcine APP histology dataset, by source pig and train/test split. Three pigs 
+
+contributed four sections. Pig P2 contributed two sections, whereas P1 and P3 each contributed one section. Each 
+
+section was split approximately 80% training and 20% testing. 
+
+Dataset  Source pig  Total tiles  Train  Test 
+
+D1  P1  225  180  45 
+
+D2  P2  75  60  15 
+
+D3  P2  90  72  18 
+
+D4  P3  135  108  27 
+
+Total  , 525  420  105 
+
+Architecture. 
+
+The proposed PIGMENT , technically , maps each tile to a pixel -wise probability map of APP positivity. 
+
+For fair comparison s, we fixed our architecture design to SegFormer -B0, a compact hierarchical 
+
+transformer segmentation model with a Mix Transformer encoder and lightweight decoder [21] . As such, 
+
+the encoder produces multiscale feature maps that are fused by the decoder to generate a full -resolution 
+
+output mask. Another reason to choose SegFormer -B0 was because it has relatively few parameters 
+
+compared with larger segmentation backbones, making it suitable for a limited annotated dataset, while 
+
+still combining fine and coarse image features during prediction. The utilized model contains 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+approximately 3.7 million parameters and was initialized with publicly available ImageNet -1k pretrained 
+
+weights before fine -tuning on APP tiles. 
+
+The segmentation head produced a single -channel probability map with the same spatial dimensions as 
+
+the input tile [15] . During inference, the probability map was thresholded at 0.5 to obtain a binary APP -
+
+positive prediction. Full architecture details are provided in the Supplementary Information. 
+
+Training objective and optimization. 
+
+Models were trained using a pixel -wise Dice loss computed only over annotated, valid pixels. To reduce 
+
+edge effect, b oundary -truncated regions were excluded from the loss so that partially annotated APP -
+
+positive structures did not influence optimization. To further reduce the effect of uncertain labels, we used 
+
+an exponential moving average teacher model during training [22] . At each iteration, regions with strong 
+
+disagreement between the teacher prediction and the manual annotation were excluded from the loss for 
+
+that iteration only . This label -noise filtering step was applied only during training and did not change the 
+
+expert annotations used for evaluation. Models were optimized using AdamW [18] with learning rate of 1
+
+× 10 ⁻⁵, β ₁ = 0.9, β ₂ = 0.999, and weight decay 0.01. Training used a batch size 8. Dropout was applied 
+
+to encoder hidden states (p = 0.1), attention weights (p = 0.1), and the segmentation head (p = 0.3). 
+
+Training a single model on a 24 -GB GPU required less than two hours on this dataset. 
+
+APP -specific augmentation pipeline. 
+
+Augmentation was applied on the fly during training using python’s generator function . This allows us to 
+
+feed our training with as many variations as need ed for generalization. Spatial transformations were 
+
+applied jointly to the image and mask, whereas photometric transformations were applied only to the 
+
+image. Basically, t he proposed pipeline was designed to expose the model to variation in both tissue 
+
+appearance and APP -positive profile morphology. We grouped the se transformation functions into five 
+
+class es: spatial, photometric, copy -paste, morphological connectivity, and tissue -level transforms. 
+
+Spatial transforms included horizontal and vertical flips, rotations, affine perturbations, and elastic 
+
+deformation of elongated APP -positive components. Photometric transforms included brightness and 
+
+contrast shifts, color jitter, Gaussian blur, motion bl ur, sensor noise, compression artifacts, global RGB 
+
+shifts, local RGB shifts, and patch -level noise. Copy -paste transforms randomly inserted annotated APP -
+
+positive connected components into nearby training tiles while preserving the component mask and thei r
+
+local appearance. Morphological connectivity transforms bridged nearby fragmented components and 
+
+extended elongated APP -positive profiles along their local orientation. Tissue -level transforms modified 
+
+background and weak APP -like staining patterns, includ ing white -tissue dropout, Gaussian -mixture -
+
+model -based perturbation of pixels with color values similar to annotated APP -positive regions, and local 
+
+smoothing around annotated APP profiles. Full parameter ranges and implementation details for each 
+
+transf orm are provided in the Supplementary Methods. 
+
+All transforms preserved image –mask correspondence. The complete list of transforms, probabilities, 
+
+and parameter ranges is provided in  Table 2 and in Supplementary Information. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Table 2. Target -aware augmentation pipeline used for PIGMENT training. Transform classes were grouped into 
+
+geometric, tissue -level, photometric, copy –paste, and mask -guided operations. Spatial transforms were applied 
+
+jointly to the image and binary APP mask, where as photometric transforms, marked by †, were applied to the image 
+
+only or were mask -guided while preserving image –mask correspondence. Here  𝐷 denotes tile width,  𝑀 𝑟 denotes a 
+
+sampled regional mask,  𝑏 denotes replacement background intensity,  𝐴 min denotes minimum connected -component 
+
+area, and  𝑈 (⋅)denotes a uniform distribution. The dagger (†) marks image -only augmentations that alter staining 
+
+appearance or local texture while preserving the corresponding binary ground -truth mask. Probabilities denote 
+
+independent application probabilities within the training augmentation pipeline .
+
+Transform  Category  Probability  Key parameters / formulation 
+
+Horizontal flip  Geometric  0.50  𝑥 ′ = 𝐹 _ℎ(𝑥 )
+
+Vertical flip  Geometric  0.20  𝑥 ′ = 𝐹 _𝑣 (𝑥 )
+
+Random 90° rotation  Geometric  0.30  𝑘 ∼ 𝑈 [23 ]; 𝑥 ′ = 𝑅 _{90 𝑘 }(𝑥 )
+
+Affine transform  Geometric  0.40  𝜃 ∼ 𝑈 (−18° , 18° ); 𝑠 ∼ 𝑈 (0.96 ,1.06 ); 𝑡 
+
+∼ 𝑈 ([−0.06 𝐷 , +0.06 𝐷 ])
+
+White tissue dropout  Tissue -level  0.25  Region -level background replacement:  𝑥 ′ =
+
+𝑥 ⊙ (1 − 𝑀 _𝑟 ) + 𝑏 · 𝑀 _𝑟 
+
+GMM label promotion  Tissue -level  0.35  𝐾 = 4; 𝑟 ≤ 4500 ; 𝑛 _𝑟𝑒𝑔𝑖𝑜𝑛 ≤ 3; 𝑝 _𝑠𝑒𝑒𝑑 
+
+= 0.80 ; 𝑝 _𝑖𝑔𝑛𝑜𝑟𝑒 = 0.75 
+
+Color jitter block †  Photometric  0.45 
+
+𝑥 ′ = 𝑇 _𝑗 (𝑥 ), 𝑇 _𝑗 ∼ 𝑂𝑛𝑒𝑂𝑓 (𝜏 ); 𝜏  includes 
+
+brightness/contrast, ColorJitter, Gaussian blur, 
+
+motion blur, and ISO noise 
+
+Global RGB shift †  Photometric  0.35  ΔR, ΔB ∼ U(−8,8); ΔG ∼ U(−6,6), applied in the 
+
+[0,255] intensity range 
+
+JPEG compression †  Photometric  0.20  q ∼ U(85,98); x′ = JPEG(x; q) 
+
+Multi -instance copy –
+
+paste  Copy –paste  0.92  n ∼ U{5,…,20}; s_k ∼ U(0.90,1.25); θ_k ∼
+
+U(−8°,8°); feather = 2 px 
+
+Component -scale paste  Copy –paste  0.20  s ∼ U(0.95,1.90); A_min ≥ 140 px²; context 
+
+radius = 14 px 
+
+GT neighborhood 
+
+diffusion † 
+
+Tissue -level / mask -
+
+guided photometric  0.35  r ∼ U(4,10); α ∼ U(0.12,0.28); τ ∼ U(0.75,0.90) 
+
+Evaluation metrics, and post -processing. 
+
+PIGMENT generated a probability map for each 512 × 512 -pixel tile. Probability maps were thresholded 
+
+at 0.5 to produce binary APP -positive predictions. All post -processing and metric computation were 
+
+performed identically for PIGMENT and for the baseline m ethods. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Before evaluation, we applied artifact and boundary -exclusion rules to exclude potential common artifacts 
+
+due to tissue preparation and staining, including folding from tissue mounting , tears from sectioning ,
+
+bubbles from cover slipping , and edge effects . Predicted connected components were excluded if they 
+
+met both of the following criteria: area ≥  𝑣  pixels and elongation ratio ≥  𝜏 . We empirically validated these 
+
+parameters to be  𝑣 = 2300 𝑝𝑥 , 𝜏 = 3.0. Elongation ratio was defined as the ratio of the major -axis length 
+
+to the minor -axis length of the fitted component ellipse. These thresholds were selected from the training 
+
+annotations and were used to remove structures that were inconsistent with the an notated APP -positive 
+
+profiles in this dataset. 
+
+The instance -level detection rate (DR) is computed over valid ground -truth components after closing G 
+
+with a disk of radius r = 2 and dilating P by r′ = 1: 
+
+𝑑𝑒𝑡𝑒𝑐𝑡𝑒𝑑 (𝐶 𝑘 
+
+> 𝑔𝑡
+
+) = 1 [∃ 𝑥 ∈ 𝐶 𝑘  
+
+> 𝑔𝑡
+
+: 𝑃 ′(𝑥 ) = 1] (1)
+
+𝐷𝑅 = (Σ𝑖 Σ𝑘 𝑑𝑒𝑡𝑒𝑐𝑡𝑒𝑑 (𝐶 𝑘 ,𝑖 
+
+> 𝑔𝑡
+
+))
+
+(Σ𝑖 Σ𝑘 1[𝑣𝑎𝑙𝑖𝑑 (𝐶 𝑘 ,𝑖 
+
+> 𝑔𝑡
+
+)]) (2)
+
+For other two metrics, let G′ and P′ denote the foreground pixel sets of the (masked) ground -truth and 
+
+predicted binary tile, respectively, and let  𝐶 𝑘 ,𝑖  
+
+> 𝑔𝑡
+
+be the set of valid ground -truth connected components after 
+
+the boundary -aware ignore step. The two pixel -overlap metrics are: 
+
+𝐷𝑖𝑐𝑒 (𝐺 ′, 𝑃 ′) = (2|G'∩P'| + 𝜀 )
+
+(|𝐺 ′|+|𝑃 ′| + 𝜀 ) (3)
+
+𝐼𝑜𝑈 (𝐺 ′, 𝑃 ′) = (|𝐺 ′ ∩ 𝑃 ′| + 𝜀 )
+
+(|𝐺 ′ ∪ 𝑃 ′| + 𝜀 ) (4)
+
+Predicted components smaller than  𝑣 =25 pixels were removed, and ground -truth components smaller 
+
+than  𝑣 =25 pixels were not included in component -level detection analysis yet everything in ground truth 
+
+is considered in global detection result . This minimum -size threshold was applied to reduce edge effect 
+
+[24] .
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Figure 3 Representative target -aware augmentations applied locally to APP -positive histology regions. 
+
+Each row shows one transform from the PIGMENT augmentation pipeline: (a) instance copy -paste, (b) 
+
+component -scale paste, (c) ground -truth neighborhood diffusion, (d) bridge nearby endpoints, (e) growth 
+
+along the local skeleton, (f) per -component elastic warp, (g) RGB shift, and (h) patch Gaussian noise. 
+
+Columns show the schematic operation before and after augmentation, the original histology tile with the 
+
+selected region of interest boxed, the local real crop before augmentation, the locally augmented crop, 
+
+and the corresponding augmented binary ground -truth mask. The pipeline models both APP -positive 
+
+morphology and staining variability while preserving image –mask correspondence. 
+
+We report instance -level detection rates as the primary metric. To allow minor boundary uncertainty and 
+
+to fill unexpected holes , the predicted mask was dilated and then eroded by one pixel before overlapping 
+
+testing. A valid ground -truth component was counted as detected if any pixel of the dilated prediction 
+
+overlapped that component. 
+
+Dice coefficient and intersection -over -union were reported as secondary pixel -overlap metrics. These 
+
+metrics were computed after applying the same ignore -mask, artifact -removal, and minimum -size rules 
+
+described above. Full mathematical definitions of detec tion rate, Dice, IoU, and all post -processing 
+
+operations are provided in the Supplementary Information. 
+
+Baseline comparisons. 
+
+We compared PIGMENT with two general -purpose segmentation baselines: UniverSeg, a few -shot 
+
+segmentation method that uses support image –mask pairs at inference [25] , and MicroSAM, a Segment 
+
+Anything -based microscopy segmentation framework which is inherently designed to segment cell nucli 
+
+[26] . These baselines were selected to represent two practical alternatives to training a task -specific APP 
+
+model: support -based segmentation from a small number of examples and zero -shot segmentation using 
+
+a foundation -model -derived microscopy tool. 
+
+UniverSeg was evaluated using the same training -section configurations as PIGMENT. For each 
+
+configuration, support examples were drawn exclusively from the corresponding training tiles. Training 
+
+tiles were padded to 576 × 576 pixels, from which 128 × 128 s upport windows containing the target 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+structure were extracted, matching the input size UniverSeg is designed for. At inference, each held -out 
+
+512 × 512 test tile was padded to 576 × 576 and segmented using overlapping 128 × 128 sliding windows 
+
+with stride 64 to reduce edge effects. Window -lev el predictions were averaged across overlapping 
+
+regions, then thresholded to produce a full -tile binary mask. 
+
+MicroSAM was evaluated without APP -specific fine -tuning using its automatic mask -generation workflow. 
+
+Inference was performed independently on each held out 512 × 512 test tile. Candidate masks generated 
+
+by MicroSAM were combined into a binary prediction map and then evaluated using the same post -
+
+processing, ignore -mask handling, and metric pipeline as PIGMENT. 
+
+These baselines were included to compare PIGMENT with general -purpose segmentation strategies 
+
+under the same evaluation framework. They were not intended to exhaustively benchmark all possible 
+
+prompt -engineered, fine -tuned, or task -specific adaptations of foundation segmentation models. 
+
+Training configuration comparison. 
+
+To understand what drives generalization under limited annotation, we defined four training 
+
+configurations that vary the composition of the training set rather than the model or training procedure. 
+
+The simplest was D1 alone — a single densely annotated sec tion from pig P1, giving 180 training tiles. 
+
+We used this as our baseline because it represents the most realistic starting point: one animal, one 
+
+section, the minimum viable annotation effort. From there, we asked whether adding more tiles from a 
+
+second a nimal (D1+D2+D3, 312 tiles) or scaling up to everything available (D1+D2+D3+D4, 420 tiles 
+
+across all three pigs) would meaningfully improve performance. We also tested a fourth configuration 
+
+(D1+D4) that skips the two additional P2 sections entirely and in stead pairs one section from P1 with one 
+
+from P3, yielding 288 tiles drawn from two different animals. This last configuration was specifically 
+
+designed to ask whether cross -animal diversity matters more than raw tile count. 
+
+To keep the comparison clean, we held everything else constant including architecture, augmentation, 
+
+training objective, and all hyperparameters , and varied only what went into the training set. Every 
+
+configuration was then evaluated on held -out test tiles from all four sections independently. 
+
+Code and data availability. 
+
+Independent controlled cortical impact sample 
+
+In addition to the rotational -injury sections used for model development and quantitative evaluation, we 
+
+examined one independent controlled cortical impact (CCI) section as a qualitative generalization test. 
+
+This sample was not included in model training, validation, or hyperparameter selection. Because 
+
+exhaustive expert annotation was not available for this section, it was not used for formal quantitative 
+
+external validation. Instead, PIGMENT was applied to the section to assess whether the model could 
+
+lo calize APP -positive profiles in visibly affected tissue and generate an APP burden map in an injury 
+
+setting outside the rotational -injury development cohort. 
+
+Source Code 
+
+Source code, the augmentation pipeline, trained model checkpoints along with apptainer container are 
+
+publicly available at  https://github.com/dadashkarimi/pigment .
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+## Results 
+
+Evaluation across training configurations 
+
+Across the four training configurations, weighted mean detection rate ranged from 0.803 to 0.850, with 
+
+smaller variation in Dice (0.675 –0.695) and IoU (0.562 –0.578;  Table 3.). The baseline configuration (D1) 
+
+achieved a weighted mean DR of 0.810. Adding within -animal sections from a second pig (D1 + D2 + 
+
+D3) did not improve overall DR (0.806) despite increasing training volume from 180 to 312 tiles. 
+
+Incorporating all availabl e sections (D1 + D2 + D3 + D4, 420 tiles) similarly did not improve over D1. The 
+
+D1 + D4 configuration, which drew one section from each of two different animals, achieved the highest 
+
+weighted mean DR (0.850), Dice (0.695), and per -section DR across all fo ur held -out sections (0.92, 
+
+0.86, 0.75, 0.80). 
+
+Table 3 Effect of training -set composition on generalization of PIGMENT. Four training configurations were 
+
+evaluated: D1 only, D1 + D2 + D3, D1 + D2 + D3 + D4, and D1 + D4. Each model was trained on 80% of the tiles 
+
+from the selected training sections and evaluated on held -out test tiles from all four sections. Per -sec tion detection 
+
+rate (DR) is reported for each held -out test section. Mean DR, Dice, and IoU summarize performance across all 
+
+held -out test tiles (n = 105). DR is an instance -level metric in which a g round -truth APP -positive connected 
+
+component is counted as detected when any pixel of the dilated prediction overlaps it. Dice and IoU are pixel -
+
+overlap metrics. All metrics were computed after artifact -exclusion and boundary -ignore post -processing. Bold 
+
+values indicate the best mean performance. †Best -performing configuration. 
+
+Training 
+
+configuration 
+
+Sections 
+
+(pig: 
+
+dataset) 
+
+Train 
+
+tiles  DR  Mean 
+
+D1  D2  D3  D4  DR  Dice  IoU 
+
+D1  P1: D1  180  0.92  0.83  0.64  0.73  0.810  0.676  0.562 
+
+D1 + D2 + D3  P1: D1; P2: 
+
+D2, D3  312  0.86  0.82  0.75  0.74  0.806  0.690  0.578 
+
+D1 + D2 + D3 + 
+
+D4 
+
+P1: D1; P2: 
+
+D2, D3; P3: 
+
+D4 
+
+420  0.88  0.83  0.70  0.74  0.803  0.675  0.565 
+
+D1 + D4 † P1: D1; P3: 
+
+D4  288  0.92  0.86  0.75  0.80  0.850  0.695  0.578 
+
+Comparison of component -level and pixel -overlap metrics 
+
+Representative held -out tiles illustrate the relationship between detection rate and pixel -overlap metrics 
+
+(Figure 4). Samples 2 and 3 achieved complete component -level detection (DR = 1.00) with moderate 
+
+Dice values (0.403 and 0.598), indicating that PIGMENT localized the annotated APP -positive profiles 
+
+despite imprecise boundary agreement. Sample 1 showed partial component recovery (DR = 0.75, Dice 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+= 0.648). Sample 4 demonstrated a similar pattern of partial recovery (DR = 0.67, Dice = 0.479). Sample 
+
+5 was a complete failure case (DR = —, Dice = 0.000), where no APP -positive structures were annotated 
+
+in the ground truth and no predictions were made. These examples confirm that detection rate and Dice 
+
+capture complementary aspects of performance: boundary disagreement and sparse fragmented profiles 
+
+lower Dice without necessarily preventing component localization .
+
+Figure 4 Representative qualitative cases illustrating PIGMENT behavior across held -out APP histology tiles. Each 
+
+row shows the input histology tile, expert ground -truth mask, PIGMENT prediction, and color -coded error map. Error 
+
+maps are evaluated at the pixel leve l and show true positives in green, false negatives in red, and false positives in 
+
+blue. Dice and component -level detection rate are provided for each example. These cases illustrate why pixel -
+
+overlap metrics and detection rate capture different aspects o f performance: PIGMENT can localize APP -positive 
+
+components even when boundary disagreement, sparse fragmented profiles, or low -contrast staining lowers Dice. 
+
+Samples with detection rate of 1.00 demonstrate successful component localization despite moderat e Dice, 
+
+whereas lower -detection examples highlight missed small or faint APP -positive fragments as a dominant failure 
+
+mode .
+
+Comparison with general -purpose segmentation baselines. 
+
+PIGMENT produced substantially higher Dice values than both baselines across all five representative 
+
+samples ( Figure 5). PIGMENT Dice ranged from 0.59 to 1.00 across samples, compared with 0.00 to 
+
+0.34 for UniVerSeg and 0.00 for MicroSAM in all cases. UniVerSeg generated dense false -positive 
+
+predictions across background tissue, producing near -zero Dice despite visually a ctive output masks. 
+
+MicroSAM failed to recover APP -positive structures in every sample, consistent with zero or near -zero 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Dice across the panel. On Sample 4, PIGMENT localized a small APP -positive fragment that both 
+
+baselines missed entirely. These qualitative patterns are consistent with the quantitative summary: 
+
+averaged across all evaluated configurations and held -out sections, PIGMENT reached a mean DR of 
+
+approximately 0.85 and Dice of approximately 0.74, compared with approximately 0.51 DR and 0.13 Dice 
+
+for UniVerSeg, and near -zero performance for MicroSAM on both metrics. 
+
+Figure 5 Qualitative comparison of PIGMENT against UniverSeg and MicroSAM on representative held -
+
+out APP histology tiles. Columns: input tile, expert ground -truth binary mask, UniverSeg prediction, 
+
+MicroSAM prediction, PIGMENT prediction. Per -tile Dice values are shown in each panel. Across these 
+
+cases, PIGMENT recovers the annotated APP -positive components consistently; UniverSeg over -
+
+segments background tissue with scattered false positives; MicroSAM under -segments and frequently 
+
+misses APP -positive structures en tirely. The red box on Sample 4 highlights a single small APP fragment 
+
+that PIGMENT correctly localized while both baselines missed. 
+
+Effect of spatial augmentation s
+
+To assess whether spatial augmentation adds value beyond intensity normalization alone, we compared 
+
+the full -augmentation model against a baseline that used histogram matching but no spatial 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+transformations. The two models performed similarly overall, with full augmentation showing small 
+
+positive trends on three of the four test sections (Figure 6). The clearest gains appeared on D4 and D3, 
+
+where full augmentation improved Dice by +0.043 and +0.036, IoU by +0.025 and +0.030, and detection 
+
+rate by +0.049 and +0.042 respectively. D2 followed the same direction, with improvements of +0.026 
+
+Dice, +0.022 IoU, and +0.036 detection rate. D1 was the exception, showing near -zero or marginally 
+
+negative differences across all three metrics. When pooled across all sections, the overall changes were 
+
+modest: +0.013 Dice, +0.008 IoU, and +0.022 detection rate. 
+
+Figure 6 Relative improvement of spatial augmentations compared to histogram normalization baseline, both 
+
+trained on D1+D4 .
+
+Qualitative evaluation in an independent CCI sample 
+
+We applied PIGMENT to an APP -stained section from an independent controlled cortical impact (CCI) 
+
+injury sample that was not used for model development (Figure 7). Because exhaustive expert annotation 
+
+was not available, we treated this experiment as a qualitative test rather than a formal external validation 
+
+benchmark. PIGMENT detected APP -positive profiles in visibly affected tissue and generated a tissue -
+
+level map of predicted APP burden. Qualitative review by an experienced neuroanatomist indicated that 
+
+the predictions captured some APP -positive structures, although certain APP -positive swellings were not 
+
+detected and positive predictions were also observed in cort ical regions where pathology was not 
+
+expected. Consequently, this experiment provides preliminary evidence that PIGMENT can localize 
+
+candidate APP -positive regions in an independent CCI sample, but independently annotated external 
+
+sections or representativ e test regions will be required for rigorous quantitative assessment of model 
+
+performance and generalizability. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Figure 7 Qualitative evaluation of PIGMENT on an independent controlled cortical impact (CCI) porcine histology 
+
+sample not included in training. Left: whole -section spatial summary of predicted APP burden, shown as a cluster -
+
+intensity map where warmer colors indica te higher local density of predicted APP -positive structures. Middle: 
+
+representative input tile from the same sample, showing brown APP -positive immunostaining. Right: PIGMENT 
+
+output overlaid on the input tile, with predicted APP -positive regions shown in green. PIGMENT identifies the focal 
+
+region of APP -positive pathology as well as scattered deposits in surrounding tissue. 
+
+## Discussion and Conclusions 
+
+We developed PIGMENT, a deep learning framework for automated segmentation and quantification of 
+
+APP -positive axonal pathology in porcine brain white matter. Several features of APP 
+
+immunohistochemistry make this a challenging problem for automation . For example, e xpert annotations 
+
+are often limited , labeling is concentrated in selected tissue patches rather than distributed across entire 
+
+sections, and identifying APP -positive axonal profiles requires contextual anatomical judgment. The 
+
+target structures ar e also morphologically diverse, ranging from punctate deposits to fragmented 
+
+accumulations and elongated curvilinear profiles, with staining intensity that may var y across sections 
+
+and batches. These features make standard pixel -overlap metrics alone insufficient for evaluating model 
+
+performance. For quantifying axonal injury burden, recovering individual pathological profiles can be as 
+
+important as reproducing every positive pixel. 
+
+To address these challenges, we paired a compact SegFormer -B0 architecture with histogram 
+
+normalization and an APP -specific augmentation pipeline, and we evaluated performance using both 
+
+pixel -level and instance -level metrics. The model was trained on 525 expert -annotated tiles from four 
+
+sections across three pigs. Across held -out sections, PIGMENT achieved strong component -level 
+
+detection and produced tissue -scale segmentation maps, providing a scalable framework for quantifying 
+
+APP -positive axonal patholo gy in large -animal traumatic brain injury studies. 
+
+We report instance -level detection rate as the primary metric because it reflects how PIGMENT is 
+
+intended to be used downstream. The goal is to generate tissue -level measurements of axonal injury that 
+
+can later be spatially aligned with MRI -derived measure s of white -matter damage. In that setting, the 
+
+model needs to support both counting discrete injured axonal profiles per unit area and estimating the 
+
+total tissue area occupied by APP -positive signal. Detection rate is closely tied to the first task becaus e
+
+it measures whether individual APP -positive components are detected as separate pathological 
+
+structures rather than being missed or merged with neighboring signal. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+. Dice and IoU are more closely tied to the second task because they depend on how well the predicted 
+
+mask reproduces the spatial extent and boundaries of the annotated signal. 
+
+This distinction helps explain why detection rate was consistently higher than Dice and IoU across training 
+
+configurations and test sections. A model can correctly localize an APP -positive axonal profile even when 
+
+it does not exactly match the expert -drawn boundary. This is especially relevant for small, fragmented, 
+
+or low -contrast profiles, where the boundary itself may be difficult to define consistently. For this reason, 
+
+detection rate provides the main readout of component -level recovery, while Dice and IoU provide 
+
+complementary information about mask quality and area agreement. 
+
+The comparison across training configurations suggests that, under limited -label conditions, annotation 
+
+composition may matter as much as, or more than, annotation volume. The D1+D4 configuration, which 
+
+includes sections from two different animals, achieve d the highest mean detection rate despite using 
+
+fewer training tiles than the full D1+D2+D3+D4 configuration. In contrast, adding D2 and D3, both from 
+
+P2, did not improve detection rate over the D1 -only baseline. The pattern suggests that additional 
+
+annota tions are not equally informative. Under limited supervision, sections that broaden the training 
+
+distribution may provide more useful signals than additional sections that are highly similar to data already 
+
+represented in the training set. This interpretation is consistent with the broader supervised -learning 
+
+principle that redundant examples can show diminishing returns and, in some cases, may contribute to 
+
+overfitting [27] .
+
+One possible explanation is that adding D4 from P3 introduced a more distinct tissue appearance, injury 
+
+morphology, or staining context, thereby improving the model’s exposure to inter -animal variability. 
+
+However, we cannot exclude an alternative explanati on: D2 and D3 may have introduced variation that 
+
+was less representative of the held -out test data and therefore slightly reduced generalization. These 
+
+explanations point to different but related lessons. The first supports cross -animal sampling to increas e
+
+useful diversity, whereas the second cautions that not all additional annotations improve robustness if 
+
+they shift the training distribution in an unhelpful direction. With the present cohort, we cannot fully 
+
+distinguish between these possibilities. Beca use our cohort includes only three animals and four sections, 
+
+we treat this finding as hypothesis -generating rather than definitive. 
+
+The paired augmentation analysis provides a related lesson about robustness. The no -spatial baseline 
+
+already included histogram matching, so the comparison asked whether spatial and morphology -aware 
+
+augmentation added value after inter -section stain variat ion had been partly controlled. Full augmentation 
+
+improved performance on D2, D3, and D4 across all three metrics, while D1 showed marginal decreases. 
+
+Even so, the directionally consistent gains across three of four sections suggest that spatial augmentati on 
+
+may provide a modest robustness benefit beyond intensity normalization, a possibility that larger 
+
+annotated datasets would be better positioned to confirm. 
+
+The comparison with UniVerSeg and MicroSAM further shows why APP segmentation requires a task -
+
+specific model. MicroSAM, used without APP -specific fine -tuning, showed limited sensitivity to APP -
+
+positive axonal profiles across the evaluated tiles and produce d near -zero Dice in all cases. UniVerSeg 
+
+was evaluated with the largest support sets available in our dataset, but it still generated dense false -
+
+positive predictions that visually corresponded to cell nuclei and other DAB -positive background 
+
+structures. T hese structures can share staining characteristics with injured axonal profiles, but they do 
+
+not represent APP -positive axonal pathology. Separating them from true APP -positive profiles requires 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+tissue -level contextual judgment that support -based generalization alone did not provide in this setting. 
+
+PIGMENT, in contrast, was trained specifically on APP -positive examples and used augmentation 
+
+designed to model variation in axonal profile morphology , staining intensity, and tissue artifacts. This 
+
+task -specific training allowed it to recover APP -positive components that both baselines missed. The 
+
+performance gap therefore reflects the specificity of the annotation problem rather than a general 
+
+limitat ion of either baseline method. 
+
+The independent controlled cortical impact sample provides a qualitative test outside the rotational -injury 
+
+development cohort. Because exhaustive expert annotation was not available, we do not present this 
+
+experiment as formal external validation. Instead , we use it to ask whether PIGMENT can localize APP -
+
+positive profiles in visibly affected tissue and generate an APP burden map in an independent injury 
+
+setting. Fully annotated external CCI and rotational -injury sections will be needed to quantify 
+
+general ization rigorously. 
+
+PIGMENT may support future MRI –histology studies by making APP -positive axonal injury measurable 
+
+across larger tissue regions. These maps could eventually be summarized by anatomical region, 
+
+structural connectivity to injured or hypothesized vulnerable reg ions, or distance from injured structures, 
+
+and then compared with neuroimaging -derived measures. However, the present study does not validate 
+
+any specific MRI biomarker. It establishes the histology -side segmentation and quantification framework 
+
+needed bef ore those cross -scale validation studies can be performed. 
+
+This study has several limitations that should guide future work. The cohort is small, with three pigs, four 
+
+sections, and 525 annotated tiles, so the apparent benefit of annotation composition should be tested in 
+
+larger cohorts that include more animals, staining batches, tissue regions, and injury models. The most 
+
+difficult cases remain faint, fragmented, or low -contrast APP -positive profiles, where even expert labels 
+
+may be locally uncertain. Future work should therefore include independently annotated e xternal test 
+
+sections or representative test regions, rather than requiring exhaustive manual annotation of entire 
+
+whole -slide images. Larger external test sets would allow more rigorous evaluation of generalization, 
+
+while active learning could help priori tize uncertain regions for expert review. Additional studies should 
+
+also test whether the same strategy transfers to other stains or histopathology targets. 
+
+In conclusion, PIGMENT provides an efficient annotation framework for segmenting APP -positive axonal 
+
+pathology in porcine white -matter histology. By combining task -specific augmentation, histogram 
+
+normalization, and instance -level evaluation, the method supports component -level detection while also 
+
+producing p ixel -level burden maps. Although larger and more diverse cohorts are needed for rigorous 
+
+external validation, these results establish a practical foundation for scalable histological quantification of 
+
+axonal injury and for future studies linking microscopic APP pathology with MRI -derived measures of 
+
+white -matter damage. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+## Acknowledgments 
+
+This work was supported by the National Institutes of Health and the U.S. Department of Defense (grant 
+
+numbers to be confirmed by the authors). All animal procedures were approved by the Institutional Animal 
+
+Care and Use Committee (IACUC) at the University of Pennsylvania. 
+
+## Author Contributions 
+
+P.A. led the development of the PIGMENT framework, including model implementation, experiments, 
+
+quantitative analyses, and manuscript preparation. J.D. contributed to the augmentation strategy, 
+
+experimental design, analysis, and manuscript writing and revi sion. D.P. performed histology 
+
+preprocessing and contributed to ground -truth preparation and validation. S.K.C.A. implemented the 
+
+baseline methods, conducted qualitative comparisons, and built the containerized software environment. 
+
+D.H.S. provided the por cine rotational -injury cohort and contributed to the biological and injury -model 
+
+context. H.S. provided APP annotation data and contributed to the rotational -injury dataset and 
+
+histopathological interpretation. J.A.W. contributed to study design, interpret ation of the injury model, and 
+
+annotation support. V.E.J. contributed to data acquisition, preprocessing, and histological interpretation. 
+
+R.D. -A. contributed to interpretation of the findings in the context of traumatic brain injury. R.V. supervised 
+
+the project, guided study conception and methodological development, and critically revised the 
+
+manuscript. All authors reviewed and approved the final manuscript. 
+
+## Funding Statement 
+
+This work was supported by the National Institutes of Health under grants R01NS123034 and 
+
+R01CA278819 , and by the U.S. Department of Defense under awards W81XWH20 -1-0838 , W81XWH -
+
+20 -1-0901 , and HT9425 -23 -1-1039 . The content is solely the responsibility of the authors and does not 
+
+necessarily represent the official views of the NIH or the Department of Defense. 
+
+## Ethical Statement 
+
+All animal procedures were performed in accordance with institutional guidelines and were approved by 
+
+the Institutional Animal Care and Use Committee (IACUC) at the University of Pennsylvania. All 
+
+experiments complied with relevant ethical regulations for animal research. 
+
+## Informed Consent / Patient Consent 
+
+Not applicable. This study involved animal subjects only and did not include human participants. 
+
+## Trial Registration 
+
+Not applicable. This study did not involve a clinical trial. 
+
+## Grant Number 
+
+Grant numbers: R01NS123034, R01CA278819, W81XWH20 -1-0838, W81XWH -20 -1-0901, HT9425 -23 -
+
+1-1039. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+## Conflict of Interest Statement 
+
+The authors declare that there are no commercial or financial relationships that could be construed as a 
+
+potential conflict of interest. 
+
+## References 
+
+1. Sherriff, F., et al., Markers of axonal injury in post mortem human brain. Acta neuropathologica, 
+
+1994. 88 (5): p. 433 -439. 
+
+2. Hayashi, T., et al., Two patterns of β -amyloid precursor protein (APP) immunoreactivity in cases of 
+
+blunt head injury. Legal Medicine, 2009. 11 : p. S171 -S173. 
+
+3. Blumbergs, P., et al., Staining of amyloid precursor protein to study axonal damage in mild head 
+
+injury. vol. 344. Lancet, 1994: p. 91712 -4. 
+
+4. Johnson, V.E., W. Stewart, and D.H. Smith, Axonal pathology in traumatic brain injury. Experimental 
+
+neurology, 2013. 246 : p. 35 -43. 
+
+5. Song, H., et al., Sex differences in the extent of acute axonal pathologies after experimental 
+
+concussion. Acta neuropathologica, 2024. 147 (1): p. 79. 
+
+6. Grovola, M.R., et al., Diverse changes in microglia morphology and axonal pathology during the 
+
+course of 1 year after mild traumatic brain injury in pigs. Brain pathology, 2021. 31 (5): p. e12953. 
+
+7. Song, H., et al., Concussion leads to widespread axonal sodium channel loss and disruption of the 
+
+node of Ranvier. Acta neuropathologica, 2022. 144 (5): p. 967 -985. 
+
+8. Hulkower, M., et al., A decade of DTI in traumatic brain injury: 10 years and 100 articles later. 
+
+American Journal of Neuroradiology, 2013. 34 (11): p. 2064 -2074. 
+
+9. Figley, C.R., et al., Potential pitfalls of using fractional anisotropy, axial diffusivity, and radial 
+
+diffusivity as biomarkers of cerebral white matter microstructure. Frontiers in neuroscience, 2022. 
+
+15 : p. 799576. 
+
+10. Dewan, M.C., et al., Estimating the global incidence of traumatic brain injury. J Neurosurg, 2019. 
+
+130 (4): p. 1080 -1097. 
+
+11. Gu, L., et al., Global, Regional, and National Burden of Traumatic Brain Injury, 1990 -2021: A 
+
+Systematic Analysis for the Global Burden of Disease Study 2021. J Neurotrauma, 2025. 42 (19 -20): 
+
+p. 1805 -1815. 
+
+12. Krieg, J.L., et al., Identifying the phenotypes of diffuse axonal injury following traumatic brain injury. 
+
+Brain sciences, 2023. 13 (11): p. 1607. 
+
+13. Van der Laak, J., G. Litjens, and F. Ciompi, Deep learning in histopathology: the path to the clinic. 
+
+Nature medicine, 2021. 27 (5): p. 775 -784. 
+
+14. Albuquerque, C., R. Henriques, and M. Castelli, Deep learning -based object detection algorithms 
+
+in medical imaging: Systematic review. Heliyon, 2025. 11 (1). 
+
+15. Billot, B., et al., SynthSeg: Segmentation of brain MRI scans of any contrast and resolution without 
+
+retraining. Medical image analysis, 2023. 86 : p. 102789. 
+
+16. Reinke, A., et al., Understanding metric -related pitfalls in image analysis validation. Nature 
+
+methods, 2024. 21 (2): p. 182 -194. 
+
+17. Riendeau, J.M., et al., Cellpose as a reliable method for single -cell segmentation of 
+
+autofluorescence microscopy images. Scientific Reports, 2025. 15 (1): p. 5548. 
+
+18. Ye, H., et al., A novel weakly supervised immunohistochemical cell segmentation method via 
+
+counting labels. Pattern Recognition, 2025: p. 112684. 
+
+19. Cullen, D.K., et al., A porcine model of traumatic brain injury via head rotational acceleration , in 
+
+Injury models of the central nervous system: methods and protocols . 2016, Springer. p. 289 -324. 
+
+20. Biosystems, L., Aperio ImageScope . 2025, Leica Biosystems: Deer Park, IL, USA. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+21. Xie, E., et al., SegFormer: Simple and efficient design for semantic segmentation with transformers. 
+
+Advances in neural information processing systems, 2021. 34 : p. 12077 -12090. 
+
+22. Tarvainen, A. and H. Valpola, Mean teachers are better role models: Weight -averaged consistency 
+
+targets improve semi -supervised deep learning results. Advances in neural information processing 
+
+systems, 2017. 30 .
+
+23. !!! INVALID CITATION !!! . 
+
+24. Pielawski, N. and C. Wählby, Introducing Hann windows for reducing edge -effects in patch -based 
+
+image segmentation. PloS one, 2020. 15 (3): p. e0229839. 
+
+25. Butoi, V.I., et al. Universeg: Universal medical image segmentation . in Proceedings of the IEEE/CVF 
+
+International Conference on Computer Vision . 2023. 
+
+26. Archit, A., et al., Segment Anything for Microscopy. Nat Methods, 2025. 22 (3): p. 579 -591. 
+
+27. Figueroa, R.L., et al., Predicting sample size required for classification performance. BMC medical 
+
+informatics and decision making, 2012. 12 (1): p. 8. 
+
+28. Isensee, F., et al., Automated brain extraction of multisequence MRI using artificial neural 
+
+networks. Human brain mapping, 2019. 40 (17): p. 4952 -4964. 
+
+29. Paolini, F., et al., Diffusion Tensor Imaging as Neurologic Predictor in Patients Affected by 
+
+Traumatic Brain Injury: Scoping Review. Brain Sciences, 2025. 15 (1): p. 70. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+## Supplementary Information 
+
+Fig. S1. 
+
+Figure S 1 Inter -section RGB intensity distributions across APP -stained porcine white -matter sections. Gaussian 
+
+approximations of 8 -bit red, green, and blue channel intensity distributions are shown for the four sections used in 
+
+the PIGMENT dataset. Each panel overla ys the same four sections for one color channel, allowing direct 
+
+comparison of staining and acquisition variability across sections. D2 and D3 are independently stained sections 
+
+from the same pig, with D3 shown as a dashed line. Short vertical ticks indic ate channel -specific mean intensities. 
+
+Differences in curve position reflect inter -section shifts in color intensity, whereas differences in curve width reflect 
+
+variation in within -section intensity dispersion. These batch -level differences motivate the ph otometric augmentation 
+
+strategy used during PIGMENT training. 
+
+Fig. S2. 
+
+Figure S 2 Dice, IoU, and DR for the PIGMENT model with geometric augmentations across the four training 
+
+configurations. The pattern matches Fig. 4 (full pipeline): DR is consistently higher than pixel -overlap metrics, and 
+
+the D1+D4 configuration is strongest overal l. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Fig. S3. 
+
+Figure S 3 Dice across test sections and training configurations for MicroSAM, UniverSeg, and PIGMENT 
+
+under intensity -only and full geometric augmentation. PIGMENT achieves the highest Dice in most 
+
+settings. 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint Fig. S4. 
+
+Figure S 4 Intersection -over -union (IoU) across test sections and training configurations for MicroSAM, UniverSeg, 
+
+and PIGMENT. PIGMENT achieves the highest IoU in most settings, consistent with the Dice and DR comparisons. 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint Fig. S5. 
+
+Figure S 5 Extended qualitative comparison across diverse APP morphologies, staining conditions, and annotation 
+
+regimes (Samples 6 -15). Representative held -out histology tiles complementing Fig. 5. Each row shows input tile, 
+
+expert ground -truth annotation, UniverSeg prediction, MicroSAM prediction, and PIGMENT prediction. These 
+
+supplementary samples span APP -negative windows, sparse isolated deposits, elongated axonal fibers, 
+
+fragmented annotations, dense heterogeneous APP regions, and low -contrast cases. UniverSeg o ver -segments 
+
+background tissue with fragmented false positives, and MicroSAM under -segments or fails entirely in sparse and 
+
+elongated morphologies. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Mathematical formulations. 
+
+This section provides the complete mathematical specification of the components summarized in the 
+
+main text Materials and Methods: the SegFormer -B0 encoder –decoder, the training objective and EMA 
+
+teacher regularization, the target -aware augmentation transf orms, and the post -processing applied 
+
+before evaluation. Equations are numbered S1, S2, … for ease of reference. 
+
+Architecture details. 
+
+The segmentation model is a function f θ: ℝᴴ×W×³ → [0, 1] ᴴ×W that maps an RGB tile of size H × W to a 
+
+pixel -wise probability of APP positivity. We instantiate fθ with SegFormer -B0, a hierarchical vision 
+
+transformer for semantic segmentation. The encoder (MiT -B0) is composed of four stages; at each stage, 
+
+features Fᵢ are produced by an encoder block E ᵢ applied to the previous feature map, with spatial 
+
+resolution progressively halved and channel dimensionality increased (C1 = 32, C2 = 64, C3 = 160, C4 
+
+= 256): 
+
+𝐹 ᵢ = 𝐸 ᵢ(𝐹 ᵢ₋₁ ), 𝐹 ₀ = 𝐼 , 𝐹 ᵢ₊₁ = 𝑃𝑎𝑡𝑐 ℎ𝑀𝑒𝑟𝑔𝑒 (𝐹 ᵢ). (S1) 
+
+Query, key, and value matrices are obtained via linear projections of the input feature matrix X with 
+
+learnable projection matrices W_Q, W_K, W_V: 
+
+𝑄 = 𝑋 𝑊 _𝑄 , 𝐾 = 𝑋 𝑊 _𝐾 , 𝑉 = 𝑋 𝑊 _𝑉 . (S2) 
+
+Self -attention at each stage uses Efficient Self -Attention with a sequence -reduction ratio R ᵢ, reducing the 
+
+effective key –value length from N = H ᵢWᵢ to N / R ᵢ and lowering attention complexity from O(N²) to O(N² / 
+
+Rᵢ): 
+
+𝐴𝑡𝑡𝑒𝑛𝑡𝑖𝑜𝑛 (𝑄 , 𝐾 , 𝑉 ) = 𝑆𝑜𝑓𝑡𝑚𝑎𝑥 (𝑄𝐾 ᵀ / √𝑑 _{ℎ𝑒𝑎𝑑 }) 𝑉 , (S3) 
+
+where d_{head} is the head dimension. Positional information is injected via Mix -FFN blocks that combine 
+
+a depthwise 3 × 3 convolution with two linear projections and a GELU non -linearity: 
+
+𝑥 _{𝑜𝑢𝑡 } = 𝑀𝐿𝑃 (𝐺𝐸𝐿𝑈 (𝐶𝑜𝑛𝑣 3 × 3(𝑀𝐿𝑃 (𝑥 ᵢₙ)))). (S4) 
+
+The All -MLP decoder upsamples each encoder feature map F ᵢ to a common spatial resolution, channel -
+
+concatenates the four upsampled maps, projects them with a linear layer, and bilinearly upsamples the 
+
+logits to the input resolution: 
+
+𝑀 = 𝐿𝑖𝑛𝑒𝑎𝑟 (𝐶𝑜𝑛𝑐𝑎𝑡 (𝑈𝑝𝑠𝑎𝑚𝑝𝑙𝑒 (𝐹 ₁), … , 𝑈𝑝𝑠𝑎𝑚𝑝𝑙𝑒 (𝐹 ₄))), 𝑝 (𝑥 ) = 𝑆𝑜𝑓𝑡𝑚𝑎𝑥 (𝑀 (𝑥 )). (𝑆 5)
+
+The model contains approximately 3.7 million parameters. The multi -section training strategy is 
+
+architecture -agnostic and can be combined with any encoder –decoder segmentation network. 
+
+Training objective and EMA teacher. 
+
+Let V = {x : L(x) ≠ 255} denote the set of valid pixels, that is, pixels not marked as ignore. The training 
+
+objective is pixel -wise cross -entropy computed only over V: 
+
+ℒᶜᵉ(𝜃 ) = − (1 / |𝑉 |) ∑𝑥 ∈ 𝑉 ∑𝑐 ∈ {0,1} 𝑦𝑐 (𝑥 ) 𝑙𝑜𝑔 𝑝𝑐 (𝑥 ), (S6) 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+where yc(x) ∈ {0, 1} is the one -hot ground -truth label for class c and pc(x) is the predicted probability from 
+
+a channel -wise Softmax on the upsampled logits. No explicit class weighting is applied; class imbalance 
+
+is addressed through the augmentation pipeline. 
+
+A teacher network with parameters θ̄ ₜ is maintained as an exponential moving average of the student 
+
+parameters θ ₜ with decay d = 0.999. The teacher receives no gradient updates and is refreshed at every 
+
+step according to 
+
+𝜃 ̄ ₜ = 𝑑 · 𝜃 ̄ ₜ₋₁ + (1 − 𝑑 ) · 𝜃 ₜ. (S7) 
+
+The teacher flags pixel x as ambiguous (and excludes it from the gradient for that step) when its prediction 
+
+strongly disagrees with the manual label in a high -confidence region: 
+
+𝑎𝑚𝑏𝑖𝑔𝑢𝑜𝑢𝑠 (𝑥 ) = 1[𝐿 (𝑥 ) ≠ 255 ] · (1[𝐿 (𝑥 ) = 0 ∧ 𝑝 ̄₁(𝑥 ) > 𝜏 ₊] + 1[𝐿 (𝑥 ) = 1 ∧ 𝑝 ̄₁(𝑥 ) < 1 −
+
+𝜏 ₋]), (S8) 
+
+with τ₊ = τ ₋ = 0.97 and p̄ ₁(x) the teacher’s class -1 (APP -positive) probability at pixel x. Pixels flagged 
+
+ambiguous in a given step are temporarily assigned the ignore value 255 and excluded from the cross -
+
+entropy loss for that step. This is a Mean -Teacher -style regularization that reduces the influence of likely 
+
+mis -annotated pixels (faint deposits missed by the annotator, boundary pixels of small fragmented 
+
+components, or staining artifacts inadvertently included in foreground). 
+
+Models are optimized with AdamW (learning rate η = 1 × 10 ⁻⁵, β ₁ = 0.9, β ₂ = 0.999, weight decay λ = 
+
+0.01), batch size 8, with dropout applied to encoder hidden states (p = 0.1), attention weights (p = 0.1), 
+
+and the classifier head (p = 0.3). 
+
+Augmentation transforms (formal definitions). 
+
+Data augmentation is formulated as a stochastic transformation T sampled from a distribution P(τ) that 
+
+acts jointly on the image –mask pair (I, L): 
+
+(𝐼 ′, 𝐿 ′) = 𝑇 (𝐼 , 𝐿 ), 𝑇 ∼ 𝑃 (𝜏 ). (S9) 
+
+The model is trained to minimize the expected cross -entropy loss over augmented samples, where D is 
+
+the dataset distribution: 
+
+𝑚𝑖𝑛𝜃 𝐸 (𝐼 , 𝐿 ) ∼ 𝐷 𝐸𝑇 ∼ 𝑃 (𝜏 ) [ℒ(𝑓𝜃 (𝑇 (𝐼 )), 𝑇 (𝐿 ))]. (S10) 
+
+For copy -paste operations, APP -positive components are sampled only from the ground -truth mask of 
+
+the same training image, so that no labels are transferred across images. Spatial transformations act 
+
+jointly on image and mask to preserve pixel -wise corresp ondence; photometric transformations act on 
+
+the image only. Pixels assigned the ignore label 255 are preserved through all transforms and excluded 
+
+from loss computation. Below, x denotes a 2D spatial coordinate inside the tile and D the tile width. 
+
+Affine transform. Each spatial location x is mapped according to 
+
+𝜑 _{𝑎𝑓𝑓 }(𝑥 ) = 𝑠 · 𝑅 (𝜃 ) · 𝑥 + 𝑡 , (S11) 
+
+where R(θ) is a 2×2 rotation matrix with θ ∼ U(−18°, 18°), scale s ∼ U(0.96, 1.06), and translation t_{x}, 
+
+t_{y} ∼ U(−0.06 D, 0.06 D). Image pixels are resampled with bilinear interpolation; masks with nearest -
+
+neighbour interpolation. 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+Global RGB shift. Each colour channel c ∈ {R, G, B} is shifted by an additive offset 
+
+𝐼 ′(𝑥 ; 𝑐 ) = 𝐼 (𝑥 ; 𝑐 ) + 𝛥 (𝑐 ), 𝑤𝑖𝑡 ℎ 𝛥 (𝑅 ), 𝛥 (𝐵 ) ∼ 𝑈 (−8, 8) 𝑎𝑛𝑑 𝛥 (𝐺 ) ∼ 𝑈 (−6, 6), (S12) 
+
+in the [0, 255] pixel range. The narrower green -channel range reflects its greater sensitivity to APP 
+
+immunoreactivity in brightfield histology. 
+
+Multi -instance copy -paste. Let C ₖ denote the k -th sampled connected component from L. Each instance 
+
+is rigidly transformed, 
+
+Cₖ′ = s ₖ · R(θ ₖ) · C ₖ + d ₖ, (S13) 
+
+with n ∼ U( {5, …, 20}) instances per image, scale s ₖ ∼ U(0.90, 1.25), in -plane rotation θ ₖ ∼ U(−8°, 8°), 
+
+and placement offset d ₖ sampled uniformly over the tile. An optional elastic deformation with amplitude α 
+
+∼ U(0, 180) and smoothness σ ∼ U(0, 5) is applied to introduce sub -pixel shape variation, and a 2 -pixel 
+
+feather blend is applied at the component boundary to suppress visible seams. 
+
+GMM -guided label promotion. A Gaussian Mixture Model with K = 4 components is fitted to the RGB 
+
+distribution of manually annotated APP -positive pixels. For a pixel x with colour vector I(x), the likelihood 
+
+under the mixture is 
+
+p(I(x)) = ∑k ₌₁ K πk · N(I(x); μk, Σk), (S14) 
+
+and the posterior probability that pixel x belongs to mixture component k is 
+
+γₖ(x) = π ₖ N(I(x); μ ₖ, Σ ₖ) / ∑ⱼ ₌₁ K πⱼ N(I(x); μⱼ, Σⱼ). (S15) 
+
+Pixels whose likelihood exceeds a data -driven threshold and that lie within a bounded ROI (at most 224 
+
+× 224 pixels, at most 3 candidate regions, with no more than 4500 promoted pixels per image) are 
+
+promoted to foreground. The strict spatial and count con straints prevent promotion of false positives in 
+
+regions of clearly negative tissue. 
+
+Ground -truth neighborhood diffusion. The binary mask L is convolved with a Gaussian kernel of radius 
+
+r ∼ U(4, 10) pixels to produce a soft proximity map L̃ . A blended image Ĩ is formed as 
+
+Ĩ(x) = I(x) + α · L̃ (x) · (I_ [28] − I(x)), α ∼ U(0.12, 0.28), (S16) 
+
+where I_ [28] is the mean intensity of APP -positive pixels. The blend is gated by the condition L̃ (x) ≥ τ, 
+
+with τ ∼ U(0.75, 0.90), restricting the modification to regions immediately adjacent to annotated 
+
+foreground and preventing label spread into clearly negative tissue. A complete listing of transform 
+
+categories and hyperparameters is given in Table S2. 
+
+Post -processing and evaluation metrics (formal definitions). 
+
+Morphological post -processing of predictions. For each connected component C ₖ in the predicted 
+
+binary mask, the minimum bounding rectangle yields principal -axis dimensions (w ₖ, h ₖ). The elongation 
+
+ratio is 
+
+εₖ = max(w ₖ, h ₖ) / (min(w ₖ, h ₖ) + ε ), (S17) 
+
+with ε = 10 ⁻⁶ for numerical stability. Components satisfying both area(C ₖ) ≥ τ_{area} and ε ₖ ≥ τ_{ε} are 
+
+suppressed (set to background); we use τ_{area} = 2300 pixels and τ_{ε} = 3.0. Thresholds were chosen 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 23, 2026. ;https://doi.org/10.64898/2026.06.18.733245 doi: bioRxiv preprint
+
+so that no annotated APP -positive component in the training set is excluded, and structures of this scale 
+
+and shape correspond to staining artifacts at fold edges or tissue tears rather than APP -positive profiles. 
+
+Boundary -aware ignore masking. For each connected component C ₖ^{GT} in the binary ground -truth 
+
+mask, the component is excluded from evaluation if it both (i) intersects the patch border, i.e. there exists 
+
+x ∈ Cₖ^{GT} with x ∈ ∂Ω, and (ii) has area below a threshold, area(C ₖ^{GT}) < τ_{edge} with τ_{edge} = 
+
+50 pixels. The resulting ignore mask M_ [29] is applied to both ground truth and prediction before metric 
+
+computation: 
+
+g′(x) = g(x) · 1[x ∉ M_ [29] ], p′(x) = p(x) · 1[x ∉ M_ [29] ]. (S18) 
+
+Detection rate construction. Small gaps within the GT foreground are first closed using morphological 
+
+closing with a disk -shaped structuring element B ᵣ of radius r = 2: 
+
+G′ = (G ⊕ Bᵣ) ⊖ Bᵣ. (S19) 
+
+The predicted mask is dilated by B ᵣ′ with r′ = 1 to introduce a small spatial tolerance, P′ = P ⊕ Bᵣ′, and 
+
+predicted components with area below τₚᵣ = 25 pixels are discarded. A ground -truth component C ₖ^{GT} 
+
+is considered valid if area(C ₖ^{GT}) ≥ τᶜᶜ = 25 pixels and it has not been excluded by the boundary -aware 
+
+ignore mask. A valid component is detected if 
+
+detected(C ₖ^{GT}) = 1[ ∃ x ∈ Cₖ^{GT} : P′(x) = 1]. (S20) 
+
+The global detection rate (Eq. 2 in the main text) is computed by summing detections over all test tiles 
+
+and dividing by the total number of valid components; here we have reproduced the construction in full 
+
+to make the relationship between the morphologic al tolerances (r, r′) and the metric explicit. 
+
+Ground -truth binarization. 
+
+The annotator's overlay was rendered as a distinct green channel; after luminance conversion to 
+
+grayscale, the annotation pixels were separated from background tissue by an intensity threshold (pixels 
+
+with grayscale intensity at least 228 were assigned APP -positive, pixels at most 227 were assigned 
+
+background). The threshold was determined empirically on representative training tiles and verified to 
+
+reproduce the annotator's intent. PIGMENT consumes the resulting binary masks directly.

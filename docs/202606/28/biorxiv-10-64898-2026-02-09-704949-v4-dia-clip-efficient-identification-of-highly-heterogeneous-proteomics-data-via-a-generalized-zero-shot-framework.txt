@@ -1,0 +1,1628 @@
+Title: πDIA-CLIP: efficient identification of highly heterogeneous proteomics data via a generalized zero-shot framework
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.02.09.704949v4.full.pdf
+
+Number of Pages: 31
+
+Markdown Content:
+1
+
+# πDIA-CLIP: efficient identification of highly heterogeneous 1
+
+# proteomics data via a generalized zero-shot framework 2
+
+Yucheng Liao 1,2 , Yongge Li 3, ZeXu Xiao 2, ChenChen Miao 2, Tao Yi 2, Xingpu Zhao 2,3
+
+Yuanyuan Zhang 2, Han Wen 2, Weinan E 1,2,4 , Cheng Chang 5, *, Weijie Zhang 2,3, *
+
+4
+
+# Affiliations 5 
+
+> 1
+
+Center for Machine Learning Research, Peking University, Beijing, China 100871 6 
+
+> 2
+
+State Key Laboratory of Medical Proteomics, AI for Science Institute, Beijing, China 102206 7 
+
+> 3
+
+DP Technology, Beijing, China 100089 8 
+
+> 4
+
+School of Mathematical Sciences, Peking University, Beijing, China 100871 9 
+
+> 5
+
+State Key Laboratory of Medical Proteomics, National Center for Protein Sciences (Beijing), 10 
+
+Research Unit of Proteomics-driven Cancer Precision Medicine (Chinese Academy of Medical 11 
+
+Sciences), Beijing, China 102206 12 
+
+# Contributions 13 
+
+W.E., C.C. and W.Z. co-supervised the study. Y.Liao curated the training data, implemented the model, 14 
+
+conducted the training and performed data evaluations. Y.Li provided expertise on the evaluation of 15 
+
+single-cell data. Z.X. developed the graphical user interface for the software application. C.M. constructed 16 
+
+the model-based agent system. T.Y., X.Z. and Y.Z. helped perform data evaluation. C.C. and W.Z. 17 
+
+provided suggestions for bioinformatic analysis and data evaluations. H.W. and W.Z. provided 18 
+
+computational resources. Y.Liao, C.C. and W.Z. drafted the manuscript. All authors reviewed and 19 
+
+approved the final manuscript. 20  
+
+> *
+
+# Corresponding author 21 
+
+Correspondence to: changcheng@ncpsb.org.cn; zhangwj@aisi.ac.cn 22 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+2
+
+# Abstract 23 
+
+Data-independent acquisition mass spectrometry has increasingly emerged as a cornerstone for 24 
+
+characterizing highly heterogeneous biological systems, such as single-cell proteomics, metaproteomics, 25 
+
+and spatial proteomics, offering unparalleled identification depth and quantification reproducibility. 26 
+
+Current DIA analysis frameworks, however, require semi-supervised training within each run for peptide-27 
+
+spectrum match (PSM) re-scoring, which is prone to overfitting and lacks generalizability across diverse 28 
+
+species and experimental conditions. Here, we present πDIA-CLIP, a generalized framework shifting the 29 
+
+DIA analysis strategy from semi-supervised training to zero-shot cross-modal representation learning 30 
+
+through integrating dual-encoder contrastive learning and encoder-decoder architectures to establish a 31 
+
+unified, high-precision representation for spectral features and peptides. Notably, the generalized zero-32 
+
+shot nature of πDIA-CLIP facilitates an inference-only architecture, streamlining the analysis to achieve 33 
+
+exceptional computational efficiency. Extensive evaluations across five distinct benchmarks demonstrate 34 
+
+that πDIA-CLIP consistently outperforms existing tools, yielding an up to 44.6% increase in protein 35 
+
+identification alongside a reduction in entrapment identifications reaching a maximal 52.5%. Furthermore, 36 
+
+the enhanced identification depth facilitates the discovery of novel biomarkers and the elucidation of 37 
+
+intricate cellular mechanisms. 38 
+
+# Introduction 39 
+
+Driven by the burgeoning demands of precision diagnostics and therapeutic development, proteomics has 40 
+
+transitioned from a specialized technology to a high-throughput engine for biological discovery and 41 
+
+clinical translation 1,2 . The ability to comprehensively characterize the proteome within highly 42 
+
+heterogeneous biological contexts is now pivotal for identifying diagnostic biomarkers, monitoring 43 
+
+treatment responses, and elucidating complex biological mechanisms 3-6 . To meet these rigorous 44 
+
+requirements for depth and scalability, data-independent acquisition mass spectrometry (DIA-MS) has 45 
+
+emerged as a cornerstone of high-throughput proteomics 7-10 , lauded for its high reproducibility 11 ,46 
+
+sensitivity 12,13 , and high-throughput 14 . However, fully realizing the potential of DIA-MS is often 47 
+
+hampered by the inherent complexity of its signal deconvolution, which remains a preeminent challenge 48 
+
+in computational proteomics 15,16 . Unlike data-dependent acquisition (DDA) modes, DIA-MS employs 49 
+
+isolation windows designed to encompass multiple m/z ranges, resulting in the concurrent fragmentation 50 
+
+of multiple co-eluting precursor ions. This multiplexing gives rise to highly convoluted spectra where 51 
+
+fragment-ion signals from disparate peptides are extensively interleaved, thereby confounding the 52 
+
+definitive assignment of peptide-spectrum matches (PSMs) and limiting the depth of proteomic 53 
+
+coverage 7,17 .54 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+3
+
+Over the past decade, MSFragger-DIA 18 , PECAN 19 , Spectronaut 20 , and MaxDIA 21 , have profoundly 55 
+
+advanced the field of DIA proteomics, establishing the standard for reproducible proteome profiling. To 56 
+
+analyze DIA-MS data, peptide-centric approaches rely on reference spectral libraries to query DIA-MS 57 
+
+data with a standardized computational workflow: retention time (RT) calibration, extracted ion 58 
+
+chromatogram (XIC) generation, peak-group scoring, PSM re-scoring, and false discovery rate (FDR) 59 
+
+estimation. To distinguish true target peptides from decoy hits, earlier PSM re-scoring strategies relied on 60 
+
+semi-supervised machine learning algorithms (e.g., Percolator 22 , mProphet 23 or XGBoost 24 ). These 61 
+
+algorithms are predicated upon sophisticated feature engineering, which integrates diverse statistical 62 
+
+metrics such as RT alignment, peak-shape correlation, and ionic intensity distributions to enhance 63 
+
+identification confidence. However, the reliance on hand-crafted feature engineering inherently restricts 64 
+
+the capacity to capture complex data nuances, thus compromising the sensitivity for identifying low-65 
+
+abundance proteins within complex background noise. Deep learning-based approaches, such as 66 
+
+AlphaDIA 25 , DreamDIA 26 , DIA-NN 27 , Alpha-XIC 28 and DIA-BERT 29 leverage deep neural networks to 67 
+
+extract high-dimensional features from raw DIA-MS signals without manual intervention, bolstering 68 
+
+PSMs re-scoring performance and delivering substantially deeper proteome coverage. 69 
+
+Despite these advancements, existing frameworks still necessitate semi-supervised learning to repetitively 70 
+
+optimize re-scoring models for each individual DIA-MS analysis run. By fundamentally assigning 71 
+
+pseudo-labels to unannotated PSMs for iterative self-updating, this “run-specific” semi-supervised 72 
+
+learning paradigm poses an inherent risk of overfitting. Specifically, biased initial annotations toward 73 
+
+specific typologies drive the model into a detrimental, self-reinforcing loop, while uniform sampling 74 
+
+strategies systematically marginalize rare species, inherently underfitting sparse, low-abundance targets. 75 
+
+Beyond the risk of overfitting, the high computational cost required for repetitive optimization in semi-76 
+
+supervised learning framework severely bottlenecks high-throughput data analysis. Moreover, 77 
+
+contemporary scoring metrics analyze peak groups in isolation, failing to capture the semantic 78 
+
+associations between amino acid sequence and spectral data. These limitations highlight a critical need for 79 
+
+a multi-modal framework capable of generalized PSM identification within sparse, high-dimensional 80 
+
+space in a zero-shot manner, thereby circumventing the temporal burden of semi-supervised learning 81 
+
+paradigm. 82 
+
+To circumvent these long-standing bottlenecks, we present πDIA-CLIP (Data-Independent Acquisition 83 
+
+with Contrastive Learning Integrated Proteomics), a generalized, end-to-end architecture for zero-shot 84 
+
+PSM re-scoring, where "π" stands for the π-HuB project, a global initiative for proteomics research 30 .85 
+
+Diverging from traditional methodologies, πDIA-CLIP represents the first implementation of cross-modal 86 
+
+contrastive learning in DIA-MS analysis, aligning discrete peptide sequences with corresponding 87 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+4
+
+chromatographic signal profiles. The core of πDIA-CLIP employs a hybrid architecture that synergizes a 88 
+
+dual-encoder contrastive learning framework with a sophisticated encoder-decoder architecture. The dual-89 
+
+encoder component, which integrates transformer-based sequence encoder and a specialized spectral 90 
+
+encoder, serves to align peptide sequences and XIC signals in a shared latent space. Concurrently, a 91 
+
+decoder architecture leverages the aligned latent features to extract high-dimensional semantic 92 
+
+abstractions. By harnessing pre-training on large-scale datasets, πDIA-CLIP effectively encodes the 93 
+
+intricate, high-dimensional relationship between XIC profiles and corresponding peptides. 94 
+
+Furthermore, we extensively evaluated πDIA-CLIP across broad and heterogeneous DIA-MS proteomics 95 
+
+cohorts, encompassing HeLa cell lysates, complex multi-species mixture, metaproteomic microbial 96 
+
+communities, spatial breast cancer specimens and ultra-low-input single-cell preparations. Across these 97 
+
+datasets, our evaluations demonstrate a marked expansion in detectable proteome depth and refinement of 98 
+
+quantitative accuracy. Specifically, πDIA-CLIP achieved up to a 44.6% increase in protein identifications 99 
+
+compared to existing software tools, while concurrently delivering a maximal 52.5% reduction in 100 
+
+entrapment-based false identifications. Besides, driven by the zero-shot, inference-only architecture, 101 
+
+πDIA-CLIP facilitates exceptional computational efficiency, achieving orders of magnitude speedup 102 
+
+compared to existing deep learning-based methods. Beyond achieving superior benchmarks, πDIA-CLIP 103 
+
+demonstrates exceptional translational utility in heterogeneous, practical scenarios, facilitating the 104 
+
+discovery of novel biomarkers and the elucidation of intricate cellular mechanisms. 105 
+
+# Results 106 
+
+# Architecture and Analysis Workflow of πDIA-CLIP 107 
+
+πDIA-CLIP features a unified end-to-end architecture synergizing cross-modal contrastive learning 108 
+
+framework 31 with a dual-architectural paradigm comprising both dual-encoder and encoder-decoder 109 
+
+architecture (Supplementary Information Fig. S1). The design rationale centers on the functional 110 
+
+decoupling of cross-modal alignment and high-dimensional feature refinement. Specifically, the dual-111 
+
+encoder component utilizes a transformer-based sequence encoder and a specialized spectral encoder to 112 
+
+project peptide sequences and XIC signals into a shared latent manifold for establishing foundational 113 
+
+semantic correspondences. Complementing this global alignment, the encoder-decoder architecture serves 114 
+
+as a discriminative engine, engineered to decode the intricate, non-linear dependencies between sequences 115 
+
+and spectral signatures. This synergistic design couples the broad generalization of the dual-encoder with 116 
+
+the high-resolution sensitivity of the encoder-decoder, facilitating precise PSM adjudication across 117 
+
+heterogeneous datasets. 118 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+5
+
+To circumvent the “run-specific” training constraints inherent in conventional DIA analysis, πDIA-CLIP 119 
+
+employs a supervised contrastive learning pre-training strategy to internalize robust representations of 120 
+
+peptide-spectrum correspondences (Fig. 1a). We curated a large-scale training dataset by processing DIA-121 
+
+MS data through DIA-NN, yielding an extensive collection of over 28 million high-confidence PSMs. 122 
+
+This dataset encompasses four diverse species( Homo sapiens , Mus musculus , Saccharomyces cerevisiae ,123 
+
+and Escherichia coli ) and was acquired across five distinct MS platforms (e.g., Astral, TripleTOF; 124 
+
+Supplementary Information Table 1). To bolster the discriminative performance of πDIA-CLIP against 125 
+
+deceptive signals, entrapment PSMs are incorporated as negative sample during pre-training. This 126 
+
+approach compels πDIA-CLIP to learn the subtle spectral nuances required to distinguish true targets 127 
+
+from entrapments, ensuring accurate identification in a zero-shot manner. By pre-training on this large-128 
+
+scale dataset, πDIA-CLIP captures the intrinsic peptide-spectrum correspondences, fundamentally 129 
+
+transcending the constraints of traditional feature engineering. Crucially, this entrapment-integrated pre-130 
+
+training strategy empowers πDIA-CLIP with zero-shot inference capabilities, enabling deep and accurate 131 
+
+PSM identification with exceptional computational efficiency. To facilitate widespread academic and 132 
+
+clinical adoption, πDIA-CLIP is deployed across a versatile ecosystem (Fig. 1a), supporting localized 133 
+
+execution via a standalone workstation client, high-throughput processing through a scalable inference 134 
+
+API, and automated down-stream interpretation integrated into LLM-driven agent analysts. 135 
+
+Leveraging the πDIA-CLIP, we established a comprehensive, peptide-centric workflow for end-to-end 136 
+
+DIA-MS data analysis (Fig. 1b). This pipeline is designed to be software-agnostic, where RT calibration 137 
+
+step can be performed by mainstream DIA identification tools. Subsequently, πDIA-CLIP extracts 138 
+
+precursor and fragment XICs, performing PSM re-scoring and quantification within a zero-shot scenario. 139 
+
+By imbuing the standardized workflow with extensive prior knowledge internalized during large-scale 140 
+
+pre-training, πDIA-CLIP transcends biases inherent in individual experimental runs to ensure consistent, 141 
+
+high-fidelity identification across varying experimental conditions. 142 
+
+# πDIA-CLIP enables high-sensitivity identification across diverse scenarios 143 
+
+To systematically evaluate the efficacy of πDIA-CLIP in proteome identification, we initially conducted 144 
+
+rigorous benchmarking using HeLa cell lysates DIA-MS data across five distinct liquid-chromatographic 145 
+
+(LC) gradients ranging from 0.5 to 4.0 hours (PRIDE ID: PXD005573; Fig. 2a) 32 . Crucially, to guarantee 146 
+
+an unbiased assessment of zero-shot inference capability, all DIA-MS files used for validation were 147 
+
+strictly excluded from the pre-training dataset. 148 
+
+Evaluations of Hela cell lysate across LC gradients (Fig. 2c, d) revealed that the number of peptides and 149 
+
+proteins identified by πDIA-CLIP markedly surpassed the benchmarks established by existing tools, such 150 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+6
+
+as DIA-NN, MaxDIA, and MSFragger-DIA. Taking the 90-minute LC gradient as a representative 151 
+
+example, πDIA-CLIP achieved a 15.9% and 15.6% increase in precursor and protein identifications 152 
+
+relative to DIA-NN, respectively (Fig. 2b). Visualization of target and decoy PSM score distributions 153 
+
+further indicated that πDIA-CLIP constructs highly discriminative representations (Supplementary 154 
+
+Information Fig. S2a). Consensus analysis of Venn diagrams further reveals a broad identification overlap 155 
+
+between πDIA-CLIP and existing tools alongside the exclusive discovery of numerous high-quality 156 
+
+unique peptides (Fig. 2e). 157 
+
+Furthermore, by leveraging narrow-window sampling and compressed chromatographic timescales, 158 
+
+Orbitrap Astral MS instrumentation has fundamentally redefined the landscape of DIA proteomics, 159 
+
+yielding substantially increased spectral density and complexity. As this unprecedented complexity poses 160 
+
+a rigorous challenge for identification stability, we extended our evaluation to a highly multiplexed, 161 
+
+multi-species consortium DIA-MS data acquired on this next-generation platform (PRIDE ID: 162 
+
+PXD046444; Fig. 3a) 12 . This multi-species cohort consisted of proteomes from H. sapiens , E. coli , and S. 163 
+
+cerevisiae at six distinct mixing ratios. Within this demanding acquisition environment, πDIA-CLIP 164 
+
+identified the highest number of valid precursors (Fig. 3b), achieving at least 3.0% increase in precursor 165 
+
+identifications and 6.7% increase in protein identification within 1.0% decoy FDR. 166 
+
+Collectively, above results demonstrate that πDIA-CLIP overcomes the sensitivity bottlenecks inherent in 167 
+
+heuristic feature engineering by leveraging the internalized, cross-modal representations to effectively 168 
+
+resolve authentic signals. This approach establishes a robust computational foundation for high-169 
+
+throughput proteomics, facilitating deeper interrogation of the proteome across the latest generation of 170 
+
+mass spectrometry platforms. 171 
+
+# Accuracy Assessment of πDIA-CLIP via Quantitative and Entrapment 172 
+
+# Performance 173 
+
+To assess the authenticity of precursor ions identified exclusively by πDIA-CLIP, we inspected XICs of 174 
+
+representative precursor ions that remained undetected by established tools. For instance, in the 60-min 175 
+
+HeLa cell lysates analysis, the +2 charged peptide ASDVHEVRK was uniquely identified by πDIA-CLIP, 176 
+
+displaying exceptional peak symmetry and stringent fragment-ion co-elution profiles. This high signal 177 
+
+fidelity was systematically corroborated by a global evaluation of XIC Pearson correlation coefficients. 178 
+
+Precursors exclusively identified by πDIA-CLIP consistently exhibited higher average correlations across 179 
+
+precursors, fragments, and cross-ion metrics (0.53, 0.30, and 0.13, respectively) compared to unique 180 
+
+identifications of DIA-NN (0.49, 0.26, and 0.08), confirming the robust authenticity of these novel 181 
+
+discoveries (Supplementary Information Fig. S2b). Additionally, this qualitative signal integrity is further 182 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+7
+
+corroborated by extensive additional XIC examples uniquely recovered by πDIA-CLIP across varying 183 
+
+gradients (Supplementary Information Fig. S3). 184 
+
+Given the formidable challenge of accurate error control within DIA workflows and the failure of 185 
+
+conventional search tools to maintain consistent FDR thresholds through entrapment procedures 33-35 , an 186 
+
+entrapment experiment was conducted to rigorously validate the reliability and robustness of πDIA-CLIP. 187 
+
+This methodology utilized a hybrid multi-species entrapment library comprising protein sequences from 188 
+
+H. sapiens , S. cerevisiae , E. coli , and M. musculus to the analysis of HeLa cell lysates DIA-MS data 189 
+
+(PRIDE ID: PXD005573; Fig. 2a), with any identified non-human peptides classified as entrapments. As 190 
+
+illustrated in Fig. 2g, while maintaining a decoy FDR below 0.01, πDIA-CLIP yielded entrapment 191 
+
+proportions comparable to existing tools across varying LC gradient lengths. Notably, application of more 192 
+
+stringent decoy FDR thresholds revealed a marked reduction in entrapment FDR for πDIA-CLIP 193 
+
+(Supplementary Information Fig. S2e, f). Specifically, under the 120-minute LC gradient at a highly 194 
+
+conservative decoy FDR of 5e -3 , πDIA-CLIP achieved 44.3% reduction in entrapment precursor counts 195 
+
+compared to DIA-NN. In-depth investigation into the sensitivity toward decoy versus entrapment 196 
+
+sequences further clarified this superior performance. Analysis of the 120-min gradient data revealed the 197 
+
+highest sensitivity toward entrapment precursors in πDIA-CLIP, characterized by a consistently 198 
+
+suppressed trajectory of falsely identified entrapment ions across the evaluated range and culminating in a 199 
+
+maximal 52.5% reduction relative to DIA-NN (Fig. 2h). 200 
+
+Integrated quantitative evaluation across multiple datasets further substantiated the high accuracy of 201 
+
+identified signals yielded by πDIA-CLIP. In the assessment of identification across varying coefficients 202 
+
+of variation (CV) for precursors (Fig. 3c) and proteins (Fig. 3d) within the multi-species consortium, 203 
+
+πDIA-CLIP maintained a substantial lead over existing software. Notably, in the high-precision regime 204 
+
+(CV < 5%), πDIA-CLIP delivered 42.6% and 52.6% increase in precursor and protein identifications, 205 
+
+respectively. Transitioning from intra-group reproducibility to relative quantitative fidelity, subsequent 206 
+
+analyses evaluated the predefined mixing ratios inherent to this cohort. Prior to computing relative log2 207 
+
+ratios, rigorous data curation isolated robust precursors maintaining a coefficient of variation below 30%. 208 
+
+Scatter plots mapping log2-transformed relative intensities against theoretical abundance illustrated 209 
+
+exceptional concordance between πDIA-CLIP measurements and theoretical expectations (Fig. 3e). 210 
+
+Crucially, the substantial gains in precursor identifications preserved quantitative fidelity, delivering a 211 
+
+variance profile equivalent to established software tools. Most notably, evaluating mixtures with a 1.5-212 
+
+fold change (FC) reveals a distinctly tighter quantitative distribution for πDIA-CLIP, evidenced by 213 
+
+narrower density profiles relative to existing tools. This systematic precision is further mirrored in the 214 
+
+analysis of unique identifications in the HeLa dataset, where the quantitative results for precursors 215 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+8
+
+(Supplementary Information Fig. S2c) and proteins (Supplementary Information Fig. S2d) identified 216 
+
+solely by πDIA-CLIP exhibited significantly tighter clustering alongside higher abundance levels relative 217 
+
+to existing software. 218 
+
+These multi-dimensional evaluations collectively demonstrate the capacity of πDIA-CLIP for substantial 219 
+
+increases in identification depth while maintaining high quantitative and statistical fidelity in zero-shot 220 
+
+inference regimes. By effectively resolving the divergence between decoy and entrapment-based error 221 
+
+estimates, πDIA-CLIP introduces a robust methodological advancement for accurate proteome 222 
+
+interrogation, establishing itself as a foundational tool for high-fidelity, high-throughput proteomics 223 
+
+across diverse DIA-MS platforms. 224 
+
+# Zero-Shot Inference Empowers Computational Efficiency 225 
+
+The advent of high-throughput MS, exemplified by the Orbitrap Astral, facilitates unprecedented data 226 
+
+generation 12,36 . Despite the enhanced identification depth enabled by sophisticated deep learning 227 
+
+architectures, the necessity for intensive training or optimization remains a substantial bottleneck. This 228 
+
+lag between data acquisition and processing speed increasingly restricts the scalability of modern 229 
+
+proteomic workflows. 230 
+
+πDIA-CLIP bridges this computational gap by shifting the DIA analysis strategy from repetitive semi-231 
+
+supervised training to a generalized zero-shot representation, offering a unified, inference-only solution 232 
+
+for PSM re-scoring. The computational efficiency between πDIA-CLIP and existing deep learning tools 233 
+
+was benchmarked using HeLa cell lysates analyzed with 0.5h chromatographic gradient (PRIDE ID: 234 
+
+PXD005573). In this experiment, more than 26,000 MS/MS spectra were searched against a spectral 235 
+
+library containing more than 4,000,000 precursors. To ensure hardware parity, all evaluations were 236 
+
+conducted on a high-performance server equipped with 8 NVIDIA A100 (80GB) GPUs and dual Intel 237 
+
+Xeon Platinum 8336C processors (2.30 GHz, 56 cores/112 threads). By obviating the computational 238 
+
+burden of iterative optimization, πDIA-CLIP completed the entire workflow within 13 minutes, 239 
+
+representing an 8-fold and a more than 100-fold acceleration in run time relative to AlphaDIA (1.7 h) and 240 
+
+DIA-BERT (22.9 h), respectively (Supplementary Information Table 2). Furthermore, a granular 241 
+
+assessment of PSM re-scoring and FDR estimation further underscored this efficiency, with πDIA-CLIP 242 
+
+requiring only 2.8 minutes for these tasks. This performance contrasted sharply with AlphaDIA (31.7 min) 243 
+
+and DIA-BERT (5.2 h) despite relying on high-performance GPU acceleration. This profound speedup 244 
+
+stems from the zero-shot architecture of πDIA-CLIP, which requires only a single, highly efficient 245 
+
+forward inference. This approach fundamentally bypasses the multiple computationally expensive epochs 246 
+
+of model training and parameter updating mandated by existing models. Remarkably, πDIA-CLIP 247 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+9
+
+maintained its speed advantage even in CPU-only environments, with re-scoring and FDR stages (5 min) 248 
+
+outperforming the GPU-dependent versions of existing frameworks. Such hardware-agnostic efficiency 249 
+
+ensures superior platform extensibility, enabling high-performance proteomic analysis on diverse 250 
+
+computational infrastructures independent of dedicated GPU requirements. 251 
+
+Collectively, these results establish πDIA-CLIP as an exceptionally efficient framework for high-252 
+
+throughput proteomics. By leveraging rapid, inference-only architecture, πDIA-CLIP provides a highly 253 
+
+scalable and hardware-agnostic solution for modern proteomics, equipped to handle the massive 254 
+
+analytical demands of large-scale MS datasets. 255 
+
+# Unlocking the Metaproteome via Zero-Shot Generalizability 256 
+
+Metaproteomics has emerged as a transformative tool for deciphering microbiome-host interactions and 257 
+
+complex ecological networks by capturing community-wide functional profiles 37,38 . In practice, the wide-258 
+
+window acquisition of DIA-MS in metaproteomics yields highly chimeric spectra with overlapping 259 
+
+fragment ions and composition-dependent interference, presenting a significant computational challenge 260 
+
+for accurate profiling across diverse samples. Characterizing such immense taxonomic diversity within 261 
+
+highly heterogeneous datasets necessitates robust generalizability, ensuring reliable identification of 262 
+
+unseen taxa. To evaluate the generalizability of πDIA-CLIP across heterogeneous and previously unseen 263 
+
+biological contexts, we benchmarked πDIA-CLIP utilizing a mixed metaproteomic cohort (PXD054415) 264 
+
+comprising 32 species at equal cell counts 39 . The community spans immense taxonomic distances, 265 
+
+including representatives from Archaea and Eukaryota alongside 25 bacterial strains and five 266 
+
+bacteriophages. Since validated protein sequences for the Archaea, Eukaryota, and bacteriophages were 267 
+
+unavailable in UniProt, library-free DIA-MS searching of our evaluation was restricted to a FASTA 268 
+
+database of the 25 bacterial strains sourced from the original study 39 .269 
+
+Comparative benchmarking on the PXD054415 cohort revealed superior identification generalizability for 270 
+
+πDIA-CLIP at both precursor and protein levels, despite no prior exposure to these specific biological 271 
+
+species. Total identifications of πDIA-CLIP reached approximately 11,000 precursors and 5,000 proteins, 272 
+
+representing increases of at least 2.3% (Fig. 4a) and 2.0% (Fig. 4b) over existing tools, respectively. 273 
+
+Species-wise analysis confirmed species-agnostic identification gains across the majority of microbial 274 
+
+taxa (Fig. 4c). The improvements appeared particularly pronounced among low-abundance proteins, as 275 
+
+evidenced by average 0.7% deviation in quantitative values and 13% reduction in standard deviation 276 
+
+(Supplementary Information Fig. S4a). Furthermore, assessment of quantification stability revealed 277 
+
+average 29.3% decrease in median CV values for πDIA-CLIP across all evaluated taxa, highlighting 278 
+
+enhanced reproducibility in complex metaproteomic contexts (Supplementary Information Fig. S4b). 279 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+10 
+
+These results establish πDIA-CLIP as a robust and universally applicable framework for metaproteomic 280 
+
+analysis across diverse, uncharacterized biological systems. The inherent generalizability of πDIA-CLIP 281 
+
+eliminates the requirement for dataset-specific retraining, offering a scalable solution for large-scale 282 
+
+proteomic investigations. By enabling the reliable identification of previously unseen taxa and peptide 283 
+
+signatures, πDIA-CLIP facilitates the systematic exploration of the metaproteomic "dark proteome", 284 
+
+potentially unveiling novel functional drivers within complex ecological and host-associated networks. 285 
+
+# Deciphering Spatially Resolved Proteomes via πDIA-CLIP 286 
+
+Given the capacity to delineate protein profiles with precise spatial context, spatial proteomics has 287 
+
+emerged as a transformative tool in various fields like tumor microenvironment research and clinical 288 
+
+precision medicine 40-42 . To evaluate the practicality of πDIA-CLIP in these complex biological scenarios, 289 
+
+a spatially resolved proteomics dataset generated by integrating laser capture microdissection (LCM) with 290 
+
+liquid chromatography-mass spectrometry (LC-MS) is utilized to profile the proteomic landscape of 291 
+
+breast cancer tissue sections (iProX ID: PXD045687) 43 . Pathological annotations derived from 292 
+
+hematoxylin and eosin (H&E) stained images allowed for the precise resolution of spatial information 293 
+
+across distinct pathological regions. 294 
+
+Comparative identification assessments across distinct pathological regions (Fig. 4d), demonstrated an 295 
+
+average 19.3% increase in protein identification counts across all regions via πDIA-CLIP, providing a 296 
+
+comprehensive molecular foundation for high-resolution spatial proteomic maps and biomarker discovery. 297 
+
+To bolster data reliability, the analysis considered only proteins identified in at least 50% of tissue 298 
+
+sections within a given pathological region. Subsequent analysis of key breast cancer classification 299 
+
+markers, including epithelial growth factor receptor 2 (HER2/ERBB2) and estrogen receptor 1300 
+
+(ER/ESR1) 44 , revealed pronounced spatial heterogeneity (Fig. 4e, f). The observed quantitative trends and 301 
+
+spatial distributions aligned closely with the H&E-based pathological annotations, enabling the accurate 302 
+
+stratification of two tumor subtypes: Tumor 1 (HER2+, ER-, PR-) and Tumor 2 (HER2+, ER+, PR+). 303 
+
+These classifications showed high consistency with the findings of the original study 45,46 .304 
+
+The enhanced identification depth provided by πDIA-CLIP facilitated the discovery of novel marker 305 
+
+proteins through comparative analysis. Volcano plot (Fig. 4g) and Venn diagram (Supplementary 306 
+
+Information Fig. S5a) analyses of differentially expressed proteins (DEPs) between two tumor regions 307 
+
+yielded a 6% increase in the identification of significant markers. Subsequent gene ontology enrichment 308 
+
+analysis of these DEPs revealed a highly significant enrichment of the epithelial-mesenchymal transition 309 
+
+(EMT) pathway in Tumor 1, further corroborating its aggressive phenotype (Supplementary Information 310 
+
+Fig. S5b). For instance, Amine oxidase [flavin-containing] A (AOFA), a DEP uniquely identified by 311 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+11 
+
+πDIA-CLIP, displayed specific expression within Tumor 1 regions (Fig. 4h). Previous research associates 312 
+
+AOFA with highly invasive phenotypes and the epithelial-mesenchymal transition process in breast 313 
+
+cancer 47,48 , aligning with the aggressive pathological characteristics in Fig. 4b. Additional examples of 314 
+
+DEPs uniquely recovered and spatially visualized by πDIA-CLIP are provided in the Supplementary 315 
+
+Information Fig. S5c. 316 
+
+Collectively, these results demonstrate the robust applicability of πDIA-CLIP for the accurate 317 
+
+interrogation of spatially resolved clinical proteomes. Beyond providing substantial gains in identification 318 
+
+counts, the successful stratification of tumor subtypes and the discovery of novel, functionally pertinent 319 
+
+protein markers underscore the capacity of deep biological discovery. 320 
+
+# Deep Profiling of Low-Abundance Proteins Resolves Single-Cell Heterogeneity 321 
+
+Single-cell MS-based proteomics is hindered by formidable technical bottlenecks, including ultra-low 322 
+
+sample input, extreme signal sparsity, and pervasive data missingness 13,50-53 . To evaluate the performance 323 
+
+of πDIA-CLIP in these low abundance samples, a dataset consisting of 12 technical replicates of HeLa 324 
+
+single-cell samples was utilized (PXD049211) 54 . Furthermore, validation of πDIA-CLIP in practical 325 
+
+biological contexts utilized a differentiation dataset encompassing 12 induced pluripotent stem cells 326 
+
+(iPSCs) and 91 embryoid body (EB) cells (PXD049181) 54 . These datasets provided a rigorous basis for 327 
+
+benchmarking identification depth, quantitative stability, and the resolution of biological heterogeneity at 328 
+
+single-cell level. 329 
+
+Analysis of the HeLa single-cell samples demonstrated substantial superiority of πDIA-CLIP over other 330 
+
+software tools, resulting in at least 33.6% and 44.6% improvements in precursor and protein 331 
+
+identifications, respectively (Fig. 5a, b). An in-depth assessment of quantitative stability further 332 
+
+demonstrated a substantial increase in the number of precursors and proteins identified by πDIA-CLIP 333 
+
+across various CV thresholds, highlighted by approximately 3-fold and 4-fold improvement over DIA-NN 334 
+
+within 20% CV, respectively (Supplementary Information Fig. S6b, c). XICs of representative precursors 335 
+
+unique to πDIA-CLIP validated the expanded single-cell proteome (Fig. 5d). While single-cell signals 336 
+
+suffered from peak tailing or intermittent signal gaps resulting from ultra-low ion counts (Fig. 5e, f), the 337 
+
+accurate resolution of non-ideal signal profiles via πDIA-CLIP overcomes the sensitivity limits of 338 
+
+conventional heuristic-based algorithms in high-noise environments, enabling a more coherent protein 339 
+
+detection profile (Fig. 5c). Specifically, the bottom quartile (25%) of proteins identified by πDIA-CLIP 340 
+
+exhibited 35.4% lower mean intensity compared to DIA-NN, while simultaneously achieving an 81.7% 341 
+
+increase in identification count within this low-abundance regime. 342 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+12 
+
+Evaluation of the EB differentiation dataset demonstrates the biological utility of πDIA-CLIP. Following 343 
+
+standardized preprocessing via zero-filling and intensity normalization, πDIA-CLIP yielded an expression 344 
+
+matrix of 17,533 proteins across 103 cells, representing a 68% expansion in proteomic depth relative to 345 
+
+the 10,432 proteins recovered by DIA-NN. Independent component analysis (ICA) applied to these 346 
+
+quantification results produced low-dimensional embeddings for direct comparative assessment. These 347 
+
+low-dimensional embeddings facilitated a crisp separation of iPSC and EB populations congruent with 348 
+
+known lineage biology, whereas DIA-NN exhibited insufficient resolution for distinguishing these cell 349 
+
+types (Fig. 5g, h). Quantitative assessment of cluster stability through hierarchical clustering and t-SNE 55 
+
+350 
+
+visualization further substantiated the robustness of the πDIA-CLIP data. Protein expression heatmaps 351 
+
+(Supplementary Information Fig. S6a) derived from these clusters further validated the accuracy of cell-352 
+
+type identities, highlighting the capacity of πDIA-CLIP to resolve heterogeneous scenarios. 353 
+
+Collectively, the superior identification depth and enhanced quantification stability achieved by πDIA-354 
+
+CLIP establish a robust computational foundation for high-fidelity single-cell proteomics. Improved 355 
+
+resolution of non-ideal signal profiles and expanded coverage of the low-abundance proteome facilitate 356 
+
+the elucidation of subtle biological heterogeneity within signal-sparse experimental landscapes. 357 
+
+# Discussion 358 
+
+This study introduces πDIA-CLIP, a cross-modal framework establishing novel identification approach in 359 
+
+data-independent acquisition proteomics by transitioning from semi-supervised training models to a 360 
+
+unified, generalized zero-shot inference architecture. By obviating the need for repetitive optimization, 361 
+
+this approach eliminates the inherent risk of overfitting within constrained local datasets, while the 362 
+
+inference-only architecture facilitates exceptional computational efficiency across heterogeneous 363 
+
+biological scenarios, including metaproteomics, spatial proteomics, and single-cell proteomics. 364 
+
+Mechanistically, πDIA-CLIP involves the first implementation of cross-modal contrastive learning within 365 
+
+DIA-MS, where a dual-encoder framework aligns peptide sequences and multi-dimensional XIC signals 366 
+
+within a shared latent space. Ablation studies further underscore the critical role of contrastive learning in 367 
+
+fostering the generalizability of πDIA-CLIP, while simultaneously revealing substantial scope for 368 
+
+architectural refinement to further enhance identification depth and sensitivity (see Supplementary 369 
+
+Information Notes). Furthermore, by leveraging global prior knowledge from millions of PSMs, πDIA-370 
+
+CLIP ensures precise zero-shot identification and exceptional robustness across diverse instrumental 371 
+
+platforms and biological scenarios, representing a foundational step toward truly scalable and 372 
+
+generalizable proteomics informatics. 373 
+
+Systematic benchmarking across heterogeneous cohorts, including complex multi-species consortium, 374 
+
+metaproteomic microbial communities, clinical breast cancer specimens and ultra-low-input single-cell 375 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+13 
+
+preparations, demonstrates a marked expansion in both the depth and accuracy of the detectable proteome. 376 
+
+Architecturally, πDIA-CLIP permits integration with various peptide-centric search engines, including 377 
+
+MaxDIA, Spectronaut, and DIA-NN, for the purpose of PSM re-scoring, further enhancing the utility for 378 
+
+generalized re-scoring across diverse computational workflows (see Supplementary Information Notes). 379 
+
+Besides, the inference-only nature of πDIA-CLIP allows for flexible deployment across both CPU and 380 
+
+GPU hardware, facilitating rapid integration into existing computational pipelines without the heavy 381 
+
+computational overhead of training or finetuning. 382 
+
+Although the conventional FDR threshold serves as a golden standard, it fails to represent an absolute 383 
+
+demarcation between authentic and spurious identifications. Due to inherent statistical fluctuations, there 384 
+
+remain some authentic target signals in proximity to this threshold. Integrating expert experience to 385 
+
+validate identifications within this critical boundary provides a “human in loop” framework for further 386 
+
+elevating the performance ceiling of πDIA-CLIP. Establishing a closed-loop system where manually 387 
+
+verified high-confidence identifications are fed back into a reinforcement learning framework is capable 388 
+
+of facilitating the continuous refinement of the re-scoring model. This adaptive framework could 389 
+
+transcend conservative FDR constraints to recover authentic signals, effectively pushing the sensitivity 390 
+
+limits of πDIA-CLIP and enabling the discovery of novel biological features in deep-proteome profiles. 391 
+
+Concurrently, a fundamental trade-off characterizes training data composition, as omitting entrapment 392 
+
+sequences from the pretraining phase maximizes inference-level identification yields while inadvertently 393 
+
+compromising the capacity to rigorously filter entrapment artifacts. Furthermore, expanding the training 394 
+
+repertoire to encompass diverse post-translational modifications, non-tryptic peptides, top-down 395 
+
+ultraviolet photodissociation (UVPD) fragmentations 56,57 and ion mobility spectrometry (IMS) 396 
+
+dimensions will be essential to enhance the versatility of πDIA-CLIP across complex, non-standard 397 
+
+experimental landscapes. 398 
+
+# Methods 399 
+
+# Mass Spectrometry Files Used in Pre-training 400 
+
+Raw MS data utilized for training πDIA-CLIP were retrieved from the PRIDE database. Detailed 401 
+
+information of these MS files is provided in Supplementary Information Table 1. 402 
+
+# Preparation of the Training Dataset 403 
+
+To accommodate the systematic discrepancies in XIC extraction and identification logic across software 404 
+
+generations (Supplementary Information Fig. S7a, b), two distinct datasets were generated using different 405 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+14 
+
+versions of DIA-NN (v1.7 and v2.0). The library-based identification procedure was performed by DIA-406 
+
+NN with parameters “--qvalue 0.01 --matrices --unimod4 --rt-profiling” (version 1.7) and “--matrices --407 
+
+gen-spec-lib --unimod4 --reanalyse --rt-profiling --report-decoys --out-lib-qvalue 0.01 --qvalue 0.01” 408 
+
+(version 2.0). Prediction of the spectral library utilized a separate execution of DIA-NN (version 1.8.1) 409 
+
+with parameters “--qvalue 0.01 --matrices --gen-spec-lib --predictor --fasta-search --min-fr-mz 200 --410 
+
+max-fr-mz 1800 --met-excision --cut K*,R* --missed-cleavages 1 --min-pep-len 7 --max-pep-len 30 --411 
+
+min-pr-mz 300 --max-pr-mz 1800 --min-pr-charge 1 --max-pr-charge 4 --unimod4 --reanalyse --relaxed-412 
+
+prot-inf --smart-profiling --peak-center --no-ifs-removal”. Target precursors identified by DIA-NN served 413 
+
+as positive samples, with all decoy precursors functioning as initial negative samples. To expand the 414 
+
+negative sample space and enhance model robustness, an entrapment identification procedure was 415 
+
+employed. All entrapment precursor identified by DIA-NN were incorporated as additional negative 416 
+
+samples. 417 
+
+Extraction of XIC data utilized calibrated retention times and theoretical m/z value of both precursor ions 418 
+
+and fragment ions, derived from DIA-NN. Precursor ion XICs originated from MS1 spectra, 419 
+
+encompassing the monoisotopic precursor m/z and its three associated isotopic peaks. Fragment ion XICs 420 
+
+were extracted from MS/MS spectra based on fragment m/z values. Peak groups searching employed a 421 
+
+fixed m/z tolerance window of [ion m/zௗ−ௗ30ௗppm, ion m/zௗ+ௗ30ௗppm]. Within this window, only the peak 422 
+
+with the m/z value closest to the theoretical expectation was selected. In instances where no peak was 423 
+
+detected within the defined tolerance, the intensity was set to zero and the m/z error was recorded as 30 424 
+
+ppm. Following XIC extraction, both precursor and fragment XICs underwent intensity normalization and 425 
+
+interpolation to a fixed dimension of 12 data points to standardize peak shape representation. Finally, the 426 
+
+resulting peak groups were processed using a Gaussian smoothing algorithm to minimize signal noise. 427 
+
+# Re-scoring and Quantification Procedure of πDIA-CLIP 428 
+
+As illustrated in Figure S1, πDIA-CLIP is composed of three primary functional components: initial 429 
+
+encoding phase, contrastive learning alignment stage, and specialized decoder for PSM re-scoring. 430 
+
+The initial encoding phase utilizes a dual-encoder architecture. Within a training batch of size B ,431 
+
+precursor ions undergo transformation into feature representations Pଵ, P ଶ, … , P ୆. Besides, to handle the 432 
+
+intrinsic relationship between precursor XICs and fragment XICs, πDIA-CLIP employs dedicated XIC 433 
+
+encoding layers to separately process precursor XICs, fragment XICs, and concatenated XICs. These 434 
+
+resulting features are then combined and processed to a representation of spectrum features Sଵ, S ଶ, … , S ୆.435 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+15 
+
+The secondary stage involves a contrastive learning framework designed to align precursor and spectrum 436 
+
+features within a unified, shared latent space. Optimization of πDIA-CLIP focuses on maximizing the 437 
+
+similarity between (P ୧, S ୧) with label y୧ = 1 (positive pairs) while simultaneously minimizing the 438 
+
+similarity of ൫P ୨, S ୨൯ with label y୨ = 0 (negative pairs). 439 
+
+Derivation of the PSM score utilizes a specialized decoder architecture. Encoded precursor and spectrum 440 
+
+features are fed into a transformer-based decoder to generate a [B, dim_model] feature. In parallel, 441 
+
+physical co-elution characteristics are explicitly incorporated through the calculation of Pearson 442 
+
+Correlation Coefficient (PCC) matrix, subsequently projected into a [B, dim_model] feature via a multi-443 
+
+layer perceptron (MLP). Fusion of these two features occurs through element-wise summation, followed 444 
+
+by a final MLP with a sigmoid activation function. This process yields a calibrated PSM score ranging 445 
+
+from 0 to 1. 446 
+
+Calculation of quantitative abundance for each identified precursor relies on the arithmetic mean of Top-447 
+
+K areas of fragment XICs. While K conventionally equals 6, πDIA-CLIP adaptively selects the top-6 or 448 
+
+all available fragment ions with non-zero areas, ensuring the inclusion of only informative signals in the 449 
+
+final quantitative result. 450 
+
+# Loss Function of πDIA-CLIP 451 
+
+The training loss of πDIA-CLIP is a composite objective function designed to ensure both high-fidelity 452 
+
+feature alignment and robust statistical discrimination. This loss function consists of a target-453 
+
+differentiated contrastive cross-entropy loss, a PSM classification loss, and a similarity margin loss, i.e. 454 
+
+ℒtotal = λ ଵℒTCE + λ ଶℒBCE + λ ଷℒmargin .455 
+
+The target-differentiated contrastive cross-entropy loss ( ℒTCE ) imposes asymmetrical optimization goals 456 
+
+on target and decoy/entrapment samples. Specifically, the loss function transforms the similarity matrix 𝑆 457 
+
+into a modified matrix 𝑆 ᇱ by negating the rows associated with negative PSMs. Then row-wise 458 
+
+application of traditional cross-entropy loss to the modified matrix follows the form of 459 
+
+𝐿 ் ஼ா = − 1𝐵 ෍ log ቆ exp(𝑆 ௜௜ ᇱ /τ) ∑ exp൫𝑆 ௜௝ ᇱ /τ൯ ௝
+
+ቇ
+
+> ௜
+
+460 
+
+where 𝜏 serves as a temperature scaling parameter for matrix 𝑆 ᇱ. Refinement of the final scoring output 461 
+
+utilizes a PSM classification loss based on Binary Cross-Entropy (BCE), i.e., 462 
+
+𝐿 ஻஼ா = − 1𝐵 ෍[𝑦 log(𝑦 ො) + (1 − 𝑦) log(1 − 𝑦 ො)] 463 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+16 
+
+where 𝑦 represents the ground-truth PSM labels and 𝑦 ො indicates the predicted PSM score vector. To 464 
+
+ensure clear global separation between positive and negative identifications, πDIA-CLIP incorporates a 465 
+
+similarity margin loss ( ℒmargin ). This hinge-loss variant enforces a predefined margin ( 𝑚 ) between the 466 
+
+average similarity of target pairs ( 𝜇 ௣௢௦ ) and negative pairs ( 𝜇 ௡௘௚ ), i.e., 467 
+
+𝐿 ௠௔௥௚௜௡ = max ቀ0, 𝑚 − ൫𝜇 ௣௢௦ − 𝜇 ௡௘௚ ൯ቁ. 468 
+
+This component penalizes the model only upon insufficient statistical separation between these two 469 
+
+populations, thereby fortifying the global discriminative capacity of the framework. 470 
+
+# Pre-training Parameters of πDIA-CLIP 471 
+
+πDIA-CLIP was jointly pre-trained using the AdamW optimizer with a weight decay coefficient of 472 
+
+1 × 10 ି ଺ . To ensure stable convergence, a cosine annealing scheduler was implemented to dynamically 473 
+
+modulate the learning rate, decaying from an initial value of 1 × 10 ି ସ to a minimum of 1 × 10 ି଻ . The 474 
+
+training spanned 40 epochs with a batch size of 4096. Dataset was partitioned into training and validation 475 
+
+sets at a 9:1 ratio. Regarding the objective functions, we set the loss weights to 𝜆 ଵ = 1.0 ，𝜆 ଶ = 1.0 ，476 
+
+𝜆 ଷ = 5𝑒 ି ଷ , with the margin for similarity loss and the temperature scaling parameter setting to 𝛼 = 0.5 477 
+
+and 𝜏 = 0.2 respectively. 478 
+
+# FDR Estimation 479 
+
+To evaluate the statistical confidence of PSMs, we employed the target-decoy strategy. In πDIA-CLIP, 480 
+
+FDR control followed the Benjamini-Hochberg procedure 58,59 . Specifically, PSMs underwent initial 481 
+
+ranking in ascending order of their scores to calculate raw FDR estimates. To ensure the monotonicity of 482 
+
+FDR estimates, an adjustment was applied from the beginning of the ranked list, defined as: 483 
+
+𝐹𝐷𝑅 ௔ௗ௝ (𝑖) = max  
+
+> ௜ஹ௝
+
+ቆ 𝑁 ௗ௘௖௢௬,௝ 
+
+𝑁 ௧௔௥௚௘௧,௝ + 𝑁 ௗ௘௖௢௬,௝ 
+
+ቇ. 484 
+
+Target PSMs with an adjusted FDR below a predefined threshold (e.g., 0.01 ) were considered statistically 485 
+
+significant identifications. 486 
+
+# Analysis of Spatial Proteomic Data 487 
+
+To evaluate the performance of πDIA-CLIP model in spatially resolved proteomics, we utilized an 488 
+
+integrated computational workflow for the analysis of spatial DIA datasets, enabling the comparison of 489 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+17 
+
+identification performance and molecular characterization across annotated tissue regions. Precursor-level 490 
+
+identifications from πDIA-CLIP, DIA-NN, MSFragger-DIA and MaxDIA were mapped to a common 491 
+
+spectral library to ensure standardized protein-level definitions, followed by protein quantification 492 
+
+through precursor aggregation and outlier rejection. Spatial coordinates (x, y) were reconstructed for each 493 
+
+tissue spot by matching sample metadata with position maps, and tissue-region annotations were verified 494 
+
+by overlaying coordinates onto reference images. 495 
+
+Spatial protein distribution was visualized by normalizing protein abundance and overlaying these values 496 
+
+on the tissue manifold. DEPs between tissue subregions (e.g., Tumor1 vs. Tumor2) were identified using 497 
+
+Welch’s two-sample t-tests. Prior to statistical testing, quantitative outliers were removed to refine the 498 
+
+abundance distributions. Significant DEPs were screened using comparative volcano plots, with FC > 2.0 499 
+
+and p < 0.01. 500 
+
+Functional interpretation of the spatial proteome was performed via Gene Ontology annotation using 501 
+
+gseapy. To elucidate biological programs associated with specific tumor microenvironments, pathway 502 
+
+enrichment analysis was conducted referencing the MSigDB Hallmark gene set collection. For these 503 
+
+analyses, we employed threshold of FC > 2.0 and p < 0.01 to prioritize the identification of robust 504 
+
+biological signatures. Enrichment significance was determined using Fisher’s exact test followed by FDR 505 
+
+correction. 506 
+
+# Analysis of Single-cell DIA-MS Data 507 
+
+To standardize and analyze single-cell data across disparate search engines, we mapped identified 508 
+
+precursors to a common human spectral library, followed by protein quantification through precursor-509 
+
+level averaging and outlier rejection. To account for technical variation in total signal, cell-specific 510 
+
+protein abundances were normalized to a scale of one million units, and filtered to retain only proteins 511 
+
+with normalized abundance exceeding 1.0 in at least two cells. 512 
+
+The resulting high-dimensional expression matrices were log-transformed and subjected to Independent 513 
+
+Component Analysis (ICA) using the FastICA algorithm (random_state=3984) to identify the primary 514 
+
+axes of cellular variation. Four independent components were extracted to serve as the basis for 515 
+
+unsupervised hierarchical clustering via Ward’s method. The optimal clustering resolution was 516 
+
+determined by assessing dendrogram linkage distances, with a threshold of 6 applied to partition cells into 517 
+
+distinct subpopulations. To visualize these high-dimensional relationships in a lower-dimensional 518 
+
+manifold, t-SNE algorithm (perplexity=75, random_state=254) was performed on the ICA component 519 
+
+space. 520 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+18 
+
+# Benchmark setting 521 
+
+The benchmarking process included a comparative evaluation against several state-of-the-art software 522 
+
+tools. Specifically, for the HeLa cell lysates and complex multi-species mixture, the evaluation was 523 
+
+performed using DIA-NN (v2.0), MaxDIA (v2.6.7.0), and MSFragger-DIA (v4.1). Meanwhile, for the 524 
+
+metaproteomics, spatial proteomics, and single-cell proteomics datasets, we utilized DIA-NN (v1.7.12), 525 
+
+MaxDIA (v2.6.7.0) and MSFragger-DIA (v4.1). Reference proteomes for H. sapiens , S. cerevisiae , E. 526 
+
+coli , and M. musculus were retrieved from the UniProt database. 527 
+
+For library-based search workflows, DIA-NN utilized spectral libraries predicted by DIA-NN (v1.8.1) 528 
+
+based on the respective FASTA files, whereas MaxDIA employed its native library prediction engine. 529 
+
+The predicted search space was constrained to peptide lengths ranging from 7 to 30 amino acids with 530 
+
+precursor charge states between 1+ and 4+. Crucially, the MBR functionality remained disabled to ensure 531 
+
+a standardized assessment of identification performance across all platforms. Analyses using MSFragger-532 
+
+DIA were conducted via the DIA-SpecLib-Quant workflow, with mass tolerances set to 10 ppm for 533 
+
+precursors and 20 ppm for fragments. For all searches, carbamidomethylation of cysteine was considered 534 
+
+as fixed modification. To ensure a standardized assessment of identification depth, protein-level 535 
+
+identification was performed with q < 1.0, with a protein deemed identified upon at least one constituent 536 
+
+peptide meeting the detection threshold. 537 
+
+Quantification assessments utilized precursor-level data across all evaluated platforms. Specifically, DIA-538 
+
+NN processing exclusively employed the direct quantification mode without MBR functionality. 539 
+
+Precursor quantities were extracted from the 'Precursor.Quantity' column in DIA-NN results and the 540 
+
+'Intensity' column within evidence.txt files of MaxDIA. For protein-level quantification, a uniform 541 
+
+approach involved calculating the arithmetic mean of constituent peptide intensities following the 542 
+
+removal of outliers. 543 
+
+All other parameters for benchmarking software tools were maintained at their default settings, and 544 
+
+comprehensive configuration files are provided in the Supporting Information. 545 
+
+# Data Availability 546 
+
+All raw data used for training and evaluation in this study were publicly available. All meticulously 547 
+
+annotated training data and all results generated by πDIA-CLIP and benchmarking software were 548 
+
+available at Zenodo (10.5281/zenodo.19059840). 549 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+19 
+
+# Code Availability 550 
+
+Code used for πDIA-CLIP inference is available at GitHub through the following link 551 
+
+(https://github.com/Elcherneske/piDIA-CLIP). The executable software with a graphical user interface 552 
+
+can be downloaded from https://github.com/Elcherneske/piDIA-CLIP/releases/. The agent system can be 553 
+
+accessed through http://msrs1485008.bohrium.tech:50002/. 554 
+
+# References 555 
+
+1. Aebersold, R. & Mann, M. Mass-spectrometric exploration of proteome structure and 556 
+
+function. Nature , 537 , 347-355 (2016). 557 
+
+2. Aebersold, R. & Mann, M. Mass spectrometry-based proteomics. Nature , 422 , 198-207 (2003). 558 
+
+3. Jiang, Y. et al. The coming era of proteomics-driven precision medicine. National Science 559 
+
+Review , 12 , nwaf278 (2025). 560 
+
+4. O’Reilly, F. J. & Rappsilber, J. Cross-linking mass spectrometry: methods and applications in 561 
+
+structural, molecular and systems biology. Nature Structural & Molecular Biology , 25 , 1000-1008 562 
+
+(2018) 563 
+
+5. Guo, Y. et al. Quantitative proteomics reveals down-regulated glycolysis/gluconeogenesis in the 564 
+
+large-duct type intrahepatic cholangiocarcinoma. Journal of Proteome Research , 21 , 2504-2514 565 
+
+(2022). 566 
+
+6. Gouin III, K. H. et al. An N-Cadherin 2 expressing epithelial cell subpopulation predicts response to 567 
+
+surgery, chemotherapy and immunotherapy in bladder cancer. Nature Communications , 12 , 4906 568 
+
+(2021). 569 
+
+7. Gillet, L. C. et al. Targeted data extraction of the MS/MS spectra generated by data-independent 570 
+
+acquisition: a new concept for consistent and accurate proteome analysis. Molecular & Cellular 571 
+
+Proteomics , 11 , O111-016717 (2012). 572 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+20 
+
+8. Cox, J. & Mann, M. MaxQuant enables high peptide identification rates, individualized ppb-range 573 
+
+mass accuracies and proteome-wide protein quantification. Nature Biotechnology , 26 , 1367-1372 574 
+
+(2008). 575 
+
+9. Navarro, P. et al. A multicenter study benchmarks software tools for label-free proteome 576 
+
+quantification. Nature Biotechnology , 34 , 1130-1136 (2016). 577 
+
+10. Meyer, J. G. et al. Quantitative shotgun proteome analysis by direct infusion. Nature Methods , 17 ,578 
+
+1222-1228 (2020). 579 
+
+11. Collins, B. C. et al. Multi-laboratory assessment of reproducibility, qualitative and quantitative 580 
+
+performance of SWATH-mass spectrometry. Nature Communications , 8, 291 (2017). 581 
+
+12. Messner, C. B. et al. Ultra-fast proteomics with Scanning SWATH. Nature Biotechnology , 39 , 846-582 
+
+854 (2021). 583 
+
+13. Brunner, A. D. et al. Ultra‐high sensitivity mass spectrometry quantifies single‐cell proteome 584 
+
+changes upon perturbation. Molecular Systems Biology , 18 , e10798 (2022). 585 
+
+14. Lou, R. & Shui, W. Acquisition and analysis of DIA-based proteomic data: A comprehensive survey 586 
+
+in 2023. Molecular & Cellular Proteomics , 23 , 100712 (2024). 587 
+
+15. Zhang, F. et al. Data‐independent acquisition mass spectrometry‐based proteomics and software 588 
+
+tools: a glimpse in 2020. Proteomics , 20 , 1900276 (2020). 589 
+
+16. Kitata, R. B. et al. Advances in data‐independent acquisition mass spectrometry towards 590 
+
+comprehensive digital proteome landscape. Mass Spectrometry Reviews , 42 , 2324-2348 (2023). 591 
+
+17. Liu, H. et al. A model for random sampling and estimation of relative protein abundance in shotgun 592 
+
+proteomics. Analytical Chemistry , 76 , 4193-4201 (2004). 593 
+
+18. Yu, F. et al. Analysis of DIA proteomics data using MSFragger-DIA and FragPipe computational 594 
+
+platform. Nature Communication , 14 , 4154 (2023). 595 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+21 
+
+19. Ting, Y. et al. PECAN: library-free peptide detection for data-independent acquisition tandem mass 596 
+
+spectrometry data. Nature Methods , 14 , 903–908 (2017). 597 
+
+20. Bruderer, R. et al. Extending the limits of quantitative proteome profiling with data-independent 598 
+
+acquisition and application to acetaminophen-treated three-dimensional liver 599 
+
+microtissues. Molecular & Cellular Proteomics , 14 , 1400-1410 (2015). 600 
+
+21. Sinitcyn, P. et al. MaxDIA enables library-based and library-free data-independent acquisition 601 
+
+proteomics. Nature Biotechnology , 39 , 1563-1573 (2021). 602 
+
+22. Käll, L. et al. Semi-supervised learning for peptide identification from shotgun proteomics 603 
+
+datasets. Nature Methods , 4, 923-925 (2007). 604 
+
+23. Reiter, L. et al. mProphet: automated data processing and statistical validation for large-scale SRM 605 
+
+experiments. Nature Methods , 8, 430-435 (2011). 606 
+
+24. Chen, T. XGBoost: A Scalable Tree Boosting System. Proceedings of the 22nd ACM Sigkdd 607 
+
+International Conference on Knowledge Discovery and Data Mining , 2016, 785-794. 608 
+
+25. Wallmann, G. et al. AlphaDIA enables DIA transfer learning for feature-free proteomics. Nature 609 
+
+Biotechnology (2025). https://doi.org/10.1038/s41587-025-02791-w. 610 
+
+26. Gao, M. et al. Deep representation features from DreamDIAXMBD improve the analysis of data-611 
+
+independent acquisition proteomics. Communications Biology , 4, 1190 (2021). 612 
+
+27. Demichev, V. et al. DIA-NN: neural networks and interference correction enable deep proteome 613 
+
+coverage in high throughput. Nature Methods , 17 , 41-44 (2020). 614 
+
+28. Song, J. & Yu, C. Alpha-XIC: a deep neural network for scoring the coelution of peak groups 615 
+
+improves peptide identification by data-independent acquisition mass 616 
+
+spectrometry. Bioinformatics , 38 , 38-43 (2022). 617 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+22 
+
+29. Liu, Z. et al. DIA-BERT: pre-trained end-to-end transformer models for enhanced DIA proteomics 618 
+
+data analysis. Nature Communications , 16 , 3530 (2025). 619 
+
+30. He, F. et al. π-HuB: the proteomic navigator of the human body. Nature , 636 , 322–331 (2024). 620 
+
+31. Radford, A. et al. Learning transferable visual models from natural language supervision. 621 
+
+Proceedings of Machine Learning Research , 2021, 8748-8763. 622 
+
+32. Bruderer, R. et al. Optimization of experimental parameters in data-independent mass spectrometry 623 
+
+significantly increases depth and reproducibility of results. Molecular & Cellular Proteomics , 16 ,624 
+
+2296-2309 (2017). 625 
+
+33. Wen, B. et al. Assessment of false discovery rate control in tandem mass spectrometry analysis using 626 
+
+entrapment. Nature Methods , 22 , 1454–1463 (2025). 627 
+
+34. Ma, J. et al. Improving the sensitivity of MASCOT search results validation by combining new 628 
+
+features with Bayesian nonparametric model. Proteomics , 10 , 4293-4300 (2010). 629 
+
+35. Granholm, V. et al. On using samples of known protein content to assess the statistical calibration of 630 
+
+scores assigned to peptide-spectrum matches in shotgun proteomics. Journal of Proteome 631 
+
+Research , 10 , 2671-2678 (2011). 632 
+
+36. Hsu, C. et al. Evaluation of a Prototype Orbitrap Astral Zoom Mass Spectrometer for Quantitative 633 
+
+Proteomics─ Beyond Identification Lists. Journal of Proteome Research , 24 , 5742-5754 (2025). 634 
+
+37. Liang, S. et al. Large-scale metaproteomics of human gut microbiota reveals microbial functions in 635 
+
+metabolic diseases and aging. Cell Metabolism , (2026). 636 
+
+38. Zhao, J. et al. Data-independent acquisition boosts quantitative metaproteomics for deep 637 
+
+characterization of gut microbiota. npj Biofilms and Microbiomes , 9, 4 (2023). 638 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+23 
+
+39. Rajczewski, A. T. et al. Data‐Independent Acquisition Mass Spectrometry as a Tool for 639 
+
+Metaproteomics: Interlaboratory Comparison Using a Model Microbiome. Proteomics , 25 ,640 
+
+e202400187 (2025). 641 
+
+40. Mund, A. et al. Deep Visual Proteomics defines single-cell identity and heterogeneity. Nature 642 
+
+Biotechnology , 40 , 1231-1240 (2022). 643 
+
+41. Jackson, H. W. et al. The single-cell pathology landscape of breast cancer. Nature , 578 , 615-620 644 
+
+(2020). 645 
+
+42. Karimi, E. L. H. A. M. et al. Method of the Year 2024: spatial proteomics. Nature Methods , 21 ,646 
+
+2195-2196 (2024). 647 
+
+43. Hu, B. et al. High-resolution spatially resolved proteomics of complex tissues based on microfluidics 648 
+
+and transfer learning. Cell , 188 , 734-748 (2025). 649 
+
+44. Nolan, E. et al. Deciphering breast cancer: from biology to the clinic. Cell , 186 , 1708-1728 (2023). 650 
+
+45. Asleh, K. et al. Proteomic analysis of archival breast cancer clinical specimens identifies biological 651 
+
+subtypes with distinct survival outcomes. Nature Communications , 13 , 896 (2022). 652 
+
+46. Parker, J. S. et al. Supervised risk predictor of breast cancer based on intrinsic subtypes. Journal of 653 
+
+Clinical Oncology , 27 , 1160-1167 (2009). 654 
+
+47. Gwynne, W. D. et al. Monoamine oxidase-A activity is required for clonal tumorsphere formation by 655 
+
+human breast tumor cells. Cellular & Molecular Biology Letters , 24 , 59 (2019). 656 
+
+48. Satram-Maharaj, T. et al. The monoamine oxidase-A inhibitor clorgyline promotes a mesenchymal-657 
+
+to-epithelial transition in the MDA-MB-231 breast cancer cell line. Cellular Signalling , 26 , 2621-658 
+
+2632 (2014). 659 
+
+49. Labib, M. & Kelley, S. O. Single-cell analysis targeting the proteome. Nature Reviews Chemistry , 4,660 
+
+143-158 (2020). 661 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+24 
+
+50. Bennett, H. M. et al. Single-cell proteomics enabled by next-generation sequencing or mass 662 
+
+spectrometry. Nature Methods , 20 , 363-374 (2023). 663 
+
+51. Woo, J. et al. High-throughput and high-efficiency sample preparation for single-cell proteomics 664 
+
+using a nested nanowell chip. Nature Communications , 12 , 6246 (2021). 665 
+
+52. Gatto, L. et al. Initial recommendations for performing, benchmarking and reporting single-cell 666 
+
+proteomics experiments. Nature Methods , 20 , 375-386 (2023). 667 
+
+53. Vistain, L. F. & Tay, S. Single-cell proteomics. Trends in Biochemical Sciences , 46 , 661-672 (2021). 668 
+
+54. Ye, Z. et al. Enhanced sensitivity and scalability with a Chip-Tip workflow enables deep single-cell 669 
+
+proteomics. Nature Methods , 22 , 499-509 (2025). 670 
+
+55. Maaten, L. V. D. & Hinton, G. Visualizing data using t-SNE. Journal of Machine Learning 671 
+
+Research , 9, 2579-2605 (2008). 672 
+
+56. Yang, S. et al. In-Cell Mass Spectrometry and Ultraviolet Photodissociation Navigates the 673 
+
+Intracellular Protein Heterogeneity. Journal of the American Chemical Society , 147 , 4714-4719 674 
+
+(2025). 675 
+
+57. Brodbelt, J. S. et al. Ultraviolet photodissociation mass spectrometry for analysis of biological 676 
+
+molecules. Chemical Reviews , 120 , 3328-3380 (2019). 677 
+
+58. Elias, J. E. & Gygi, S. P. Target-decoy search strategy for increased confidence in large-scale protein 678 
+
+identifications by mass spectrometry. Nature Methods , 4, 207-214 (2007). 679 
+
+59. Benjamini, Y. & Hochberg, Y. Controlling the false discovery rate: a practical and powerful 680 
+
+approach to multiple testing. Journal of the Royal Statistical Society: Series B (Methodological) , 57 ,681 
+
+289-300 (1995). 682 
+
+# Acknowledgements 683 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+25 
+
+This work was supported by the National Key R&D Program of China (2025YFA1309300) and National 684 
+
+Natural Science Foundation of China (32088101). We acknowledge Zhifeng Gao from DP Technology 685 
+
+for discussions about model training strategies. We thank Prof. Fangqing Zhao’s team for providing the 686 
+
+spatial imaging information of breast cancer for evaluation. 687 
+
+# Ethics declarations 688 
+
+# Competing interests 689 
+
+The authors declare no competing interests. 690 691 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+26 
+
+692 
+
+Fig. 1: Overview of πDIA-CLIP Framework. a. Illustration of the supervised contrastive pre-training strategy. πDIA-CLIP 693 
+
+leverages large-scale, diverse PSM dataset to learn robust and generalizable feature representations. By aligning precursors and 694 
+
+XIC signals, πDIA-CLIP facilitates deep and precise peptide identification with zero-shot inference. b. Schematic representation 695 
+
+of the πDIA-CLIP-integrated analysis pipeline. πDIA-CLIP is seamlessly incorporated into the standard DIA-MS workflow, 696 
+
+specifically at the PSM re-scoring stage, to enable high-throughput and scalable proteomic profiling across diverse practical 697 
+
+scenarios. 698 
+
+699 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+27 
+
+700 
+
+Figure 2. Comprehensive Benchmarking of πDIA-CLIP with HeLa Cell DIA-MS Data. a. Schematic of the benchmarking 701 
+
+experimental design. b. FDR curve of precursor identification across various search engines at 90-minute LC gradient. c-d. 702 
+
+Benchmarking results for peptide (c) and protein (d) identification across different LC gradient lengths. e. Venn diagram 703 
+
+illustrating the overlap and unique counts of peptide and protein between πDIA-CLIP and other tools under 30-minute LC 704 
+
+gradient. f. Representative XICs of target precursor that is uniquely identified by πDIA-CLIP. g. Evaluation of entrapment 705 
+
+precursor FDR across different LC gradient lengths with decoy FDR < 0.01. h. Correlation between decoy and entrapment 706 
+
+precursor counts at 120-minute LC gradient. 707 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+28 
+
+708 
+
+Figure 3. Benchmarking Results of Multi-species Samples. a. Experimental design of benchmarking dataset. The samples are 709 
+
+generated by mixing known, varying ratios of cell lysates from H
+
+. sapiens , E. coli , and S. cerevisiae . b. FDR curve for precursor 710 
+
+identification of various search engines with ratio = 10: 9: 1. c-d. Illustration of identification count of precursors (c) and proteins 711 
+
+(d) within various CV on sample with ratio = 10: 9: 1. e-h. Comparison of relative quantitative precision across various tools. 712 
+
+Scatter plots with marginal density distributions showing log-transformed ratios of quantified precursors. FC values correspond 713 
+
+to theoretical mixing ratios of 50:45:5 to 50:5:45 (FC = 9), 50:40:10 to 50:10:40 (FC = 4), and 50:30:20 to 50:20:30 (FC = 1.5). 714 
+
+Horizontal dashed lines demarcate the expected theoretical log2-transformed ratios. 715 
+
+716 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+29 
+
+717 
+
+Figure 4. Benchmarking Performance in Metaproteomics and Enhanced Spatial Proteomics for Biomarker Discovery. a-b. 718 
+
+Comparison of precursor (a) and protein (b) identification counts via different approaches on metaproteomic datasets. c. Species-719 
+
+wise identification counts across diverse microbial taxa. The distribution is derived from protein-level results presented in (b). d. 720 
+
+Comparison of protein identification counts across different pathological regions. Only proteins identified in more than 50% of 721 
+
+the tissue sections (LCM samples) are included in the statistics. e-f. Spatial distribution map of HER2/ERBB2 (e) and ER/ESR1 722 
+
+(f). Both are identified and quantified by the πDIA-CLIP. g. Volcano plots comparing differentially expressed proteins (DEPs) 723 
+
+identified by πDIA-CLIP and DIA-NN between the two distinct breast cancer pathological regions. h. Spatial distribution map of 724 
+
+the representative DEP (AOFA) uniquely identified by πDIA-CLIP between two distinct breast cancer pathological regions. 725 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+30 
+
+726 
+
+Figure 5. Benchmarking Evaluation and Biological Application of πDIA-CLIP in Single Cell Proteomics. a-b. Comparison 727 
+
+of precursor (a) and protein (b) identification counts using Hela single-cell samples. c. Heatmaps of log2-transformed protein 728 
+
+quantification values across samples using πDIA-CLIP and DIA-NN. Protein abundance is ranked from high to low (left to right). 729 
+
+d-f. Representative XICs of target precursors uniquely identified by πDIA-CLIP, illustrating detection performance from high (d) 730 
+
+to low (f) abundance. g-h. Unsupervised hierarchical clustering dendrograms and t-SNE dimensionality reduction plots of EBs 731 
+
+and iPSCs. Dashed ellipses highlight the separation between EBs and iPSCs, comparing the biological resolution and sample 732 
+
+classification accuracy of πDIA-CLIP (g) and DIA-NN (h). 733 
+
+> .CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
+
+31 
+
+734 
+
+.CC-BY-NC-ND 4.0 International license made available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is The copyright holder for this preprint this version posted June 21, 2026. ;https://doi.org/10.64898/2026.02.09.704949 doi: bioRxiv preprint
