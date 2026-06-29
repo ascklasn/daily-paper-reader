@@ -1,0 +1,1984 @@
+Title: TIDEST: post-imputation differential expression testing for spatial transcriptomics data
+
+URL Source: https://www.biorxiv.org/content/10.64898/2026.06.19.733432v1.full.pdf
+
+Number of Pages: 31
+
+Markdown Content:
+# TIDEST : post-imputation differential expression testing for spatial transcriptomics data 
+
+Lorenzo Testa 1,2 , Jing Lei 1, and Kathryn Roeder 1,3 1Department of Statistics & Data Science, Carnegie Mellon University, Pittsburgh PA, US 
+
+> 2
+
+L’EMbeDS, Sant’Anna School of Advanced Studies, Pisa, Italy 
+
+> 3
+
+Department of Computational Biology, Carnegie Mellon University, Pittsburgh PA, US 
+
+## {ltesta,jinglei,roeder}@andrew.cmu.edu 
+
+June 19, 2026 
+
+Abstract 
+
+Spatial transcriptomics enables the study of tissue organization in situ , but many high-resolution platforms measure only a limited gene panel, leaving much of the transcriptome unobserved. Although deep learning methods can reconstruct missing genes from matched single-cell references, downstream differential expression (DE) analysis remains unreliable because prediction uncertainty and spatially structured sources of variation are typically ignored. These factors can bias effect estimates and inflate false discoveries. We present TIDEST , a framework for DE testing after spatial transcriptomic imputation. TIDEST uses information from measured genes to correct systematic errors in reconstructed expression and adjusts for latent spatial variation, such as tissue architecture or cell-type composition, that can create spurious differences between biological groups. Across extensive simulations, TIDEST maintains substantially better error control than existing approaches while preserving power. Applications to mouse brain, human glioblastoma, and human breast cancer data recover biologically meaningful DE signals that are missed or distorted by conventional analyses. TIDEST provides a principled framework for DE analysis on reconstructed spatial transcriptomes. 
+
+# Introduction 
+
+Spatial transcriptomics (ST) enables researchers to study tissue architecture and cellular interactions in situ [1],capturing information lost in traditional single-cell (scRNA-seq) or bulk RNA sequencing [2]. However, a fundamental trade-off persists between spatial resolution and genomic coverage. Sequencing-based platforms (10x Visium [3],Slide-seq [4]) provide transcriptome-wide measurements at lower spatial resolution, whereas imaging-based methods (10x Xenium [3], MERFISH [5], seqFISH [6 – 8]) achieve single-cell precision but capture only tens to hundreds of genes. Even sequencing-based platforms suffer from severe gene dropout due to limited sequencing depth, leaving many genes effectively unobserved. As a result, differential expression (DE) analysis across tissue regions, disease states and cellular niches – one of the primary goals of ST studies – is often performed on incomplete or sparsely observed transcriptomes. To overcome these limitations, deep learning (DL) frameworks (such as Tangram [9] and gimVI [10 ]) reconstruct missing or dropout-affected gene expression using matched scRNA-seq references [9– 22 ], aligning scRNA-seq cells to spatial locations based on shared expression patterns to “fill in” or denoise transcript abundances with high spatial accuracy. While these models excel at prediction, a critical hurdle remains for downstream analysis: current practice either ignores DL-imputed genes entirely or treats imputed values as if observed, ignoring the prediction uncertainty inherent in the process [23 ]. DE testing on reconstructed values is therefore often unreliable for two reasons. First, predictive algorithms introduce their own systematic biases that can be mistaken for biological signal. Second, the spatial proximity of similar cells violates the independence assumptions of standard tests, inflating significance and false-positive rates. Without accounting for both prediction error and spatial dependence, “discoveries” from imputed spatial data risk being statistical artifacts rather than biological findings. Here we introduce Testing for Imputed Differential Expression in Spatial Transcriptomics (TIDEST ), a framework for 1
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+(a) Input data integration and imputation (b) Neighborhood augmentation debiasing 
+
+(d) DE estimation and inference (c) Unobserved confounding decomposition    
+
+> Gene 1
+> (observed)
+> Gene p
+> (unobserved)
+> Gene p
+> (predicted)
+> Gene 1
+> (predicted)
+> scRNA -seq reference
+> (whole transcriptome, no spatial coords)
+> Spatial transcriptomics (ST) data
+> Deep learning
+> imputation
+> (e.g., Tangram ,
+> CellPLM )
+> Absolute correlation matrix
+> (computed on scRNA data)
+> Genes
+> Genes
+> Gene k
+> (predicted)
+> Gene k
+> (observed)
+
+–     
+
+> Compute bias for top neighbors !∈#!
+> Top observed
+> neighbors #!
+> Gene j
+> (augmented)
+> Neighborhood
+> augmentation
+> (weighted bias in
+> neighbor genes)
+> Partially linear model
+> flexibly estimates  ̂ %!
+
+…
+
+> Gene j
+> For each gene j, select top neighbors
+> …
+
+…    
+
+> Cells
+> Genes
+> Estimate latent confounders
+> (default: SpatialPCA )
+> &'"&'#&'$
+> &'%&'&
+> Determine surrogate -control
+> genes
+> Negative control outcomes
+> (Genes not correlated with
+> outcomes of interest)
+> Negative control exposures
+> (Genes not varying with binary
+> annotation)
+> Gene of interest j
+> (augmented)
+
+≈ "! + $! %&
+
+> Binary
+> annotation
+> (e.g., cortical
+> layers, tumor
+> states)
+> Arbitrary
+> function of
+> estimated
+> confounders
+
+Figure 1: Overview of TIDEST . (a) TIDEST takes as input a spatial transcriptomics (ST) dataset, a matched scRNA-seq reference and the reconstructed transcriptome generated by an imputation model. The scRNA-seq reference provides transcriptome-wide information, whereas the ST data provide spatial localization. (b) TIDEST refines the reconstructed expression profiles using information from measured genes. For each target gene, the method identifies highly correlated observed genes and uses their prediction errors to correct systematic biases in the reconstructed expression. This produces an augmented expression profile that is less sensitive to errors introduced during imputation. (c) TIDEST identifies large-scale spatial patterns that may influence gene expression independently of the biological comparison of interest. Examples include anatomical structure, cell-type composition, microenvironmental gradients, and technical effects. These latent patterns are estimated from a set of control genes and summarized as a low-dimensional representation of spatial variation. (d) TIDEST performs differential expression testing between predefined biological groups while accounting for the estimated spatial variation. The output consists of effect estimates, confidence intervals, and significance measures for both observed and reconstructed genes, enabling transcriptome-wide DE analysis from spatially reconstructed transcriptomes. 
+
+DE testing on reconstructed spatial transcriptomes that accounts for both prediction uncertainty and unobserved spatial confounding, such as tissue architecture, cell-type composition, or microenvironmental gradients. TIDEST 
+
+first uses information from observed genes to correct systematic errors in imputed gene expression, reducing the impact of prediction uncertainty on downstream analyses. It then estimates and adjusts for latent spatial variation that may confound DE comparisons across biological conditions. In simulations mimicking the spatial architecture of real tissues, available methods such as SpaGCN [24 ], DESpace [25 ] and SpatialGEE [26 ], which ignore these issues, fail to control false positives under spatial autocorrelation and prediction bias, whereas TIDEST maintains stable error control while preserving high power. Applied to mouse brain, human glioblastoma, and human breast cancer ST data, TIDEST identifies DE genes that are obscured or misrepresented in conventional analyses, providing a rigorous framework for inference on reconstructed spatial transcriptomes. 
+
+# Results 
+
+Overview of TIDEST 
+
+TIDEST is a framework for transcriptome-wide differential expression testing in spatial transcriptomics datasets where some genes are reconstructed from a scRNA-seq reference. The workflow takes as input a ST dataset, a matched scRNA-seq reference, and the predicted spatial expression generated by an imputation model (Fig. 1a ). TIDEST 
+
+2
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint then refines the reconstructed expression profiles using information from measured genes (Fig. 1b ), identifies latent spatial variation that may confound biological comparisons (Fig. 1c ), and performs DE testing between predefined biological conditions (Fig. 1d ). The output is a set of effect estimates, confidence intervals, and significance measures for both observed and reconstructed genes, enabling transcriptome-wide DE analysis while accounting for uncertainty introduced during spatial reconstruction. The first stage addresses prediction uncertainty via a debiasing procedure (Fig. 1b ) [27 , 28 ]. Common practice treats imputed values ˜Yi j for spatial coordinate i and gene j as true observations, ignoring the error introduced during reconstruction. TIDEST instead uses the observed residuals of highly correlated measured genes to construct an 
+
+augmented outcome ˆYi j for each target gene (see Methods), reducing systematic prediction errors and improving robustness to biases introduced by the underlying imputation model. The second stage addresses unobserved confounding by estimating latent sources of variation from surrogate-control outcomes (Fig. 1c ). In spatial transcriptomics, factors other than the biological comparison of interest can create apparent expression differences between groups. For example, anatomical structure, cell-type composition, microenvi-ronmental gradients or technical effects may vary across a tissue and influence gene expression independently of the condition being studied [29 ]. TIDEST estimates these latent patterns (by default using SpatialPCA [30 ]) and incorporates them into downstream analyses, reducing the risk that such factors are mistaken for true differential expression signals. The final stage performs DE testing while accounting for the estimated latent variation (Fig. 1d ). TIDEST fits a partially linear model [31 ] relating the augmented outcomes to the biological condition of interest while flexibly adjusting for the estimated spatial confounders. Because inference is performed on the augmented outcomes rather than the raw predictions, TIDEST simultaneously addresses prediction uncertainty and unobserved spatial variation, enabling more reliable identification of differentially expressed genes across biological conditions. 
+
+Simulation study provides strong support for TIDEST 
+
+We validated TIDEST on fully synthetic data in which ground-truth treatment effects, spatial confounders, and imputation errors are known by design (see Methods). An example scRNA-seq reference, spatial treatment A,unobserved spatial confounder Z, and observed gene expression Y are shown in Fig. 2a-d . We compared TIDEST 
+
+against a two-sample t-test and three literature-identified competitors [23 ]: SpaGCN [24 ] (Wilcoxon rank-sum test, also used in Seurat [32 ]), DESpace [25 ] (negative binomial generalized linear model), and SpatialGEE [26 ]
+
+(generalized estimating equations). Reconstruction RMSE of the raw imputed predictions ˜Y and the augmented outcome ˆY against true latent expression as a function of imputation noise σimp reveals a crossover at σimp ≈ 0. 3 (Fig. 2e ). Raw imputation is sufficient below this point; above it – the typical operating regime for prediction methods – augmentation reduces RMSE by 40% at σimp = 0 .5 and 72% at σimp = 1 .5. Augmentation RMSE remains bounded between 0 . 31 and 0 .45 regardless of imputer quality and decoupling testing fidelity from the imputation model. The learned confounder representation U
+
+approximates the unobserved field Z well (Fig. 2f ): three eigenvectors explain R2 = 0. 71 of confounder variance, and as k increases R2 = 0.98, yielding the near-complete deconfounding seen in Fig. 2g .We examine the false positive rate (FPR) among null genes at BH-adjusted q < 0 . 05 versus confounder strength 
+
+α (50 replicates per setting) (Fig. 2g ). At α = 0, all methods are near the nominal 5% level except DESpace 
+
+(FPR = 6. 1%), slightly liberal due to anti-conservatism of the negative-binomial model on sparse counts. As α
+
+increases, all competitors inflate sharply: at α = 1 . 0, the t-test and DESpace reach FPR = 50 . 0%, SpaGCN 48 . 4%, and 
+
+SpatialGEE 42.8% – about ten times the nominal rate – while TIDEST attains FPR = 13.7%, a 3.6 × improvement over the best competitor ( SpatialGEE ). We next examine nominal power (TPR at BH q < 0. 05): at α = 0 all methods achieve near-perfect power ( ≥ 99%), and at α = 1. 0 power converges toward 85-90% across methods (Fig. 2h ). The apparent advantage of the t-test and 
+
+DESpace [25 ] over TIDEST at high α is an artefact of inflated FPR – the BH threshold admits more false positives while true positives barely increase. This is evident from the area under the ROC curve (AUC; Supplementary Fig. B.1), which evaluates how well each method separates truly DE genes from null genes across all possible significance thresholds. At α = 0 all methods achieve AUC ≈ 1, while at α = 1. 0 TIDEST achieves AUC = 0. 932 versus 0 . 832 for 
+
+DESpace (best competitor) and 0.811-0.821 for the rest – a 10 percentage-point advantage. 3                                     
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint Genes (ordered by module)
+> Genes (ordered by module)
+> AscRNA-seq gene gene
+> Pearson correlation (block modules) BTreatment A
+> A = 0 A = 1
+> CSpatial confounder Z DTrue expression (gene 0)
+> 0.25 0.50 0.75 1.00 1.25 1.50
+> Imputation noise (lower quality)
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> 1.2
+> 1.4
+> 1.6
+> RMSE
+> EAugmentation reduces
+> reconstruction error
+> Raw imputation
+> Augmented (TIDEST)
+> 510 15 20
+> Number of spatial PCs (k)
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Reconstruction power R²
+> FSpatial PCA reconstructs
+> unobserved confounder Z
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Confounder strength
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> FPR (type-I error rate)
+> GType-I error vs
+> confounder strength
+> TIDEST
+> t-test
+> SpaGCN (Wilcoxon)
+> DESpace
+> SpatialGEE
+> Nominal 5%
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> Confounder strength
+> 0.800
+> 0.825
+> 0.850
+> 0.875
+> 0.900
+> 0.925
+> 0.950
+> 0.975
+> 1.000
+> Power (TPR at q < 0.05)
+> HPower vs confounder
+> strength
+> TIDEST
+> t-test
+> SpaGCN (Wilcoxon)
+> DESpace
+> SpatialGEE
+> 0.6
+> 0.4
+> 0.2
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> Pearson r
+> 21012
+> Z
+> 024
+> log-expression
+
+Figure 2: Simulation study validating TIDEST . (a) Block-diagonal Pearson correlation matrix of the synthetic scRNA-seq reference, computed from 2000 cells across 10 co-expression modules (200 genes). The block structure is the informative gene-gene correlation exploited by TIDEST augmentation strategy. (b) Binary treatment assignment A (two-region DGP , n = 400 spots on a regular hexagonal grid). (c) Unobserved spatial confounder Z, drawn as a Gaussian random field with length-scale ℓ = 0.3. In this simulation setting, Z is spatially smooth and independent of A, but its interaction with gene loadings βj induces systematic differences between treatment regions that naive comparisons absorb into the estimated treatment effect. (d) True log-expression of a representative DE gene, combining the treatment effect τj Ai and the confounder contribution αβ j Zi . (e) Reconstruction quality of the augmented pseudo-outcome. RMSE of the raw imputed prediction ( ˜Y , gray) and the augmented outcome ( ˆY , red) against the true latent expression Y , as a function of imputation noise σimp (lower σimp means better imputer). The dashed vertical line marks the crossover ( σimp ≈ 0.3) below which raw imputation is sufficient; above this threshold the augmented RMSE is bounded between 0 .31 and 0 .45 regardless of imputer quality. (f) Confounder reconstruction power. Coefficient of determination 
+
+R2 of Z as a function of the number of spatial PCA eigenvectors k retained in the confounder matrix U, computed on the illustration replicate. Three eigenvectors capture 71% of the confounder variance; 10 eigenvectors reach 98%. (g) Type-I error rate (FPR at BH q < 0 .05) vs α (50 replicates per α level). The dashed line marks the nominal 5% level. All competing methods inflate FPR steeply with confounding; TIDEST maintains substantially lower FPR across all settings. Shaded bands are 95% confidence intervals across replicates. (h) Power (TPR at BH q < 0.05) vs confounder strength α (50 replicates per α level). 
+
+## TIDEST enables stable laminar profiling of the mouse neocortex 
+
+We applied TIDEST to a Visium spatial transcriptomics section of the adult mouse neocortex [33 ], restricting to two annotated cortical zones: deep layers L5 /6 ( n = 171 spots) and superficial layers L2 /3/4 ( n = 126 spots), totaling 297 spots. The binary treatment is Ai = 1 for superficial spots and Ai = 0 for deep spots, so a positive τ indicates higher superficial expression (Fig. 3a ). Although Visium nominally profiles the whole transcriptome, low per-spot sequencing depth produces extensive dropout, so we complemented the Visium data with a paired scRNA-seq reference (21697 cells) [34 ], projected onto the spatial domain via Tangram [9] to obtain denoised expression estimates for all genes. Because gene expression varies continuously across cortical depth [35 , 36 ], ignoring this spatial structure risks confounding location effects with the layer contrast of interest (see Methods for pipeline details). We assembled a panel of 55 curated cortical genes: 38 with an established expected direction (deep or superficial), 5 interneuron markers as negative controls (expected to show no layer bias), and 12 genes with unclear layer preference. 
+
+TIDEST identified 41 /55 (74.5%) as significantly differentially expressed (BH q < 0 .05); among the 38 directional genes, 28 were significant with the correct direction, 7 non-significant, and only 3 significant in the opposite direction (Fig. 3b ). The strongest superficial signal was Cux2 ( ˆτ = + 0. 235, q = 2 . 2 × 10 −84 ), a well-established upper-layer marker [37 ]; the strongest deep signal was Fezf2 ( ˆτ = −0 .226, q = 2. 8 × 10 −68 ), required for corticospinal neuron specification [38, 39 ] (Fig. 3c ; further examples in Supplementary Material). We compared TIDEST against four competitors on the same gene panel (Fig. 3b ; Supplementary Fig. C.3): TIDEST 
+
+4
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint A Cortical zone annotation     
+
+> Superficial ( A= 1)
+> Deep ( A= 0)
+> 020 40
+> Count
+> TIDEST
+> SpatialGEE
+> t-test
+> DESpace
+> SpaGCN
+
+B
+
+> Sig. / 55
+> Correct / 38
+
+−0.3 −0.2 −0.1 0.0 0.1 0.2 0.3 
+
+Estimated effect̂ τ ± 95% CI 
+
+(positive = higher in superficial) 
+
+Tshz3 
+
+Sox5 
+
+Fezf2 
+
+Foxp2 
+
+Crym 
+
+Bcl11b 
+
+Etv1 
+
+Syt6 
+
+Tle4 
+
+Tbr1 
+
+Lhx6 
+
+Reln 
+
+Vip 
+
+Sst 
+
+Pvalb 
+
+Prss12 
+
+Pou3f3 
+
+Satb2 
+
+Rorb 
+
+Rasgrf2 
+
+Calb1 
+
+Cux1 
+
+Cux2 
+
+> ns
+> q=1.4×10 −14
+> q=2.8×10 −68
+> q=1.2×10 −52
+> q=6.2×10 −45
+> q=1.3×10 −40
+> q=9.1×10 −20
+> q=7.3×10 −24
+> q=2.7×10 −23
+> q=3.0×10 −4
+> ns
+> ns
+> ns
+> ns
+> ns
+> q=1.1×10 −10
+> q=3.6×10 −7
+> ns
+> q=1.2×10 −40
+> q=9.5×10 −43
+> q=4.3×10 −53
+> q=1.4×10 −37
+> q=2.2×10 −84
+
+C TIDEST estimated effects — selected genes 
+
+> Superficial markers
+> Deep markers
+> Interneuron markers
+> Ambiguous
+
+Sox 5  
+
+> TIDEST: ̂ τ=-0.073, q=1.4e-14
+
+D Spatial augmented outcomes — selected genes  
+
+> 0.15 0.30
+> Augmented outcome
+
+Tshz 3    
+
+> TIDEST: ̂ τ=-0.001, q=0.90 ns
+> 0.2 0.3 0.4
+> Augmented outcome
+
+Vip    
+
+> TIDEST: ̂ τ=+0.024, q=0.09 ns
+> 0.15 0.30
+> Augmented outcome
+
+Satb 2    
+
+> TIDEST: ̂ τ=+0.015, q=0.34 ns
+> 0.45 0.60 0.75
+> Augmented outcome
+
+Deep Superficial 
+
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> Augmented outcome
+> t-test: q=0.973
+> SpaGCN: q=0.980
+> DESpace: q=0.968
+> SpatialGEE: q=0.965
+
+Deep Superficial 
+
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> t-test: q=0.002 ←
+> SpaGCN: q=0.024 ←
+> DESpace: q=0.017 ←
+> SpatialGEE: q=0.003 ←
+
+Deep Superficial 
+
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> t-test: q=0.002 ←
+> SpaGCN: q=0.029 ←
+> DESpace: q=0.006 ←
+> SpatialGEE: q=0.002 ←
+
+Deep Superficial 
+
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> t-test: q=0.767
+> SpaGCN: q=0.872
+> DESpace: q=0.829
+> SpatialGEE: q=0.806
+
+Figure 3: Mouse brain application. (a) Visium section of the adult mouse neocortex with cortical zone annotation overlaid as colored hexagonal spots (red: superficial layers L2 /3/4, A = 1; blue: deep layers L5 /6, A = 0; 297 spots total). (b) Method comparison summary. Grouped bars show, for each method, the number of genes called significant out of all 55 (gray) and the number that are both significant and correctly directioned out of the 38 genes with an established expected direction (colored). 
+
+TIDEST achieves the highest correct count (28 /38). (c) TIDEST estimated effects ( ˆτ ± 95% CI) for 23 selected genes. Color indicates gene category: red = superficial markers, blue = deep markers, orange = interneuron markers (negative controls), purple 
+
+= ambiguous annotation. BH-adjusted q-values are shown to the right of each estimate. (d, top row) Spatial augmented outcome maps for four key genes ( Sox5 , Tshz3 , Vip , Satb2 ). The subtitle reports the TIDEST estimate and BH-adjusted q-value. (d, bottom row) Deep vs. superficial augmented outcome distributions for the same four genes. Violins show the full distribution; the white bar marks the interquartile range; the white dot marks the median. BH-adjusted q-values for all four competing methods ( SpaGCN ,
+
+DESpace , t-test, SpatialGEE ) are annotated below each violin. Sox5 : TIDEST detects a deep signal ( q = 1.4 × 10 −14 ) that all competitors miss ( q ≥ 0 .97). Tshz3 : TIDEST returns a null result ( q = 0.90) while all competitors produce significant estimates in the wrong biological direction ( q ≤ 0.024). Vip : an interneuron marker that may not differ by layer; TIDEST is non-significant (q = 0 .09) while all competitors produce significant results ( q ≤ 0.029). Satb2 : expressed across both layers; all methods agree on non-significance. 
+
+5
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint recovered the most correct-direction significant genes (28 of 38), versus SpatialGEE (24), t-test (19), DESpace (19), and SpaGCN (15). Two genes illustrate this advantage. Sox5 , an established deep-layer marker [40 , 41 ], is detected by TIDEST ( ˆτ = −0. 073, q = 1. 4 × 10 −14 ; Fig. 3d ) but missed by all four competitors ( q ≥ 0 . 965). Conversely, Tshz3 ,a deep-layer gene [42 ], is correctly returned as non-significant by TIDEST (q = 0. 903), while all four competitors produce significant false positives in the wrong direction: t-test calls it superficial ( q = 0 .002), as do SpatialGEE 
+
+(q = 0.003), DESpace (q = 0.017), and SpaGCN (q = 0.024) (Fig. 3d). 
+
+TIDEST also recovers signals aligning with recent transcriptomic evidence over older functional annotations (Fig. 3c ); two further examples ( Pou3f3 , Prss12 ) are detailed in the Supplementary Material. Satb2 , a nuclear matrix protein and transcription factor, was annotated as a superficial marker required for callosal projection neuron identity in L2 /3
+
+[43 , 44 ], though its immunoreactivity has also been observed in L6, challenging this purely superficial interpretation 
+
+[45 , 46 ]. TIDEST returns a non-significant estimate ( q = 0. 339; Fig. 3d), consistent with a gene that does not preferentially localize to either zone – a null result shared by all competing methods. The clearest specificity advantage concerns interneuron markers, which are distributed across cortical layers and may not systematically differ between zones. Vip , a canonical interneuron marker [47 ], is called significant by every competitor ( t-test q = 0. 002, SpatialGEE q = 0. 002, DESpace q = 0. 006, SpaGCN q = 0.029; Fig. 3d), but TIDEST 
+
+returns q = 0 . 090 (non-significant). The remaining four interneuron markers were likewise non-significant in TIDEST 
+
+(Supplementary Table C.1). These results may arise from unobserved confounding: apparent layer association detected by competing methods may reflect local interneuron clustering rather than robust laminar enrichment. 
+
+## TIDEST disentangles tumor-core and leading-edge expression programs in human glioblas-toma 
+
+We applied TIDEST to a cohort of 26 IDH-wildtype GBM Visium sections spanning three independent patient cohorts (MGH, UKF, ZH) [48 ], fitting TIDEST independently to each section using the Ivy Glioblastoma Atlas Project (IvyGAP) annotation [49 ]. We focused on spots assigned to cellular tumor (CT; the proliferating tumor core) or leading edge 
+
+(LE; the infiltrating margin into normal brain), with Ai = 1 for LE and Ai = 0 for CT, so a positive ˆτ indicates higher expression at the invasion front (Fig. 4a ). Imputation used Tangram [9] with an external scRNA-seq reference from a disjoint cohort [50 ], used here to denoise dropout-affected counts. We assembled a curated panel of 90 genes (Supplementary Table D.2) covering GBM tumor cell states, neuronal markers, myelin proteins, invasion mediators, immune microenvironment, and metabolic markers. The CT-versus-LE contrast is a demanding test of spatial deconfounding: CT regions are densely packed with neoplastic cells, whereas LE regions mix infiltrating tumor cells with resident normal brain tissue, so any comparison ignoring this compositional gradient risks attributing cell-type density differences to tumor biology itself. Of the 90 curated genes (all present in the Visium panel), TIDEST identified 48 as significantly differentially expressed in the random-effects meta-analysis (DerSimonian-Laird; BH q < 0. 05), with results consistent across the 3 cohorts. The strongest CT-enriched signals were the classical GBM astrocyte-state markers [51 ]: AQP4 ( ˆτ = −0. 151, q = 2 . 4×10 −22 ,significant in 85% of samples), S100B ( ˆτ = −0 . 128, q = 4. 0 × 10 −18 , 92%), and GFAP ( ˆτ = −0. 147, q = 2.8 × 10 −15 ,73%), consistent with the high density of neoplastic astrocyte-like cells in the tumor core [52 ] (Fig. 4b ). EGFR –amplified in ∼40% of GBM – was robustly CT-enriched ( ˆτ = −0. 108, q = 2 . 3 × 10 −12 , 73%), as was CD44 ( ˆτ = −0. 092, 
+
+q = 1.4 × 10 −4, 77%) [53 ].The strongest positive- ˆτ signals were all normal-brain markers, led by the canonical synaptic vesicle proteins SYT1 
+
+and SNAP25 (SYT1 : ˆτ = + 0. 160, q = 5 .7 × 10 −17 , 73%; SNAP25 : ˆτ = + 0. 247, q = 2. 5 × 10 −12 , 77%; Fig. 4c ), with several additional neuronal and astrocyte markers also LE-enriched (Supplementary Material). These findings confirm the IvyGAP annotation at the molecular level: GBM invasion proceeds by interdigitation of tumor cells with existing neurons and glia rather than wholesale displacement of normal tissue [50 , 54 ]. The recovery of L1CAM – which mediates GBM cell migration along white matter tracts [54 ] – as a strong LE signal is notable, consistent with a role at the active invasion front rather than the tumor core. We compared TIDEST against four published methods, each fitted independently on all 26 GBM sections and pooled with the same DerSimonian-Laird random-effects meta-analysis (Fig. 4e ). For every method we report, on the same two denominators: how many of the 90 panel genes it calls significant (BH q < 0 .05), and how many of the 81 genes with an a priori expected CT /LE direction are both significant and correctly signed. TIDEST dominates on detection power: 48 /90 and 26 /81, versus 32 /90 and 18 /81 for the t-test, 27 /90 and 16 /81 for DESpace , 24 /90 and 15 /81 6    
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint 0.4 0.2 0.0 0.2 0.4
+
+Estimated effect 
+
+> BCAN*
+> AQP4*
+> GFAP*
+> S100B*
+> OLIG1*
+> PTPRZ1*
+> ASCL1*
+> EGFR*
+> OLIG2*
+> CD44*
+> SOX10*
+> PDGFRA*
+> MOG*
+> RBFOX3*
+> DCX*
+> L1CAM*
+> TUBB3*
+> SLC1A2*
+> SYT1*
+> SNAP25*
+
+D Selected marker genes per-sample distribution and RE pooled estimate      
+
+> 010 20 30 40 50
+
+Number of marker genes 
+
+> TIDEST
+> DESpace
+> SpatialGEE
+> t-test
+> SpaGCN
+> 48
+> 26
+> 27
+> 16
+> 24
+> 15
+> 32
+> 18
+> 22
+> 13
+
+E Competitor comparison 
+
+(per-sample fit, pooled by RE meta-analysis)       
+
+> Significant / 90
+> Correct direction / 81
+> 0.25 0.20 0.15 0.10 0.05 0.00 0.05
+
+RE pooled 
+
+> BCAN
+> OLIG1
+> PTPRZ1
+> OLIG2
+> ASCL1
+> SOX10
+> PDGFRA
+> expected: LE-enriched
+
+F OPC-like / ECM paradox genes 5 methods agree 
+
+A IvyGAP annotation  
+
+> MGH258
+> 895 CT / 340 LE (28% LE)
+> CT
+> LE
+
+B GFAP (RE =-0.15)  
+
+> GFAP =-0.145
+> 1.75
+> 2.00
+> 2.25
+> 2.50
+> 2.75
+> 3.00
+> 3.25
+> Augmented outcome
+
+C SNAP25 (RE =+0.25)   
+
+> SNAP25 =+0.075
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> Augmented outcome
+> UKF304
+> 758 CT / 706 LE (48% LE)
+> CT
+> LE
+
+tidest: q=2.8×10 15 | DESpace: q=1.0×10 1 | SpatialGEE: q=1.8×10 1 | t-test: q=6.0×10 6 | SpaGCN: q=1.8×10 4  
+
+> GFAP =-0.221
+> 1.75
+> 2.00
+> 2.25
+> 2.50
+> 2.75
+> 3.00
+> Augmented outcome
+
+tidest: q=2.5×10 12 | DESpace: q=3.3×10 11 | SpatialGEE: q=4.1×10 23 | t-test: q=3.3×10 7 | SpaGCN: q=4.0×10 7           
+
+> SNAP25 =+0.537
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> Augmented outcome
+> ZH881inf
+> 344 CT / 280 LE (45% LE)
+> CT
+> LE
+> GFAP =-0.217
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> Augmented outcome
+> SNAP25 =+0.272
+> 0.0
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> Augmented outcome
+> UKF269
+> 1179 CT / 921 LE (44% LE)
+> CT
+> LE
+> GFAP =-0.262
+> 1.0
+> 1.5
+> 2.0
+> 2.5
+> 3.0
+> 3.5
+> Augmented outcome
+> SNAP25 =+0.785
+> 0.00
+> 0.25
+> 0.50
+> 0.75
+> 1.00
+> 1.25
+> 1.50
+> Augmented outcome
+> ZH881T1
+> 952 CT / 706 LE (43% LE)
+> CT
+> LE
+> GFAP =-0.239
+> 1.75
+> 2.00
+> 2.25
+> 2.50
+> 2.75
+> 3.00
+> 3.25
+> Augmented outcome
+> SNAP25 =+0.139
+> 0.2
+> 0.4
+> 0.6
+> 0.8
+> 1.0
+> Augmented outcome
+
+Figure 4: Human glioblastoma application. (a–c) IvyGAP histological annotation ( a; CT in red, LE in blue) and augmented spatial expression maps of GFAP (b) and SNAP25 (c) across five representative GBM sections (MGH258, UKF304, ZH881inf, UKF269, ZH881T1), illustrating the spatial cell-composition gradient that TIDEST disentangles from genuine tumor biology. Per-sample ˆτ values are shown above each map; pooled random-effects estimates are given in the row titles. Colored annotations below the maps report each method’s q-value for that gene, illustrating TIDEST ’s power advantage on representative markers. 
+
+(d) Per-sample ˆτ estimates (dots) and random-effects pooled estimates with 95% confidence intervals (diamonds and shaded bands) for a curated panel of marker genes, ordered by pooled ˆτ from strongly cellular-tumor (CT)-enriched (left, red) to strongly leading-edge (LE)-enriched (right, blue). (e) Number of the 90 panel genes called significant (BH q < 0 .05; gray bars) and, of the 81 genes with an a priori expected CT /LE direction, the number called significant with the correct sign (colored bars), for 
+
+TIDEST and four competing methods ( t-test, SpaGCN , DESpace , SpatialGEE ), each fitted independently per sample across all 26 sections and pooled with the same DerSimonian-Laird random-effects meta-analysis. (f) Random-effects pooled ˆτ (with 95% confidence intervals) for the seven OPC-like and ECM “paradox” genes ( BCAN , OLIG1 , PTPRZ1 , OLIG2 , ASCL1 , SOX10 , PDGFRA ). All seven are robustly CT-enriched ( ˆτ < 0, BH q < 10 −6 for every gene) and all five tested methods agree unanimously on the CT-enriched sign for every gene. 
+
+7
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint for SpatialGEE , and 22 /90 and 13 /81 for SpaGCN . TIDEST thus detects roughly 1.5-2 × more significant genes than any competitor while maintaining comparable direction accuracy among significant calls, indicating that its power advantage reflects better-controlled unobserved confounding rather than a more permissive threshold. DESpace and 
+
+SpatialGEE , which explicitly model spatial structure, modestly outperform the naive t-test and SpaGCN on direction accuracy (59% and 63% vs. 56% and 59%), underscoring that accounting for unobserved confounding drives the gains in this application. Two gene classes exhibit a notable paradox: they were predicted from single-cell studies to be LE-enriched but are consistently identified as CT-enriched in the Visium data (Fig. 4f ) [51 ]. The first comprises OPC- and NPC-like GBM state markers, including ASCL1 ( ˆτ = −0 . 111, q = 8 . 9 × 10 −15 , significant in 88% of samples), OLIG1 (q = 4 . 4 × 10 −11 ,81%), OLIG2 (q = 8 . 2 × 10 −11 , 73%), SOX10 (q = 5 . 0 × 10 −7, 77%), and PDGFRA (q = 2 . 6 × 10 −8, 58%). The second comprises invasion-associated ECM markers: BCAN (Brevican ; ˆτ = −0 . 195, q = 3 . 9 × 10 −13 , 92%) and PTPRZ1 
+
+( ˆτ = −0 .119, q = 1 . 6×10 −9, 88%). This paradox is likely explained by Visium’s 55 , μm spot resolution and the resulting mixing of tumor cells across spatial compartments (Supplementary Material). Consistent with this interpretation, all four methods recover the same CT-enriched sign for all seven genes (Supplementary Table D.3), suggesting that the discrepancy reflects a limitation of the underlying measurement technology rather than a method-specific effect. 
+
+## TIDEST identifies the marker programs of human breast cancer progression 
+
+We applied TIDEST to a Xenium single-cell spatial transcriptomics dataset of human breast tissue containing both invasive breast cancer (IBC) and ductal carcinoma in situ (DCIS) regions in the same section [3], analyzing 62755 annotated locations (Fig. 5a ), with Ai = 1 for IBC and Ai = 0 for DCIS, so a positive ˆτ indicates higher expression in invasive regions. Because the Xenium panel covers only 313 genes, we constructed the augmented outcome by imputing the full transcriptome via CellPLM [22 ], a pre-trained cell language model, using a matched scRNA-seq reference (27000 cells) [3]. IBC and DCIS cells arise in the same tissue but differ systematically in local microenvironment – IBC regions are surrounded by activated stroma with a disrupted basement membrane, while DCIS regions retain an intact myoepithelial layer – making unobserved confounding a primary concern for any naive group comparison. We assembled a panel of 68 curated genes spanning IBC proliferation and invasion markers, DCIS luminal markers, myoepithelial keratins, EMT effectors, immune infiltrate markers, and contested genes; 25 have a well-established expected direction in the IBC-versus-DCIS contrast. TIDEST identified 65 /68 (95.6%) as significantly differentially expressed (BH q < 0 . 05) and recovered the correct direction for 20 /25 known directional genes (Fig. 5b ). The strongest DCIS signals were canonical luminal markers: TFF3 ( ˆτ = −1 . 08, q ≈ 0), TFF1 ( ˆτ = −1 . 00, q ≈ 0), AREG 
+
+( ˆτ = −0 . 73, q ≈ 0), AGR2 ( ˆτ = −0 . 49, q ≈ 0), and ESR1 ( ˆτ = −0 . 67, q ≈ 0). The strongest IBC signals were proliferation and invasion drivers: MKI67 ( ˆτ = + 0. 46, q ≈ 0), TOP2A ( ˆτ = + 0.37, q ≈ 0), ERBB2 ( ˆτ = + 0. 27, q ≈ 0), 
+
+POSTN (ˆ τ = + 0.28, q ≈ 0), and the mesenchymal marker FN1 (ˆ τ = + 0.25, q ≈ 0) [55 ] (Fig. 5c,d ). We compared TIDEST against competing methods on 30 genes present in the observed Xenium panel (Fig. 5b ). Among the 25 directional in-panel genes, TIDEST recovered 20 with the correct direction – tied with DESpace (20) and ahead of the t-test (19), SpatialGEE (18), and SpaGCN (17) – while also detecting the most total significant genes (28 /30). S100A4 , a cancer-associated fibroblast (CAF) marker linked to tumor invasion [56 ] and expected IBC-enriched, is called significant by the t-test in the wrong direction ( q = 1 × 10 −19 ), because CAFs interdigitated with DCIS ducts are absorbed into the group mean under naive comparison; TIDEST corrects for this and recovers the expected IBC enrichment ( ˆτ = + 0. 071, q = 6 × 10 −213 ; Fig. 5e ). NKG7 provides a further example of this gain (Supplementary Material). 
+
+SNAI1 , the canonical initiator of epithelial-to-mesenchymal transition (EMT) in breast cancer [57 ], transcriptionally represses E-cadherin to trigger the EMT program. Yet TIDEST finds SNAI1 non-significant ( ˆτ = + 0. 001, q = 0. 15; Fig. 5f ), consistent with its expression being transient – upregulated to initiate invasion but not maintained in established IBC cells. By contrast, all seven EMT-associated transcription factors and mesenchymal /remodeling markers of SNAI1 are significantly IBC-enriched: CDH2 ( ˆτ = + 0.22, q ≈ 0), VIM ( ˆτ = + 0. 11, q ≈ 0), TWIST1 
+
+( ˆτ = + 0 . 11, q ≈ 0), FN1 ( ˆτ = + 0 . 25, q ≈ 0), ZEB1 ( ˆτ = + 0 . 040, q = 4 × 10 −52 ), and ZEB2 ( ˆτ = + 0 . 067, 
+
+q = 3 × 10 −139 ). This pattern – initiator null, effectors strongly positive – may characterize a tumor that has completed rather than is currently undergoing mesenchymal transition. Some results warrant biological interpretation rather than simple validation. The keratins KRT5 ( ˆτ = −0 . 61) and 
+
+KRT14 ( ˆτ = −0 . 81) are strongly DCIS-enriched; although often listed as basal-type markers of aggressive breast cancer, in this spatial contrast they instead reflect the intact myoepithelial layer surrounding DCIS ducts, lost upon 8                                      
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint AXenium breast tissue section (IBC vs DCIS)
+> IBC (A=1)
+> DCIS (A=0)
+> 0510 15 20 25 30 35
+> Count
+> TIDEST
+> t-test
+> SpaGCN
+> (Wilcoxon)
+> DESpace
+> SpatialGEE
+> BMethod comparison
+> (30 in-panel genes)
+> Sig (q<0.05) / 30
+> Correct dir. / 25
+> −1.25 −1.00 −0.75 −0.50 −0.25 0.00 0.25 0.50
+> Estimated effect (̂ τ)
+> TFF3
+> TFF1
+> KRT14
+> AREG
+> ESR1
+> KRT5
+> AGR2
+> MYLK
+> CDH3
+> TP63
+> LAMB3
+> LAMC2
+> ERBB4
+> CNN1
+> PGR
+> ITGB6
+> CXCL10
+> SNAI1
+> CDKN2A
+> COL11A1
+> S100A4
+> VIM
+> EZH2
+> NKG7
+> CDH2
+> THBS2
+> FN1
+> ERBB2
+> POSTN
+> TOP2A
+> MKI67 ← DCIS-enriched
+> IBC-enriched →
+> CTIDEST estimated effects — selected genes
+> Luminal / DCIS
+> Myoepithelial
+> Proliferation
+> EMT
+> IBC stroma
+> Immune
+> Other
+> ESR 1
+> TIDEST: ̂ τ=-0.669, q≈ 0
+> DSpatial augmented outcomes — selected genes
+> ERBB 2
+> TIDEST: ̂ τ=+0.268, q≈ 0
+> KRT 14
+> TIDEST: ̂ τ=-0.811, q≈ 0 S100 A4
+> TIDEST: ̂ τ=+0.071, q=5.9e-213
+> Observed
+> (raw Xenium)
+> Predicted
+> (CellPLM)
+> Augmented
+> outcome
+> 0
+> 1
+> 2
+> 3
+> 4
+> 5
+> 6
+> log-CPM expression
+> t-test: DCIS > IBC
+> (q=1×10⁻¹⁹)
+> TIDEST: IBC > DCIS
+> (τ̂=+0.07, q≈ 0 , ✓)
+> ES100A4: spatial CAF
+> confounding corrected by TIDEST
+> Invasive Tumor (IBC)
+> DCIS
+> −0.1 0.0 0.1 0.2 0.3
+> Estimated effect (̂ τ)
+
+SNAI1 
+
+CDH2 
+
+VIM 
+
+FN1 
+
+TWIST1 
+
+SNAI2 
+
+ZEB1 
+
+ZEB2       
+
+> n.s.
+> q≈ 0
+> q≈ 0
+> q≈ 0
+> q≈ 0
+> q≈ 0
+> q=4e-52
+> q=3e-139
+> Initiator
+> Effectors /
+> maintainers
+> FEMT dynamics: SNAI1 initiator
+> is not a sustained IBC marker
+> 0
+> 2
+> 4
+> Augmented outcome
+> 6.4
+> 6.8
+> 7.2
+> Augmented outcome
+> 0
+> 2
+> 4
+> Augmented outcome
+> 0.0
+> 1.5
+> 3.0
+> Augmented outcome
+
+Figure 5: Human breast cancer application. (a) Xenium spatial transcriptomics section of human breast tissue (62755 cells). Each point is a single cell; red = IBC ( A = 1, n = 28961); blue = DCIS ( A = 0, n = 33794). (b) Method comparison on the 30 genes present in the observed Xenium panel. Grouped horizontal bars show, for each method, the number of genes called significant out of 30 (gray) and the number that are both significant and correctly directioned out of the 25 directional in-panel genes (red, 
+
+TIDEST color). Dashed vertical line marks 25 (total directional genes). TIDEST and DESpace tie at 20 /25 correct directions. (c) 
+
+TIDEST estimated effects ˆτ for selected labeled marker genes, sorted by effect size (DCIS-enriched at left, IBC-enriched at right). Color encodes biological group (see legend). Dashed vertical line at ˆτ = 0. (d) Spatial augmented outcome maps for four key genes ( ESR1 , ERBB2 , KRT14 , S100A4 ). Gene name color encodes direction (red = IBC-enriched; blue = DCIS-enriched). Subtitle reports the TIDEST ˆτ and q-value. (e) S100A4 : distributions of observed Xenium expression (left), CellPLM predicted expression (center), and augmented outcome (right), split by IBC (red) and DCIS (blue). Naive comparison using t-test on observed expression returns DCIS > IBC ( q = 1 × 10 −19 , incorrect direction). TIDEST on the augmented outcome recovers the biologically expected IBC enrichment ( ˆτ = + 0.07, q ≈ 0). (f) EMT dynamics. SNAI1 (initiator) is non-significant ( ˆτ ≈ 0, q = 0.15); all seven downstream EMT effectors and structural remodeling markers are significantly IBC-enriched, consistent with a tumor that has completed rather than is currently undergoing mesenchymal transition. 
+
+basement membrane breach in IBC [58 , 59 ] – a result confirmed by all four competitors and consistent with additional myoepithelial markers and immune genes (see Supplementary Material). 9
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint Discussion 
+
+Spatial transcriptomics has transformed our ability to study tissue organization by preserving the spatial context of molecular measurements. However, growing reliance on computational reconstruction has exposed a fundamental disconnect between prediction and inference. While modern deep learning models can accurately impute unmeasured genes using matched single-cell references, downstream analyses typically treat reconstructed expressions as if they were directly observed. This practice ignores both prediction uncertainty and the complex spatial structure of biological tissues, potentially leading to biased effect estimates and inflated false discovery rates. To address this challenge, we developed TIDEST , a framework for valid differential expression analysis following spatial transcriptomic imputation that can be applied to reconstructed data generated by arbitrary DL models. Across extensive simulations and three real-data applications spanning mouse neocortex, glioblastoma, and breast cancer, TIDEST demonstrated that accounting jointly for prediction uncertainty and unobserved spatial confounding is critical for reliable post-imputation inference. Compared with existing approaches, TIDEST consistently achieved superior control of false positives while maintaining competitive statistical power. Importantly, it identified biologically coherent differential expression patterns that were missed, attenuated, or incorrectly attributed by methods that ignored one or both sources of bias. These results highlight that accurate reconstruction alone is insufficient for valid downstream discovery and that principled uncertainty quantification must accompany predictive modeling in spatial omics analyses. Several limitations warrant consideration. First, TIDEST depends on the availability of an appropriate single-cell reference, and performance may decline when the reference fails to capture the full cellular diversity represented in the spatial dataset. Second, the augmentation procedure assumes that prediction errors can be partially inferred from highly correlated observed genes; this assumption may be less reliable in settings with weak gene–gene correlation structure. Third, the current framework focuses on binary differential expression testing. Extending the methodology to continuous exposures, multiple experimental conditions, temporal trajectories, and hierarchical study designs represents an important direction for future research. Finally, variation in cell-type composition is a major determinant of spatial expression heterogeneity and may confound differential expression analyses. In the current implementation, such effects are absorbed into the estimated latent factors, enabling adjustment for broad compositional gradients without explicitly modeling cell identity. Nevertheless, integrating cell-type-specific information directly into the inferential framework may further improve power and interpretability. More broadly, the combination of prediction-powered augmentation, latent confounder estimation, and orthogonalized inference provides a general strategy for valid statistical analysis of reconstructed molecular measurements. Beyond differential expression testing, these principles may be extended to gene-set enrichment analysis, co-expression network inference, detection of spatially variable genes, and causal analyses in spatial omics. The framework may also prove valuable for emerging modalities, including spatial proteomics and multimodal imaging technologies, where computational reconstruction is increasingly used to enhance measurement resolution and coverage. As spatial profiling technologies continue to evolve, reconstruction models will play an increasingly central role in biological discovery. Yet predictive accuracy alone does not guarantee valid inference. TIDEST establishes a foundation for principled analysis of reconstructed spatial molecular landscapes, helping bridge the gap between prediction and discovery in spatial omics. 
+
+# Methods 
+
+Details on TIDEST 
+
+Testing for Imputed Differential Expression in Spatial Transcriptomics (TIDEST ) is a multi-stage framework designed to perform rigorous, spatially aware hypothesis testing on imputed spatial transcriptomics data. The pipeline addresses the dual challenges of prediction uncertainty – where downstream workflows naively treat noisy, deep learning-generated imputations as ground truth observations – and spatial autocorrelation, which violates standard sample independence assumptions and induces severe false-positive inflation in traditional statistical tests. To restore valid inference, 
+
+TIDEST processes imputed expression matrices through three sequential modules: neighborhood augmentation debiasing, spatial gradient decomposition via surrogate-control outcomes, and orthogonalized DE effect estimation using partially linear models (PLMs). To calibrate the systematic biases inherent in deep learning-based spatial reconstructions, TIDEST constructs a 10 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+debiased augmented outcome ˆYi j for each spatial coordinate i and target gene j. Rather than conducting downstream inference directly on the raw imputed values ˜Yi j , the framework leverages the empirical prediction residuals from a designated genomic neighborhood Nj consisting of highly correlated, physically measured anchor genes. For a given target gene j, Nj is populated by the most highly correlated, spatially observed genes (default: top 5 genes), where the feature-feature correlations ˜σjk are estimated from a scRNA-seq reference matching the biological system. Let Yik 
+
+denote the true observed expression of neighbor gene k ∈ Nj at location i, and let ˜Yik be its corresponding model imputation. The debiased augmented outcome for the target gene is defined as: ˆYi j = ˜Yi j + 1
+
+|Nj |
+
+X
+
+> k∈Nj
+
+˜σjk 
+
+ Yik − ˜Yik 
+
+ . (1) By averaging the measured errors of observed spatial anchors, this procedure dynamically reduces the bias of unmeasured or sparsely captured transcripts exploiting information from ground-truth signals. Spatially resolved transcriptomics data exhibit pervasive spatial autocorrelation, where large-scale tissue architectures (e.g., anatomical layering or tumor-microenvironment gradients) create continuous spatial patterns. When these structural variations correlate with a binary condition or tissue boundary, they act as unobserved confounders U,inflating Type-I error rates by violating standard independence assumptions. TIDEST addresses this by implementing an empirical spatial whitening procedure anchored on surrogate-control outcomes [60 ]. This strategy is closely related to surrogate variable analysis, where latent factors estimated from control features are used to account for unobserved variation [29 ]. In the present setting, these latent factors may represent spatial structure, cellular composition, technical artifacts, or other unmeasured sources of heterogeneity. To safely isolate local biological variation from confounding tissue-level trends, TIDEST scans the transcriptomic panel to identify a set of surrogate-control genes that satisfy two precise operational constraints: • Negative control outcome. The empirical Pearson correlation between the target genes of interest and the candidate surrogate controls computed on the scRNA-seq reference falls below a threshold rNCO .• Negative control exposure. The spatial variability of the candidate surrogate controls – quantified by their coefficient of variation, defined as 100 ∗ γ/μ , where γ is the standard deviation and μ is the mean of a given spatial gene expression – falls below a threshold rNCE .These joint conditions guarantee that the selected surrogate-control genes are empirically decoupled from both the target biological outcomes and the primary treatment exposure. Once this control set is established, its spatial expression profile is utilized to reconstruct a low-dimensional representation of the latent confounding field ˆU. By default, TIDEST utilizes SpatialPCA to extract these latent principal components via a kernelized eigendecomposition 
+
+[30 ], though alternative spatial dimension reduction techniques can be seamlessly integrated into the pipeline (e.g., 
+
+StaNMF [61 ]). In the final stage, TIDEST decouples the true treatment effect from large-scale spatial dependencies by mapping the augmented outcomes into a Robinson partially linear model (PLM) [31 ]. The conditional expectation of the debiased outcome is modeled as: 
+
+E  ˆYi j | Ai , ˆ Ui , Xi
+
+ = Ai τ + f ( ˆUi , Xi ) , (2) where τ represents the core estimand of interest (the treatment effect of the binary condition A), ˆU is the matrix of estimated confounders, and X captures additional spot-level covariates of interest (e.g., log-transformed library size). f (·) represents a flexible and unknown function mapping the spatial and technical confounders to expression levels. By default, TIDEST utilizes random forests within a cross-fitting framework to flexibly estimate the nuisance functions in Equation 2. Crucially, this formulation yields an orthogonalized score function, guaranteeing that ˆτ achieves asymptotic normality and valid confidence intervals even when the non-parametric nuisance estimators or latent spatial components are estimated at slower, non-parametric rates [60 ].
+
+Simulation study design 
+
+We generated synthetic datasets consisting of n = 300 spots on a regular two-dimensional grid, p = 200 genes partitioned into 10 non-overlapping co-expression modules (20 genes each). We generated the binary treatment Ai
+
+using the “two-region” DGP: treatment is a clean rectangular split – left half of the grid is assigned with A = 0, right 11 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+half has A = 1. This is the most adversarial setting for naive methods because the spatial confounder Z (a smooth Gaussian field) correlates strongly with the treatment boundary. In the Supplementary Material, we explore additional DGPs. The true latent log-expression for gene j at spot i follows 
+
+Yi j = 1 + Ai τj + αZi βj + ϵi j , (3) where τj ∼ N (τlevel , 0.1 τlevel ) for the pDE = 50 differentially expressed genes, with random sign, and τj = 0 for the 
+
+p − pDE = 150 null genes; βj ∼ N (0, 1 ) are gene-specific confounder loadings; Zi ∼ G P (0 , Kℓ) is a spatially smooth Gaussian random field with length-scale ℓ = 0. 3 that is independent of A; α ∈ { 0 , 0 .25 , 0 . 50 , 0 . 75 , 1 . 0} scales the confounder contribution; and ϵi j ∼ N (0, 1 ). Observed counts are drawn as Ci j ∼ Poisson (exp (Yi j )) .The imputation model is parameterized as ˜Yi j = Yi j + σimp l⊤ 
+
+> j
+
+ηi + εi j , (4) where ηi ∼ N (0, IM ) introduces module-structured noise, l j is the module loading vector of gene j (one entry is drawn from Uniform (0. 5 , 1 . 5), measuring the strength of its module membership; all the other entries are zero), and 
+
+σimp ∈ { 0 . 1 , 0 . 5 , 1 . 0 , 1 . 5} parameterizes imputation quality (smaller means better). We also generate a synthetic single-cell reference of 2000 cells sharing the same module structure, so the Pearson correction exploits a realistic gene-gene correlation matrix. We compared TIDEST against four spatial DE methods, all receiving identical observed count matrices and spatial coor-dinates: t-test (Welch two-sample t-test on log1p-normalized counts); SpaGCN [24 ] (Wilcoxon rank-sum test between spatial domains); DESpace [25 ] (negative-binomial model with spatial domain as a factor); and SpatialGEE [26 ]
+
+(generalized estimating equation with Poisson family and k-means working correlation structure). In TIDEST pipeline, unobserved confounders were estimated using SpatialPCA [30 ] by truncated eigendecomposition of the Gaussian spatial kernel matrix retaining the top 20 eigenvectors. Eigenvectors with absolute Pearson correlation 
+
+|r| > 0. 5 with the treatment A were dropped from the confounder matrix U prior to fitting. The PLM was fitted with two cross-fitting folds and 100 regression trees per nuisance estimator. The main simulation grid crossed five confounder levels α ∈ { 0, 0. 25 , 0. 50 , 0. 75 , 1. 0} with three DGP variants and fixed τlevel = 1. 0, σimp = 0. 5, yielding 15 settings; each was replicated 50 times. The DGP illustration panels ( A-D)used n = 400 spots on a hexagonal grid for visual clarity. The augmentation sweep (panel E) varied σimp independently across six levels {0 . 1 , 0 . 3 , 0 .5 , 0 .7 , 1 . 0 , 1 . 5} with 100 replicates per level, holding α = 0 to isolate reconstruction quality from confounding. Extended results including all α levels and DGP-variant breakdowns are provided in the Supplementary Material. 
+
+Real-data processing 
+
+Mouse brain data 
+
+We used a mouse neocortex Visium section dataset [33 ], restricting to spots annotated as “Cortex_1” (deep layers L5 /6, 
+
+n = 171) or “Cortex_3” (superficial layers L2 /3/4, n = 126; 297 spots total). We assembled a panel of 55 curated layer-marker genes comprising 15 genes expected to be superficial-enriched, 23 deep-enriched, and 17 additional markers (including cell-type markers and negative controls); expected directions were assigned from published layer-specific expression atlases [35 , 62 ]. The scRNA-seq reference was an adult mouse cortex dataset [34 ] (21697 cells), normalized to 10 4 counts. Tangram [9] was fitted with RNA-count-based density prior; imputed expression was Pearson-augmented using the top-5 nearest-neighbors. SpatialPCA [30 ] was run retaining 10 principal components; one PC with absolute correlation |ρ| = 0 . 779 with the treatment A was dropped by the correlation screen (threshold 
+
+|ρ| > 0 . 5), leaving nine SpatialPCA components as an estimate of unmeasured confounding. Log library size was appended as a covariate. The Robinson PLM was fitted with two cross-fitting folds and 200 regression trees per nuisance estimator (random-forest implementation). The four competing methods ( t-test, SpaGCN Wilcoxon, 
+
+DESpace , and SpatialGEE ) were applied with identical settings to the simulation study, operating on the log1p-normalized observed Visium counts. All methods received the same 55 marker genes, and FDR control was applied independently within each method using the Benjamini-Hochberg procedure. 12 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+Human glioblastoma data 
+
+We analyzed 26 IDH-wildtype GBM Visium spatial transcriptomics sections from three patient cohorts [48 ]: the Massachusetts General Hospital (MGH) cohort ( n = 1), the University of Freiburg (UKF) cohort ( n = 13), and the University Hospital Zurich (ZH) cohort ( n = 12). Each section is annotated with IvyGAP histological regions [49 ];we retained only spots annotated as cellular tumor (CT) or leading edge (LE), discarding spots with other IvyGAP annotations. We assembled a curated panel of 90 genes (predicted) representative of the major GBM molecular programs, normal brain cell types, immune microenvironment, and metabolic states. As TIDEST requires a single-cell reference for imputation, we used the human GBM scRNA-seq dataset [50 ] (3589 cells from a disjoint cohort of patients). The single-cell reference was normalized to 10 4 counts. For Tangram [9] training we selected the top 100 marker genes per reference cell-type, using the reference cell-type labels as the grouping variable. Tangram was fitted in cells mode with an RNA-count-based density prior. The augmented outcome for each spot i was constructed using the Pearson correlation correction with top-5 neighbors. The Pearson correlation matrix was computed once from the scRNA-seq reference and shared across all 26 samples. We applied per-spot total-count scaling to align the Tangram imputed expression to the observed Visium count scale before log-transformation. For each sample, we selected confounder genes for SpatialPCA as those with coefficient of variation rN C E < 0 . 5 in the augmented outcomes and Pearson correlation |rN CO | < 0 . 3 with any panel gene in the scRNA-seq reference. The top 2000 such genes ranked by spatial variance were used to fit SpatialPCA with 50 principal components. For each sample, SpatialPCA PCs with correlation with the treatment greater than 0.5 were excluded from the confounder matrix before fitting the PLM. Log-library size was appended as an additional covariate. We fitted the PLM independently for each sample using 5-fold cross-fitting and random forests with 200 trees. Per-sample p-values were adjusted by the Benjamini-Hochberg procedure within each sample ( q < 0. 05). Cross-sample meta-analysis used DerSimonian-Laird random-effects inverse-variance weighting to account for between-tumor heterogeneity, followed by a second round of BH correction over the 90 panel genes. The between-study variance ˆτ2 was estimated as ˆτ2 = max  0 , (Q − (k − 1)) /c, where Q = P 
+
+> i
+
+wi (ˆτi − ˆτFE )2 is Cochran’s heterogeneity statistic, k = 26, and c = P 
+
+> i
+
+wi − P 
+
+> i
+
+w2 
+
+> i
+
+/ P 
+
+> i
+
+wi with wi = 1/ ˆσ2 
+
+> i
+
+.
+
+Human breast cancer data 
+
+We used a Xenium FFPE spatial transcriptomics section of human breast tissue [3] containing both invasive breast cancer and ductal carcinoma in situ in the same specimen (62755 cells, 313-gene panel). Cluster annotations were taken from the companion single-cell reference [3]. The binary treatment was defined as Ai = 1 for cells annotated as “Invasive_Tumor” or “Prolif_Invasive_Tumor” (IBC, n = 28961) and Ai = 0 for cells annotated as “DCIS_1” or “DCIS_2” (DCIS, n = 33794). We assembled a panel of 68 curated marker genes spanning IBC proliferation and invasion drivers, DCIS luminal markers, myoepithelial keratins, EMT effectors and maintainers, immune infiltrate markers, and contested genes; 25 genes have a well-established expected direction in the IBC-versus-DCIS contrast, assigned from published IBC, DCIS, and myoepithelial expression studies [58 , 63 , 64 ]. The expected direction for KRT5 and KRT14 
+
+was set to DCIS, as these myoepithelial markers reflect the intact basement membrane present in DCIS rather than the basal subtype designation used in gene-panel studies. Genes with unclear expected directions due to ER /HER2-status dependence (e.g., EGFR , FOXA1 , MLPH , GATA3 ) were excluded from the directional evaluation. Because the Xenium panel covers only 313 genes, we constructed the augmented outcome using CellPLM [22 ], a pre-trained Transformer-based cell language model. The matched single-cell reference (27000 cells, 18085 genes) was normalized to 10 4 counts per cell and log1p-transformed before input to CellPLM ; the same normalization was applied to the Xenium ST data. CellPLM outputs expression in log-CPM space, so the Pearson correction is applied directly as the difference between observed and predicted log-CPM, without additional scaling. The top-5 nearest-neighbor Pearson correction was applied to construct the augmented outcome. Confounder genes were selected using coefficient of variation threshold rN C E < 1 . 5 and marker correlation threshold |rN CO | ≤ 0 .3, retaining 2000 genes; the higher rN C E threshold (compared to the Visium applications) reflects the greater single-cell-level expression variability in Xenium data. Due to the large cell count, fitting SpatialPCA directly would require constructing a 62755 × 62755 kernel matrix, which exceeds available memory. We instead fitted SpatialPCA on a stratified subsample of 10000 cells (5000 per group), retaining 50 principal components, and then projected all 62755 cells into the fitted SpatialPCA space via Nyström kernel extension. No SpatialPCA component with absolute Pearson correlation |ρ| > 0 . 5 with the treatment A was found, so none was excluded from the confounder matrix; log library size (log-CPM total per cell) 13 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+was appended as a covariate. The PLM was fitted with 2 cross-fitting folds and 200 regression trees per nuisance estimator, retaining 50 SpatialPCA components (after the correlation screen) as confounders. Sandwich standard errors were computed from the cross-fitted residuals. The four competing methods were applied to the 30 genes present in the observed Xenium panel, operating on log-CPM-normalized Xenium counts. For DESpace , 13 cells with zero total counts across the marker panel were filtered before constructing the SpatialExperiment object, as the calcNormFactors step in edgeR produces undefined normalization factors for zero-library cells. For SpatialGEE , a stratified subsample of 20000 cells (10000 per group) was used, as GEE estimation scales super-linearly with the number of observations. FDR control was applied within each method using the Benjamini-Hochberg procedure. TIDEST additionally tested the 38 genes accessible only through CellPLM augmentation; these were not evaluated for competitors. 
+
+# Data and code availability 
+
+Mouse brain application data are available directly from the squidpy package [65 ] through the built-in functions 
+
+datasets.visium_fluo_adata_crop() (10x Visium) and datasets.sc_mouse_cortex() (scRNA-seq). Hu-man glioblastoma application spatial data (10x Visium) are available under the accession number GSE237183 (GEO) and also stored on Zenodo at https://doi.org/10.5281/zenodo.8105466 . Single-cell reference data for the human glioblastoma application are available under the accession number GSE84465 (GEO). Human breast cancer application data are available under the accession code GSE243280 (GEO) and also stored on 10x Genomics web-site at https://www.10xgenomics.com/products/xenium-in-situ/preview-dataset-human-breast .All code to reproduce the entire analysis pipeline, as well as code containing TIDEST package, is available at 
+
+https://github.com/testalorenzo/tidest .
+
+# Acknowledgments 
+
+L.T. wishes to thank Francesca Chiaromonte, Jin-Hong Du, Edward Kennedy, Eric Tchetgen Tchetgen, Qi Xu, and Bin Yu for useful feedback. This project was supported by National Institute of Mental Health (NIMH) grant R01MH123184. 
+
+# References 
+
+[1] Sophia K Longo, Margaret G Guo, Andrew L Ji, and Paul A Khavari. Integrating single-cell and spatial transcrip-tomics to elucidate intercellular tissue dynamics. Nature Reviews Genetics , 22(10):627–644, 2021. 
+
+[2] Vivien Marx. Method of the year: spatially resolved transcriptomics. Nature methods , 18(1):9–14, 2021. 
+
+[3] Amanda Janesick, Robert Shelansky, Andrew D Gottscho, Florian Wagner, Stephen R Williams, Morgane Rouault, Ghezal Beliakoff, Carolyn A Morrison, Michelli F Oliveira, Jordan T Sicherman, et al. High resolution mapping of the tumor microenvironment using integrated single-cell, spatial and in situ analysis. Nature communications ,14(1):8353, 2023. 
+
+[4] Samuel G Rodriques, Robert R Stickels, Aleksandrina Goeva, Carly A Martin, Evan Murray, Charles R Vanderburg, Joshua Welch, Linlin M Chen, Fei Chen, and Evan Z Macosko. Slide-seq: A scalable technology for measuring genome-wide expression at high spatial resolution. Science , 363(6434):1463–1467, 2019. 
+
+[5] Kok Hao Chen, Alistair N Boettiger, Jeffrey R Moffitt, Siyuan Wang, and Xiaowei Zhuang. Spatially resolved, highly multiplexed rna profiling in single cells. Science , 348(6233):aaa6090, 2015. 
+
+[6] Eric Lubeck, Ahmet F Coskun, Timur Zhiyentayev, Mubhij Ahmad, and Long Cai. Single-cell in situ rna profiling by sequential hybridization. Nature methods , 11(4):360–361, 2014. 
+
+[7] Sheel Shah, Eric Lubeck, Wen Zhou, and Long Cai. In situ transcription profiling of single cells reveals spatial organization of cells in the mouse hippocampus. Neuron , 92(2):342–357, 2016. 14 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+[8] Chee-Huat Linus Eng, Michael Lawson, Qian Zhu, Ruben Dries, Noushin Koulena, Yodai Takei, Jina Yun, Christopher Cronin, Christoph Karp, Guo-Cheng Yuan, et al. Transcriptome-scale super-resolved imaging in tissues by rna seqfish +. Nature , 568(7751):235–239, 2019. 
+
+[9] Tommaso Biancalani, Gabriele Scalia, Lorenzo Buffoni, Raghav Avasthi, Ziqing Lu, Aman Sanger, Neriman Tokcan, Charles R Vanderburg, Åsa Segerstolpe, Meng Zhang, et al. Deep learning and alignment of spatially resolved single-cell transcriptomes with tangram. Nature methods , 18(11):1352–1362, 2021. 
+
+[10 ] Romain Lopez, Achille Nazaret, Maxime Langevin, Jules Samaran, Jeffrey Regier, Michael I Jordan, and Nir Yosef. A joint model of unpaired data from scrna-seq and spatial transcriptomics for imputing missing gene expression measurements. arXiv preprint arXiv:1905.02269 , 2019. 
+
+[11 ] Xiaoyu Li, Fangfang Zhu, and Wenwen Min. Spadit: diffusion transformer for spatial gene expression prediction using scrna-seq. Briefings in Bioinformatics , 25(6):bbae571, 2024. 
+
+[12 ] Tamim Abdelaal, Soufiane Mourragui, Ahmed Mahfouz, and Marcel JT Reinders. Spage: spatial gene enhance-ment using scrna-seq. Nucleic acids research , 48(18):e107–e107, 2020. 
+
+[13 ] Chen Shengquan, Zhang Boheng, Chen Xiaoyang, Zhang Xuegong, and Jiang Rui. stplus: a reference-based method for the accurate enhancement of spatial transcriptomics. Bioinformatics , 37(Supplement_1):i299–i307, 2021. 
+
+[14 ] Zixuan Cang and Qing Nie. Inferring spatial and signaling relationships between cells from single cell transcrip-tomic data. Nature communications , 11(1):2084, 2020. 
+
+[15 ] Noa Moriel, Enes Senel, Nir Friedman, Nikolaus Rajewsky, Nikos Karaiskos, and Mor Nitzan. Novosparc: flexible spatial reconstruction of single-cell gene expression with optimal transport. Nature protocols , 16(9):4177–4200, 2021. 
+
+[16 ] Xiaomeng Wan, Jiashun Xiao, Sindy Sing Ting Tam, Mingxuan Cai, Ryohichi Sugimura, Yang Wang, Xiang Wan, Zhixiang Lin, Angela Ruohao Wu, and Can Yang. Integrating spatial and single-cell transcriptomics data using deep generative models with spatialscope. Nature Communications , 14(1):7848, 2023. 
+
+[17 ] Kongming Li, Jiahao Li, Yuhao Tao, and Fei Wang. stdiff: a diffusion model for imputing spatial transcriptomics through single-cell transcriptomics. Briefings in Bioinformatics , 25(3), 2024. 
+
+[18 ] Eric D Sun, Rong Ma, and James Zou. Sprite: improving spatial gene expression imputation with gene and cell networks. Bioinformatics , 40(Supplement_1):i521–i528, 2024. 
+
+[19 ] Tianyu Liu, Yingxin Lin, Xiao Luo, Yizhou Sun, and Hongyu Zhao. Vista uncovers missing gene expression and spatial-induced information for spatial transcriptomic data analysis. bioRxiv , pages 2024–08, 2025. 
+
+[20 ] Tianyu Liu, Tinglin Huang, Wengong Jin, Tinyi Chu, Rex Ying, and Hongyu Zhao. sprefine denoises and imputes spatial transcriptomics with a reference-free framework powered by genomic language model. bioRxiv , pages 2025–04, 2025. 
+
+[21 ] Hongjia Liu, Huamei Li, Amit Sharma, Guoyan Tang, Zongyu Xie, Yunyao Shen, Qiong Li, Chen Gong, Xiao Sun, Kun Luo, et al. Cellmap: precision mapping of cellular landscape in spatial transcriptomics. Nucleic Acids Research , 54(1):gkaf1484, 2026. 
+
+[22 ] Hongzhi Wen, Wenzhuo Tang, Xinnan Dai, Jiayuan Ding, Wei Jin, Yuying Xie, and Jiliang Tang. CellPLM: Pre-training of cell language model beyond single cells. In The Twelfth International Conference on Learning Representations , 2024. URL https://openreview.net/forum?id=BKXvPDekud .
+
+[23 ] Guanao Yan, Shuo Harper Hua, and Jingyi Jessica Li. Categorization of 34 computational methods to detect spatially variable genes from spatially resolved transcriptomics data. Nature Communications , 16(1):1141, 2025. 
+
+[24 ] Jian Hu, Xiangjie Li, Kyle Coleman, Amelia Schroeder, Nan Ma, David J Irwin, Edward B Lee, Russell T Shinohara, and Mingyao Li. Spagcn: Integrating gene expression, spatial location and histology to identify spatial domains and spatially variable genes by graph convolutional network. Nature methods , 18(11):1342–1351, 2021. 
+
+[25 ] Peiying Cai, Mark D Robinson, and Simone Tiberi. Despace: spatially variable gene detection via differential expression testing of spatial clusters. Bioinformatics , 40(2):btae027, 2024. 15 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+[26 ] Yishan Wang, Chenxuan Zang, Ziyi Li, Charles C Guo, Dejian Lai, and Peng Wei. A comparative study of statistical methods for identifying differentially expressed genes in spatial transcriptomics. bioRxiv , 2025. 
+
+[27 ] Anastasios N Angelopoulos, Stephen Bates, Clara Fannjiang, Michael I Jordan, and Tijana Zrnic. Prediction-powered inference. Science , 382(6671):669–674, 2023. 
+
+[28 ] Ergan Shang, Yuting Wei, and Kathryn Roeder. Predicting the unseen: a diffusion-based debiasing framework for transcriptional response prediction at single-cell resolution. Proceedings of the National Academy of Sciences ,122(52):e2525268122, 2025. 
+
+[29 ] Jeffrey T Leek and John D Storey. Capturing heterogeneity in gene expression studies by surrogate variable analysis. PLoS genetics , 3(9):e161, 2007. 
+
+[30 ] Lulu Shang and Xiang Zhou. Spatially aware dimension reduction for spatial transcriptomics. Nature communi-cations , 13(1):7203, 2022. 
+
+[31 ] Peter M Robinson. Root-n-consistent semiparametric regression. Econometrica: journal of the Econometric Society ,pages 931–954, 1988. 
+
+[32 ] Yuhan Hao, Tim Stuart, Madeline H Kowalski, Saket Choudhary, Paul Hoffman, Austin Hartman, Avi Srivastava, Gesmira Molla, Shaista Madad, Carlos Fernandez-Granda, and Rahul Satija. Dictionary learning for integrative, multimodal and scalable single-cell analysis. Nature Biotechnology , 2023. doi: 10.1038 /s41587-023-01767-y. URL https://doi.org/10.1038/s41587-023-01767-y .
+
+[33 ] 10x Genomics, 2020. URL https://cf.10xgenomics.com/samples/spatial-exp/1.1.0/V1_Adult_ Mouse_Brain_Coronal_Section_2/V1_Adult_Mouse_Brain_Coronal_Section_2_web_summary. html .
+
+[34 ] Bosiljka Tasic, Zizhen Yao, Lucas T Graybuck, Kimberly A Smith, Thuc Nghi Nguyen, Darren Bertagnolli, Jeff Goldy, Emma Garren, Michael N Economo, Sarada Viswanathan, et al. Shared and distinct transcriptomic cell types across neocortical areas. Nature , 563(7729):72–78, 2018. 
+
+[35 ] Bradley J Molyneaux, Paola Arlotta, Joao RL Menezes, and Jeffrey D Macklis. Neuronal subtype specification in the cerebral cortex. Nature reviews neuroscience , 8(6):427–437, 2007. 
+
+[36 ] Amit Zeisel, Hannah Hochgerner, Peter Lönnerberg, Anna Johnsson, Fatima Memic, Job Van Der Zwan, Martin Häring, Emelie Braun, Lars E Borm, Gioele La Manno, et al. Molecular architecture of the mouse nervous system. 
+
+Cell , 174(4):999–1014, 2018. 
+
+[37 ] Marta Nieto, Edwin S Monuki, Hua Tang, Jaime Imitola, Nicole Haubst, Samia J Khoury, Jim Cunningham, Magdalena Gotz, and Christopher A Walsh. Expression of cux-1 and cux-2 in the subventricular zone and upper layers ii–iv of the cerebral cortex. Journal of Comparative Neurology , 479(2):168–180, 2004. 
+
+[38 ] Bradley J Molyneaux, Paola Arlotta, Tustomu Hirata, Masahiko Hibi, and Jeffrey D Macklis. Fezl is required for the birth and specification of corticospinal motor neurons. Neuron , 47(6):817–831, 2005. 
+
+[39 ] Bin Chen, Song S Wang, Alexis M Hattox, Helen Rayburn, Sacha B Nelson, and Susan K McConnell. The fezf2–ctip2 genetic pathway regulates the fate choice of subcortical projection neurons in the developing cerebral cortex. Proceedings of the National Academy of Sciences , 105(32):11382–11387, 2008. 
+
+[40 ] Tina Lai, Denis Jabaudon, Bradley J Molyneaux, Eiman Azim, Paola Arlotta, Joao RL Menezes, and Jeffrey D Macklis. Sox5 controls the sequential generation of distinct corticofugal neuron subtypes. Neuron , 57(2): 232–247, 2008. 
+
+[41 ] Kenneth Y Kwan, Mandy MS Lam, Željka Krsnik, Yuka Imamura Kawasawa, Veronique Lefebvre, and Nenad Šestan. Sox5 postmitotically regulates migration, postmigratory differentiation, and projections of subplate and deep-layer neocortical neurons. Proceedings of the National Academy of Sciences , 105(41):16021–16026, 2008. 
+
+[42 ] Xavier Caubit, Paolo Gubellini, Joris Andrieux, Pierre L Roubertoux, Mehdi Metwaly, Bernard Jacq, Ahmed Fatmi, Laurence Had-Aissouni, Kenneth Y Kwan, Pascal Salin, et al. Tshz3 deletion causes an autism syndrome and defects in cortical projection neurons. Nature genetics , 48(11):1359–1369, 2016. 16 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+[43 ] Elizabeth A Alcamo, Laura Chirivella, Marcel Dautzenberg, Gergana Dobreva, Isabel Fariñas, Rudolf Grosschedl, and Susan K McConnell. Satb2 regulates callosal projection neuron identity in the developing cerebral cortex. 
+
+Neuron , 57(3):364–377, 2008. 
+
+[44 ] Olga Britanova, Camino de Juan Romero, Amanda Cheung, Kenneth Y Kwan, Manuela Schwark, Andrea Gyorgy, Tanja Vogel, Sergey Akopov, Mišo Mitkovski, Denes Agoston, et al. Satb2 is a postmitotic determinant for upper-layer neuron specification in the neocortex. Neuron , 57(3):378–392, 2008. 
+
+[45 ] Z Josh Huang and Anirban Paul. The diversity of gabaergic neurons and neural communication elements. Nature Reviews Neuroscience , 20(9):563–572, 2019. 
+
+[46 ] Dino P Leone, Whitney E Heavner, Emily A Ferenczi, Gergana Dobreva, John R Huguenard, Rudolf Grosschedl, and Susan K McConnell. Satb2 regulates the differentiation of both callosal and subcerebral projection neurons in the developing cerebral cortex. Cerebral cortex , 25(10):3406–3419, 2015. 
+
+[47 ] Bernardo Rudy, Gordon Fishell, SooHyun Lee, and Jens Hjerling-Leffler. Three groups of interneurons account for nearly 100% of neocortical gabaergic neurons. Developmental neurobiology , 71(1):45–61, 2011. 
+
+[48 ] Alissa C Greenwald, Noam Galili Darnell, Rouven Hoefflin, Dor Simkin, Christopher W Mount, L Nicolas Gonzalez Castro, Yotam Harnik, Sydney Dumont, Dana Hirsch, Masashi Nomura, et al. Integrative spatial analysis reveals a multi-layered organization of glioblastoma. Cell , 187(10):2485–2501, 2024. 
+
+[49 ] Ralph B Puchalski, Nameeta Shah, Jeremy Miller, Rachel Dalley, Steve R Nomura, Jae-Guen Yoon, Kimberly A Smith, Michael Lankerovich, Darren Bertagnolli, Kris Bickley, et al. An anatomic transcriptional atlas of human glioblastoma. Science , 360(6389):660–663, 2018. 
+
+[50 ] Spyros Darmanis, Steven A Sloan, Derek Croote, Marco Mignardi, Sophia Chernikova, Peyman Samghababi, Ye Zhang, Norma Neff, Mark Kowarsky, Christine Caneda, et al. Single-cell rna-seq analysis of infiltrating neoplastic cells at the migrating front of human glioblastoma. Cell reports , 21(5):1399–1410, 2017. 
+
+[51 ] Cyril Neftel, Julie Laffy, Mariella G Filbin, Toshiro Hara, Marni E Shore, Gilbert J Rahme, Alyssa R Richman, Dana Silverbush, McKenzie L Shaw, Christine M Hebert, et al. An integrative model of cellular states, plasticity, and genetics for glioblastoma. Cell , 178(4):835–849, 2019. 
+
+[52 ] Roel GW Verhaak, Katherine A Hoadley, Elizabeth Purdom, Victoria Wang, Yuan Qi, Matthew D Wilkerson, C Ryan Miller, Li Ding, Todd Golub, Jill P Mesirov, et al. Integrated genomic analysis identifies clinically relevant subtypes of glioblastoma characterized by abnormalities in pdgfra, idh1, egfr, and nf1. Cancer cell , 17(1):98–110, 2010. 
+
+[53 ] Heidi S Phillips, Samir Kharbanda, Ruihuan Chen, William F Forrest, Robert H Soriano, Thomas D Wu, Anjan Misra, Janice M Nigro, Howard Colman, Liliana Soroceanu, et al. Molecular subclasses of high-grade glioma predict prognosis, delineate a pattern of disease progression, and resemble stages in neurogenesis. Cancer cell , 9 (3):157–173, 2006. 
+
+[54 ] Matthias Osswald, Erik Jung, Felix Sahm, Gergely Solecki, Varun Venkataramani, Jonas Blaes, Sophie Weil, Heinz Horstmann, Benedikt Wiestler, Mustafa Syed, et al. Brain tumour cells interconnect to a functional and resistant network. Nature , 528(7580):93–98, 2015. 
+
+[55 ] Mahboubeh Sadeghi, Abbas Ghaderi, Pegah Mousavi, Soudabeh Sabetian, Amin Ramezani, and Mohammad Reza Haghshenas. Fn1 as a key gene in modulating the integrin cell surface pathway in breast cancer. Medical oncology (Northwood, London, England) , 43(4):159, 2026. 
+
+[56 ] Gil Friedman, Oshrat Levi-Galibov, Eyal David, Chamutal Bornstein, Amir Giladi, Maya Dadiani, Avi Mayo, Coral Halperin, Meirav Pevsner-Fischer, Hagar Lavon, et al. Cancer-associated fibroblast compositions change with breast cancer progression linking the ratio of s100a4 + and pdpn + cafs to clinical outcome. Nature Cancer , 1(7): 692–708, 2020. 
+
+[57 ] Eduard Batlle, Elena Sancho, Clara Francí, David Domínguez, Mercè Monfar, Josep Baulida, and Antonio García de Herreros. The transcription factor snail is a repressor of e-cadherin gene expression in epithelial tumour cells. Nature cell biology , 2(2):84–89, 2000. 
+
+[58 ] Werner Böcker, Roland Moll, Christopher Poremba, Roland Holland, Paul J Van Diest, Peter Dervan, Horst Bürger, Daniel Wai, Raihanatou Ina Diallo, Burkhard Brandt, et al. Common adult stem cells in the human breast give 17 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+rise to glandular and myoepithelial cell lineages: a new cell biological concept. Laboratory investigation , 82(6): 737–746, 2002. 
+
+[59 ] Min Hu, Jun Yao, Li Cai, Kurt E Bachman, Frédéric Van Den Brûle, Victor Velculescu, and Kornelia Polyak. Distinct epigenetic changes in the stromal cells of breast cancers. Nature genetics , 37(8):899–905, 2005. 
+
+[60 ] Jin-Hong Du, Kathryn Roeder, and Larry Wasserman. Assumption-lean post-integrated inference with surrogate-control outcomes. Biometrika , page asag004, 2026. 
+
+[61 ] Siqi Wu, Antony Joseph, Ann S Hammonds, Susan E Celniker, Bin Yu, and Erwin Frise. Stability-driven nonnegative matrix factorization to interpret spatial gene expression and build local gene networks. Proceedings of the National Academy of Sciences , 113(16):4290–4295, 2016. 
+
+[62 ] Bosiljka Tasic, Vilas Menon, Thuc Nghi Nguyen, Tae Kyung Kim, Tim Jarsky, Zizhen Yao, Boaz Levi, Lucas T Gray, Staci A Sorensen, Tim Dolbeare, et al. Adult mouse cortical cell taxonomy revealed by single cell transcriptomics. 
+
+Nature neuroscience , 19(2):335–346, 2016. 
+
+[63 ] Charles M Perou, Therese Sørlie, Michael B Eisen, Matt Van De Rijn, Stefanie S Jeffrey, Christian A Rees, Jonathan R Pollack, Douglas T Ross, Hilde Johnsen, Lars A Akslen, et al. Molecular portraits of human breast tumours. nature , 406(6797):747–752, 2000. 
+
+[64 ] Lily Xu, Kaitlyn Saunders, Shao-Po Huang, Hildur Knutsdottir, Kenneth Martinez-Algarin, Isabella Terrazas, Kenian Chen, Heather M McArthur, Julia Maués, Christine Hodgdon, et al. A comprehensive single-cell breast tumor atlas defines epithelial and immune heterogeneity and interactions predicting anti-pd-1 therapy response. 
+
+Cell Reports Medicine , 5(5), 2024. 
+
+[65 ] Giovanni Palla, Hannah Spitzer, Michal Klein, David Fischer, Anna Christina Schaar, Louis Benedikt Kuemmerle, Sergei Rybakov, Ignacio L Ibarra, Olle Holmberg, Isaac Virshup, et al. Squidpy: a scalable framework for spatial omics analysis. Nature methods , 19(2):171–178, 2022. 18 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+# Supplementary Material of “ TIDEST : post-imputation differential expression testing for spatial transcriptomics data” A Theoretical framework for TIDEST 
+
+Here, we show that the confounder-adjustment and PLM-estimation stages of TIDEST are an instance of the assumption-lean post-integrated inference (PII) framework [1]. We then state and prove one result specific to TIDEST , that characterizes the conditions under which the neighborhood-augmentation step (Equation 1) preserves the validity of this approach to inference. We then discuss the practical scope of these results. 
+
+A.1 Setup and target estimand 
+
+Fix a target gene j. For spot i = 1, . . . , n, let Ai ∈ { 0 , 1} denote the binary condition of interest, Xi ∈ Rq additional spot-level covariates (e.g., log library size), and Ui ∈ Rr an unobserved latent field summarizing spatial location, cellular composition, and other technical or biological sources of variation. Let Yi j denote the (unobserved) true expression of gene j at spot i, related to Ai , Xi , Ui through the partially linear model 
+
+E Yi j | Ai , Xi , Ui
+
+ = Ai ¯τj + f j (Xi , Ui ) , (5) with f j an unrestricted function. The scientific estimand ¯τj – the quantity TIDEST aims to estimate and test – is identified as: ¯τj = ( E [V [A | X , U)]]) −1 E Cov (A, Yj | X , U) . (6) 
+
+TIDEST cannot evaluate Equation 6 directly because Yi j is not observed and thus replaced by the augmented outcome ˆYi j (Equation 1), and Ui is unobserved and replaced by an embedding ˆUi estimated from data. Define the corresponding 
+
+feasible estimand 
+
+τj =  E V A | X , ˆ U) −1 E Cov (A, ˆ Yj | X , ˆ U) , (7) which is exactly the estimand targeted by Equation 2 in the Methods. Below we first relate ˆτj (the PLM output) to τj ,and then we relate τj to the scientific quantity ¯ τj .
+
+A.2 Estimation and inference procedure for ˆτj
+
+The embedding ˆUi is constructed by TIDEST from the surrogate-control gene panel C (Methods, rNCO /rNCE criteria): genes whose augmented expression is (a) approximately uncorrelated with the target genes in the SC reference ( rNCO ,negative control outcome) and (b) has low coefficient of variation ( rNCE , negative control exposure). In the notation of [1], ˆYi,C plays the role of the surrogate-control outcomes : a subset of outcomes for which the direct effect of A
+
+is, by construction of C , approximately zero, so that their spatial variation is informative about U and not about 
+
+τ. TIDEST then sets ˆUi = gK ( ˆYi,C ), where gK is the SpatialPCA kernel eigenmap (top K components after the 
+
+|ρ(PC, A)| > 0 . 5 correlation screen), playing the role of the embedding map of [1]. The correlation screen is an additional, TIDEST -specific safeguard against retaining components that are themselves strongly associated with 
+
+A (which would risk over-controlling, i.e., partialling out part of the treatment effect itself); it is not required by the theory below but is a conservative refinement of it (in case, by mistake, some active genes were inserted in the surrogate-control set). Given ˆUi and Xi , TIDEST estimates τj in Equation 7 using the cross-fitted, double-residual procedure of [1], specialized to a scalar treatment A. With cross-fitting, for each fold we estimate out-of-fold regressions (default: random forests) ˆm ≈ E A | ˆU and ˆℓj ≈ E  ˆYj | ˆU, and we evaluate them in: ˆτj =
+
+Pni=1(Ai − ˆm( ˆUi ))( Yi j − ˆℓj ( ˆUi )) 
+
+Pni=1(Ai − ˆm( ˆUi )) 2 . (8) Corollary 1, part 1, in [1] shows that (under assumptions) ˆτj converges in distribution to a Normal distribution centered in τj . This establishes that, conditional on the embedding ˆU, TIDEST ’s PLM delivers asymptotically valid inference for the feasible estimand τj even though the nuisance functions ˆm, ˆℓj are estimated nonparametrically 1
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+(random forests) at slower-than-pn rates – this is the orthogonality property invoked, but not previously stated, in the Methods. Two gaps remain between τj and the scientific estimand ¯τj : the effect of replacing U by ˆU, and the effect of replacing Yj by ˆ Yj .The former gap is addressed again by [1]. In Corollary 1, part 2, it is shown that if ∥ ˆU − U∥2 = oP (n−1/2), that is, if the learned embedding ˆU converges to the true confounding field at parametric rate, then asymptotic normality still holds. The remaining gap between the feasible estimand τj and the scientific estimand ¯τj is the substitution of the augmented outcome ˆ Yj for the true expression Yj . Write the augmentation gap as 
+
+∆i j = ˆYi j − Yi j = ( ˜Yi j − Yi j )
+
+| {z } 
+
+> imputation error, gene j
+
++ 1
+
+|Nj |
+
+X
+
+> k∈Nj
+
+˜σjk (Yik − ˜Yik )
+
+| {z } 
+
+> imputation error, gene k
+
+, (9) directly from Equation 1. By linearity of covariance, Cov (A, ˆ Yj | X , U) = Cov (A, Yj | X , U) + Cov (A, ∆j | X , U), so 
+
+(E [V [A | X , U]]) −1 E Cov (A, ˆ Yj | X , U) = ¯τj + ( E [V [A | X , U]]) −1 E Cov (A, ∆j | X , U) . (10) 
+
+Lemma A.1 (Augmentation preserves the target estimand) . Suppose that (i) for every k ∈ { j} ∪ Nj , Cov ( ˜Yik − Yik , Ai |
+
+Xi , Ui ) = oP (n−1/2), that is, the imputation residual for gene k is asymptotically mean-independent of treatment given the confounders, and (ii) the neighbor weights ˜σjk are estimated from a reference dataset independent of (Ai , Xi , Ui , Yi,k, ˜ Yi,k)ni=1.Then Cov (A, ∆j | X , U) = op(n−1/2).Proof. By (9) and the triangle inequality, 
+
+Cov (A, ∆j | X , U) ≤ Cov (A, ˜ Yj − Yj | X , U) + 1
+
+|Nj |
+
+X
+
+> k∈Nj
+
+| ˜σjk | · Cov (A, Yk − ˜Yk | X , U) ,using (ii) to treat ˜σjk as a fixed (data-independent) bounded weight ( | ˜σjk | ≤ 1 as a Pearson correlation). Each term is 
+
+op(n−1/2) by (i), and |Nj | is fixed, so the sum is op(n−1/2).
+
+Remark A.2. Condition (i) does not require the imputation model to be accurate – no rate condition is placed on ˜Yik − Y ⋆ 
+
+> ik
+
+itself. It only requires that whatever error the imputation model makes is not itself driven by the treatment A
+
+beyond what is captured by (X , U). This is plausible when the imputation model ( Tangram , CellPLM ) is fit without access to A (as in our case) and its errors reflect cell-composition or technical effects already summarized by U.Together, TIDEST ’s claim of valid, orthogonalized inference rests on three conditions: (i) standard double-machine-learning regularity for the cross-fitted nuisance estimators; (ii) op(n−1/2) consistency of the embedding for the true confounding field; and (iii) asymptotic mean-independence of the imputation-residual correction term from treatment given the estimated confounders. 
+
+# B Extended simulation results 
+
+B.1 Additional data generating processes 
+
+Here we provide extended numerical results for the simulation study described in the main text. We compare TIDEST 
+
+with the following methods: • DESpace [2] was run via the DESpace Bioconductor package. The function svg_test() was called with 
+
+verbose = TRUE to expose the internal glmLrt object from which gene-level logFC values were extracted from glmLrt$table$logFC . DESpace exhibits anti-conservatism at α = 0 (FPR = 6. 1% vs nominal 5%), consistent with known mild over-dispersion sensitivity of the negative-binomial model on low-count data. • SpatialGEE [3] was run via the SpatialGEE R package. p-values were obtained from the generalized score test (GST) via run_gee_gst() . Effect sizes (Poisson GEE log-coefficients) were obtained from a separate full-model geeglm() call using the same k-means working correlation structure. 2
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+• SpaGCN [4] defines spatial domains and then applies a Wilcoxon rank-sum test between them. We used the signed Wilcoxon z-statistic as the effect-size measure. • For t-test, counts were log1p-normalized (no library-size scaling) before the Welch two-sample test. Effect size was the log1p mean difference (superficial minus deep, or treatment minus control). In addition to the two-region DGP shown in Fig. 2, we evaluated two alternative treatment-generating mechanisms to test robustness of the results: • Gaussian random field (GRF) variant. The treatment Ai is binarized from an independent Gaussian random field with length-scale ℓ = 0.3, so that the spatial boundary between the two treatment zones is irregular rather than a straight line. This is a harder setting for deconfounding because the treatment and confounder fields have a similar spatial scale. At α = 1. 0, TIDEST FPR = 7 . 5% versus SpaGCN 30 .7%, t-test 33 . 3%, DESpace 
+
+35.4%, and SpatialGEE 27.1%. • Latent-factor variant. The treatment Ai is the binarized first spatial PC (the dominant eigenvector of the Gaussian kernel matrix). This is the most favorable geometry for TIDEST : the treatment is strongly aligned with the leading eigenvector, which is screened out by the correlation threshold |r| > 0 . 5, removing effectively all residual confounding. At α = 1. 0, TIDEST FPR = 4 . 0% (near nominal); the t-test and SpaGCN also show low FPR (1 . 7% and 1 . 4%) in this setting because the spatial structure of the treatment is so dominant that any method with minimal deconfounding benefits. The AUC advantage of TIDEST is largest here ( AUC = 0. 999 vs 0 . 984 for SpatialGEE ), confirming that TIDEST reconstructs the treatment effect more accurately even when confounding is geometrically easy to remove. Supplementary Fig. B.1 gives FPR, TPR, and AUC at all five confounder levels with standard errors and across DGP variants. 
+
+B.2 Sensitivity analysis to hyperparameters 
+
+B.2.1 Augmentation 
+
+The augmentation step can be read as a control-variate correction in the spirit of prediction-powered inference [5 , 6].For a target gene j, the raw imputation ˜Yi j is a “prediction” whose error ˜Yi j − Yi j is unknown at spot i but is correlated, through the shared imputation model and shared cell-composition structure, with the errors ˜Yik − Yik of other genes k.For genes k ∈ Nj that are directly observed in the ST panel, the realized error Yik − ˜Yik is known at every spot i and can be used as a control variate: Equation 1 adds back ˜σjk (Yik − ˜Yik ), an estimate of the part of gene j’s imputation error explained by gene k’s (observed) imputation error, with the external scRNA-seq correlation ˜σjk playing the role of the control-variate coefficient. Equation 1 averages |Nj | control-variate terms, each weighted by its own correlation ˜σjk and normalized by |Nj | (or, with a correlation floor, by the number of neighbors retained). Two competing effects govern the choice of |Nj | (a parameter whose default is 5): (i) each additional neighbor contributes an independent realization of correlated reconstruction error, so averaging over more neighbors reduces the variance of the correction term, provided the added neighbors remain informative; but (ii) neighbors are ranked by | ˜σjk |, so each additional neighbor is more weakly correlated than the last, and once | ˜σjk | for the marginal neighbor is small, including it adds noise from that neighbor’s own imputation error without adding much correlated signal. The reconstruction RMSE sweep in Supplementary Fig. B.2 (column 1, bottom row) shows exactly this tradeoff empirically: RMSE drops sharply from top_k = 1 (0 . 682) to top_k = 5 (0 .328, the default), continues to improve modestly to top_k = 10 (0 . 301), and then degrades slightly at top_k = 20 (0 .326) as increasingly weakly-correlated neighbors are included. TIDEST downstream TPR /FPR /AUC are comparatively insensitive to this choice (TPR ≈ 0 . 92, FPR ≈ 0 . 07 for top_k ∈ { 5 , 10 , 20 }), with the exception of 
+
+top_k = 1, where the much noisier correction reduces power (TPR 0.86). 
+
+B.2.2 Other hyperparameters 
+
+We also vary one parameter at a time around TIDEST default configuration ( top_k = 5, no correlation floor, no reference noise, 20 SpatialPCA components, PC-treatment screen |ρ| > 0.5) – see Supplementary Fig. B.2: • Correlation floor ( min_corr ). This parameter drops candidate neighbors with | ˜σjk | below a floor before selecting the top-k, normalizing by the number of neighbors actually retained. In the synthetic gene-module 3                
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint 0.85
+> 0.90
+> 0.95
+> 1.00
+> Two-region
+> Power (TPR)
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> FPR (type-I error)
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> AUC
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> GRF
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> 0.00 0.25 0.50 0.75 1.00
+> Confounder strength
+> 0.92
+> 0.94
+> 0.96
+> 0.98
+> 1.00
+> Latent-factor
+> 0.00 0.25 0.50 0.75 1.00
+> Confounder strength
+> 0.00
+> 0.02
+> 0.04
+> 0.06
+> 0.08
+> 0.10
+> 0.12
+> 0.00 0.25 0.50 0.75 1.00
+> Confounder strength
+> 0.975
+> 0.980
+> 0.985
+> 0.990
+> 0.995
+> 1.000
+> 1.005
+> TIDEST t-test SpaGCN DESpace SpatialGEE
+
+Figure B.1: Full simulation results: FPR, TPR, and AUC across all five confounder levels and three DGPs ( τlevel = 1. 0, 
+
+σimp = 0.5, n = 300 spots, 50 replicates per α level). Shaded bands are 95% confidence intervals across replicates. structure, the top-5 within-module correlations have a minimum of ≈ 0. 41, so floors up to 0 .3 have no effect (identical to the default, RMSE = 0. 328). Above this range the floor begins to bind: at min_corr = 0 .45, RMSE rises modestly to 0 . 349; at 0 . 65, to 0 . 538 (TPR drops from 0 . 918 to 0 . 887). This confirms that a correlation floor is only consequential once it exceeds the typical neighbor correlation, and that TIDEST default of using all top-k candidates without a floor is not a meaningfully sub-optimal choice in this regime. • Noise on the reference correlation matrix. We perturbed the scRNA-seq Pearson correlation matrix with symmetric Gaussian noise (SD ∈ { 0 , 0 . 05 , 0 .1 , 0 . 2 , 0 . 3}, clipped to [−1 , 1]) before computing the augmentation, simulating a reference whose gene-gene correlation structure is imperfectly estimated (e.g., from a small or noisy scRNA-seq dataset). Reconstruction RMSE degrades gracefully and roughly monotonically (from 0 . 328 at SD = 0 to 0 . 435 at SD = 0. 3), and downstream TPR declines only slightly (0 . 918 → 0 . 907) with FPR essentially unchanged (0 . 072 → 0 . 074). TIDEST reliance on the external reference correlations is therefore robust to substantial mis-estimation of those correlations. • Number of SpatialPCA components ( npcs ∈ { 5 , 10 , 20 , 50 }, default 20 ). TPR is stable (0 . 90-0 .93) across this range, but FPR is sensitive at the low end: npcs = 5 gives FPR = 0.171, more than double the default’s 0 .072, 4
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint 5 10 15 20                                                                      
+
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Power (TPR)
+> Augmentation
+> top-kneighbours
+> 510 15 20
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> FPR (type-I error)
+> 510 15 20
+> 0.92
+> 0.94
+> 0.96
+> 0.98
+> 1.00
+> AUC
+> 510 15 20
+> top_k
+> 0.3
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> Pseudo-outcome
+> reconstruction RMSE
+> 0.0 0.2 0.4 0.6
+> 0.80
+> 0.85
+> 0.90
+> 0.95
+> Augmentation
+> correlation floor
+> 0.0 0.2 0.4 0.6
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.0 0.2 0.4 0.6
+> 0.92
+> 0.94
+> 0.96
+> 0.98
+> 1.00
+> 0.0 0.2 0.4 0.6
+> min_corr
+> 0.35
+> 0.40
+> 0.45
+> 0.50
+> 0.55
+> 0.0 0.1 0.2 0.3
+> 0.850
+> 0.875
+> 0.900
+> 0.925
+> 0.950
+> 0.975
+> Noise on SC reference
+> correlations (SD)
+> 0.0 0.1 0.2 0.3
+> 0.00
+> 0.05
+> 0.10
+> 0.15
+> 0.20
+> 0.25
+> 0.0 0.1 0.2 0.3
+> 0.92
+> 0.94
+> 0.96
+> 0.98
+> 1.00
+> 0.0 0.1 0.2 0.3
+> pearson_noise_sd
+> 0.325
+> 0.350
+> 0.375
+> 0.400
+> 0.425
+> 10 20 30 40 50
+> 0.875
+> 0.900
+> 0.925
+> 0.950
+> 0.975
+> SpatialPCA
+> components
+> 10 20 30 40 50
+> 0.0
+> 0.1
+> 0.2
+> 0.3
+> 0.4
+> 0.5
+> 10 20 30 40 50
+> 0.85
+> 0.90
+> 0.95
+> 1.00
+> 10 20 30 40 50
+> n_pcs
+> 0.320
+> 0.325
+> 0.330
+> 0.335
+> 0.3 0.4 0.5 0.6 0.7
+> 0.850
+> 0.875
+> 0.900
+> 0.925
+> 0.950
+> 0.975
+> PC-vs-treatment
+> screen ||threshold
+> 0.3 0.4 0.5 0.6 0.7
+> 0.0
+> 0.1
+> 0.2
+> 0.3 0.4 0.5 0.6 0.7
+> 0.92
+> 0.94
+> 0.96
+> 0.98
+> 1.00
+> 0.3 0.4 0.5 0.6 0.7
+> corr_threshold
+> 0.320
+> 0.325
+> 0.330
+> 0.335
+> Dotted vertical line: pipeline default value used in main analyses.
+
+Figure B.2: Sensitivity of TIDEST to augmentation and pipeline hyperparameters, at the setting with two-region DGP ,
+
+α = 0. 5, σimp = 0. 5, n = 300, 100 replicates per value. Shaded bands are 95% confidence intervals across replicates. Columns: augmentation neighborhood size ( top_k ), augmentation correlation floor ( min_corr ), additive noise (SD) on the scRNA-seq reference correlation matrix, number of SpatialPCA components, and the PC-vs-treatment correlation screen threshold. Rows: power (TPR), FPR (with the nominal 5% level marked), AUC, and reconstruction RMSE of the augmented outcome ˆY against the true latent expression. Dotted vertical lines mark the default value used in the main analyses. indicating that too few components fail to capture the spatial confounding field U. From npcs = 10 upward FPR is stable (0.061-0.093), with no further benefit from increasing beyond 20-50. • PC-vs-treatment correlation screen ( |ρ| threshold ∈ { 0 .3 , . . . , 0 .7}, default 0.5). This threshold controls how aggressively SpatialPCA components correlated with treatment are excluded from the confounder set ˆU.Lower thresholds (more aggressive exclusion, 0 . 3-0 . 4) leave TPR and FPR essentially at the default (0 .92-0 . 93 and 0 . 075-0 . 077). Higher thresholds (less aggressive exclusion, retaining components more strongly correlated with treatment in ˆU) make the procedure more conservative: at 0 . 7, TPR falls to 0 . 893 and FPR to 0 . 050 – closer to nominal but at a power cost. The default 0.5 lies in the flat part of this tradeoff. 
+
+# C Mouse brain application details 
+
+Interneuron markers serve as negative controls: these cell types are distributed across cortical layers and should not exhibit systematic deep vs. superficial differences. The following table shows BH-adjusted q-values for all five interneuron markers across all five methods. TIDEST correctly returns all five as non-significant; Vip is called significant 5
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint by all four competitors. 
+
+Table C.1: BH q-values for interneuron marker genes across five methods. Values in bold are significant ( q < 0 . 05); these represent false positives. Gene TIDEST t-test SpaGCN DESpace SpatialGEE 
+
+Pvalb 0.096 0.355 0.482 0.618 0.469 
+
+Sst 0.764 0.041 0.168 0.281 0.077 
+
+Vip 0.091 0.002 0.029 0.006 0.002 
+
+Reln 0.140 0.125 0.259 0.260 0.154 
+
+Lhx6 0.707 0.813 0.939 0.829 0.837 
+
+TIDEST also recovers two genes whose TIDEST estimates align with more recent transcriptomic evidence over older functional annotations. Pou3f3 (Brain-1 /Brn-1 ) was initially characterized as a broadly expressed cortical transcription factor [7], but later work established its role in specifying superficial (L2 /3) neuron identity [8]: TIDEST detects superficial enrichment ( ˆτ = + 0 . 052, q = 3. 6 × 10 −7) that all four competitors miss ( q ≥ 0. 06). Prss12 (neurotrypsin ), annotated as upper-layer based on biochemical enrichment in dissected superficial fractions [9], is detected by TIDEST 
+
+as deeply enriched ( ˆτ = −0 . 066, q = 1 .1 × 10 −10 ), consistent with more recent findings [10 , 11 ]; all competitors agree on direction but only TIDEST reaches significance. In addition to Fezf2 , the strongest deep-layer signal was 
+
+Pcp4 (ˆ τ = −0.198, q = 5.4 × 10 −69 ), which has well-established deep cortical expression [12 ].
+
+# D Human glioblastoma application details 
+
+Table D.2 lists all 90 genes in the GBM analysis panel, their biological group, expected IvyGAP direction (CT-enriched, LE-enriched, or no clear prior), and the random-effects (DerSimonian-Laird) meta-analysis result across 26 samples. Asterisks indicate BH q < 0.05. 
+
+Table D.2: GBM gene panel with random-effects meta-analysis results ( n = 26 samples). LE = expected LE-enriched ( ˆτ > 0); CT = expected CT-enriched ( ˆτ < 0); 0 = no clear prior. * = BH q < 0 . 05 (random-effects meta-analysis). 
+
+✓ = result matches expectation; × = result discordant with expectation; (NS) = not significant ( q ≥ 0 . 05); – =
+
+no directional prior. a SALL1 and HEXB are homeostatic microglial markers expected to be LE-enriched. Their CT-enrichment likely reflects a reference artefact: the scRNA-seq reference [13 ] “Immune” class is overwhelmingly composed of tumor-associated macrophages (TAMs) from the CT compartment, not homeostatic microglia. Tangram 
+
+therefore maps these cells to CT spots, causing apparent CT-enrichment of homeostatic microglial markers. 
+
+Gene Exp. ˆτpool zpool Result 
+
+SNAP25 LE +0.247 +7.3* ✓
+
+SYT1 LE +0.160 +8.8* ✓
+
+RBFOX3 LE +0.018 +7.3* ✓
+
+TUBB3 LE +0.055 +6.6* ✓
+
+DCX LE +0.023 +6.0* ✓
+
+DLG4 LE +0.006 +4.1* ✓
+
+MAP2 LE +0.000 0.0 (NS) NRXN1 LE +0.023 +1.8 (NS) CKB LE −0.020 −1.2 (NS) MBP LE −0.071 −1.9 (NS) PLP1 LE −0.085 −2.1 (NS) MAG LE −0.029 −1.7 (NS) MOG LE −0.045 −3.0* ×
+
+SPARCL1 LE +0.067 +2.1 (NS) SLC1A2 LE +0.077 +2.3* ✓
+
+AQP4 CT −0.151 −10.2* ✓
+
+S100B CT −0.128 −9.1* ✓
+
+6
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+Gene Exp. ˆτpool zpool Result 
+
+GFAP CT −0.147 −8.3* ✓
+
+APOE CT −0.111 −5.8* ✓
+
+GJA1 CT −0.071 −5.6* ✓
+
+GLUL CT −0.001 −0.1 (NS) ALDOC CT −0.009 −0.3 (NS) CD44 CT −0.092 −4.0* ✓
+
+VIM CT −0.070 −3.1* ✓
+
+VCAN CT −0.069 −5.0* ✓
+
+CHI3L1 CT −0.043 −1.3 (NS) FN1 CT −0.036 −1.8 (NS) TNC CT −0.027 −1.8 (NS) COL1A1 CT −0.007 −1.8 (NS) SERPINE1 CT −0.003 −0.3 (NS) TGFBI CT +0.010 +0.8 (NS) ANXA2 CT −0.048 −2.0 (NS) POSTN CT −0.003 −0.6 (NS) EGFR CT −0.108 −7.4* ✓
+
+MET 0 +0.002 +0.8 –ASCL1 LE −0.111 −8.1* ×
+
+OLIG1 LE −0.126 −6.9* ×
+
+OLIG2 LE −0.099 −6.8* ×
+
+PDGFRA LE −0.067 −5.8* ×
+
+SOX10 LE −0.080 −5.3* ×
+
+SOX4 LE −0.043 −4.7* ×
+
+CCND2 LE −0.051 −4.1* ×
+
+SOX11 LE −0.019 −3.3* ×
+
+EGR1 LE −0.025 −1.8 (NS) NES 0 −0.067 −6.3* –BCAN LE −0.195 −7.6* ×
+
+PTPRZ1 LE −0.119 −6.3* ×
+
+HTRA1 LE −0.059 −5.4* ×
+
+NRCAM LE −0.048 −4.5* ×
+
+L1CAM LE +0.040 +7.0* ✓
+
+MMP2 LE −0.018 −4.3* ×
+
+ITGB1 LE −0.022 −2.7* ×
+
+PLAUR LE −0.013 −0.9 (NS) CXCR4 LE −0.003 −0.3 (NS) MMP9 LE −0.000 −0.1 (NS) MCM6 CT −0.023 −5.2* ✓
+
+MCM2 CT −0.022 −4.9* ✓
+
+PCNA CT −0.029 −4.4* ✓
+
+TOP2A CT −0.025 −3.2* ✓
+
+MKI67 CT −0.017 −2.4* ✓
+
+HIF1A CT −0.039 −3.5* ✓
+
+EPAS1 CT −0.016 −2.6* ✓
+
+CA9 CT −0.005 −1.0 (NS) LDHA CT +0.007 +0.5 (NS) LDHB LE −0.061 −5.6* ×
+
+HK2 CT +0.000 0.0 (NS) VEGFA 0 +0.009 +1.0 –CDKN2A 0 −0.039 −3.1* –IDH1 0 −0.058 −6.6* –SALL1 LE −0.033 −6.7* ×a
+
+7
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+Gene Exp. ˆτpool zpool Result 
+
+HEXB LE −0.015 −2.4* ×a
+
+OLFML3 LE −0.021 −1.8 (NS) CX3CR1 LE −0.012 −1.4 (NS) TMEM119 LE −0.007 −1.1 (NS) P2RY12 LE +0.005 +1.1 (NS) SPP1 CT −0.059 −1.8 (NS) LGALS1 CT −0.039 −1.9 (NS) LGALS3 CT −0.022 −1.6 (NS) CD163 CT −0.020 −1.5 (NS) MSR1 CT −0.013 −1.0 (NS) MRC1 CT −0.002 −1.3 (NS) AIF1 LE −0.013 −0.7 (NS) CD68 LE −0.017 −0.9 (NS) IL6 0 −0.009 −3.9* –PECAM1 LE −0.007 −2.2* ×
+
+VWF LE −0.004 −1.1 (NS) CLDN5 LE −0.008 −1.7 (NS) PTEN 0 +0.010 +5.0* –STAT3 0 −0.006 −1.8 –PTPN11 0 −0.002 −0.8 –
+
+Table D.3: Enrichment direction and q-value for the seven OPC /NPC and ECM "paradox" genes, across TIDEST and four competing methods. ✓ indicates the call is significant (BH q < 0. 05); all reported directions are CT-enriched, the unanimous result for every method–gene combination. Gene TIDEST t-test SpaGCN DESpace SpatialGEE 
+
+ASCL1 CT (8.9 × 10 −15 )✓ CT (0.003) ✓ CT (0.144) CT (0.081) CT (0.065) 
+
+OLIG1 CT (4.4 × 10 −11 )✓ CT (9.7 × 10 −7)✓ CT (3.2 × 10 −5)✓ CT (2.4 × 10 −4)✓ CT (3.6 × 10 −7)✓
+
+OLIG2 CT (8.2 × 10 −11 )✓ CT (1.8 × 10 −11 )✓ CT (3.7 × 10 −5)✓ CT (2.1 × 10 −5)✓ CT (4.2 × 10 −8)✓
+
+SOX10 CT (5.0 × 10 −7)✓ CT (0.974) CT (0.144) CT (0.426) CT (0.224) 
+
+PDGFRA CT (2.6 × 10 −8)✓ CT (0.021) ✓ CT (0.230) CT (0.412) CT (0.729) 
+
+BCAN CT (3.9 × 10 −13 )✓ CT (7.8 × 10 −8)✓ CT (1.2 × 10 −9)✓ CT (5.0 × 10 −7)✓ CT (2.9 × 10 −7)✓
+
+PTPRZ1 CT (1.6 × 10 −9)✓ CT (4.6 × 10 −7)✓ CT (8.9 × 10 −6)✓ CT (0.002) ✓ CT (0.008) ✓
+
+Beyond SYT1 and SNAP25 , several additional normal-brain markers were significantly LE-enriched (Table D.2): TUBB3 
+
+(q = 3. 1 × 10 −10 , significant in 69% of samples), RBFOX3 (NeuN; q = 2. 5 × 10 −12 , 54%), and DCX (q = 1. 1 × 10 −8,54%). SLC1A2 (EAAT2; ˆτ = + 0. 077, q = 0. 041) was likewise LE-enriched, confirming preserved normal astrocytes at the invasion margin. Regarding the OPC /NPC and ECM “paradox” genes (Fig. 4f ): at the 55 μm Visium resolution, each CT spot captures tens to hundreds of densely packed GBM tumor cells co-expressing OPC-like markers and ECM proteins, whereas LE spots contain a minority of tumor cells diluted within mostly normal neurons and glia, so the bulk signal is CT-enriched even for genes marking invasive or OPC-like states. This is a property of the data and resolution rather than an artefact of TIDEST deconfounding. 
+
+D.1 Cross-sample reproducibility as further validation 
+
+The biological validations in the main text are evaluated against curated expected directions drawn from the literature. To provide a validation that does not rely on any such prior annotation, we use the 26-sample GBM cohort to ask a purely internal reproducibility question: for each of the 90 panel genes, how often does the sign of the per-sample 
+
+TIDEST effect estimate ˆτ agree with the sign of the cross-sample, random-effects pooled estimate ˆτpool ? Because the 26 sections come from three independent patient cohorts (MGH, UKF, ZH) with substantial between-tumor heterogeneity (median I2 = 93%), high sign agreement across samples is not guaranteed by construction and provides 8
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+−0.2 −0.1 0.0 0.1 0.2 ̂
+
+τ ± 95% CI 
+
+Nxph2 
+
+Ntng1 
+
+Nrn1 
+
+Npsr1 
+
+Nfe2l1 
+
+Neurod6 
+
+Neurod2 
+
+Lhx6 
+
+Lhx2 
+
+Ldb2 
+
+Krt73 
+
+Htr2c 
+
+Grik1 
+
+Gad2 
+
+Gad1 
+
+Foxp2 
+
+Fezf2 
+
+Etv1 
+
+Emx1 
+
+Cux2 
+
+Cux1 
+
+Crym 
+
+Chrna6 
+
+Chrna4 
+
+Cdh13 
+
+Camk2a 
+
+Calb1 
+
+Bcl11b 
+
+TIDEST estimated effects — all 55 genes 
+
+> TIDEST
+> t-test
+> SpaGCN
+> DESpace
+> SpatialGEE
+
+−0.2 −0.1 0.0 0.1 0.2 ̂
+
+τ ± 95% CI 
+
+Vip 
+
+Tshz3 
+
+Trhr 
+
+Tle4 
+
+Tdo2 
+
+Tbr1 
+
+Syt6 
+
+Syt17 
+
+Sulf1 
+
+Sst 
+
+Sox5 
+
+Slc17a7 
+
+Slc17a6 
+
+Sema3c 
+
+Scnn1a 
+
+Satb2 
+
+Rspo1 
+
+Rorb 
+
+Reln 
+
+Rbfox3 
+
+Rasgrf2 
+
+Pvalb 
+
+Prss12 
+
+Pou3f3 
+
+Pou3f2 
+
+Plcxd2 
+
+Nxph4 
+
+(continued)      
+
+> TIDEST
+> t-test
+> SpaGCN
+> DESpace
+> SpatialGEE
+> 0.00 0.01 0.02 0.03 0.04 0.05
+
+BH-adjusted q-value 
+
+Superficial markers 
+
+Deep markers 
+
+Interneuron markers Ambiguous Figure C.3: Spatial augmented outcome maps and method comparison for the full mouse brain marker gene panel (55 genes), complementing Fig. 3c-d .9
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint 0 5 10 15 20       
+
+> log 10 (qpool )
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Cross-sample sign consistency
+> A. Sign consistency vs.
+> meta-analysis significance
+> Chance (0.5)
+> q= 0.05
+> Not sig.
+> (n=42)
+> Sig. ( q< 0.05)
+> (n=48)
+> 0.4
+> 0.5
+> 0.6
+> 0.7
+> 0.8
+> 0.9
+> 1.0
+> Cross-sample sign consistency
+> B. Significant vs. non-significant genes
+> (Mann-Whitney p= 1.1 e13)
+
+Figure D.4: Cross-sample reproducibility of TIDEST effect estimates across the 26-sample GBM cohort, evaluated without reference to curated marker directions. (a) Per-gene sign consistency – the fraction of the 26 per-sample ˆτ
+
+estimates sharing the sign of the random-effects pooled estimate ˆτpool – versus meta-analysis significance − log 10 (qpool ).Red: genes significant at q < 0. 05 ( n = 48); gray: non-significant ( n = 42). Dashed line: chance level (0 . 5); dotted line: q = 0 . 05. (b) Distribution of sign consistency for non-significant versus significant genes (boxes show quartiles, orange line the median, green triangle the mean; whiskers extend to the data range). Genes called significant by 
+
+TIDEST cross-sample meta-analysis show substantially higher cross-sample sign agreement (mean 82 . 7%) than non-significant genes (mean 58.5%, near chance; Mann-Whitney p = 1.1 × 10 −13 ). an objective, falsifiable check on whether TIDEST ’s effect estimates reflect a reproducible biological signal rather than sample-specific noise. Supplementary Fig. D.4 shows, for each gene, the fraction of the 26 samples whose individual ˆτ has the same sign as ˆτpool (“sign consistency”), plotted against the meta-analysis significance qpool (panel A) and grouped by significance at q < 0 . 05 (panel B). For the 48 /90 genes significant in the random-effects meta-analysis, mean sign consistency is 82 . 7%, compared to 58 . 5% for the remaining 42 genes – close to the 50% expected by chance for a sign with no reproducible direction (Mann-Whitney p = 1 . 1 × 10 −13 ). This separation is not an artifact of the significance threshold itself: qpool is computed from a meta-analysis of all 26 samples jointly, whereas sign consistency is a simple per-sample count that could in principle be uncorrelated with the pooled q-value if individual estimates were dominated by sample-specific confounding rather than a shared effect. The strong association between the two indicates that TIDEST 
+
+extracts a direction-consistent signal across independent tumor sections, complementing (and not contingent on) the curated marker-direction comparisons reported in the main text. 
+
+# E Human breast cancer application details 
+
+Table E.4: Per-gene results for the 30 genes present in both the Xenium panel and the curated marker list. Bold ˆτ
+
+indicates significance ( q < 0. 05) in TIDEST . Exp. dir. : expected direction (IBC = IBC-enriched; DCIS = DCIS-enriched; — = contested or no established direction). Correct : ✓= significant and correct direction; × = significant but wrong direction; ns = non-significant for a directional gene; — = no established direction. q-values are BH-adjusted; values below 10 −300 shown as < 10 −300 .Gene Exp. dir. ˆτ q (TIDEST ) q (t-test) q (SpaGCN ) q (DESpace ) q (SpatialGEE ) Correct 
+
+KRT14 DCIS -0.811 < 10 −300 < 10 −300 < 10 −300 < 10 −300 <10 −12 ✓
+
+ESR1 DCIS -0.669 < 10 −300 < 10 −300 < 10 −300 < 10 −300 <10 −12 ✓
+
+KRT5 DCIS -0.606 < 10 −300 < 10 −300 <10 −206 < 10 −300 <10 −13 ✓
+
+MYLK DCIS -0.311 < 10 −300 < 10 −300 < 10 −300 < 10 −300 <10 −12 ✓
+
+CDH1 DCIS -0.178 < 10 −300 <10 −89 <10 −82 <10 −62 0.001 ✓
+
+CLDN4 DCIS -0.169 <10 −114 < 10 −300 < 10 −300 < 10 −300 <10 −13 ✓
+
+EGFR — -0.100 < 10 −300 <10 −80 <10 −22 <10 −77 <10 −8 —
+
+Continued on next page 
+
+10 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint Table E.4 continued 
+
+Gene Exp. dir. ˆτ q (TIDEST ) q (t-test) q (SpaGCN ) q (DESpace ) q (SpatialGEE ) Correct 
+
+PGR DCIS -0.080 < 10 −300 <10 −82 <10 −5 <10 −128 <10 −9 ✓
+
+GNLY IBC -0.075 <10 −169 0.025 0.907 0.016 0.088 ×
+
+S100A8 IBC -0.045 <10 −149 <10 −47 0.003 <10 −70 <10 −10 ×
+
+CTLA4 — -0.045 <10 −132 0.055 0.907 0.008 0.225 —
+
+RUNX1 DCIS -0.038 <10 −20 <10 −88 <10 −68 <10 −83 0.001 ✓
+
+KRT8 DCIS -0.017 <10 −8 <10 −286 <10 −281 < 10 −300 <10 −6 ✓
+
+SNAI1 IBC +0.001 0.145 0.634 0.907 0.587 0.516 ns 
+
+TIGIT DCIS +0.003 0.176 0.435 0.907 0.973 0.332 ns 
+
+TYROBP IBC +0.034 <10 −30 <10 −7 0.384 <10 −9 0.008 ✓
+
+KIT DCIS +0.034 <10 −40 <10 −55 <10 −5 <10 −60 <10 −9 ×
+
+ZEB1 IBC +0.040 <10 −52 <10 −117 <10 −15 <10 −119 <10 −9 ✓
+
+ZEB2 IBC +0.067 <10 −139 <10 −69 <10 −17 <10 −85 <10 −7 ✓
+
+S100A4 IBC +0.071 <10 −213 <10 −22 <10 −7 <10 −10 0.003 ✓
+
+GATA3 — +0.085 <10 −140 <10 −60 <10 −133 <10 −267 0.001 —
+
+NKG7 IBC +0.185 < 10 −300 0.819 0.975 0.479 0.546 ✓
+
+MMP2 IBC +0.207 < 10 −300 <10 −160 <10 −34 <10 −183 <10 −8 ✓
+
+CXCR4 IBC +0.225 < 10 −300 < 10 −300 < 10 −300 < 10 −300 <10 −16 ✓
+
+MLPH — +0.241 < 10 −300 0.006 0.005 <10 −85 0.426 —
+
+ERBB2 IBC +0.268 < 10 −300 0.169 0.907 <10 −138 0.813 ✓
+
+POSTN IBC +0.279 < 10 −300 < 10 −300 <10 −234 < 10 −300 <10 −9 ✓
+
+FOXA1 — +0.284 < 10 −300 < 10 −300 < 10 −300 < 10 −300 <10 −9 —
+
+TOP2A IBC +0.372 <10 −257 <10 −238 <10 −190 <10 −251 <10 −8 ✓
+
+MKI67 IBC +0.460 < 10 −300 < 10 −300 <10 −184 < 10 −300 <10 −11 ✓
+
+Table E.5: Per-gene results for the 38 genes accessible only through CellPLM prediction (not present in the Xenium 313-gene panel; no competitor benchmarks available). Bold ˆτ indicates significance ( q < 0 .05). Exp. dir. : as in Table E.4. Correct : as in Table E.4; note that with n = 62755 cells, even small effects are highly significant – ˆτ
+
+magnitude is the primary interpretive metric. Gene Exp. dir. ˆτ q (TIDEST ) Correct 
+
+TFF3 DCIS -1.082 < 10 −300 ✓
+
+TFF1 DCIS -0.995 < 10 −300 ✓
+
+AREG DCIS -0.734 < 10 −300 ✓
+
+KRT19 DCIS -0.723 < 10 −300 ✓
+
+AGR2 DCIS -0.489 < 10 −300 ✓
+
+CDH3 DCIS -0.281 < 10 −300 ✓
+
+TP63 DCIS -0.254 < 10 −300 ✓
+
+LAMB3 DCIS -0.239 < 10 −300 ✓
+
+LAMC2 DCIS -0.218 < 10 −300 ✓
+
+ERBB4 DCIS -0.189 < 10 −300 ✓
+
+CNN1 DCIS -0.186 < 10 −300 ✓
+
+CLDN3 DCIS -0.134 < 10 −300 ✓
+
+CLDN7 DCIS -0.116 < 10 −300 ✓
+
+ITGB6 DCIS -0.053 <10 −174 ✓
+
+S100A9 IBC -0.041 < 10 −300 ×
+
+CA9 IBC -0.005 <10 −78 ×
+
+CXCL10 — +0.001 0.317 —
+
+ALDH1A1 IBC +0.015 <10 −62 ✓
+
+COL4A1 DCIS +0.016 <10 −22 ×
+
+Continued on next page 
+
+11 
+
+.CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint Table E.5 continued 
+
+Gene Exp. dir. ˆτ q (TIDEST ) Correct 
+
+CDKN2A IBC +0.034 < 10 −300 ✓
+
+CD44 IBC +0.054 < 10 −300 ✓
+
+COL11A1 IBC +0.063 < 10 −300 ✓
+
+MMP9 IBC +0.064 < 10 −300 ✓
+
+MCM6 IBC +0.078 < 10 −300 ✓
+
+PCNA IBC +0.082 < 10 −300 ✓
+
+GREM1 IBC +0.093 < 10 −300 ✓
+
+MCM2 IBC +0.102 < 10 −300 ✓
+
+SNAI2 IBC +0.103 < 10 −300 ✓
+
+VIM IBC +0.108 < 10 −300 ✓
+
+EZH2 IBC +0.109 < 10 −300 ✓
+
+TWIST1 IBC +0.109 < 10 −300 ✓
+
+MMP11 IBC +0.126 < 10 −300 ✓
+
+SPDEF DCIS +0.201 < 10 −300 ×
+
+CDH2 IBC +0.221 < 10 −300 ✓
+
+THBS2 IBC +0.242 < 10 −300 ✓
+
+FN1 IBC +0.249 < 10 −300 ✓
+
+CDK1 IBC +0.259 < 10 −300 ✓
+
+CCNB1 IBC +0.263 < 10 −300 ✓
+
+In addition to KRT5 and KRT14 , the myoepithelial program is corroborated by TP63 ( ˆτ = −0 . 25) [14 , 15 ], MYLK 
+
+( ˆτ = −0 .31) [16 ], and CNN1 ( ˆτ = −0. 19) [17 ], all DCIS-enriched (Tables E.4-E.5). The non-significant immune genes are also biologically interpretable: TIGIT , an immune checkpoint receptor [18 ], shows ˆτ ≈ 0 ( q = 0. 18), consistent with equivalent immune regulatory pressure in both compartments, and CXCL10 (q = 0 . 32) shows spatial distribution that does not differ systematically between IBC and DCIS, suggesting locally heterogeneous cytokine signaling that does not resolve into a stable contrast [19 ]. NKG7 , a cytotoxic NK /T-cell granule marker [20 ] expected to be IBC-enriched given immune infiltration is a hallmark of disease progression [21 ], is detected by TIDEST ( ˆτ = + 0. 185, q ≈ 0) but missed by both the t-test ( q = 0.77) and SpaGCN (q = 0.97). 
+
+# References 
+
+[1] Jin-Hong Du, Kathryn Roeder, and Larry Wasserman. Assumption-lean post-integrated inference with surrogate-control outcomes. Biometrika , page asag004, 2026. 
+
+[2] Peiying Cai, Mark D Robinson, and Simone Tiberi. Despace: spatially variable gene detection via differential expression testing of spatial clusters. Bioinformatics , 40(2):btae027, 2024. 
+
+[3] Yishan Wang, Chenxuan Zang, Ziyi Li, Charles C Guo, Dejian Lai, and Peng Wei. A comparative study of statistical methods for identifying differentially expressed genes in spatial transcriptomics. bioRxiv , 2025. 
+
+[4] Jian Hu, Xiangjie Li, Kyle Coleman, Amelia Schroeder, Nan Ma, David J Irwin, Edward B Lee, Russell T Shinohara, and Mingyao Li. Spagcn: Integrating gene expression, spatial location and histology to identify spatial domains and spatially variable genes by graph convolutional network. Nature methods , 18(11):1342–1351, 2021. 
+
+[5] Anastasios N Angelopoulos, Stephen Bates, Clara Fannjiang, Michael I Jordan, and Tijana Zrnic. Prediction-powered inference. Science , 382(6671):669–674, 2023. 
+
+[6] Ergan Shang, Yuting Wei, and Kathryn Roeder. Predicting the unseen: a diffusion-based debiasing framework for transcriptional response prediction at single-cell resolution. Proceedings of the National Academy of Sciences ,122(52):e2525268122, 2025. 
+
+[7] Yoshinobu Sugitani, Shigeyasu Nakai, Osamu Minowa, Miyuki Nishi, Kou-ichi Jishage, Hitoshi Kawano, Kensaku Mori, Masaharu Ogawa, and Tetsuo Noda. Brn-1 and brn-2 share crucial roles in the production and positioning of mouse neocortical neurons. Genes & development , 16(14):1760–1765, 2002. 12 
+
+> .CC-BY 4.0 International license available under a (which was not certified by peer review) is the author/funder, who has granted bioRxiv a license to display the preprint in perpetuity. It is made The copyright holder for this preprint this version posted June 24, 2026. ;https://doi.org/10.64898/2026.06.19.733432 doi: bioRxiv preprint
+
+[8] Martin H Dominguez, Albert E Ayoub, and Pasko Rakic. Pou-iii transcription factors (brn1, brn2, and oct6) influence neurogenesis, molecular identity, and migratory destination of upper-layer cells of the cerebral cortex. 
+
+Cerebral cortex , 23(11):2632–2643, 2013. 
+
+[9] Thomas P Gschwend, Stefan R Krueger, Serguei V Kozlov, David P Wolfer, and Peter Sonderegger. Neurotrypsin, a novel multidomain serine protease expressed in the nervous system. Molecular and Cellular Neuroscience , 9(3): 207–219, 1997. 
+
+[10 ] Kazumasa Matsumoto-Miyai, Ewa Sokolowska, Andreas Zurlinden, Christine E Gee, Daniel Lüscher, Stefan Hettwer, Jens Wölfel, Ana Paula Ladner, Jeanne Ster, Urs Gerber, et al. Coincident pre-and postsynaptic activation induces dendritic filopodia via neurotrypsin-dependent agrin cleavage. Cell , 136(6):1161–1171, 2009. 
+
+[11 ] Maura Ferrer-Ferrer, Shaobo Jia, Rahul Kaushik, Jenny Schneeberg, Izabela Figiel, Stepan Aleshin, Andrey Mironov, Motahareh Safari, Renato Frischknecht, Jakub Wlodarczyk, et al. Mice deficient in synaptic protease neurotrypsin show impaired spaced long-term potentiation and blunted learning-induced modulation of dendritic spines. Cellular and Molecular Life Sciences , 80(4):82, 2023. 
+
+[12 ] Maria Renelt, Viola von Bohlen und Halbach, and Oliver von Bohlen und Halbach. Distribution of pcp4 protein in the forebrain of adult mice. Acta histochemica , 116(6):1056–1061, 2014. 
+
+[13 ] Spyros Darmanis, Steven A Sloan, Derek Croote, Marco Mignardi, Sophia Chernikova, Peyman Samghababi, Ye Zhang, Norma Neff, Mark Kowarsky, Christine Caneda, et al. Single-cell rna-seq analysis of infiltrating neoplastic cells at the migrating front of human glioblastoma. Cell reports , 21(5):1399–1410, 2017. 
+
+[14 ] Sangjun Lee, Sheila Stewart, Iris Nagtegaal, Jingqin Luo, Yun Wu, Graham Colditz, Dan Medina, and D Craig Allred. Differentially expressed genes regulating the progression of ductal carcinoma in situ to invasive breast cancer. Cancer research , 72(17):4574–4586, 2012. 
+
+[15 ] Catalina Lodillinsky, E Infante, A Guichard, R Chaligné, L Fuhrmann, J Cyrta, Marie Irondelle, Emilie Lagoutte, Sophie Vacher, H Bonsang-Kitzis, et al. p63 /mt1-mmp axis is required for in situ to invasive transition in basal-like breast cancer. Oncogene , 35(3):344–357, 2016. 
+
+[16 ] Dayoung Kim, Jonathan A Cooper, and David M Helfman. Loss of myosin light chain kinase induces the cellular senescence associated secretory phenotype to promote breast epithelial cell migration. Scientific Reports , 14(1): 25786, 2024. 
+
+[17 ] Elizabeth Mitchell, Sonali Jindal, Tiffany Chan, Jayasri Narasimhan, Shamilene Sivagnanam, Elliot Gray, Young Hwan Chang, Sheila Weinmann, and Pepper Schedin. Loss of myoepithelial calponin-1 character-izes high-risk ductal carcinoma in situ cases, which are further stratified by t cell composition. Molecular carcinogenesis , 59(7):701–712, 2020. 
+
+[18 ] Xin Yu, Kristin Harden, Lino C Gonzalez, Michelle Francesco, Eugene Chiang, Bryan Irving, Irene Tom, Sinisa Ivelja, Canio J Refino, Hilary Clark, et al. The surface protein tigit suppresses t cell activation by promoting the generation of mature immunoregulatory dendritic cells. Nature immunology , 10(1):48–57, 2009. 
+
+[19 ] Milim Kim, Hye Yeon Choi, Ji Won Woo, Yul Ri Chung, and So Yeon Park. Role of cxcl10 in the progression of in situ to invasive carcinoma of the breast. Scientific Reports , 11(1):18007, 2021. 
+
+[20 ] Susanna S Ng, Fabian De Labastida Rivera, Juming Yan, Dillon Corvino, Indrajit Das, Ping Zhang, Rachel Kuns, Shashi Bhushan Chauhan, Jiajie Hou, Xian-Yang Li, et al. The nk cell granule protein nkg7 regulates cytotoxic granule exocytosis and inflammation. Nature immunology , 21(10):1205–1218, 2020. 
+
+[21 ] Sathana Dushyanthen, Paul A Beavis, Peter Savas, Zhi Ling Teo, Chenhao Zhou, Mariam Mansour, Phillip K Darcy, and Sherene Loi. Relevance of tumor-infiltrating lymphocytes in breast cancer. BMC medicine , 13(1):202, 2015. 13
