@@ -1,0 +1,232 @@
+Title: Predicting Metastatic Risk from Primary Tissue Architecture via Distance-Aware Spatial Modeling
+
+URL Source: https://arxiv.org/pdf/2606.28676v1
+
+Published Time: Tue, 30 Jun 2026 00:23:40 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Predicting Metastatic Risk from Primary Tissue Architecture via Distance-Aware Spatial Modeling 
+
+Sandesh Pokhrel 1,2, Hamid Manoochehri 1,2, Bodong Zhang 1,2, Beatrice S Knudsen 3, and Tolga Tasdizen 1,2 
+
+> 1
+
+Department of Electrical and Computer Engineering, University of Utah  
+
+> 2
+
+Scientific Computing and Imaging Institute, University of Utah  
+
+> 3
+
+Department of Pathology, University of Utah 
+
+u1604138@umail.utah.edu 
+
+Abstract. Predicting the risk of distant metastasis from primary tu-mor tissue histology is a critical yet challenging task in computational pathology. Multiple Instance Learning (MIL) approaches can attend to subdomains in tumor regions that harbor features of metastatic can-cer progression. However MIL models treat tissue patches as unordered bags, discarding the spatial layout that defines the metastatic potential. We propose that metastatic risk is inherently dictated by the geomet-ric arrangement of the tumor microenvironment at the interface with tumor cells. Our model is designed to explicitly capture the spatial rela-tionships between tumor cells, tumor associated fibroblasts and infiltrat-ing lymphocytes. For this purpose, we propose Distance aware Tissue Modeling for Multiple Instance Learning(DTMf-MIL), a novel method that reinforces visual features with explicit spatial priors. By comput-ing signed distance functions (SDF) relative to tissue phenotypes, our model learns to recognize structural signatures of metastatic risk. This geometric awareness translates directly to superior clinical performance as DTMf-MIL significantly outperforms state-of-the-art methods that ig-nore spatial layout on metastasis prediction from tissue in the primary tumor. We further validate our approach on public benchmarks, demon-strating that spatial awareness consistently improves diagnostic accuracy across diverse clinical tasks. 
+
+Keywords: Tissue layout · WSI · Metastases · Clustering · Phenotype 
+
+## 1 Introduction 
+
+Cancer metastasis is responsible for roughly two-thirds of all cancer deaths, and up to 90% in specific cancer types [5], making metastatic risk predictions an urgent prognostic need. The accurate prediction of metastatic risk from primary tumor histology still remains one of the most significant challenges in computa-tional pathology. While deep learning has revolutionized the diagnosis of Whole Slide Images (WSIs), current approaches are largely optimized for detection,  
+
+> arXiv:2606.28676v1 [cs.CV] 27 Jun 2026 2Pokhrel et al.
+
+i.e. identifying whether a tumor is present. However, the biological drivers of metastasis are not just defined by the presence of malignant cells, but by cell types and layout of the interface between the tumor and the adjacent tumor microenvironment [18]. For instance, the spatial arrangement of tumor nests in the stroma, their proximity to vascular structures, and the type of immune cell infiltration affects the dissociation of cancer cells from the tumor mass and their vascular dissemination to metastatic sites [14–16, 20]. Because this spatial mor-phological layout is the key to disease progression, analyzing metastasis in tissue landscapes of gigapixel size demands a shift in computational pathology, i.e, moving away from the simple classification through patch features for structural tissue modeling. To handle the sheer volume of gigapixel data, researchers typically treat WSIs as a ‘bag of patches’ using Multiple Instance Learning (MIL) for prognostic mod-eling[7, 9, 17, 19, 21, 22]. In this paradigm, the WSI is fragmented into thousands of small, independent tiles, and an aggregation function combines their features to predict a slide-level label. While effective for tasks where the mere presence of a specific cell population dictates the outcome, this approach is fundamentally limited for metastasis prediction because the positive class cannot be isolated from single tiles; instead, it emerges from the spatial interactions of cells within regions of the tumor microenvironment. By treating the slide as an unordered collection of features, standard MIL methods discard the spatial relationship between patches. Because attention models [7, 12, 9] filter patches based solely on instance level importance, a contained tumor core and an infiltrative margin become visually indistinguishable to the network if their feature distributions are similar. Graph models form localized meshes but lack the abstraction required to model intra-tissue interactions [4]. TransMIL [17] introduces pyramidal posi-tion encodings to capture local context and region-aware method like RRT-MIL [19] rely on inferring correlations based on feature similarity between regions of patches. However, feature similarity alone cannot model the higher order phe-notypic patterns and interactions in a WSI. This leaves a critical gap for these models: lack of an explicit understanding of the tissue’s geometric layout and the modeling of microenvironments within tissues. Current models cannot quantify the distance from a tumor cell to a vascular structure or tissue sections that are essential for identifying the signatures of metastasis [14, 13]. Here, we first compute clustering on patch level features (unsupervised K-Means or zero shot CONCH) to generate a phenotypic map of the tissue. Based on these semantic regions, we compute cluster specific Signed Distance Functions (SDFs), which measure the precise physical depth of each patch relative to phe-notypic boundaries. We further enrich this representation by 1) Applying Radial Basis Functions (RBF) to model multi-scale interactions (e.g., long-range sig-naling vs. immediate contact); 2) Computing SDF Gradients (via Sobel filters) to explicitly highlight critical transition zones and 3) Extracting local statisti-cal moments to characterize tissue heterogeneity and dispersion. By reinforcing visual features with these explicit spatial descriptors, our model moves beyond recognizing what a patch looks like to understanding where it resides in the slide Predicting Metastatic Risk with DTMf-MIL 3
+
+layout. This allows the network to distinguish between contained, solid tumor masses, invasive nests and even cancer cells that detached from the tumor mass, the latter two representing patterns characteristic of high metastatic potential. To our knowledge, this is the first MIL framework to utilize phenotypic distance fields as explicit spatial priors for metastatic risk prediction. We summarize our main contributions as: 1. Phenotypic Layout Modeling: We introduce an unsupervised segmen-tation mechanism that partitions the WSI into distinct phenotypic regions, serving as the basis for extracting geometric descriptors of structure without pixel-level annotations. 2. Distance-Aware Spatial Encoding: We propose a spatial embedding MLP module derived from Signed Distance Functions (SDFs). This explicitly enforces the model to learn the layout of invasion, capturing the proximity of tumor cells to critical stromal and immune interfaces. 3. Improved Performance on Metastatic Risk and Public Benchmarks: 
+
+We demonstrate that incorporating spatial priors yields significant perfor-mance gains in predicting metastatic outcomes on a dataset from a Veterans Administration Health Care System (VA-Dataset),outperforming state-of-the-art MIL methods. We further demonstrate DTMf-MIL’s translational capacity by improving multi-class grading of prostate cancer on PANDA, in detecting breast cancer lymph node metastasis in the Camelyon16 dataset, and cancer subtyping in TCGA-NSCLC. 
+
+## 2 Method 
+
+The problem of WSI classification under MIL framework is represented as a bag level classification where B = {x1, x 2, . . . , x N } and each xi ∈ RD denotes the feature embedding of the ith patch extracted from a slide with N patches which varies across slides. The slide is associated with single global label Y ∈ { 0, 1} for representing the patient’s metastatic risk (e.g., non-metastatic vs. metastatic). The objective here is to learn an aggregation function ϕ(.) and classification function ρ(.) such that the predicted probability of metastatic spread for the slide can be given by: ˆY = ρ(ϕ({xi}Ni=1 )) . In conventional approaches, ϕ is typically max-pooling or attention weighted sum that disregards spatial arrangement of instances in B. This treats the tissue as an unordered set, causing the loss of spatial information. To introduce a mathematical layout of the tissue we reinforce the image patch features xi with an explicitly derived spatial descriptor, si ∈
+
+R14 K , where K represents the number of distinct tissue phenotypes identified in the slide. Our model processes a sequence of tuples where the bag is represented as B = {(x1, s 1), (x2, s 2), . . . , (xN , s N )} and the probability of metastatic spread is given as: ˆY = ρ(ϕ({xi, s i}Ni=1 )) .
+
+2.1 Unsupervised Tissue Segments 
+
+In order to encode geometric priors without requiring patch labels, we establish a structural baseline of the tissue. For a globally consistent definition of tissue 4 Pokhrel et al. 
+
+structure, we fit a single K-means clustering model on the entire training corpus using the patch level features xi. This enables us to capture the full distribution of histological heterogeneity across all training slides. The mapping ensures con-sistent partitioning of the WSI into a standardized set of K phenotypic regions with ki ∈ { 1, . . . , K } denoting cluster assignment for the ith patch, providing an unsupervised patch level semantic map of the tumor microenvironment serving as the phenotypic base of our SDFs. 
+
+Zero Shot Semantic Tissue Labels These semantic maps can also be ob-tained in a zero-shot manner with morphological interpretability. Using the multi-modal CONCH [11], each patch can be assigned to a semantic cluster by evaluating the similarity between its visual embedding and the text embeddings of prompts. To capture the prostate tissue microenvironment, we define a set of pathologist-suggested morphological features. As listed and visually compared in Figure 2 (left), the zero-shot semantic tissue maps generated from these classes exhibit strong spatial correspondence with the unsupervised K-means clusters derived from the UNI backbone, validating the biological relevance of our struc-tural baseline. In experiments, we label the tissue sections with CONCH when its visual encoder is used. Per Slide   
+
+> Patch
+> Features
+> Grid
+> Feature Extraction Spatial Structuring Geometry Encoding
+> K-means/CONCH tissue segments
+> SDF
+> boundary
+> features
+> Position Encoded
+> Features
+> MLP
+> Traditional Position
+> Encoding MIL
+> DTMf MIL
+> All Training
+> Patches
+> Fit K-means
+> MIL Integration
+> Attention Pooling
+> Classify
+> MIL Integration
+> Attention Pooling
+> Classify
+> Feature
+> Centroids
+
+Fig. 1. The DTMf-MIL Pipeline . To overcome the limitations of implicit spatial encoding in traditional MIL (top), DTMf-MIL (bottom) explicitly maps the geometric landscape of the tumor microenvironment. We utilize K-means/CONCH to segment the WSI into distinct phenotypic tissue types, translating the layout into continuous SDF boundary features. These explicit spatial priors with standard patch features allows the network to predict metastatic risk based on the physical arrangement of the tissue. Predicting Metastatic Risk with DTMf-MIL 5
+
+2.2 Distance-aware Tissue Modeling 
+
+Building on the semantic map, we propose distance aware tissue modeling to generate a high dimensional spatial encoding si for each patch. This module models the tissue structure through a composite vector derived from the SDF of each cluster k ∈ { 1, . . . K }.
+
+Base SDF Computation In order to capture the spatial layout of each tis-sue region, we convert the discrete cluster assignments into continuous distance maps. For a specific cluster k, let Mk be a binary mask where Mk(u, v ) = 1 
+
+indicates that the patch at grid location (u, v ) belongs to cluster k. We compute the SDF, ψk, by utilizing the Euclidean Distance Transform (EDT) on both the foreground and background of this mask: ψk(u, v ) = EDT (1 − Mk)( u, v ) −
+
+EDT (Mk)( u, v ), which measures the physical distance from any patch to the nearest boundary of cluster k.
+
+Multi-Scale Radial Basis Features (RBF) Instead of using the raw SDFs directly, we apply a set of Radial Basis Functions to capture spatial relationships at varying scales i.e from local neighborhood interactions to global tissue struc-tures. Let d(k) 
+
+> i
+
+= ψk(ui, v i) represent the extracted SDF value for the ith patch located at spatial grid coordinates (ui, v i). For each patch relative to a given cluster k, we compute a multi-scale feature vector using a logarithmic range of decay parameters Γ = {γ1, . . . , γ 10 }: r(k) 
+
+> i,j
+
+= exp 
+
+
+
+−γj · (d(k) 
+
+> i
+
+)2
+
+
+
+, ∀γj ∈ Γ . The upper bound ( γ = 10 −2) establishes an effective decay radius of approximately 
+
+10 patches, aggressively capturing sharp localized boundaries. Conversely, the lower bound ( γ = 10 −7) creates an effective radius exceeding 3000 patches. No-tably, Γ can be integrated as learnable parameters in future versions. 
+
+Local Morphological Gradients and Statistics While the SDF encodes the position of a patch, it does not fully capture the geometric landscape. To ex-plicitly detect critical tissue boundaries we compute the directional gradients of the SDF map ψk. We utilize Sobel operators to extract the horizontal and verti-cal rates of change, g(k) 
+
+> x,i
+
+= ∇xψk and g(k) 
+
+> y,i
+
+= ∇y ψk, at the patch location. These components form a directional vector pointing towards the nearest phenotype in-terface, capturing direction of phenotypic changes. Furthermore, to characterize the local heterogeneity of the tissue layout, we compute the mean and standard deviation of SDFs within a 3 × 3 local window centered at i.
+
+Final Spatial Input For each cluster k, we concatenate these descriptors into a cluster-specific spatial vector v(k) 
+
+> i
+
+∈ R14 (10 RBFs + 2 Gradients + 2 Stats). The final spatial encoding si for patch i is the concatenation of vectors from all K
+
+clusters: si =
+
+h
+
+v(1)  
+
+> i
+
+∥ v(2)  
+
+> i
+
+∥ · · · ∥ v(K)
+
+> i
+
+i
+
+∈ R14 K . This rich representation captures a comprehensive view of where the patch resides relative to every identified tissue phenotype, conditioned on both distance and local structural variation. 
+
+2.3 MIL Integration 
+
+We employ a standard position encoding generator(PEG) module on image patch features xi consisting of a single Conv2D layer following RRTMIL and Trans-6 Pokhrel et al. 
+
+mil [19, 17]. The high-dimensional spatial descriptors si are projected via a MLP to match the image patch feature dimension. We then fuse the phenotypic and geometric information by concatenating these representations with position encoded visual features. Finally, following ABMIL [7], the concatenated features are compressed into instance-level representations zi ∈ R512 and aggregated using a gated attention module. Because the attention scores are derived di-rectly from these joint visual-spatial embeddings, the final slide-level prediction of metastatic risk is explicitly driven by both cellular morphology and its global layout. The overall pipeline of our proposed method is illustrated in Figure 1 
+
+## 3 Experiments and Results 
+
+Dataset Specifically curated for the task of predicting metastatic risk from digital H&E slides of the cancer in the prostate, we utilize an internal Veter-ans Affairs (VA) hospital needle biopsy cohort VA-Dataset. While existing MIL research predominantly focuses on public classification and subtyping datasets, predicting metastasis at the time of diagnosis presents a far more complex, prog-nostic challenge. The VA-dataset comprises 583 WSIs, which we partition into 499 training and 84 testing WSI samples, strictly ensuring no patient over-lap . To demonstrate the generalizability of our model we evaluate DTMf-MIL on standard public benchmarks. We utilize Camelyon16 [10] (270 training, 128 testing samples) for lymph node metastasis detection, and TCGA-NSCLC [1, 8] (834 training, 206 testing samples) for cancer subtyping (LUAD vs. LUSC). While Camelyon16 condenses the clinical problem to the binary detection of tu-mor versus normal tissue rather than predicting prognostic risk from the primary site, it has served as a baseline for evaluating MIL performance. For PANDA [2], we use the 4364 cases from Karolinska training data and the 2591 cases from Radboud as testing data following the previously suggested setup [21]. To ac-commodate for annotator consistency and domain gap across centers we conduct a 3 class classification of benign, low-grade and high-grade cancer. 
+
+Implementation We compare DTMf-MIL to five SOTA MIL models, AB-MIL [7], RRTMIL[19], ILRA[21], DS-MIL[9], TransMIL[17]. We extract 256x256 patch features at 20x magnification. All experiments were done together in a                                                                                                              
+
+> Table 1. Primary Task: Metastatic Risk Prediction on the VA-Dataset. We evaluate on ResNet50, pathology specific backbones CONCH and UNI.
+> Method ResNet50 Backbone CONCH Backbone UNI Backbone AUC ↑Acc ↑F1 ↑AUC ↑Acc ↑F1 ↑AUC ↑Acc ↑F1 ↑
+> ABMIL [7] 60 .62 54 .76 51 .28 63 .27 61 .90 54 .29 70 .71 77 .38 69 .84
+> RRT-MIL [19] 62 .72 65 .48 57 .97 60 .99 60 .71 57 .14 76 .19 72 .56 69 .70
+> ILRA [21] 71 .73 63 .10 58 .67 63 .02 63 .10 60 .76 73 .46 73 .81 67 .65
+> DS-MIL [9] 55 .95 60 .25 57 .47 60 .86 60 .71 57 .14 67 .59 61 .90 58 .97
+> TransMIL [17] 60 .12 51 .19 55 .91 65 .56 66 .67 57 .48 69 .81 69 .05 61 .76
+> DTMf-MIL 72 .41 70 .24 65 .75 72 .04 70 .24 52 .83 74 .14 82 .14 76 .92 Predicting Metastatic Risk with DTMf-MIL 7
+> Table 2. Multi-Class Grading on PANDA. MIL method comparison on CONCH and UNI backbones.
+> Method CONCH Backbone UNI Backbone Acc ↑F1 ↑QWK ↑Acc ↑F1 ↑QWK ↑
+> ABMIL [7] 77 .50 77 .73 72 .18 80 .01 79 .72 74 .76
+> RRT-MIL [19] 78 .70 78 .85 74 .08 75 .72 74 .25 70 .90
+> DS-MIL [21] 78 .81 78 .76 72 .90 80 .36 80 .58 76 .12
+> ILRA [9] 79 .20 79 .31 71 .33 81 .24 81 .24 76 .01
+> TransMIL [17] 76 .88 76 .58 71 .58 80 .59 80 .30 75 .42
+> DTMf-MIL 80 .24 80 .21 74 .84 81 .98 81 .84 76 .96
+
+seeded environment to ensure reproducible results. The models were trained for 30 epochs, single batch size and 2e-4 learning rate. AUC (Area Under Curve), Acc (Accuracy), F1 (F1-score) and QWK (Quadratic Weighted Kappa) were se-lected as standard evaluation metrics, with QWK to evaluate ordinal agreement in multi-class grading. We test the model performance across three different backbones, Resnet50[6], multi-modal CONCH [11] and the pathology specific foundational model, UNI [3]. 
+
+Metastatic Prediction Results on VA-Dataset As shown in Table 1, DTMf-MIL consistently demonstrates superior performance across diverse feature ex-tractors. On the standard ResNet50 backbone, our method achieves better re-sults across all metrics. With modern pathology foundation models, the benefit of explicitly modeling tissue layout becomes clearer. We improve in AUC and Ac-curacy with the CONCH backbone on zero shot CONCH tissue labels. Further, DTMf-MIL reaches the top accuracy and F1-score using UNI features. 
+
+Multi-Class Grading Results To test spatial priors in multi-class scenarios, we evaluate DTMf-MIL on the large-scale PANDA dataset for 3-class prostate cancer grading(Table 2, Fig. 2: Right). Utilizing both the CONCH and UNI foundation models, DTMf-MIL achieves better accuracy, QWK and F1-scores. 
+
+Public Benchmark Results DTMf-MIL also demonstrates highly competitive performance on standard WSI classification tasks: Table 3 (left). By establishing competitive results on Camelyon16 (detection) and TCGA-NSCLC (subtyping), we confirm that explicitly encoding geometric and spatial priors benefits stan-dard diagnostic workflows, not just complex risk assessment or cancer grading. 
+
+Ablation In table 3 (right) we assess the sensitivity of DTMf to tissue clus-ters K. Notably, empirical ablation aligns perfectly with the elbow method for 
+
+K-selection, identifying K = 5 as the optimal number of unique tissue clusters across two datasets (Camelyon16 and the VA-Dataset). This cluster number yields the highest accuracy and F1-score, confirming that an optimal, multi-regional semantic map is crucial for extracting meaningful spatial priors. We also test our model purely on SDF features without the PEG module. The im-provement over raw ABMIL(see Table.1 UNI) and ABMIL w/PEG shows that the spatial priors aid the model in making better predictions. 8 Pokhrel et al. Benign  High Risk Low Risk     
+
+> F1
+> Class Specific F1
+> Kmeans
+> CONCH
+> Low Risk Benign
+> Kmeans CONCH Kmeans CONCH
+> High Risk
+> Kmeans
+
+Fig. 2. Interpretability and Performance . (Left) Correspondence between UNI-based unsupervised K-means clusters and CONCH zero-shot semantic maps, demon-strating the morphological interpretability of K-means tissue partitioning. (Right) Class-specific F1 evaluation on PANDA .
+
+Table 3. (Left) Public Benchmarks on Camelyon16 and TCGA-NSCLC (ResNet50). (Right) Ablation Study evaluating spatial component and cluster sizes ( K) on the VA-Dataset (UNI). All DTMf models utilize SDF-Features. DTMF w/o PEG uses K=5. 
+
+Camelyon16 TCGA-NSCLC Ablation AH (UNI) Method AUC ↑ Acc ↑ AUC ↑ Acc ↑ F1 ↑ Model Acc ↑ F1 ↑
+
+ABMIL [7] 89 .48 83 .59 97 .97 91 .75 90 .91 ABMIL w/PEG 78 .57 73 .53 
+
+DS-MIL [9] 82 .81 82 .03 97 .13 91 .75 90 .91 DTMf w/o PEG 79 .76 73 .02 
+
+TransMIL [17] 80.00 81.00 94 .07 87 .86 87 .68 DTMf ( K = 3 ) 78 .57 71 .88 
+
+RRT-MIL [19] 90 .03 84 .38 96 .39 89 .81 88 .89 DTMf ( K = 4 ) 80 .95 75 .00 
+
+ILRA [21] 87 .42 83 .59 96 .60 91 .26 91 .09 DTMf ( K = 6 ) 74 .35 71 .64 
+
+DTMf-MIL 90 .55 85 .16 97 .09 91 .75 91 .19 DTMf ( K = 5 ) 82 .14 76 .92 
+
+## 4 Discussion and Conclusion 
+
+Published literature emphasizes that tumor geometry and tumor microenviron-ment dictate metastatic risk[15, 13, 18]. In contrast to standard MIL models which ignore the overall tissue architecture, DTMf-MIL operationalizes the tis-sue layout. By using cluster labels to define phenotypic regions and computing multiscale SDFs, our model mathematically encodes the geometry of the tis-sue. As illustrated in Figure 2, the unsupervised tissue maps generated by our global K-means clustering closely coincide with morphologically meaningful phe-notypes, enhancing explainability by pathologists . By mapping these clusters to the vision-language semantic space of the CONCH foundation model, we val-idate that our method partitions the biopsy into different morphologic entities. Reasoning over these histopathological maps, DTMf-MIL outperforms baseline models, proving tissue context drives prognostic accuracy. Our approach of integrating phenotypic clustering with SDF-derived spatial encodings not only achieves better prognostic accuracy on the AH-Dataset and Predicting Metastatic Risk with DTMf-MIL 9
+
+public benchmarks, but also creates a framework where geometric context dic-tates the prediction. We argue that by formulating WSI analysis as a spatial encoding problem rather than a bag-of-features classification, we can elicit clin-ical reasoning in MIL models beyond the ability of human pathologists. Based on this work, future research could explore alternative geometric descriptors and the use of learnable distance functions to map tissue geometry. 
+
+## References 
+
+1. Albertina, B., Watson, M., Holback, C., Jarosz, R., Kirk, S., Lee, Y., Rieger-Christ, K., Lemmerman, J.: The Cancer Genome Atlas Lung Adenocarcinoma Collection (TCGA-LUAD) (Version 4) [Data set]. The Cancer Imaging Archive (2016) 2. Bulten, W., Kartasalo, K., Chen, P.H.C., Ström, P., Pinckaers, H., Nagpal, K., Cai, Y., Steiner, D.F., van Boven, H., Vink, R., Hulsbergen-van de Kaa, C., van der Laak, J., Amin, M.B., Evans, A.J., van der Kwast, T., Allan, R., Humphrey, P.A., Grönberg, H., Samaratunga, H., Delahunt, B., Tsuzuki, T., Häkkinen, T., Egevad, L., Demkin, M., Dane, S., Tan, F., Valkonen, M., Corrado, G.S., Peng, L., Mer-mel, C.H., Ruusuvuori, P., Litjens, G., Eklund, M., Brilhante, A., Çakır, A., Farré, X., Geronatsiou, K., Molinié, V., Pereira, G., Roy, P., Saile, G., Salles, P.G.O., Schaafsma, E., Tschui, J., Billoch-Lima, J., Pereira, E.M., Zhou, M., He, S., Song, S., Sun, Q., Yoshihara, H., Yamaguchi, T., Ono, K., Shen, T., Ji, J., Roussel, A., Zhou, K., Chai, T., Weng, N., Grechka, D., Shugaev, M.V., Kiminya, R., Kovalev, V., Voynov, D., Malyshev, V., Lapo, E., Campos, M., Ota, N., Yamaoka, S., Fuji-moto, Y., Yoshioka, K., Juvonen, J., Tukiainen, M., Karlsson, A., Guo, R., Hsieh, C.L., Zubarev, I., Bukhar, H.S.T., Li, W., Li, J., Speier, W., Arnold, C., Kim, K., Bae, B., Kim, Y.W., Lee, H.S., Park, J., the PANDA challenge consortium: Artifi-cial intelligence for diagnosis and gleason grading of prostate cancer: the PANDA challenge. Nature Medicine 28 (1), 154–163 (Jan 2022) 3. Chen, R.J., Ding, T., Lu, M.Y., Williamson, D.F.K., Jaume, G., Song, A.H., Chen, B., Zhang, A., Shao, D., Shaban, M., Williams, M., Oldenburg, L., Weishaupt, L.L., Wang, J.J., Vaidya, A., Le, L.P., Gerber, G., Sahai, S., Williams, W., Mahmood, F.: Towards a general-purpose foundation model for computational pathology. Nature Medicine 30 (3), 850–862 (Mar 2024) 4. Chen, R.J., Lu, M.Y., Shaban, M., Chen, C., Chen, T.Y., Williamson, D.F.K., Mahmood, F.: Whole slide images are 2d point clouds: Context-aware survival prediction using patch-based graph convolutional networks (2021), https://arxiv.org/abs/2107.13048 5. Dillekås, H., Rogers, M.S., Straume, O.: Are 90% of deaths from cancer caused by metastases? Cancer Med 8(12), 5574–5576 (Aug 2019) 6. He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learning for image recognition (2015) 7. Ilse, M., Tomczak, J.M., Welling, M.: Attention-based deep multiple instance learn-ing (2018) 8. Kirk, S., Lee, Y., Kumar, P., Filippini, J., Albertina, B., Watson, M., Rieger-Christ, K., Lemmerman, J.: The Cancer Genome Atlas Lung Squamous Cell Carcinoma Collection (TCGA-LUSC) (Version 4) [Data set]. The Cancer Imaging Archive (2016) 9. Li, B., Li, Y., Eliceiri, K.W.: Dual-stream multiple instance learning network for whole slide image classification with self-supervised contrastive learning (2021) 10 Pokhrel et al. 10. Litjens, G., Bandi, P., Ehteshami Bejnordi, B., Geessink, O., Balkenhol, M., Bult, P., Halilovic, A., Hermsen, M., van de Loo, R., Vogels, R., Manson, Q.F., Stathonikos, N., Baidoshvili, A., van Diest, P., Wauters, C., van Dijk, M., van der Laak, J.: 1399 h&amp;e-stained sentinel lymph node sections of breast cancer pa-tients: the camelyon dataset. GigaScience 7(6), giy065 (05 2018) 11. Lu, M.Y., Chen, B., Williamson, D.F.K., Chen, R.J., Liang, I., Ding, T., Jaume, G., Odintsov, I., Zhang, A., Le, L.P., Gerber, G., Parwani, A.V., Mahmood, F.: Towards a visual-language foundation model for computational pathology (2023) 12. Lu, M.Y., Williamson, D.F.K., Chen, T.Y., Chen, R.J., Barbieri, M., Mahmood, F.: Data efficient and weakly supervised computational pathology on whole slide images (2020) 13. Lyons, S.M., Alizadeh, E., Mannheimer, J., Schuamberg, K., Castle, J., Schroder, B., Turk, P., Thamm, D., Prasad, A.: Changes in cell shape are correlated with metastatic potential in murine and human osteosarcomas. Biol Open 5(3), 289–299 (Feb 2016) 14. Massagué, J., Obenauf, A.C.: Metastatic colonization by circulating tumour cells. Nature 529 (7586), 298–306 (Jan 2016) 15. Nelson, C.M., Vanduijn, M.M., Inman, J.L., Fletcher, D.A., Bissell, M.J.: Tissue geometry determines sites of mammary branching morphogenesis in organotypic cultures. Science 314 (5797), 298–300 (Oct 2006) 16. Nevarez, A.J., Hao, N.: Quantitative cell imaging approaches to metastatic state profiling. Front Cell Dev Biol 10 , 1048630 (Oct 2022) 17. Shao, Z., Bian, H., Chen, Y., Wang, Y., Zhang, J., Ji, X., Zhang, Y.: Transmil: Transformer based correlated multiple instance learning for whole slide image clas-sification (2021) 18. Sirinukunwattana, K., Snead, D., Epstein, D., Aftab, Z., Mujeeb, I., Tsang, Y.W., Cree, I., Rajpoot, N.: Novel digital signatures of tissue phenotypes for predicting distant metastasis in colorectal cancer. Sci Rep 8(1), 13692 (Sep 2018) 19. Tang, W., Zhou, F., Huang, S., Zhu, X., Zhang, Y., Liu, B.: Feature re-embedding: Towards foundation model-level performance in computational pathology (2024) 20. Wu, P.H., Gilkes, D.M., Phillip, J.M., Narkar, A., Cheng, T.W.T., Marchand, J., Lee, M.H., Li, R., Wirtz, D.: Single-cell morphology encodes metastatic potential. Science Advances 6(4), eaaw6938 (2020) 21. Xiang, J., Zhang, J.: Exploring low-rank property in multiple instance learning for whole slide image classification. In: The Eleventh International Conference on Learning Representations (2023) 22. Zhang, B., Manoochehri, H., Li, X., Knudsen, B.S., Tasdizen, T.: Weaksupcon: Weakly supervised contrastive learning for encoder pre-training. In: International Workshop on Efficient Medical Artificial Intelligence. pp. 310–319. Springer (2025)

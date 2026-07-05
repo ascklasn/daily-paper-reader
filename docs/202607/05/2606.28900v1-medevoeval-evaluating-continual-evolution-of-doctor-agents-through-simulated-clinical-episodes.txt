@@ -1,0 +1,741 @@
+Title: MedEvoEval: Evaluating Continual Evolution of Doctor Agents through Simulated Clinical Episodes
+
+URL Source: https://arxiv.org/pdf/2606.28900v1
+
+Published Time: Tue, 30 Jun 2026 00:42:15 GMT
+
+Number of Pages: 31
+
+Markdown Content:
+# MedEvoEval : Evaluating Continual Evolution of Doctor Agents through Simulated Clinical Episodes 
+
+Hui Zhang Beijing Institute of Technology (BIT), China 
+
+Abstract 
+
+Doctor agents are moving beyond single-turn answer generation toward evolving clinical decision systems. Within an outpatient episode, they acquire evidence, use examination and consultation resources, and decide when to finalize a diagnosis and management plan. Across episodes, their behavior may change through memory, retrieval, reflection, or other update mechanisms. Current evaluations only partially cover this setting. Fixed-input medical QA benchmarks score final answers from complete inputs, whereas many interactive benchmarks still focus on individual encounters or fixed runs, providing limited support for evaluating how episode-level decisions interact with cross-episode experience. We introduce MedEvoEval ,an executable longitudinal evaluation framework based on action-gated simulated outpatient episodes. Each source case is converted into role-specific patient, examination, and manager views; evidence is revealed only through valid actions; and each episode records a structured trace that links observations, actions, final outputs, manager scores, and optional experience write-back. We release a runnable E&D artifact with 700 processed episodes, provenance notes, schemas, an episode runner, scoring scripts, configurations, example logs, analysis code, and trajectory- and step-level derivatives. Experiments show that episode traces expose process costs hidden by final-answer scoring, show how MDT-style consultation reallocates resources, and support longitudinal analyses of memory maturation, held-out transfer, update-stage response, and backward retention. Together, these results show that MedEvoEval provides a concrete basis for evaluating whether doctor agents improve through experience, transfer useful behavior, and retain earlier capabilities over time. 
+
+# 1 Introduction 
+
+Doctor agents are increasingly evaluated as clinical decision systems rather than single-turn answer generators. In an outpatient episode, an agent must decide what to ask, which examinations to request, when to seek consultation, and when the available evidence is sufficient to support a diagnosis and management plan. When memory, retrieval, reflection, or other update mechanisms are enabled, later decisions may also depend on prior episodes. The evaluation target therefore shifts from a single medical answer to an evolving clinical decision process. Current evaluation practice only partially covers this target. Fixed-input medical QA benchmarks provide the complete clinical vignette upfront and score the final response against a reference answer [ 6, 17 , 25 ]. This format remains useful for measuring medical knowledge, but it leaves evidence acquisition, action validity, and resource use outside the evaluation. Recent benchmarks have moved closer to clinical workflows by evaluating interactive reasoning, simulated consultations, tool use, and medical-agent environments [ 1 , 5 , 13 , 16 , 26 ]. Many of these settings, however, still evaluate individual encounters or fixed benchmark runs. Once prior episodes can affect later decisions through memory or other updates, evaluation must also measure experience-driven behavioral change across episodes. 1
+
+> arXiv:2606.28900v1 [cs.AI] 27 Jun 2026
+
+This evaluation problem has two coupled layers. Within an episode, the evaluator must observe how the agent acquires evidence, uses resources, handles invalid or unavailable actions, and reaches a final diagnosis. Across episodes, the evaluator must measure whether experience improves later behavior, whether the improvement transfers to unseen cases, and whether later updates preserve earlier-stage performance. These layers are linked in doctor-agent evaluation: the trajectory that explains one episode can also become the experience source that influences later episodes. We introduce MedEvoEval , an executable longitudinal evaluation framework for doctor agents. Each source case is converted into role-specific patient, examination, and manager views. During an outpatient episode, evidence is revealed only through valid actions such as inquiry and examination requests, and every action is recorded in an event trace. After finalization, the manager scores the diagnosis, supporting evidence, and management plan. Optional experience write-back allows later episodes to retrieve compact memory records under controlled conditions, making experience reuse a measurable evaluation condition. We instantiate this protocol as a runnable E&D artifact and evaluate it with episode-level and longitudinal studies. The experiments show that traces expose hidden process costs, MDT-style consultation mainly shifts resource allocation, and the longitudinal setup supports analysis of memory maturation, held-out transfer, and backward retention under fixed execution rules. This paper makes three contributions. MedEvoEval formalizes doctor-agent evaluation as a longitudinal episode-level problem that links within-episode decision traces with cross-episode behavioral change. The protocol defines fixed execution rules for information access, valid actions, evidence release, scoring, memory write-back, and longitudinal analysis, making experience reuse and retention measurable under controlled conditions. We also release a runnable E&D artifact that instantiates the protocol. The artifact includes a 700-episode processed outpatient corpus, source attribution and provenance notes, schemas, an episode runner, configuration templates, scoring scripts, event logs, analysis code, and trajectory-and step-level derivatives for agent-policy research. These components support inspection from processed episode fields to event traces and aggregate metrics. Empirically, MedEvoEval captures evaluation phenomena hidden by final-answer scoring. Across studies of model comparison, MDT-style consultation, memory maturation, held-out transfer, and update stability, the protocol separates clinical output quality from process cost, resource use, memory maturity, external transfer, and backward-retention risk. 
+
+# 2 Related Work 
+
+Medical QA and fixed-input evaluation. Medical QA benchmarks such as MedQA and MedMCQA evaluate exam-style medical knowledge [ 6, 17 ], while medical LLM studies such as generalist foundation-model evaluations and Med-PaLM show progress toward expert-level medical question answering [ 15 , 25 ]. More recent resources and studies broaden evaluation toward EHR-like records and sequential diagnosis [ 5, 7 , 16 ], while medical LLM work such as PMC-LLaMA illustrates the growing model ecosystem [ 30 ]. These evaluations remain important for measuring medical knowledge and final-response quality. Their fixed-input format, however, provides most evidence upfront and therefore offers limited information about how an agent obtains the evidence used in its answer. Table 1 later contrasts fixed-input medical QA with the information-access, action-validity, resource-use, memory, stability, and auditability controls exposed by MedEvoEval .This distinction matters for doctor-agent evaluation because two systems with similar final-answer accuracy can follow different clinical paths. One agent may ask targeted questions and request a small number of discriminative examinations, whereas another may rely on broad testing, 2premature finalization, or unsupported evidence. MedEvoEval evaluates the episode trajectory in addition to the final output, allowing outcome quality to be interpreted together with evidence acquisition and resource use. 
+
+Interactive agents, tools, and medical simulation. General LLM-agent research has explored reasoning-action loops, tool use, modular tool routing, multi-agent communication, and simulated social behavior [ 8 , 12 , 19 –21 , 27 , 31 , 34 ]. Medical-agent systems adapt these ideas to diagnosis, consultation, and clinical workflow. MedAgents, MDAgents, MMedAgent, MedAide, AI Hospital, Agent Hospital, MedAgentBench, and MedAgentSim model collaboration, tool use, patients, exami-nations, EHR environments, or hospital-like interactions [ 1, 3, 5, 9, 11 , 13 , 26 , 29 ]. MedAgentSim further studies self-evolving multi-agent clinical simulation with doctor, patient, and measurement agents plus experience buffers [1]. These systems move evaluation closer to clinical workflow by exposing parts of the within-episode decision process. A remaining challenge is to measure how interaction traces and experience mechanisms influence later decisions. MedEvoEval addresses this challenge as an E&D evaluation artifact: it provides a released processed episode corpus, construction files, role-specific schemas, gated evidence release, structured event logs, reproducible scoring, held-out transfer tests, and update-retention analysis. This artifact-level control matters for medical-agent evaluation. Prompts, state transitions, information access, action validity, consultant authority, and memory exposure can all change the interpretation of an evaluation result. MedEvoEval makes these components explicit in the benchmark interface, allowing episode execution, scoring, and longitudinal comparisons to be inspected. 
+
+Efficient adaptation and biomedical deployment. Efficient adaptation and inference methods form a complementary line of work for making medical and multimodal agents practical under resource constraints. Recent LoRA variants study low-load sensitivity-based fine-tuning and faster rank allocation through hypernetworks [ 36 , 37 ]; visual-token pruning methods reduce multimodal context cost in large vision-language models [ 39 , 40 ]; and targeted prefill-decode pruning addresses serving efficiency during inference [ 38 ]. Biomedical model development also includes domain-specific architectures such as hierarchical multi-scale MRI feature fusion for multi-center major depressive disorder classification [ 2]. These studies are orthogonal to MedEvoEval : they improve the efficiency or domain capability of candidate systems, while our benchmark evaluates how such systems acquire evidence, use resources, and evolve across simulated clinical episodes. 
+
+Memory, retrieval, and continual evaluation. Continual learning studies adaptation under sequential data while preserving earlier capabilities [ 14 , 18 , 22 , 28 , 32 ]. For LLM agents, lightweight adaptation often relies on retrieval, reflection, experience replay, or rule accumulation rather than parameter updates [ 4, 10 , 23 , 24 , 33 , 35 ]. Medical simulators have begun to show that memory can improve average performance [ 1, 13 ]. For doctor agents, however, average improvement is only one part of the evaluation problem. A useful protocol should also test whether experience reduces process cost, transfers to unseen cases, remains stable after updates, and avoids backward degradation. 
+
+MedEvoEval brings these requirements into a single medical-agent evaluation setting by combining controlled evidence access within episodes with longitudinal measurements of experience-driven change across episodes. 3Figure 1: Overview of MedEvoEval. Source cases are transformed into role-specific episode views, executed as action-gated clinical episodes, scored by the manager, recorded as event logs with memory write-back, and analyzed longitudinally for improvement, transfer, update retention, and backward degradation. 
+
+# 3 MedEvoEval: An Executable Evaluation Protocol 
+
+MedEvoEval evaluates doctor agents as evolving clinical decision systems through standardized, executable outpatient episodes. As shown in Figure 1, a source case first enters the system as a structured clinical record and is converted into role-specific patient, examination, and manager views. The case is then executed as an action-gated outpatient episode. At runtime, the doctor starts from a brief opening complaint rather than the full patient view, gathers patient facts through inquiry, requests examinations through a controlled test interface, optionally consults an MDT-style advisor, and finally submits a diagnosis, supporting evidence, management plan, and follow-up. After finalization, the manager scores the output, the system records structured event logs, and compact experience records may be written back for later episodes. Across the resulting episode sequence, MedEvoEval analyzes improvement, held-out transfer, update retention, and backward degradation. The protocol turns the two-layer evaluation problem introduced in Section 1 into an executable procedure. Within each episode, it controls what information the doctor can observe and which actions can reveal new evidence. Across episodes, it records trajectories, manager feedback, and optional experience write-back so that later behavior can be evaluated as a function of prior experience. The environment models outpatient first-visit diagnostic episodes because this setting has a clear clinical boundary while preserving the key properties removed by fixed-input QA: partial initial information, active evidence acquisition, explicit resource use, and controlled experience updates. 
+
+Design goals. The framework is built around role-specific observability, gated evidence release, separate measurement of outcome and process, and longitudinal adaptation analysis. These requirements make unnecessary tests, missed questions, hallucinated findings, memory shortcuts, and backward degradation visible in the evaluation record. MedEvoEval controls what evidence 4Table 1: What MedEvoEval controls beyond fixed-input medical QA.                  
+
+> Dimension Fixed-input QA MedEvoEval
+> Information access Full vignette given upfront Evidence revealed by ASK and REQUEST_TEST
+> Action validity Not measured Invalid tests and premature finalization logged Resource use Invisible Turns, tests, and invalid-test rate measured Memory effects Usually absent No-memory, cold-start, and mature-memory conditions compared Stability Not evaluated External transfer, update response, and BWT reported Auditability Final answer only Structured event logs and retrieved memory cards retained
+
+is visible, which actions are valid, how many turns and tests are used, whether memory is available, and how transfer or update stability is measured. 
+
+3.1 Role-Specific Episode Views 
+
+Each case is represented as three role-specific views: 
+
+ci = ( V patient  
+
+> i
+
+, V exam  
+
+> i
+
+, V manager  
+
+> i
+
+).
+
+This representation is both a data format and the access-control mechanism that makes each episode executable. The patient view contains demographics, chief complaint, history, and facts that can be revealed through consultation; the examination view maps allowed test names to examination results that remain hidden until explicitly requested; and the manager view contains the reference diagnosis, acceptable aliases, evidence rubrics, and management rubrics used after finalization for scoring and feedback. The doctor observes only the current visible state and never directly accesses unrevealed examination fields, manager-side rubrics, or provenance metadata. The transformation pipeline converts existing source cases into this three-view representation by separating consultation-revealed patient facts from examination-only findings, normalizing test names against a controlled catalog, and constructing manager-side rubrics for diagnosis, evidence, and management. Each transformed episode retains source metadata for attribution and downstream source requirements, and the released construction files preserve an audit path from the source manifest to processed episode fields. Appendix B.1 gives the role-specific schema and a synthetic sample. 
+
+3.2 Action-Gated Evidence Acquisition 
+
+The doctor selects from four structured actions: 
+
+A = {ASK , REQUEST_TEST , CALL_MDT , FINALIZE }.
+
+ASK sends a question to the patient simulator, which answers only from the patient-visible facts. 
+
+REQUEST_TEST queries the examination service for a specific catalog item; a result is returned when the requested test is available for the current case, and unavailable or invalid requests are recorded. 
+
+CALL_MDT optionally invokes a consultant and is disabled when the experiment isolates single-doctor memory. FINALIZE terminates the episode and requires a final diagnosis, supporting evidence, a management plan, and follow-up. After each action, the environment updates the observable history and records the event. The next doctor decision is conditioned on the accumulated observable history. Resource limits, including the maximum number of consultation turns and the maximum number of tests, are specified in configuration files. These constraints allow different agents and conditions to be compared under the same visible state, action space, evidence-release rules, and resource budget. 53.3 Event Traces and Manager Scoring 
+
+Each episode produces both a final clinical output and a process trace. The JSONL event log records the turn index, action type, question or requested test, returned-result status, MDT status, termination reason, final outputs, judge scores, and memory write-back status. These fields connect episode execution to later measurement: turn counts and examination counts come from the action trace, invalid-test rates come from test-return status, diagnosis and management scores come from manager-side judging, and memory effects can be inspected against the retrieved cards shown to the doctor. Manager scoring is applied after FINALIZE . The manager evaluates the submitted diagnosis, supporting evidence, management plan, and follow-up against the manager-side rubric. This process produces normalized diagnosis, evidence, and management scores, together with auxiliary indicators such as strict correctness, pass/fail status, and unsafe or unsupported elements. The trace therefore supports decomposition of a low utility score into weak diagnosis, unsupported evidence, long consultation, excessive examination use, or invalid test requests. 
+
+3.4 Experience Write-Back and Cross-Episode Evaluation 
+
+The same trace creates the longitudinal link between one episode and later episodes. After scoring, the manager may write compact rule-like cards into success and failure-correction memory banks. Success cards capture reusable IF ... THEN ... patterns, correction cards capture IF ... AVOID ... 
+
+failure modes, and rule cards capture action conditions such as ACTION=ASK , ACTION=REQUEST_TEST ,
+
+ACTION=CALL_MDT , or ACTION=FINALIZE . Before later decisions, the doctor retrieves the top-K
+
+relevant cards and appends them to the current context. We treat retrieve-and-replay memory as a controlled evaluation condition. Memory can be disabled, initialized as empty, or pre-populated from previous stages while the doctor model, patient simulator, test catalog, scoring rubric, and case stream remain fixed. This design isolates experience reuse from model choice, patient simulation, examination availability, and scoring changes. It also provides the basis for longitudinal comparisons of memory maturation, held-out transfer, update response, and backward retention. 
+
+3.5 Released Artifact 
+
+For the experiments, we use a 700-case processed episode corpus released in the accompanying artifact as Chinese MedEvoEval-MedQA-700 . The corpus is split into 500 longitudinal-stream cases, 100 held-out transfer cases, and 100 cross-sectional cases; the 80-case model-comparison set is sampled from the cross-sectional pool. The artifact includes the processed corpus, construction files, schemas, runner, configurations, scoring scripts, logs, analysis scripts, and source notes. Appendix A summarizes the artifact inventory. 
+
+# 4 Evaluation Protocol 
+
+The metrics follow the two-layer structure of MedEvoEval . Episode-level metrics evaluate clinical output quality and process cost within a single encounter. Longitudinal metrics evaluate how experience changes later behavior across encounters, including transfer to unseen cases and retention after updates. Each episode produces a structured final output and an event log. The final output is used to score diagnosis, evidence, and management, while the event log is used to compute interaction turns, examination use, invalid actions, and memory exposure. Full rubrics, parsing rules, parameter settings, and sensitivity checks are provided in Appendix C. 6Episode-level outcome. For episode i, the manager assigns three normalized scores: diagnostic quality Sdiag  
+
+> i
+
+, evidence consistency Sevi  
+
+> i
+
+, and management quality Splan  
+
+> i
+
+. The diagnostic score uses a graded rubric, while evidence and management scores compare the final structured output with manager-side rubric points. The total outcome score is 
+
+Si = 0 .5Sdiag  
+
+> i
+
++ 0 .3Sevi  
+
+> i
+
++ 0 .2Splan  
+
+> i
+
+.
+
+We also report strict diagnostic accuracy and pass rate. Strict accuracy indicates whether the normalized final diagnosis matches an acceptable reference diagnosis. Pass rate counts episodes whose total outcome score reaches the predefined threshold, Si ≥ 0.7.
+
+Process cost and utility. Process metrics are computed from event logs. Let Ti denote the number of non-final interaction actions, including inquiry, examination requests, and consultation when enabled. Let Ei denote the number of requested examinations, and let Ri denote the invalid-test rate, covering unavailable, unparseable, redundant, or low-value examination requests. We summarize the outcome-cost trade-off with a fixed utility score: 
+
+Ui = 0 .6Si − 0.2( Ti/T max ) − 0.1( Ei/E max ) − 0.1Ri.
+
+Utility represents benchmark performance under a fixed outcome-cost weighting. We report Ui
+
+together with its components so that outcome quality, turns, examinations, and invalid-test behavior remain separately inspectable. 
+
+Experience reuse and held-out transfer. For longitudinal analysis, a case stream is partitioned into ordered stages W1, . . . , W M . For any episode-level metric Zi, the stage mean is 
+
+¯Zm = 1
+
+|Wm|
+
+> ∑
+> i∈Wm
+
+Zi.
+
+Held-out transfer measures whether experience accumulated on the longitudinal stream improves behavior on unseen cases. The same held-out case set is evaluated under two memory conditions: 
+
+H0 runs the held-out cases without loading a mature memory bank, whereas H3 runs the same cases after loading the mature memory accumulated from the longitudinal stream. Thus, the comparison asks whether the mature memory learned from earlier episodes transfers to new cases rather than only improving replay on the original stream. For any metric Z,
+
+ET( Z) = ¯ZH3 − ¯ZH0 .
+
+Positive transfer in outcome or utility indicates better held-out performance, while negative transfer in turns or examinations indicates lower process cost. 
+
+Update retention. To measure whether later updates preserve earlier-stage performance, we evaluate earlier stages after the system has been updated through later stages. Let A(Z) 
+
+> k,j
+
+be the value of metric Z on stage j after the system has been updated through stage k. For higher-is-better metrics, backward transfer is 
+
+BWT( Z) = 1
+
+K − 1
+
+> K−1∑
+> j=1
+> (
+
+A(Z) 
+
+> K,j
+
+− A(Z)
+
+> j,j
+> )
+
+.
+
+Negative values indicate backward degradation. We report BWT primarily for S and U to keep the sign convention consistent. 7Figure 2: MedEvoEval experiment overview. (A) Episode traces expose outcome and process metrics beyond answer-only scoring. (B) MDT-style consultation tests resource reallocation with the primary doctor fixed. (C) Mature memory is evaluated on the longitudinal stream and held-out transfer cases. (D) Update-retention diagnostics separate adaptation from backward degradation. 
+
+Statistical comparisons. Most comparisons use paired case sets. For continuous or ordinal metrics, including total outcome score, utility, turns, examination count, invalid-test rate, and diagnostic quality, we report paired differences and use Wilcoxon signed-rank tests. For paired binary outcomes such as strict diagnostic correctness and pass/fail status, we use exact McNemar tests. Mean estimates and paired differences are accompanied by 95% bootstrap confidence intervals computed by resampling cases while preserving the pairing. 
+
+# 5 Experiments 
+
+The experiments are staged to answer progressively broader evaluation questions. Section 5.1 first tests whether episode traces expose differences hidden by answer-only scoring. Section 5.2 then treats MDT consultation as a controlled process intervention with the primary doctor fixed. Section 5.3 finally asks whether experience reuse matures on the stream, transfers to held-out cases, and remains stable after an update. Unless otherwise specified, episodes use Tmax = 10 , Emax = 3 , seed 7, the same runner, the same scoring rules, and the split described in Section 3. Across conditions, we use paired case sets, common case order, fixed action limits, and identical scoring code. The patient simulator and manager are held fixed within each study, and memory is enabled only in experiments where experience reuse is the variable under study. 8Table 2: Answer-only projection and episode-trace metrics on 80 shared episodes. Trace columns additionally expose process cost.                                            
+
+> Model Ans. strict Ans. STrace strict Trace STrace UTurns Tests Invalid Qwen-Turbo 0.100 0.304 0.100 0.304 0.001 5.713 1.387 0.077 Qwen3.5-122B-A10B 0.150 0.378 0.150 0.378 0.018 7.975 0.900 0.010 GLM-5 0.375 0.622 0.375 0.622 0.195 4.463 2.225 0.050 Kimi-K2.5 0.263 0.579 0.263 0.579 0.115 5.725 2.575 0.192
+
+5.1 What Does the Episode Trace Add Beyond Final-Answer Scoring? 
+
+As shown in Figure 2(A), this experiment asks what final-answer scoring leaves unobserved. We compare four API-accessible doctor models on the same 80 outpatient episodes with memory and MDT disabled. Table 2 contrasts an answer-only projection with the full episode trace: the trace columns retain the same outcome scores and add utility, turns, examinations, and invalid-test rate. 
+
+Episode traces expose process cost. The trace view reveals differences that answer-only scoring does not show. GLM-5 obtains the highest total score and utility in this subset. Kimi-K2.5 achieves strong outcome quality, but it uses more examinations and has a higher invalid-test rate. Qwen3.5-122B-A10B requests fewer examinations, but it uses more turns and obtains lower outcome quality. These patterns decompose final-answer quality, examination behavior, invalid actions, and utility. Appendix D.2 reports confidence intervals and paired deltas. 
+
+5.2 Does MDT Change Diagnostic Quality or Resource Allocation? 
+
+As shown in Figure 2(B), this experiment uses MDT-style consultation as a process intervention. We keep the primary doctor fixed as Qwen-Turbo and compare three conditions on 100 shared episodes: no MDT, same-model MDT, and stronger-consultant MDT. This design isolates consultation from changes in the primary doctor model. Full paired results are reported in Appendix D.3. 
+
+MDT changes resource allocation more than diagnostic accuracy. In the Qwen-Turbo setting, MDT-style consultation mainly changes resource allocation. Strict accuracy and total score remain close across conditions, while examination use decreases from 1.37 tests per episode to 0.66 and 0.63 under MDT, accompanied by more consultation turns. The trace shows where the intervention acts: it shifts the process away from examinations and toward consultation, while final diagnostic accuracy changes little. 
+
+5.3 Does Experience Reuse Improve, Transfer, and Retain? 
+
+As shown in Figure 2(C,D), the main finding is that experience reuse is useful only after it becomes a mature resource: it improves the longitudinal stream, transfers to held-out cases, and introduces only mild backward degradation after later updates. Table 3 summarizes these three claims. We evaluate a single-doctor agent without MDT over a 500-case stream split into ten 50-case stages. E0 disables memory; E1 starts with empty memory; E2 and E3 reuse accumulated memory. We then compare no mature memory (H0) with mature memory (H3) on 100 unseen cases, and use BWT to measure earlier-stage retention after later adaptation. 
+
+Experience memory shows a maturity pattern. The key conclusion is that memory does not help much at cold start, but mature memory produces clear stream-level gains. E1 yields small 9Table 3: Longitudinal memory, transfer, and update-retention evidence. Memory and transfer confidence intervals and paired tests are in Appendix D.4; update-retention diagnostics are in Appendix D.5.                                                             
+
+> Study Setting NSUStrict/Pass Turns Main stream E0 500 0.246 -0.054 0.092 / 0.056 6.134 Main stream E1 500 0.261 -0.043 0.136 / 0.096 6.324 Main stream E2 500 0.377 0.037 0.276 / 0.244 5.696 Main stream E3 500 0.430 0.077 0.342 / 0.284 5.380 Transfer H0 100 0.338 0.001 0.290 / 0.180 6.810 Transfer H3 100 0.413 0.068 0.330 / 0.260 5.820 Update G0 pre/update/post 500 0.238/0.345/0.242 -0.057/0.010/-0.051 ––Update G1 pre/update/post 500 0.230/0.348/0.277 -0.069/0.033/-0.027 ––BWT Final memory agent 9 stages -0.0087 -0.0103 ––
+
+cold-start gains and increases interaction turns, indicating that new memory is not yet a strong reusable resource. By E2 and E3, outcome score, utility, strict accuracy, and pass rate improve while turns decline. From E0 to E3, total score rises from 0.246 to 0.430, strict accuracy from 0.092 to 0.342, and turns fall from 6.134 to 5.380; Appendix D.4 gives the full longitudinal summary. 
+
+Held-out transfer tests reusable experience. The held-out result supports reusable experience rather than only repeated-stream adaptation. On the same 100 unseen cases, mature memory (H3) improves total score by 0.075 and utility by 0.067, while reducing turns by 0.99. Paired tests in Appendix D.4 show significant gains in total score, utility, turns, and non-dangerous diagnosis rate. Strict accuracy rises from 0.290 to 0.330, and pass rate from 0.180 to 0.260, consistent with compact memory cards that guide new episodes without revealing patient facts. 
+
+Update response and retention measure stability. The update result shows adaptation during the shifted interval, with only mild loss on earlier stages afterward. The update stream contains middle stages with shifted symptom combinations, examination dependencies, or case-expression patterns. Table 3 summarizes performance before, during, and after the update interval; its BWT row reports final-stage retention over nine earlier stages, with supporting diagnostics in Appendix D.5. The update stages improve performance during the shifted interval for both G0 and G1, while post-update performance differs across settings. BWT gives the complementary retention view: 
+
+BWT S = −0.0087 and BWT U = −0.0103 , indicating mild backward degradation. Reporting update response and BWT together separates current-stage adaptation from earlier-stage retention. Together, these analyses evaluate whether experience matures, transfers, and preserves earlier-stage performance. 
+
+# 6 Discussion, Limitations, and Ethics 
+
+The experiments support evaluating doctor agents at both levels. Within episodes, similar final-answer scores can hide different evidence-acquisition paths, examination use, invalid actions, and unsupported-evidence risks. Across episodes, apparent improvement must be interpreted with transfer and retention, because memory and update mechanisms can change later behavior. For E&D, the main value of MedEvoEval is that the mechanism is executable and inspectable. The released schemas, runner, configurations, event logs, scoring scripts, and analysis code show 10 how evidence is revealed, actions are recorded, scores are computed, and longitudinal comparisons are derived. The resulting audit trail can be reweighted, checked for invalid actions, rerun on the corpus, and used to compare memory policies under the same runner. 
+
+MedEvoEval binds information access, action validity, resource use, memory exposure, scoring, held-out transfer, and post-update retention into one protocol, making improvements easier to interpret as changes in clinical output, process cost, experience reuse, or stability. The framework has important limitations. The episodes are simulated and standardized: patient responses come from structured views, examination results are pre-specified, and manager scores depend on rubrics and automatic judging. Appendix E reports a single-physician audit of manager-side scoring. Case transformation may introduce artifacts in wording, examinations, disease distribution, or rubrics; composite scores encode value choices; and memory results may overestimate in-distribution gains despite held-out transfer. The controlled update event is a retention probe rather than a full robustness benchmark, and the baselines cover four API-accessible models rather than open-source families or broad scale sweeps. Operational noise is summarized in Appendix D.1; richer parser-recovery and simulator-hallucination audits remain future work. Medical-agent benchmarks can be misread as clinical readiness, so this boundary must be explicit. 
+
+MedEvoEval scores are controlled evaluation signals, not deployment evidence. Autonomous diag-nosis or patient-facing use would require expert validation, institutional review, privacy safeguards, regulatory compliance, and human oversight. Future work should broaden sources, add larger physician-adjudicated subsets, evaluate open-source and differently scaled models, test alternative MDT policies, and stress-test memory under stronger shifts. Separating factual medical retrieval from experiential process memory is also important because they raise different governance questions. 
+
+# 7 Conclusion 
+
+We presented MedEvoEval , an executable longitudinal evaluation framework for doctor agents. The framework evaluates doctor agents as evolving clinical decision systems by combining action-gated outpatient episodes, event-level traces, controlled experience reuse, held-out transfer tests, and update-retention analysis. The experiments show that this protocol exposes process evidence hidden by final-answer scoring, shows how MDT-style consultation changes resource allocation, and measures whether experience improves, transfers, and remains retained across episodes. These results support process-aware and longitudinal evaluation as a practical basis for studying continually evolving doctor agents. 
+
+# References 
+
+[1] Mohammad Almansoori, Komal Kumar, and Hisham Cholakkal. Medagentsim: Self-evolving multi-agent simulations for realistic clinical interactions. In International Conference on Medical Image Computing and Computer-Assisted Intervention , pages 362–372. Springer, 2025. [2] Zhaoyang Cong, Ziyang Wang, Hao Zhang, Guowei Zheng, Keming Cao, Lina Zhao, Ruipeng Song, Jianqing Li, and Chengyu Liu. Hierarchical multi-scale feature fusion network for multi-center major depressive disorder classification with T1-weighted MRI. In 2025 47th Annual International Conference of the IEEE Engineering in Medicine and Biology Society (EMBC) ,pages 1–4. IEEE, 2025. 11 [3] Zhihao Fan, Lai Wei, Jialong Tang, Wei Chen, Siyuan Wang, Zhongyu Wei, and Fei Huang. Ai hospital: Benchmarking large language models in a multi-agent medical interaction simulator. In Proceedings of the 31st International Conference on Computational Linguistics , pages 10183–10213. Association for Computational Linguistics, 2025. [4] Yunfan Gao, Yun Xiong, Xinyu Gao, Kangxiang Jia, Jinliu Pan, Yuxi Bi, Yi Dai, Jiawei Sun, Haofen Wang, et al. Retrieval-augmented generation for large language models: A survey. 
+
+arXiv preprint arXiv:2312.10997 , 2023. [5] Yixing Jiang, Kameron C. Black, Gloria Geng, Danny Park, James Zou, Andrew Y. Ng, and Jonathan H. Chen. Medagentbench: A realistic virtual ehr environment to benchmark medical llm agents. arXiv preprint arXiv:2501.14654 , 2025. [6] Di Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter Szolovits. What disease does this patient have? a large-scale open domain question answering dataset from medical exams. Applied Sciences , 11(14):6421, 2021. doi: 10.3390/app11146421. [7] Alistair E. W. Johnson, Lucas Bulgarelli, Lu Shen, Alvin Gayles, Ayad Shammout, Steven Horng, Tom J. Pollard, Sicheng Hao, Benjamin Moody, Brian Gow, et al. MIMIC-IV, a freely accessible electronic health record dataset. Scientific Data , 10(1):1, 2023. [8] Ehud Karpas, Omri Abend, Yonatan Belinkov, Barak Lenz, Opher Lieber, Nir Ratner, Yoav Shoham, Hofit Bata, Yoav Levine, Kevin Leyton-Brown, et al. MRKL systems: A modular, neuro-symbolic architecture that combines large language models, external knowledge sources and discrete reasoning. arXiv preprint arXiv:2205.00445 , 2022. [9] Yubin Kim, Chanwoo Park, Hyewon Jeong, Yik S. Chan, Xuhai Xu, Daniel McDuff, Hyeonhoon Lee, Marzyeh Ghassemi, Cynthia Breazeal, and Hae W. Park. Mdagents: An adaptive collaboration of llms for medical decision-making. Advances in Neural Information Processing Systems , 37:79410–79452, 2024. [10] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman Goyal, Heinrich Kahn, Mike Power, Daniel Khashabi, Tushar Khot, et al. Retrieval-augmented generation for knowledge-intensive nlp tasks. Advances in Neural Information Processing Systems , 33:9459–9474, 2020. [11] Binxu Li, Tiankai Yan, Yuanting Pan, Jie Luo, Ruiyang Ji, Jiayuan Ding, Zhe Xu, Shilong Liu, Haoyu Dong, Zihao Lin, and Yixin Wang. Mmedagent: Learning to use medical tools with multi-modal agent. In Findings of the Association for Computational Linguistics: EMNLP 2024 , pages 8745–8760, 2024. [12] Guohao Li, Hasan Hammoud, Hani Itani, Dmitrii Khizbullin, and Bernard Ghanem. CAMEL: Communicative agents for “mind” exploration of large language model society. In Advances in Neural Information Processing Systems , volume 36, pages 51991–52008, 2023. [13] Junkai Li, Yunghwei Lai, Weitao Li, Jingyi Ren, Meng Zhang, Xinhui Kang, Siyu Wang, Peng Li, Ya-Qin Zhang, Weizhi Ma, et al. Agent hospital: A simulacrum of hospital with evolvable medical agents. arXiv preprint arXiv:2405.02957 , 2024. [14] David Lopez-Paz and Marc’Aurelio Ranzato. Gradient episodic memory for continual learning. In Advances in Neural Information Processing Systems , volume 30, 2017. 12 [15] Harsha Nori, Yin Tat Lee, Sheng Zhang, Dean Carignan, Richard Edgar, Nicolo Fusi, Nicholas King, Jonathan Larson, Yuanzhi Li, Weishung Liu, et al. Can generalist foundation models outcompete special-purpose tuning? case study in medicine. arXiv preprint arXiv:2311.16452 ,2023. [16] Harsha Nori, Mayank Daswani, Christopher Kelly, Scott Lundberg, Marco Tulio Ribeiro, Marc Wilson, Xiaoxuan Liu, Viknesh Sounderajah, Jonathan Carlson, Matthew P. Lungren, et al. Sequential diagnosis with language models. arXiv preprint arXiv:2506.22405 , 2025. [17] Ankit Pal, Logesh Kumar Umapathi, and Malaikannan Sankarasubbu. Medmcqa: A large-scale multi-subject multi-choice dataset for medical domain question answering. In Proceedings of the Conference on Health, Inference, and Learning , pages 248–260. PMLR, 2022. [18] German I. Parisi, Ronald Kemker, Jose L. Part, Christopher Kanan, and Stefan Wermter. Continual lifelong learning with neural networks: A review. Neural Networks , 113:54–71, 2019. [19] Joon Sung Park, Joseph C. O’Brien, Carrie J. Cai, Meredith Ringel Morris, Percy Liang, and Michael S. Bernstein. Generative agents: Interactive simulacra of human behavior. In 
+
+Proceedings of the 36th Annual ACM Symposium on User Interface Software and Technology ,pages 1–22, 2023. doi: 10.1145/3586183.3606763. [20] Timo Schick, Jane Dwivedi-Yu, Roberto Dessi, Roberta Raileanu, Maria Lomeli, Eric Hambro, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. Toolformer: Language models can teach themselves to use tools. Advances in Neural Information Processing Systems , 36: 68539–68551, 2023. [21] Yongliang Shen, Kaitao Song, Xu Tan, Dongsheng Li, Weiming Lu, and Yueting Zhuang. HuggingGPT: Solving AI tasks with ChatGPT and its friends in hugging face. In Advances in Neural Information Processing Systems , volume 36, pages 38154–38180, 2023. [22] Haizhou Shi, Zihao Xu, Hengyi Wang, Weiyi Qin, Wenyuan Wang, Yibin Wang, Zifeng Wang, Sayna Ebrahimi, and Hao Wang. Continual learning of large language models: A comprehensive survey. ACM Computing Surveys , 58(5):1–42, 2025. [23] Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. Re-flexion: Language agents with verbal reinforcement learning. In Advances in Neural Information Processing Systems , volume 36, pages 8634–8652, 2023. [24] Aditi Singh, Abul Ehtesham, Saket Kumar, and Tala Talaei Khoei. Agentic retrieval-augmented generation: A survey on agentic RAG. arXiv preprint arXiv:2501.09136 , 2025. [25] Karan Singhal, Tao Tu, Juraj Gottweis, Rory Sayres, Ellery Wulczyn, Mohamed Amin, Le Hou, Kevin Clark, Stephen R. Pfohl, Heather Cole-Lewis, et al. Toward expert-level medical question answering with large language models. Nature Medicine , 31(3):943–950, 2025. [26] Xiangru Tang, Anni Zou, Zhuosheng Zhang, Ziming Li, Yilun Zhao, Xingyao Zhang, Arman Cohan, and Mark Gerstein. Medagents: Large language models as collaborators for zero-shot medical reasoning. In Findings of the Association for Computational Linguistics: ACL 2024 ,pages 599–621. Association for Computational Linguistics, 2024. [27] Lei Wang, Chen Ma, Xueyang Feng, Zeyu Zhang, Hao Yang, Jingsen Zhang, Zhiyuan Chen, Jiakai Tang, Xu Chen, Yankai Lin, et al. A survey on large language model based autonomous agents. Frontiers of Computer Science , 18(6):186345, 2024. 13 [28] Liyuan Wang, Xingxing Zhang, Hang Su, and Jun Zhu. A comprehensive survey of continual learning: Theory, method and application. IEEE Transactions on Pattern Analysis and Machine Intelligence , 46(8):5362–5383, 2024. [29] Jinjie Wei, Dingkang Yang, Yanshu Li, Qingyao Xu, Zhaoyu Chen, Mingcheng Li, Yue Jiang, Xiaolu Hou, and Lihua Zhang. MedAide: Towards an omni medical aide via specialized LLM-based multi-agent collaboration. arXiv preprint arXiv:2410.12532 , 2024. [30] Chaoyi Wu, Weixiong Lin, Xiaoming Zhang, Ya Zhang, Weidi Xie, and Yanfeng Wang. PMC-LLaMA: Toward building open-source language models for medicine. Journal of the American Medical Informatics Association , 31(9):1833–1843, 2024. doi: 10.1093/jamia/ocae045. [31] Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Shaokun Zhang, Jiale Liu, et al. Autogen: Enabling next-gen llm applications via multi-agent conversations. In First Conference on Language Modeling , 2024. [32] Tongtong Wu, Linhao Luo, Yuan-Fang Li, Shirui Pan, Thuy-Trang Vu, and Gholamreza Haffari. Continual learning for large language models: A survey. arXiv preprint arXiv:2402.01364 , 2024. [33] Zeyuan Yang, Peng Li, and Yang Liu. Failures pave the way: Enhancing large language models through tuning-free rule accumulation. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing , pages 1751–1777, 2023. [34] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R. Narasimhan, and Yuan Cao. React: Synergizing reasoning and acting in language models. In International Conference on Learning Representations , 2023. [35] Hao Yu, Aoran Gan, Kai Zhang, Shiwei Tong, Qi Liu, and Zhaofeng Liu. Evaluation of retrieval-augmented generation: A survey. In CCF Conference on Big Data , pages 102–120. Springer, 2024. [36] Hao Zhang, Bo Huang, Zhenjia Li, Xi Xiao, Hui Yi Leong, Zumeng Zhang, Xinwei Long, Tianyang Wang, and Hao Xu. Sensitivity-LoRA: Low-load sensitivity-based fine-tuning for large language models. arXiv preprint arXiv:2509.09119 , 2025. [37] Hao Zhang, Zhenjia Li, Runfeng Bao, Yifan Gao, Xi Xiao, Heng Zhang, Shuyang Zhang, Bo Huang, Yuhang Wu, Tianyang Wang, et al. HyperAdaLoRA: Accelerating LoRA rank allocation during training via hypernetworks without sacrificing performance. arXiv preprint arXiv:2510.02630 , 2025. [38] Hao Zhang, Mengsi Lyu, Zhuo Chen, Xingrun Xing, Yulong Ao, and Yonghua Lin. Pdtrim: Targeted pruning for prefill-decode disaggregation in inference. arXiv preprint arXiv:2509.04467 ,2025. [39] Hao Zhang, Mengsi Lyu, Chenrui He, Yulong Ao, and Yonghua Lin. TrimTokenator: Towards adaptive visual token pruning for large multimodal models. arXiv preprint arXiv:2509.00320 ,2025. [40] Hao Zhang, Mengsi Lyu, Bo Huang, Yulong Ao, and Yonghua Lin. TrimTokenator-LC: Towards adaptive visual token pruning for large multimodal models with long contexts. arXiv preprint arXiv:2512.22748 , 2025. 14 A Artifact Inventory and Responsible Use 
+
+This appendix documents the released executable evaluation artifact for MedEvoEval . The artifact contains the src/medevoeval Python package, experiment configurations, six JSON schemas, the 
+
+Chinese MedEvoEval-MedQA-700 dataset release, sanitized process trajectories and step-level records, manifests, Croissant metadata, cached aggregate results, reproduction scripts, audit documentation, and example outputs. Table 4: Released evaluation artifact contents. 
+
+Released component Purpose 
+
+Chinese MedEvoEval-MedQA-700 
+
+700 release-safe Chinese MedQA-derived simulated clinical cases with stable release IDs. Training-oriented process records 3,103 sanitized complete-episode trajectories and 3,386 high-quality single-step decision samples. 
+
+src/medevoeval package Minimal runner, action space, patient simulator, exam service, doctor/consultant agents, judge, scoring, memory, statistics, and analysis helpers. Experiment configurations Demo, benchmark, MDT, continual-memory, update/stability, and live-API configuration files. Schemas, manifests, and Crois-sant metadata Validate case, episode, event-log, score, memory, and process files; document release rows, source boundaries, and Responsible AI metadata. Cached metrics, scripts, and au-dit docs Recompute paired tests, reproduce table CSVs and figure source data, check splits, validate the package, and inspect audit notes. Example outputs Inspect demo episodes, event logs, score rows, cached tables, figure data, and live-check examples. 
+
+Training-oriented derivatives. In addition to the 700 benchmark episodes, the artifact includes derived training files for agent-policy research. The complete-episode derivative contains 3,103 trajec-tory records, each corresponding to a full episode. The file chinese_medevoeval_process_steps.jsonl 
+
+contains 3,386 single-step decision samples extracted from high-quality episodes. Each step records the current context, previous questions and tests, available actions, the target action, the target output text, and the final episode score. These samples are intended for supervised fine-tuning, behavior cloning, or action-policy training on what to ask, test, or finalize next. Low-scoring or failed episodes are excluded from the step file to avoid treating poor decisions as positive training targets. 
+
+Responsible use. MedEvoEval is a simulation-based evaluation framework for research use. It does not constitute clinical validation, medical-device certification, or evidence that an evaluated agent is safe for real-world deployment. The released episodes, logs, and code are intended for benchmark inspection and reproducibility, not for real clinical decisions. 
+
+# B Executable Episode Protocol Details 
+
+This appendix groups the executable protocol details used by the runner: the role-specific case schema, runtime prompt templates, the doctor structured-output template, and a compact memory-record example. 15 B.1 Role-Specific Case Schema 
+
+The implementation defines an episode case as a structured object with patient, examination, and manager views. The doctor-facing state is derived from this object and exposes only an opening instruction, revealed history, returned tests, optional consultant notes, optional retrieved memory cards, and the allowed test catalog. Figure 3 summarizes the role-specific visibility constraints, and the synthetic sample illustrates the case format. 
+
+Structured case 
+
+PatientView patient simulator 
+
+ExamView exam service 
+
+ManagerView manager judge 
+
+Doctor sees: 
+
+• opening complaint 
+
+• revealed history 
+
+• returned tests 
+
+• consultant notes (optional) 
+
+• retrieved memory (optional) 
+
+Doctor does not see: 
+
+• hidden patient facts 
+
+• unrevealed tests 
+
+• manager answer key 
+
+• scoring rubric details 
+
+Figure 3: Role-specific case views and visibility constraints. Patient and examination information is revealed only through actions, while manager-side labels and rubrics remain hidden until evaluation. 
+
+Synthetic sample. The following example is synthetic and only illustrates the format. 
+
+Schema B.1: Synthetic case example 
+
+> {"case_id": "synthetic_demo_001", "source": {"type": "synthetic", "raw_case_id": "demo"}, "patient_view": { "demographics": {"age": 46, "sex": "female"}, "chief_complaint": "intermittent chest discomfort for two days", "history_facts": [ "pain worsens with exertion", "no fever", "family history of premature coronary disease" ]}, "exam_view": { "tests": { "electrocardiogram": "nonspecific ST-T changes", "troponin": "mildly elevated" }, "test_catalog": ["electrocardiogram", "troponin"] }, "manager_view": { "ground_truth": { "diagnosis": { "display_name": "acute coronary syndrome", "acceptable_names": ["ACS"] }, "evidence_rubric": { "key_points": ["exertional chest pain", "troponin elevation"]
+
+16 }, "management_rubric": { "key_points": ["urgent cardiology evaluation"] }}}}
+
+B.2 Prompt Templates 
+
+Prompt B.1: Attending-doctor system prompt 
+
+You are an outpatient attending doctor in a simulated evaluation episode. Your goal is to reach a safe diagnosis and plan. Use only information revealed by the patient, examination service, consultant, and memory cards in this conversation. Rules: 1. Output valid JSON only. 2. Choose exactly one action from: ASK, REQUEST_TEST, CALL_MDT, FINALIZE. 3. Do not invent symptoms, examination results, laboratory values, imaging findings, or prior diagnoses. 4. REQUEST_TEST must use an exact test_name from the allowed catalog. 5. CALL_MDT may ask for diagnostic advice, but the final decision remains your responsibility. 6. FINALIZE only when evidence is sufficient or the turn limit requires termination. Provide diagnosis, evidence, plan, and followup. 7. Use retrieved memory cards as experience hints, not as patient facts. Episode state: - patient_opening: {patient_opening} - allowed_tests: {allowed_tests} - max_total_turns: {max_total_turns} - max_tests_per_visit: {max_tests_per_visit} - revealed_history: {revealed_history} - returned_tests: {returned_tests} - consultant_notes: {consultant_notes} - retrieved_memory_cards: {retrieved_memory_cards} 
+
+Prompt B.2: Patient-simulator prompt 
+
+You are a simulated outpatient patient. Answer the question from the attending doctor using only the hidden patient facts listed below. Rules: 1. Do not diagnose yourself. 2. Do not reveal examination, laboratory, imaging, or manager-only fields. 3. If the doctor asks about a listed hidden_history_fact, answer directly. 4. If the doctor asks about something not specified, say that you are not sure or that you do not recall. 5. Keep the answer natural, brief, and patient-like. 6. Output valid JSON only. hidden_patient_view: {patient_view} doctor_question: {question} Return: {
+
+17 "answer": "string", "revealed_facts": ["fact id or short fact text"], "unanswered_reason": "none|not_in_patient_view|unclear_question" }
+
+Prompt B.3: Examination-service prompt 
+
+You are an examination-result service for a simulated outpatient episode. Return only results that exist in the provided exam_view. Rules: 1. Match the requested test to the closest allowed catalog item. 2. If there is no allowed match, return returned=false and do not invent a result. 3. If the test is available, return the stored result verbatim or as a concise paraphrase without adding new findings. 4. Output valid JSON only. allowed_tests: {allowed_tests} exam_view: {exam_view} requested_test: {requested_test} Return: {"returned": true, "matched_test_name": "string", "match_type": "exact|alias|none", "result": "string", "reason": "string" }
+
+Prompt B.4: MDT-consultant prompt 
+
+You are an MDT consultant in a simulated diagnostic episode. Provide a second opinion based only on the revealed patient history, returned tests, and the current working diagnoses of the attending doctor. Rules: 1. You cannot order tests directly. 2. You cannot access hidden labels or unrevealed examination results. 3. Recommend at most one next question if more information is needed. 4. If the evidence is sufficient, recommend FINALIZE and give a concise diagnosis suggestion. 5. Output valid JSON only. revealed_context: {revealed_context} attending_state: {attending_state} 
+
+18 B.3 Structured Output Templates 
+
+Template B.1: Doctor structured output 
+
+> {"action": "ASK|REQUEST_TEST|CALL_MDT|FINALIZE", "utterance": "string", "question": "string", "test_name": "string", "rationale": ["string"], "working_diagnoses": ["string"], "needs_mdt": false, "diagnosis": ["string"], "evidence": ["string"], "plan": ["string"], "followup": ["string"] }
+
+B.4 Example Memory Record 
+
+The following synthetic memory-card example shows the memory-record format without including any third-party-derived case content. 
+
+Log B.2: Synthetic memory-card examples 
+
+> [{"case_id": "synthetic_demo_001", "visit_index": 0, "memory_type": "success", "experience": "Exertional chest discomfort plus biomarker elevation supported early cardiac workup.", "rule_text": "IF chest discomfort worsens with exertion THEN ask cardiac-risk questions and prioritize ECG/troponin.", "outcome": "accepted diagnosis and supported management plan", "search_text": "exertional chest discomfort cardiac risk ECG troponin acute coronary syndrome" }]
+
+# C Scoring Rubric and Metric Details 
+
+This appendix expands the scoring rules and metric definitions used in Section 4. The main paper reports the core quantities; this appendix provides the rubric levels, default parameters, process definitions, longitudinal notation, and sensitivity settings. 
+
+C.1 Outcome rubric 
+
+Diagnostic quality is graded on five levels: 
+
+Sdiag  
+
+> i
+
+∈ { 1.00 , 0.75 , 0.50 , 0.25 , 0.00 }.
+
+The levels correspond to an exact or clinically equivalent diagnosis, a mostly correct diagnosis with minor deviation, a partially correct diagnosis with moderate omission or bias, a limited but non-dangerous error, and a dangerous or clearly wrong diagnosis. The grading criteria and their clinical interpretation were checked by a professional physician. 19 Evidence consistency compares the final supporting evidence with manager-side key evidence points. Let Kevi  
+
+> i
+
+be the number of key evidence points, mevi  
+
+> i
+
+the number of correctly matched points, and hevi  
+
+> i
+
+the number of contradicted, hallucinated, or unsupported evidence points. We define 
+
+Sevi  
+
+> i
+
+= max 
+
+(
+
+0, mevi  
+
+> i
+
+− λevi hevi 
+
+> i
+
+Kevi 
+
+> i
+
+)
+
+.
+
+Management quality is scored in the same way. Let Kplan  
+
+> i
+
+be the number of expected management points, mplan  
+
+> i
+
+the number of matched points, and hplan  
+
+> i
+
+the number of unsafe or clearly wrong management points. We define 
+
+Splan  
+
+> i
+
+= max 
+
+(
+
+0, mplan  
+
+> i
+
+− μplan hplan 
+
+> i
+
+Kplan 
+
+> i
+
+)
+
+.
+
+Strict accuracy is computed after diagnosis normalization. Let ˆyi be the raw final diagnosis, ˜yi
+
+its normalized label, and Yacc  
+
+> i
+
+the acceptable reference diagnosis set: 
+
+Astrict  
+
+> i
+
+= 1{˜yi ∈ Y acc  
+
+> i
+
+}.
+
+Pass rate uses the composite score threshold: 
+
+Pi = 1{Si ≥ τpass }.
+
+C.2 Default parameters 
+
+Table 5: Default scoring and utility parameters. 
+
+Parameter Value Outcome weights (wdiag , w evi , w plan ) (0 .5, 0.3, 0.2) 
+
+Evidence penalty λevi 0.5 Management penalty μplan 1.0 Pass threshold τpass 0.7 Utility weights (w1, w 2, w 3, w 4) (0 .6, 0.2, 0.1, 0.1) 
+
+Default maximum turns and tests Tmax = 10 , Emax = 3 
+
+With these parameters, the composite outcome score is 
+
+Si = wdiag Sdiag  
+
+> i
+
++ wevi Sevi  
+
+> i
+
++ wplan Splan  
+
+> i
+
+,
+
+and the utility score is 
+
+Ui = w1Si − w2
+
+Ti
+
+Tmax 
+
+− w3
+
+Ei
+
+Emax 
+
+− w4Ri.
+
+C.3 Process metrics 
+
+The event log records each action before finalization. The interaction count is 
+
+Ti = # ASK + # REQUEST_TEST + # CALL_MDT ,
+
+where #CALL_MDT = 0 when consultation is disabled. The examination count is 
+
+Ei = # REQUEST_TEST .
+
+20 Let Ii be the number of invalid examination requests, including unavailable tests, unparseable test names, repeated low-value tests, or requests that do not return new information. The invalid-test rate is 
+
+Ri =
+
+{Ii/E i, Ei > 0,
+
+0, Ei = 0 .
+
+C.4 Longitudinal metrics 
+
+For a staged stream W1, . . . , W M , the stage mean of metric Z is 
+
+¯Zm = 1
+
+|Wm|
+
+∑
+
+> i∈Wm
+
+Zi.
+
+The early and late averages used for learning gain are 
+
+¯Zearly = 1
+
+|M early |
+
+∑
+
+> m∈M early
+
+¯Zm, ¯Zlate = 1
+
+|M late |
+
+∑
+
+> m∈M late
+
+¯Zm.
+
+Thus, 
+
+LG( Z) = ¯Zlate − ¯Zearly .
+
+For held-out transfer, H0 and H3 are evaluated on the same held-out set H. This 100-case held-out set is not used during longitudinal-stream memory accumulation. H0 runs these unseen cases without loading the mature memory bank, whereas H3 runs the same cases after loading the mature memory accumulated from the longitudinal stream. Thus, ET (Z) isolates external transfer from the fixed-stream replay gains observed in E0–E3: 
+
+ET( Z) = 1
+
+|H| 
+
+∑
+
+> i∈H
+
+(
+
+Z(H3) 
+
+> i
+
+− Z(H0)
+
+> i
+
+)
+
+.
+
+The direction of interpretation depends on the metric. Positive values are favorable for higher-is-better metrics such as S, U , strict accuracy, and pass rate. Negative values are favorable for cost metrics such as T and E.For retention analysis, A(Z) 
+
+> k,j
+
+denotes performance on stage j after the system has been updated through stage k. For higher-is-better metrics, 
+
+BWT( Z) = 1
+
+K − 1
+
+> K−1
+
+∑
+
+> j=1
+
+(
+
+A(Z) 
+
+> K,j
+
+− A(Z)
+
+> j,j
+
+)
+
+.
+
+Negative BWT indicates backward degradation. 
+
+C.5 Update-stage response 
+
+When a stream contains an explicit update interval, let Mpre , Mupd , and Mpost denote stages before, during, and after the update. For metric Z,
+
+∆upd (Z) = ¯Zupd − ¯Zpre , ∆post (Z) = ¯Zpost − ¯Zupd .
+
+If ¯Zupd < ¯Zpre for a higher-is-better metric, recovery is summarized as 
+
+ρrecovery (Z) = ¯Zpost − ¯Zupd 
+
+¯Zpre − ¯Zupd 
+
+.
+
+This ratio is only interpreted when the update interval produces a drop. 21 C.6 Statistical tests 
+
+For two paired conditions A and B, continuous or ordinal metrics are compared using case-level differences 
+
+d(Z) 
+
+> i
+
+= Z(B) 
+
+> i
+
+− Z(A)
+
+> i
+
+on the same case. We report the mean paired difference and use Wilcoxon signed-rank tests. For paired binary outcomes, such as strict correctness and pass/fail status, we use exact McNemar tests. Bootstrap confidence intervals are computed by resampling cases with replacement while preserving the paired structure. For stage sequences, Mann–Kendall tests summarize monotonic trends, augmented Dickey– Fuller tests summarize stationarity, CUSUM curves identify possible change points, and segmented regression describes slope changes or plateau behavior. These analyses are descriptive diagnostics for longitudinal behavior. 
+
+C.7 Sensitivity 
+
+The main paper reports component metrics alongside composite scores so that conclusions are not determined by a single weighting choice. As a sensitivity check, we recompute utility rankings under alternative cost weights while keeping the same episode logs and outcome scores. Table 6 reports the resulting rankings. Table 6: Utility-weight sensitivity on the 80-case model-comparison subset. Weights are 
+
+(S, turns , tests , invalid) .                                             
+
+> Setting Weights Rank 1 Rank 2 Rank 3 Rank 4 Default (0 .6,0.2,0.1,0.1) GLM-5 Kimi-K2.5 Qwen3.5-122B-A10B Qwen-Turbo Outcome-heavy (0 .8,0.1,0.1,0.0) GLM-5 Kimi-K2.5 Qwen3.5-122B-A10B Qwen-Turbo Turn-cost-heavy (0 .4,0.4,0.1,0.1) GLM-5 Kimi-K2.5 Qwen-Turbo Qwen3.5-122B-A10B Test-cost-heavy (0 .5,0.1,0.3,0.1) GLM-5 Qwen3.5-122B-A10B Kimi-K2.5 Qwen-Turbo Invalid-heavy (0 .5,0.1,0.1,0.3) GLM-5 Kimi-K2.5 Qwen3.5-122B-A10B Qwen-Turbo
+
+22 D Reproducibility Notes, Additional Results, and Ablations 
+
+This appendix consolidates the reproduction notes and supplementary experimental results for Section 5. The results are organized by their role in the paper: model-comparison supplements, MDT consultation supplements, longitudinal memory and held-out transfer, update and retention diagnostics, and memory ablations. Exact split membership, commands, and configuration files are provided in the released artifact rather than duplicated as paper-side command or configuration listings. 
+
+D.1 Reproducibility and Operational Notes 
+
+Reproducibility notes. The experiments use API-based inference rather than local model training or fine-tuning. The default random seed is 7. The reported experiments use Qwen-Turbo, Qwen3.5-122B-A10B, GLM-5, and Kimi-K2.5 as doctor, consultant, patient, or manager models depending on the study. Tables in the main paper and appendix report the episode counts used for each study, and configuration files specify the model roles, resource limits, memory mode, and retrieval settings. The reported experiments used API-based inference with an approximate total operational cost of about USD 100 under our provider configuration. Because pricing and routing vary across providers, we report this as an approximate operational cost rather than a standardized benchmark cost; future releases should include standardized per-run cost accounting. 
+
+Operational parsing and interaction noise. The runner uses JSON-only prompts together with schema and action validation. Malformed or unusable LLM turns are logged as llm_error_turns ,and invalid catalog requests are logged as invalid_tests and included in the invalid-test rate. Table 7 reports these logged noise fields rather than silently dropping them. We do not treat this as a full audit of simulator hallucination or parser-recovery behavior; those remain useful targets for future benchmark hardening. Table 7: Logged parsing and interaction-noise indicators.                     
+
+> Study Records Error records Error turns Invalid tests Mean invalid Exp1 model comparison 320 25.6% 291 75 0.082 Exp2 MDT 300 1.3% 537 0.067 Exp3 memory/transfer 2200 4.8% 313 825 0.156
+
+D.2 Model-Comparison Supplements 
+
+This subsection supports the model-comparison experiment in Section 5. The paired deltas test whether differences relative to Qwen-Turbo remain visible on the same 80 cases; the confidence-interval table adds uncertainty estimates; the full-vignette comparison provides a static complete-input supplement; and the full summary plus figure decompose outcome and process behavior. Table 8: Paired model-comparison deltas against Qwen-Turbo on 80 shared cases. Continuous metrics use Wilcoxon signed-rank tests; strict accuracy uses exact McNemar tests.                                         
+
+> Model ∆S(95% CI) pS∆U(95% CI) pU∆strict / p
+> Qwen3.5-122B-A10B +0 .074 [+0 .007 ,+0 .143 ]0.0783 +0 .017 [−0.026 ,+0 .062 ]0.581 +0 .050 / 0.424 GLM-5 +0 .318 [+0 .258 ,+0 .377 ]1.78 ×10 −12 +0 .193 [+0 .154 ,+0 .232 ]9.24 ×10 −12 +0 .275 /2.74 ×10 −5
+> Kimi-K2.5 +0 .275 [+0 .214 ,+0 .339 ]3.03 ×10 −10 +0 .114 [+0 .072 ,+0 .157 ]1.27 ×10 −5+0 .163 / 0.00443
+
+23 Table 9: Answer-only and episode-trace model-comparison summary with 95% bootstrap CIs. Answer-only metrics are projections from the final answer produced during the episode; trace metrics additionally provide utility and process costs.                                     
+
+> Model Ans. strict Ans. STrace SCI Trace UTrace UCI Invalid Qwen-Turbo 0.100 0.304 [0.261, 0.348] 0.001 [-0.029, 0.033] 0.077 Qwen3.5-122B-A10B 0.150 0.378 [0.320, 0.438] 0.018 [-0.020, 0.060] 0.010 GLM-5 0.375 0.622 [0.565, 0.675] 0.195 [0.158, 0.230] 0.050 Kimi-K2.5 0.263 0.579 [0.522, 0.638] 0.115 [0.073, 0.158] 0.192
+
+Table 10: Full-vignette static QA results and paired dynamic episode comparison on the 80-case subset for two models. Static evaluation gives the complete case vignette in a single prompt and excludes manager-only fields, gold diagnoses, aliases, and rubrics.                                 
+
+> Model NStatic strict Static accept. Static SdStatic SeStatic SpStatic SDyn. strict Dyn. S
+> Qwen-Turbo 80 0.288 0.388 0.472 0.682 0.722 0.585 0.100 0.304 Kimi-K2.5 80 0.125 0.625 0.581 0.836 0.922 0.726 0.263 0.579
+
+The static condition is a paired supplement rather than a replacement for episode evaluation. It shows that complete-input final-answer performance and interactive episode performance can differ in both magnitude and direction: Qwen-Turbo improves under full-vignette input, whereas Kimi-K2.5 has a higher static composite score but lower static strict diagnostic accuracy than in the dynamic episode condition. Static QA therefore helps contextualize final-answer ability, while episode traces remain necessary for measuring information acquisition, examination cost, invalid actions, and utility. Table 11: Full model-comparison summary on 80 shared episodes. 
+
+Model Strict Accept. Sd Se Sp S Turns Tests Qwen-Turbo 0.100 0.175 0.281 0.274 0.406 0.304 5.713 1.388 Qwen3.5-122B-A10B 0.150 0.275 0.322 0.433 0.434 0.378 7.975 0.900 GLM-5 0.375 0.525 0.572 0.614 0.759 0.622 4.463 2.225 Kimi-K2.5 0.263 0.488 0.506 0.569 0.778 0.580 5.725 2.575 
+
+Together, these supplementary results support the main conclusion of Section 5: the episode trace separates final clinical quality from process cost, examination use, invalid actions, and utility. 
+
+D.3 MDT Consultation Supplements 
+
+This subsection supports the MDT experiment. The table gives the full outcome summary, while the figure decomposes whether the intervention changes outcome metrics, consultation behavior, examination use, and diagnosis-change patterns. Table 12: Full MDT summary on 100 shared episodes. 
+
+Setting Strict Accept. Sd Se Sp S Tests No MDT 0.100 0.180 0.303 0.283 0.391 0.303 1.37 Same-model MDT 0.080 0.130 0.270 0.276 0.378 0.284 0.66 Stronger-consultant MDT 0.070 0.140 0.278 0.299 0.395 0.293 0.63 
+
+24 Figure 4: Model-comparison evidence on 80 shared episodes. (A) Outcome components separate diagnosis, evidence, plan, and total score. (B) Process cost compares interaction turns and requested tests. (C) Case-level score distributions expose variance across episodes. (D) Outcome-versus-testing view shows that higher total score and higher examination use are not identical. 25 Figure 5: MDT decomposition on 100 shared episodes. (A) Outcome and utility compare no MDT, same-model consultation, and stronger-consultant consultation. (B) Process cost shows the trade-off between more interaction turns and fewer examinations. (C) Diagnosis-change ratios identify whether MDT improves, preserves, or worsens paired cases. (D) Consultant behavior reports advice patterns together with call rates. 26 The supplementary MDT results support the interpretation in the main paper: in this Qwen-Turbo primary-doctor setting, consultation mainly shifts process effort away from examinations and toward consultation turns, while strict diagnostic accuracy and total score change only slightly. 
+
+D.4 Longitudinal Memory and Held-Out Transfer 
+
+This subsection supports the longitudinal memory experiment. The first table summarizes the no-memory, cold-start-memory, mature-memory, and held-out transfer conditions. The learning curves then show how the memory pattern varies across stages, and the paired H0/H3 table tests whether mature memory transfers to unseen cases. Table 13: Main longitudinal memory summary.                                                  
+
+> Group Cases SUStrict Pass Turns Tests E0 500 0.246 -0.054 0.092 0.056 6.134 1.450 E1 500 0.261 -0.043 0.136 0.096 6.324 1.274 E2 500 0.377 0.037 0.276 0.244 5.696 1.370 E3 500 0.430 0.077 0.342 0.284 5.380 1.360 H0 100 0.338 0.001 0.290 0.180 6.810 1.300 H3 100 0.413 0.068 0.330 0.260 5.820 1.410
+
+Stage-level learning curves are generated by the released analysis scripts for total score, utility, exact diagnosis rate, pass rate, turns, and tests. The qualitative pattern is consistent across the main outcome plots: E2 and E3 are above E0 and E1 for most stages, but within-pass stage trends are not monotonically increasing because later windows can be more difficult. H0 and H3 are evaluated on the same 100 external holdout cases, which are excluded from the longitudinal stream used to build memory. H0 is the no-mature-memory condition on this held-out set, while H3 loads the mature memory produced after the third longitudinal pass before evaluating the same cases. We therefore report paired Wilcoxon signed-rank tests for continuous or ordinal metrics and exact McNemar tests for paired binary outcomes. The table below is computed from matched H0/H3 case-level records in the experiment outputs and tests external transfer rather than repeated evaluation on the original stream. Table 14: Paired comparison on the external holdout set (H0 vs. H3).                                                 
+
+> Metric H0 H3 ∆Test Total score S0.338 0.413 +0.075 Wilcoxon, p= 0 .0408
+> Utility U0.001 0.068 +0.067 Wilcoxon, p= 0 .00314
+> Turns 6.810 5.820 −0.990 Wilcoxon, p= 0 .000231
+> Tests 1.300 1.410 +0.110 Wilcoxon, p= 0 .151
+> Strict accuracy 0.290 0.330 +0.040 McNemar, p= 0 .572
+> Pass rate 0.180 0.260 +0.080 McNemar, p= 0 .152
+> Non-dangerous diagnosis 0.550 0.680 +0.130 McNemar, p= 0 .0351
+
+The longitudinal and held-out results support a memory-maturation interpretation. E1 shows limited cold-start gains, while E2 and E3 show larger gains in outcome and utility. On unseen cases, H3 improves total score and utility and reduces turns, although strict accuracy and pass rate remain weaker binary signals in the 100-case holdout. 27 Figure 6: Stage-level memory curves. (A) Total score improves mainly after memory matures. (B) Utility follows the same mature-memory pattern while penalizing cost. (C) Strict accuracy rises after E2/E3. (D) Pass rate shows the thresholded outcome gain. (E) Turns decline under mature memory. (F) Tests remain a separate resource signal rather than a direct proxy for score. 
+
+Figure 7: External transfer comparison between H0 and H3 on 100 held-out episodes. 28 D.5 Update and Retention Diagnostics 
+
+This subsection collects diagnostics for the update and retention analysis. The early–late table checks whether within-pass stage means show monotonic improvement, while the update/BWT table and figure separate update-stage response from backward retention. Table 15: Early–late stage diagnostics for the main memory stream.                         
+
+> Group Searly Slate Uearly Ulate E0 0.318 0.231 0.000 -0.071 E1 0.326 0.252 0.001 -0.065 E2 0.442 0.396 0.084 0.040 E3 0.487 0.384 0.134 0.026
+
+Table 16: Update response and backward-transfer diagnostics.                                 
+
+> Group/metric Pre Update Post Change note G0 total score 0.238 0.345 0.242 update response +0 .108
+> G0 utility -0.057 0.010 -0.051 update response +0 .067
+> G1 total score 0.230 0.348 0.277 update response +0 .118
+> G1 utility -0.069 0.033 -0.027 update response +0 .102
+> BWT total score –––-0.0087 BWT utility –––-0.0103
+
+Descriptive time-series diagnostics. Mann–Kendall, ADF, CUSUM, and segmented-regression outputs are treated as descriptive checks rather than definitive significance evidence because update analyses use only ten stage points. In the update experiment, the update windows raise both G0 and G1 means, so the event is interpreted as a distributional response test rather than a purely adverse shock. The update results should therefore be read together with BWT. The update interval produces a positive current-stage response, while the BWT values indicate mild backward degradation rather than catastrophic forgetting. 
+
+D.6 Memory-Content and Retrieval-Scale Ablations 
+
+This subsection reports mechanism-oriented ablations on a 100-case subset. The memory-content ablation compares success-plus-failure memory with failure-only memory, and the retrieval-scale ablation varies Kret under the same success-and-failure memory setting. Table 17: Memory-content ablation on the 100-case mechanism subset with Kret = 3 .                  
+
+> Memory setting SUPass Turns Tests Strict Success + failure 0.2627 -0.0355 0.09 6.21 1.22 0.13 Failure only 0.2668 -0.0312 0.09 5.99 1.32 0.09
+
+These ablations do not identify one setting that dominates every metric. Success memory improves strict diagnosis relative to failure-only memory but does not improve the composite score 29 Figure 8: Update and retention diagnostics. (A) Stage total score separates pre-update, update, and post-update windows. (B) Stage utility repeats the analysis with resource penalties. (C) Backward-transfer deltas compare final evaluation against first evaluation on earlier stages. (D) G1 CUSUM curves provide a descriptive check for stage-level shifts. 
+
+Figure 9: Memory ablations on the 100-case mechanism subset. (A) Memory-content comparison tests whether success and failure cards differ from failure-only cards. (B) Retrieval-scale comparison varies Kret and tracks score, strict accuracy, and utility. 30 Table 18: Retrieval-scale ablation on the 100-case mechanism subset with success and failure memories enabled.                         
+
+> Kret SUPass Turns Tests Strict 10.3015 -0.0058 0.13 5.68 1.38 0.15 30.2763 -0.0261 0.08 6.28 1.21 0.12 50.3110 -0.0155 0.17 6.39 1.34 0.18
+
+in this small subset. Retrieval size has a larger effect: Kret = 5 gives the best outcome metrics, while Kret = 1 gives the best utility and shortest consultations. 
+
+# E Physician Audit and Scorer Validity 
+
+This appendix supplements the automatic-scoring limitation discussed in Section 6. To stress-test manager-side scoring, we performed a single-physician blinded clinical audit on 100 sampled episode final outputs. The sample was stratified across model-comparison and memory/held-out settings, memory and no-memory conditions, correct and incorrect diagnoses, and dangerous and non-dangerous cases. The physician auditor was blinded to the automatic manager scores and reviewed the final diagnosis, evidence, and plan fields against the reference diagnosis and rubric information. The audit protocol was: independent physician grading, post-hoc comparison with manager outputs, disagreement categorization by diagnosis boundary or rubric-coverage issue, and trace-level localization using the final structured output, returned examinations, and matched or missing rubric points. Table 19: Single-physician clinical audit summary on 100 sampled final outputs.           
+
+> Audit source NDiagnosis agreement Diag. kappa Evidence corr. Plan corr. Blinded physician auditor 100 0.920 0.892 0.914 0.931
+
+Typical disagreements occurred near boundary diagnosis grades and rubric-coverage judgments, especially when a final answer named a related disease family but omitted decisive evidence or management details. This audit measures manager-vs.-physician agreement for automatic scoring. It does not estimate agreement among multiple physicians, and larger physician-adjudicated subsets remain important future work. 31
