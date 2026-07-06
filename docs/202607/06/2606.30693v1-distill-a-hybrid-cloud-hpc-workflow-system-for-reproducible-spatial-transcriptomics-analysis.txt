@@ -1,0 +1,270 @@
+Title: DiSTILL: A Hybrid Cloud-HPC Workflow System for Reproducible Spatial Transcriptomics Analysis
+
+URL Source: https://arxiv.org/pdf/2606.30693v1
+
+Published Time: Wed, 01 Jul 2026 00:03:42 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# DiSTILL: A Hybrid Cloud-HPC Workflow System for Reproducible Spatial Transcriptomics Analysis 
+
+Myles Joshua Toledo Tan †, Member, IEEE Vasco Gerardo Hinostroza Fuentes †, Student Member, IEEE 
+
+Nikhil Yerra Maria Kapetanaki Parisa Rashidi Kejun Huang ∗, Member, IEEE Panayiotis V. Benos ∗
+
+Abstract —Spatial transcriptomics workflows increasingly com-bine large annotated data objects, notebook-based analyses, and resource-intensive statistical models that must be executed on high-performance computing (HPC) systems. In practice, these workflows are often difficult to reproduce because configuration, validation, stage execution, and artifact handling are fragmented across ad hoc scripts and manually edited notebooks. We present 
+
+DiSTILL (Disease Diagnosis from Spatial Transcriptomics via Interpretable Latent Learning), a hybrid cloud–HPC workflow system for reproducible spatial transcriptomics (ST) analysis. DiSTILL combines an application programming interface (API) backend built with FastAPI , a web frontend, a dataset and preset registry, and a Python pipeline generator that materializes run-specific execution bundles and SLURM submission scripts. The system supports local, Secure Shell (SSH)-mediated, and pull-based poller execution modes, enabling HPC submission in environments where persistent API-initiated automation is restricted. We describe the system through the lens of an inflam-matory bowel disease (IBD) ST workflow that operationalizes the analytical pipeline of Tan et al. [1] into an auditable application layer. Accordingly, the contribution of this paper is a workflow systems contribution centered on reproducible execution, queue-based orchestration, configuration semantics, and deployment across a split cloud–HPC architecture. The broader application goal of DiSTILL is to support user-supplied datasets that satisfy the schema assumptions of the wrapped analytical pipeline. 
+
+Index Terms —disease diagnosis, hybrid cloud–HPC systems, reproducibility, spatial transcriptomics, workflow orchestration, 
+
+Myles Joshua Toledo Tan is with the Department of Electrical & Computer Engineering, Herbert Wertheim College of Engineering, University of Florida, Gainesville, FL, USA, and also with the Department of Epidemiology, College of Public Health & Health Professions and College of Medicine, University of Florida, Gainesville, FL, USA. Vasco Gerardo Hinostroza Fuentes and Kejun Huang are with the Depart-ment of Computer & Information Science & Engineering, Herbert Wertheim College of Engineering, University of Florida, Gainesville, FL, USA. Nikhil Yerra is with the Clinical and Translational Science - Information Technology (CTS-IT) Team, Clinical and Translational Science Institute, University of Florida, Gainesville, FL, USA. Maria Kapetanaki is with the Department of Pharmacotherapy & Transla-tional Research, College of Pharmacy, University of Florida, Gainesville, FL, USA. Parisa Rashidi is with the J. Crayton Pruitt Family Department of Biomed-ical Engineering, Herbert Wertheim College of Engineering, University of Florida, Gainesville, FL, USA Panayiotis V. Benos is with the Department of Epidemiology, College of Public Health & Health Professions and College of Medicine, University of Florida, Gainesville, FL, USA. 
+
+> †
+
+These authors have contributed equally to this work and share first authorship. 
+
+> ∗
+
+Correspondence: Kejun Huang, kejun.huang@ufl.edu; Panayiotis V. Benos, pbenos@ufl.edu 
+
+I. I NTRODUCTION 
+
+Spatial transcriptomics (ST) analysis pipelines increasingly combine reference-guided deconvolution, latent factor discov-ery, notebook-based post-processing, and downstream predic-tive modeling. More broadly, the rapid growth of ST has produced a diverse computational landscape spanning pre-processing, spatial domain discovery, deconvolution, cell-cell interaction analysis, and multimodal or cross-slice integra-tion [2], [3], [4]. Although many of the underlying analytical tools are well established, the software systems used to opera-tionalize them remain fragile. In many research environments, execution still depends on manually edited paths, environment-specific shell commands, local notebook reruns, and one-off scheduler wrappers. These practices create failure modes that are infrastructural rather than methodological: hidden configu-ration drift, mismatched data schemas, incomplete provenance, duplicated queue execution, brittle file-path assumptions, and poor portability across compute environments [5], [6], [7]. DiSTILL (Disease Diagnosis from Spatial Transcriptomics via Interpretable Latent Learning) was designed to address this systems gap. Rather than proposing a new spatial transcrip-tomics algorithm, DiSTILL provides an execution substrate that transforms preset-driven configurations into reproducible, auditable, and SLURM-ready runs. The platform separates configuration management, preflight validation, run materi-alization, queue handling, and artifact exposure into explicit software components. In this work, we present DiSTILL as a workflow systems contribution for computational biology. As a case study, we deploy DiSTILL around the IBD ST pipeline introduced by Tan et al. [1], which used 
+
+cell2location -derived cell-type abundance estimates, non-negative matrix factorization (NMF) latent representa-tions (niches), niche composition features, neighborhood-enrichment features, and niche-associated gene expression features for machine learning–based disease classification [1]. DiSTILL does not replace that analytical contribution. Instead, it packages and orchestrates the workflow across a cloud-hosted control plane and an HPC execution environment. A central design goal of DiSTILL is to move beyond a sin-gle hard-coded study and toward an application capable of pro-cessing user-supplied datasets, provided that they satisfy the structural and metadata assumptions of the wrapped analytical pipeline. In the current system, registry-backed datasets and preset-driven runs are implemented end to end, and upload-oriented flows are implemented for schema-constrained raw-
+
+> arXiv:2606.30693v1 [q-bio.GN] 28 Jun 2026
+
+entry and downstream dataset contracts. Cross-environment progress, log reflection, and artifact browsing are supported in deployment-sensitive ways through synced-artifact report-ing from the HPC side. This paper therefore focuses on the software system architecture, operational semantics, and deployment trade-offs of DiSTILL. II. R ELATED WORK 
+
+DiSTILL sits at the intersection of computational biology workflow systems and ST analysis. 
+
+A. Analytical Tooling for Spatial Transcriptomics 
+
+At the analytical level, DiSTILL integrates established computational tools. Scanpy provides scalable data struc-tures and preprocessing utilities for large annotated single-cell and spatial gene expression matrices [8], while the broader 
+
+scverse ecosystem provides interoperable infrastructure for single-cell and spatial omics workflows [9]. In particular, 
+
+AnnData has become a common storage model for annotated matrices and associated metadata in these pipelines [10]. 
+
+cell2location provides a Bayesian framework for map-ping reference-derived cell-type signatures into ST data [11]. Additional spatial-analysis frameworks such as Giotto [12] and Squidpy [13] support visualization, tissue composition analysis, neighborhood structure analysis, and other down-stream spatial tasks. For the information-theoretic context surrounding the selection of niche-associated gene expression features and explainability, a recent review synthesizes how entropy, mutual information, and related criteria are used across ST analysis tasks [14]. The wrapped IBD workflow further incorporates NMF-based niche discovery, neighbor-hood enrichment analysis, feature engineering, and predictive modeling [1]. Hence, DiSTILL should be understood as an application and orchestration layer built around these existing analytical components. 
+
+B. Workflow and Reproducibility Systems 
+
+Workflow systems such as Snakemake [15] and 
+
+Nextflow [16] have established the importance of declara-tive workflows, reproducible execution, and scalable schedul-ing across local and cluster environments. Galaxy like-wise emphasizes accessible, reproducible, and collaborative biomedical analyses through a web-facing workflow environ-ment [17]. More recently, domain-oriented systems such as 
+
+Panpipes and SpatialOne have automated substantial portions of multimodal single-cell and spatial transcriptomics analysis [18], [19]. These systems are valuable comparators, but translational ST workflows often require tighter integration with preset registries, dataset compatibility metadata, pre-flight validation, application-facing run creation, user progress views, and deployment in hybrid cloud–HPC environments where the control plane and execution environment are inten-tionally decoupled. DiSTILL addresses this gap by wrapping a research analysis workflow into an application layer with explicit run state, queue semantics, SLURM bundle generation, and artifact-aware execution. DiSTILL is therefore positioned as an application-layer wrapper rather than as a replacement for general-purpose workflow engines. Its emphasis is not on introducing a new declarative execution language, but on operationalizing a con-crete ST pipeline with preset-backed configuration, dataset compatibility checks, explicit preflight validation, user-facing run creation, and deployment-aware scheduler integration across a split cloud–HPC architecture. III. S YSTEM SCOPE AND DESIGN GOALS 
+
+DiSTILL is intended as a reproducible workflow and de-ployment system for spatial transcriptomics pipelines. Its primary goals are to expose complex ST pipelines through a structured application interface rather than ad hoc shell usage, preserve reproducibility by materializing every run as a concrete and inspectable execution bundle, validate configura-tion and selected data assumptions prior to expensive HPC submission, support multiple scheduler interaction patterns including settings where API-initiated unattended automation is constrained, and evolve toward user-supplied dataset pro-cessing under explicit schema and compatibility constraints. These goals imply that DiSTILL should be evaluated as a workflow systems layer. The present paper therefore focuses on configuration semantics, queue handling, execution back-ends, deployment trade-offs, and operational lessons, while treating the wrapped IBD analysis pipeline as an integrated case study rather than as a new methodological contribution. IV. C URRENT ARCHITECTURE 
+
+DiSTILL is organized into four cooperating subsystems: a Next.js web frontend used for run setup, submis-sion, and progress views; a FastAPI backend respon-sible for authentication, preflight validation, run creation, queue state, dataset and preset registry access, and arti-fact metadata; a Python pipeline generator that resolves a configuration into a concrete run directory contain-ing config.json , config.resolved.json , a patched pipeline script, run.sh , and, when requested, submit.sh ;and an HPC execution backend on HiPerGator (HPG) that executes materialized runs either through direct submission or through a pull-based poller that claims queued work from the API and submits it locally through sbatch .The current production deployment is hybrid. The frontend is hosted separately from the API, while the API is served from a cloud virtual machine behind a reverse proxy. HPC execution occurs on the University of Florida HiPerGator environment through the Simple Linux Utility for Resource Management (SLURM ) [20]. This separation is intentional: the control plane does not assume direct execution privileges on the cluster, and the pull-based poller avoids reliance on unattended API-initiated login-node automation. Table I complements Fig. 1 by mapping each subsystem to its operational role in the current deployment. Cloud Control Plane HPC Execution Plane 
+
+User Web Frontend  
+
+> (Next.js)
+> API Backend
+> (FastAPI)
+
+HPG Poller  
+
+> Preset
+> Registry
+> Dataset
+> Registry
+> Run / Queue
+> State
+> SLURM
+> (sbatch / squeue)
+> Artifacts
+> & Logs
+> queue endpoints
+> queue sync sbatch
+> claim
+> report
+
+Fig. 1: DiSTILL system architecture in the current deployment. The web frontend and API backend form a cloud-hosted control plane, while HiPerGator acts as the execution plane. Runs are created through the frontend and API, resolved against presets and dataset metadata, then exposed through authenticated queue endpoints. An HPG-resident poller claims queued runs, downloads prepared execution bundles, submits jobs locally via SLURM, and reports submission or status back to the API. This architecture avoids requiring a persistent API-initiated scheduler control channel into the HPC environment. TABLE I: DiSTILL components and current deployment roles.                    
+
+> Component Current role
+> Web frontend Next.js user interface (UI) for run config-uration, submission, and progress views API backend FastAPI control plane for auth, preflight, run creation, queue state, and artifact meta-data Pipeline generator Resolves presets and dataset metadata into concrete run bundles and SLURM scripts Preset registry Stores workflow defaults, stage selection, and compute parameters Dataset registry Stores dataset-level compatibility metadata and schema hints HPG poller Claims queued work, materializes bundles on HPG, submits jobs via SLURM, and reports state SLURM backend Executes generated submit.sh and
+> run.sh scripts on compute nodes Artifacts/logs Written to per-run output directories; visi-bility depends on storage accessibility and reporting mode
+
+V. E XECUTION MODES 
+
+DiSTILL supports three operational backends built around the SLURM scheduler environment used in the current deploy-ment [20]. 
+
+A. Local SLURM Backend 
+
+In the local backend, the API host invokes sbatch ,
+
+squeue , sacct , and related commands directly. This re-quires direct scheduler access and a shared filesystem view between the API host and the run and artifact paths. 
+
+B. SSH-Mediated Backend 
+
+In the SSH-mediated backend, the API host prepares a run locally, uploads the materialized directory to a remote system, and invokes SLURM commands through SSH. This supports remote scheduler access when the API host cannot run SLURM locally. 
+
+C. Pull-Based HPC Poller 
+
+In the pull-based mode, the API exposes authenticated queue endpoints while an HPC-resident poller periodically claims queued work, downloads a prepared bundle, materi-alizes the run directory on HPG, submits the job locally, and reports submission or status back to the API. This pattern is especially useful when unattended API-initiated SSH automa-tion is impractical or prohibited by HPC access policies. Figure 2 summarizes this pull-poller interaction pattern and the direction of control and status messages across the API, poller, and scheduler actors. 
+
+D. Queue Lifecycle and Run-State Semantics 
+
+DiSTILL separates logical run creation from physical job execution. This distinction is necessary because a run may be defined and validated before an execution resource is available, and in pull-poller mode the system that creates the run is not the same system that submits the job. A run begins in a configuration-centric state such as 
+
+created or queued . Once the API resolves the config-uration and prepares an execution bundle, the run advances to a materialized state in which the generated scripts and resolved configuration are available for submission. In direct-submission modes, the API may immediately invoke sbatch .User API HPG  
+
+> Poller SLURM
+> 1. Create queued run
+> 2. Store run + queue entry
+> 3. Claim next queue item
+> 4. Return run bundle
+> 5. Materialize run dir
+> 6. sbatch submit.sh
+> 7. Execute run.sh
+> 8. Report job ID / status
+
+Fig. 2: Execution sequence in pull-poller mode. The control plane creates a queued run and stores the resolved configura-tion. The HPG poller periodically claims available queue items using token-authenticated API calls, downloads the run bundle, materializes the run directory on HPG, submits the generated 
+
+submit.sh script via local sbatch , and reports submission or subsequent state changes back to the API. Arrows indicating specific points mark the handoff point where controls move from the cloud control plane to the HPG execution side for local scheduler submission. Horizontal arrows denote message flow between actors, and the dashed vertical lifelines indicate actor persistence as time progresses from top to bottom. In pull-poller mode, the API instead exposes the run through authenticated queue endpoints and waits for an HPG-side poller to claim it. After successful claim and bundle download, the poller materializes the run on HPG, invokes sbatch ,and reports the assigned SLURM job identifier back to the API. Subsequent states, such as submitted , running ,
+
+failed , or completed , are updated from scheduler-facing information. This lifecycle is intentionally decoupled from raw SLURM state names. The API must represent both application-layer state and scheduler-layer state, because a run can be validly prepared even when no SLURM job has yet been created. Likewise, a run may fail due to configuration or bundling issues before a scheduler identifier exists. Lease-based queue claiming further separates logical queue ownership from final scheduler submission and reduces the chance of duplicate processing by multiple pollers. VI. C ONFIGURATION AND DATA MODEL 
+
+A run is defined by a JSON (JavaScript Object Notation) configuration that combines user-specified fields, preset de-faults, and optional dataset-registry metadata. The configura-tion captures run metadata such as run_name and selected stages, input data paths including spatial AnnData objects, reference AnnData objects, and metadata files, analysis pa-rameters including NMF mode and stage-specific options, and execution parameters including SLURM resources and conda environment settings. This configuration strategy is consistent with the broader scverse ecosystem and the AnnData -centered data model commonly used for annotated single-cell and spatial matrices [9], [10]. Presets act as executable templates for recurring workflow families: they define stage order, default paths, parameter defaults, and scheduler resource profiles so that the same ap-plication surface can target different workflow variants without requiring script edits. The dataset registry stores compatibility hints, schema manifests, selected metadata fields, and rec-ommended presets to reduce configuration drift and expose dataset-level assumptions at run-creation time. Separately, the API stores run metadata apart from queue metadata, allowing a run to exist in a valid application state before it acquires any scheduler identity; in pull-poller mode, queue entries additionally support lease-based locking. 
+
+A. User-Supplied Dataset Processing 
+
+A central design goal of DiSTILL is to support user-supplied datasets rather than only fixed, registry-backed stud-ies. In practice, this means the application must either map uploaded datasets into the schema expected by the wrapped analytical pipeline or reject them during preflight validation with explicit feedback. The intended scope should be stated carefully. DiSTILL is not designed to accept arbitrary unstructured files and automatically make them analyzable. Instead, it aims to ac-cept user-supplied datasets that satisfy required structural and metadata assumptions. In the current deployment, registry-backed workflows are implemented end to end, and upload-oriented flows are available for explicit schema-constrained dataset contracts. For raw-entry workflows, the application expects a spatial .h5ad and matching metadata, while the required reference .h5ad may come either from the up-loaded dataset record or from a compatible preset or registry-backed default. For downstream-entry workflows, the applica-tion can begin from an existing NMF-annotated artifact such as 
+
+cosmx_with_nmf.h5ad . Files that do not satisfy required join-key, coordinate, morphology, or stage-input assumptions are surfaced during preflight rather than after SLURM submis-sion. The operationally reliable path still benefits from con-trolled data placement, registry-backed defaults, and preflight validation, even though generalized upload support remains a longer-term product direction. More generally, wrapping a new pipeline into DiSTILL requires only a small set of integration points that are explicit in the current architecture: a preset capturing stage selection and compute defaults, a dataset manifest or registry entry describing required paths and schema hints, a template script or notebook that can be materialized into a run-specific bundle, and stage-aware validation rules that define the expected inputs and outputs. This keeps the framework extensible without claiming arbitrary pipeline compatibility out of the box. VII. R UN MATERIALIZATION 
+
+DiSTILL does not execute directly from abstract configuration. Instead, each run is materialized into a concrete run directory containing config.json ,
+
+config.resolved.json , a patched pipeline script, astage orchestrator script (run.sh ), a SLURM wrapper (submit.sh ) when scheduler execution is enabled, and the generated artifacts and logs produced during execution. This design preserves the exact code and configuration submitted to SLURM and supports post hoc debugging be-cause every run is represented as an inspectable filesystem object. The generated run.sh orchestrates stage execution sequentially, while submit.sh wraps the run for scheduler submission with environment activation, thread settings, and job-specific output and error targets. VIII. P REFLIGHT VALIDATION 
+
+Preflight validation reduces wasted queue time by checking configuration and selected data assumptions before execution. Depending on deployment mode, DiSTILL validates required fields and stage names, path existence and path safety relative to approved roots, dataset-registry compatibility constraints, and optional join-key compatibility between AnnData objects and metadata files. In HPC settings where scheduler time is expensive, surfacing these failures before submission is a substantial systems benefit. IX. C ASE STUDY : W RAPPING AN IBD S PATIAL 
+
+TRANSCRIPTOMICS PIPELINE 
+
+DiSTILL was developed around the IBD workflow by Tan 
+
+et al. [1]. Within DiSTILL, that workflow is treated as a set of orchestrated stages rather than as a novel method introduced by the platform. The wrapped stages may include 
+
+cell2location -based spatial abundance inference [11], NMF-based niche decomposition, post-NMF neighborhood and enrichment analyses, RCausalMGM -oriented [21] prepa-ration steps, downstream predictive modeling including mul-tilayer perceptron (MLP) analysis, and report generation, with optional SHapley Additive exPlanations (SHAP)-based feature attribution [22]. By wrapping these components in a system with explicit configuration, queueing, and artifact semantics, DiSTILL con-verts a research workflow into a more reproducible and application-oriented execution model. X. C ASE -S TUDY OUTPUTS FROM THE WRAPPED PIPELINE 
+
+The following figures and tables provide a representa-tive overview of the outputs generated by DiSTILL when hosting the wrapped IBD ST workflow. They are included as case-study evidence that the application layer can ma-terialize a complete run, execute the expected stages, and expose representative artifacts spanning niche decomposition, TABLE III: Classification report for the three-class problem (HC, UC, CD).                           
+
+> Class Precision Recall F1-score Support
+> HC 1.000 1.000 1.000 55 UC 0.644 0.613 0.628 62 CD 0.579 0.611 0.595 54 Accuracy 0.737 171 Macro Avg 0.741 0.741 0.741 171 Weighted Avg 0.738 0.737 0.737 171
+
+TABLE IV: Classification report for the two-class problem (HC, IBD).                       
+
+> Class Precision Recall F1-score Support
+> HC 0.825 0.945 0.881 55 IBD 0.972 0.905 0.938 116 Accuracy 0.918 171 Macro Avg 0.899 0.925 0.909 171 Weighted Avg 0.925 0.918 0.919 171
+
+neighborhood-enrichment features, classification summaries, statistical comparisons, and feature-importance outputs. They are not presented as a new biological contribution or as the sole evaluation of DiSTILL as a software system. For brevity, certain elements from the original analysis, e.g., causal graphs, have been omitted. For the complete biological results and comprehensive discussion, readers are referred to the original study [1]. 
+
+A. Cellular Niche Decomposition 
+
+Figure 3 links computational niche discovery with biolog-ical interpretation in one representative field of view (FOV), 
+
+UC_a_8 . Panel (a) shows NMF-defined cellular niches over-laid on the histomorphology image, whereas panel (b) shows the five most abundant predicted cell types within Niche 3. This paired view makes the niche decomposition interpretable 
+
+in situ by connecting latent structure to tissue morphology and local cellular composition. 
+
+B. Neighborhood Enrichment Features 
+
+Figure 4 compares niche-neighborhood enrichment scores across HC, UC, and CD. Red cells denote niche pairs that co-occur more frequently than expected, whereas blue cells denote niche pairs that are under-enriched. The condition-specific contrast is especially useful for understanding how disease progression reshapes the spatial cellular microenviron-ment before downstream predictive modeling. 
+
+C. Disease Classification Performance 
+
+Figure 5 summarizes the aggregated confusion matrices for the three-class and two-class MLP tasks. In the three-class setting, HC is classified perfectly, with most errors between UC and CD due to their biological similarity. Tables III and IV provide the corresponding classification reports computed from the aggregated cross-validation outputs, and Table V summarizes the mean and standard deviation of the evaluation metrics across the three folds. (a) (b) 
+
+Fig. 3: Visualization of cellular niches and their cell type composition in FOV UC_a_8 . (a) Cellular niches identified by NMF as colored points overlaid on the histomorphology. (b) The five most abundant cell types within Niche 3.   
+
+> (a) (b) (c)
+
+Fig. 4: Niche enrichment comparisons across (a) HC, (b) UC, and (c) CD.  
+
+> (a) (b)
+
+Fig. 5: Confusion matrices for the (a) three-class and (b) two-class problems. TABLE V: Three-fold stratified group cross-validation perfor-mance for the three-class and two-class tasks.                            
+
+> Performance metric Three classes Two classes (HC, UC, CD) (HC, IBD)
+> Accuracy 0.774 ±0.161 0.916 ±0.118
+> Precision 0.743 ±0.220 0.927 ±0.104
+> Recall 0.741 ±0.183 0.908 ±0.129
+> F1 Score 0.712 ±0.209 0.912 ±0.125
+
+D. Statistical Comparisons and Feature Importance 
+
+Table VI reports the statistically significant pairwise com-parisons for niche composition across disease groups, and Table VII does the same for niche interactions. Together, these tables provide the direct inferential complement to the descrip-tive heatmaps in Fig. 4. To preserve correspondence with the original study numbering, the final imported result figure is retained as Fig. 6. Figure 6 shows the original permutation-importance analysis, highlighting the top 20 features for the three-class task. XI. S YSTEM EVALUATION 
+
+Because DiSTILL is presented as a workflow systems contribution rather than as a new predictive model, the most relevant evaluation questions are operational: whether the system reduces manual execution burden, makes configuration failures more explicit, preserves reproducibility across reruns and recoveries, and improves the path from configuration to scheduler submission relative to ad hoc execution. 
+
+A. Operational Evidence from the Current Deployment 
+
+The current implementation supports several concrete systems-level capabilities that are difficult to achieve reliably in an ad hoc notebook-and-shell workflow. First, each run is materialized into a dedicated execution bundle containing a resolved configuration, patched pipeline script, stage orches-trator, and SLURM wrapper. This creates a stable submission artifact that can be inspected, rerun, or recovered after failure. Second, queue-based orchestration separates run definition from scheduler submission, which makes it possible to create TABLE VI: Pairwise comparisons of niche compositions across disease groups.                                                           
+
+> NMF factor Group 1 Group 2 Difference between means Direction Adj. p-value
+> 1HC UC 7.2503 Up 0.0003 1CD HC -10.2075 Down <0.0001
+> 2HC UC -4.4167 Down <0.0001
+> 2CD HC 2.4362 Up <0.0001
+> 2CD UC -1.9805 Down 0.0219 3HC UC -5.9405 Down <0.0001
+> 3CD UC -7.3289 Down <0.0001
+> 4CD HC 9.1598 Up <0.0001
+> 4CD UC 12.2667 Up <0.0001
+
+TABLE VII: Pairwise comparisons of niche interactions across disease groups.                                                         
+
+> Interaction Group 1 Group 2 Direction Group 1 mean Group 2 mean Adj. p-value
+> 1 vs 1 HC UC Up 0.165 -2.627 0.032 1 vs 1 UC CD Down -2.627 -0.039 0.012 1 vs 2 HC UC Up -1.308 -3.652 <0.001
+> 1 vs 2 HC CD Up -1.308 -2.650 0.014 1 vs 4 HC UC Up -1.612 -4.851 0.002 2 vs 1 HC UC Up -1.693 -3.673 0.001 2 vs 1 HC CD Up -1.693 -2.917 0.014 4 vs 1 HC UC Up -1.736 -4.823 0.002
+
+Fig. 6: Top 20 features ranked by PI for the three-class task. a queued run from the control plane and later claim and submit it from HPG under institutional access constraints. Third, explicit poller callbacks for submission, status, and artifact synchronization provide a concrete bridge from the execution plane back to the control plane. The case-study outputs summarized in Section X provide functional evidence that the wrapped workflow can progress from niche decomposition through statistical testing and classi-fier interpretation within a reproducible application layer. This demonstrates that DiSTILL preserves enough state to support recovery-oriented execution and auditable result generation rather than forcing the user to reconstruct the workflow manually from notebooks and shell history. 
+
+B. Comparison Axes Against Prior Ad Hoc Execution 
+
+Table VIII summarizes the most defensible evaluation axes for the current system. The comparison is intentionally quali-tative because the present work does not include a controlled time-and-motion study or a formal user study. Nevertheless, these axes capture the concrete workflow differences between prior ad hoc execution and the current application layer. 
+
+C. What We Can and Cannot Claim 
+
+The current evidence supports claims about operational structure, reproducible run representation, and deployment-aware workflow reliability, not a formal benchmark of human labor savings or scheduler efficiency. In particular, DiSTILL reduces the number of manual handoffs required to define, submit, and recover runs at the workflow-design level, but this paper does not claim a measured percentage reduction in configuration errors or a statistically validated improvement in wall-clock time to submission. A stronger future evaluation would include controlled before-versus-after measurements of operator effort, failure incidence, and recovery latency relative to the original ad hoc workflow, as well as broader user feedback across multiple deployments. XII. I MPLEMENTATION DETAILS 
+
+The current implementation uses a FastAPI control plane, a Next.js web interface, filesystem-backed run directories, and SQLite -based run tracking. Queue safety uses lease-based claim semantics in pull-poller mode. Browser authen-tication is separated from queue-poller authentication, and artifact access is restricted to approved filesystem roots. TABLE VIII: System-level evaluation axes comparing prior ad hoc execution with the current DiSTILL workflow.                                              
+
+> Evaluation axis Prior ad hoc execution Current DiSTILL workflow
+> Manual execution steps Manual path edits, notebook reruns, direct shell invocation, hand-written SLURM commands, and manual log discovery across environments. Preset-backed run creation, generated execution bun-dles, explicit stage orchestration via run.sh , gener-ated submit.sh , and queue-driven HPG submission through the poller. Configuration error expo-sure Misconfigurations often surface only after scheduler submission or deep inside stage ex-ecution. Preflight validation checks required fields, allowed roots, stage contracts, and selected dataset-schema as-sumptions before expensive execution. Reproducibility across re-runs Reproduction depends on preserving shell his-tory, notebook state, and manually edited file paths. Each run is represented by concrete per-run artifacts such as config.json ,
+> config.resolved.json ,patched pipeline code, and scheduler wrappers. Time to submission Submission requires environment-specific com-mand knowledge and repeated manual setup on the execution side. The control plane resolves and materializes the run bundle once; HPG submission then reduces to poller claim plus local sbatch invocation. Failure recovery Recovery often requires retracing prior com-mands and reconstructing which intermediate artifacts are valid. Recovery can reuse preserved run artifacts, explicit stage boundaries, and synchronized outputs to rerun only the affected downstream stages. Cross-environment visibil-ity Progress, logs, and outputs are fragmented across notebook outputs, shell sessions, and HPC filesystems. Run state is reflected through the control plane, and selected artifacts and logs can be synchronized back from HPG for UI-facing access.
+
+For HPC submission, DiSTILL generates job-specific SLURM output and error filenames to reduce collisions across repeated submissions. The generated submission wrapper stan-dardizes conda activation and thread-related environment vari-ables before invoking run.sh . In practice, this proved im-portant during deployment because repeated submissions and large-memory jobs can make ambiguous shared log filenames difficult to debug. 
+
+A. User Interface 
+
+The current manuscript includes representative user-interface captures so that the software paper explicitly docu-ments the operator-facing surfaces in addition to the execution architecture. Figure 7 shows the DiSTILL run-configuration view. DiSTILL also provides a separate progress-and-artifact view for tracking scheduler status, logs, and generated outputs. 
+
+B. Implementation Notes 
+
+Several implementation details were particularly important in making the system operational in a hybrid deployment. In practice, robustness depended on four choices: per-run materialization into inspectable execution directories; explicit separation between the cloud control plane and the HPG execution plane; token-authenticated poller access rather than browser-session automation for scheduler interaction; and lay-ered logging that distinguishes scheduler-wrapper behavior from stage-level failures. Together, these choices simplify de-bugging, provenance tracking, reruns, and deployment across environments where the API host cannot directly control or inspect the cluster. XIII. D EPLOYMENT AND REPRODUCIBILITY 
+
+CONSIDERATIONS 
+
+Artifacts are written under the configured run output direc-tory, while stage logs are written by the stage orchestrator. In the split cloud–HPC deployment, user-facing visibility depends on whether HPG outputs are directly visible to the API host or are pushed back through a poller-mediated bridge into API-managed storage. This affects practical features such as live log reflection, artifact browsing, and public progress links, which must be generated against the frontend base URL rather than the API base URL. To strengthen software-level reproducibility, the DiS-TILL reference implementation is publicly available at https://github.com/theocsav/DiSTILL. The repository includes the Next.js frontend, FastAPI backend, pipeline run-ner, example presets, dataset-registry structure, and de-ployment documentation for local and HPC-oriented se-tups, as well as sanitized example configurations and smoke-test artifacts under examples/ . It further doc-uments supported dataset contracts and run/configura-tion interfaces in docs/DATASET_CONTRACT.md and 
+
+docs/RUNSPEC_RUNSTATE.md . Because some datasets associated with the wrapped IBD case study may be subject to access or redistribution constraints, the public repository is intended to support instantiation and inspection of the DiS-TILL system and its workflow contracts even when protected biological inputs cannot always be redistributed as a full reference deployment package. XIV. D EPLOYMENT LESSONS AND FAILURE MODES 
+
+Deploying DiSTILL across a cloud control plane and an HPC execution plane exposed several practical lessons that are relevant beyond this specific workflow. A first lesson is that scheduler control assumptions must match institutional policy. In principle, an API host could invoke SLURM remotely through SSH. In practice, unattended login-node automation may be limited by authentication re-quirements or policy. The pull-poller design emerged as a robust alternative because it inverts the control flow: the HPC side retrieves work instead of the API pushing work inward. Fig. 7: DiSTILL run-configuration user interface screenshot. A second lesson is that reproducibility failures often orig-inate in operational glue rather than in the analytical core. During deployment and debugging, failures arose from issues such as mismatched hostnames for public progress views, environment activation differences between login and batch contexts, overwritten log files caused by non-unique filenames, scheduler wrapper assumptions, and latent script dependencies that were harmless in one environment but unavailable in another. These are not statistical failures, but they materially affect whether a workflow is usable. A third lesson is that user-facing features become subtle in split deployments. A public progress page is a frontend concern, but scheduler state and logs originate from the API and HPC layers. If the frontend builds progress URLs against the API base URL rather than the frontend base URL, progress sharing fails even though the run state is valid. Similarly, live log browsing requires either shared storage visibility or a push-back mechanism from HPG to the API. A fourth lesson concerns user-supplied datasets. Supporting uploads is not simply a matter of accepting a file through the frontend. The wrapped analytical pipeline makes assumptions about AnnData structure, metadata availability, and path lay-out. Consequently, uploads in the current system are imple-mented only for explicit schema-constrained contracts, such as raw-entry spatial-plus-metadata datasets and downstream NMF-annotated artifacts, and still benefit from registry-backed defaults and preflight validation. Upload workflows are there-fore supported, but they are not arbitrary opaque file ingestion. These lessons reinforce the main argument of the paper: the gap between a research script collection and a reproducible application is primarily a software systems problem. XV. L IMITATIONS 
+
+Several limitations should be stated explicitly. The current system is oriented toward single-instance deployment, and SQLite limits multi-writer scalability. In pull-poller deploy-ments, artifact and live-log visibility depend on either shared storage visibility or explicit push-back from HPG to the API, and synced reflection remains configuration-sensitive. Public progress links and log surfacing also remain deployment-sensitive across the split frontend/API architecture. In ad-dition, the user-dataset upload path is limited to explicit schema-constrained contracts rather than unrestricted ingestion of arbitrary files, and some wrapped analytical scripts still require dependency and path hardening for full portability across arbitrary datasets and execution environments. Finally, while the present qualitative evaluation is appropriate to the current systems contribution, broader quantitative study across additional users and deployments remains future work. XVI. D ISCUSSION 
+
+DiSTILL demonstrates that turning a research-grade spatial transcriptomics workflow into an application requires solving systems problems that are often omitted from methodological papers: configuration normalization, path safety, scheduler interaction, queue duplication prevention, reproducible bundle generation, run provenance, and deployment-aware artifact access. A useful interpretation of DiSTILL is therefore as a translational layer between computational biology research code and application-facing workflow execution, making as-sumptions explicit, separating validation from execution, and representing each run as a concrete auditable object. XVII. C ONCLUSION 
+
+DiSTILL is a reproducible workflow orchestration system for spatial transcriptomics analysis in hybrid cloud–HPC envi-ronments. Its contribution is not a new biological model, but a systems layer that operationalizes complex computational biology pipelines through configuration resolution, preflight validation, run materialization, queue semantics, execution backends, and artifact traceability. By wrapping the IBD ST pipeline of Tan et al. into an application framework and generalizing toward user-supplied datasets, DiSTILL demon-strates how research analysis code can be elevated into a more reproducible and usable workflow system. ACKNOWLEDGMENT 
+
+This work was supported by the National Institutes of Health (NIH) grants. ChatGPT (GPT-5.4) was used solely to optimize phrasing and reduce wordiness in order to meet the page limits set by the conference. All ideas, analyses, and conclusions presented in this manuscript are entirely our own. REFERENCES [1] M. J. T. Tan, M. Kapetanaki, and P. V. Benos, “Engineering spatial and molecular features from cellular niches to inform predictions of inflammatory bowel disease,” Sep. 2025, arXiv:2509.09923, revised Jan. 2026. [2] S. Fang, B. Chen, Y. Zhang, H. Sun, L. Liu et al. , “Computational approaches and challenges in spatial transcriptomics,” Genomics, Pro-teomics & Bioinformatics , vol. 21, no. 1, pp. 24–47, 2023. [3] Y. Liu and C. Yang, “Computational methods for alignment and inte-gration of spatially resolved transcriptomics data,” Computational and Structural Biotechnology Journal , vol. 23, pp. 1094–1105, 2024. [4] L. C. Gaspard-Boulinc, L. Gortana, T. Walter, E. Barillot, and F. M. G. Cavalli, “Cell-type deconvolution methods for spatial transcriptomics,” 
+
+Nature Reviews Genetics , vol. 26, pp. 828–846, 2025. [5] B. Gr¨ uning, J. Chilton, J. K¨ oster, and R. Dale, “Practical computational reproducibility in the life sciences,” Cell Systems , vol. 6, no. 6, pp. 631–635, 2018. [6] K. Gierend, F. Kr¨ uger, S. Genehr, F. Hartmann, F. Siegel, D. Waltemath, T. Ganslandt, and A. A. Zeleke, “Provenance information for biomedical data and workflows: Scoping review,” Journal of Medical Internet Research , vol. 26, p. e51297, 2024. [7] S. R. Wilkinson, M. Aloqalaa, K. Belhajjame, M. R. Crusoe, B. d. P. Kinoshita, L. Gadelha, D. Garijo et al. , “Applying the fair principles to computational workflows,” Scientific Data , vol. 12, p. 328, 2025. [8] F. A. Wolf, P. Angerer, and F. J. Theis, “SCANPY: large-scale single-cell gene expression data analysis,” Genome Biology , vol. 19, no. 1, p. 15, 2018. [9] I. Virshup, S. Rybakov, F. J. Theis, P. Angerer, F. A. Wolf et al. , “The scverse project provides a computational ecosystem for single-cell omics data analysis,” Nature Biotechnology , vol. 41, pp. 604–606, 2023. [10] I. Virshup, S. Rybakov, F. J. Theis, P. Angerer, and F. A. Wolf, “anndata: Access and store annotated data matrices,” Journal of Open Source Software , vol. 9, no. 101, p. 4371, 2024. [11] V. Kleshchevnikov, A. Shmatko, E. Dann, A. Aivazidis, H. W. King, T. Li, R. Elmentaite, A. Lomakin, V. Kedlian, A. Gayoso, M. S. Jain, J. S. Park, L. Ramona, L. Mazutis, F. A. Wolf, F. J. Theis, L. K. James, T. D. Hether, T. J. Stevens, K. Saeb-Parsy, O. A. Bayraktar, C. Yapp, and S. A. Teichmann, “Cell2location maps fine-grained cell types in spatial transcriptomics,” Nature Biotechnology , vol. 40, no. 5, pp. 661– 671, 2022. [12] R. Dries, Q. Zhu, R. Dong, C.-H. L. Eng, H. Li, K. Liu, Y. Fu, T. Zhao, A. Sarkar, F. Bao, R. E. George, E. Pierson, L. Cai, and G.-C. Yuan, “Giotto: a toolbox for integrative analysis and visualization of spatial expression data,” Genome Biology , vol. 22, p. 78, 2021. [13] G. Palla, H. Spitzer, M. Klein, D. Fischer, A. C. Schaar, L. B. Kuem-merle, S. Rybakov, I. L. Ibarra, O. Holmberg, I. Virshup, M. Lotfollahi, S. Richter, F. J. Theis, P. V. Kharchenko, M. Hemberg, D. Pe’er, and F. A. Wolf, “Squidpy: a scalable framework for spatial omics analysis,” 
+
+Nature Methods , vol. 19, pp. 171–178, 2022. [14] V. G. Hinostroza Fuentes, M. J. T. Tan, M. Kapetanaki, P. Rashidi, K. Huang, and P. V. Benos, “Information-theoretic methods in spatial transcriptomics,” Feb. 2026, techRxiv preprint, doi:10.36227/techrxiv.177155947.75111980/v1. [15] J. K¨ oster and S. Rahmann, “Snakemake—a scalable bioinformatics workflow engine,” Bioinformatics , vol. 28, no. 19, pp. 2520–2522, 2012. [16] P. Di Tommaso, M. Chatzou, E. W. Floden, P. P. Barja, E. Palumbo, and C. Notredame, “Nextflow enables reproducible computational work-flows,” Nature Biotechnology , vol. 35, no. 4, pp. 316–319, 2017. [17] E. Afgan et al. , “The galaxy platform for accessible, reproducible and collaborative biomedical analyses: 2018 update,” Nucleic Acids Research , vol. 46, no. W1, pp. W537–W544, 2018. [18] F. Curion et al. , “Panpipes: a pipeline for multiomic single-cell and spatial transcriptomic data analysis,” Genome Biology , vol. 25, p. 181, 2024. [19] M. Kamel et al. , “Spatialone: end-to-end analysis of visium data at scale,” Bioinformatics , vol. 40, no. 9, p. btae509, 2024. [20] A. B. Yoo, M. A. Jette, and M. Grondona, “SLURM: Simple linux utility for resource management,” in Job Scheduling Strategies for Parallel Processing , ser. Lecture Notes in Computer Science, 2003, vol. 2862, pp. 44–60. [21] T. C. Lovelace, M. Dudek, J. Fiore, and P. V. Benos, rCausalMGM: Scalable Causal Discovery and Model Selection on Mixed Datasets with ’rCausalMGM’ , 2026, r package version 1.0. [Online]. Available: https://CRAN.R-project.org/package=rCausalMGM [22] S. M. Lundberg and S.-I. Lee, “A unified approach to interpreting model predictions,” in Advances in Neural Information Processing Systems ,2017.

@@ -1,0 +1,872 @@
+Title: TaxoMIL: Taxonomy-Constrained Learning for Hierarchical Whole Slide Image Analysis
+
+URL Source: https://arxiv.org/pdf/2606.31100v1
+
+Published Time: Wed, 01 Jul 2026 00:29:19 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# TaxoMIL: Taxonomy-Constrained Learning for Hierarchical Whole Slide Image Analysis 
+
+Chaeyeon Lee 1 , Khang Nguyen Quoc 1 , Jinsol Song 1 , Yosep Chong 2 ,Kwangil Yim 2 , and Jin Tae Kwak 1 ⋆ 
+
+> 1
+
+School of Electrical Engineering, Korea University, Seoul, Republic of Korea 
+
+{chaeyeonlee01,jkwak}@korea.ac.kr  
+
+> 2
+
+Department of Hospital Pathology, The Catholic University of Korea College of Medicine, Seoul, Republic of Korea 
+
+Abstract. Whole slide image (WSI) analysis is central to computational pathology, with multiple instance learning (MIL) emerging as the stan-dard pipeline for slide-level diagnosis. However, conventional approaches formulate WSI diagnosis as a flat classification task over discrete labels, contradicting the inherently hierarchical, coarse-to-fine nature of clinical reasoning. Although recent hierarchical classifiers and vision–language models (VLMs) have sought to address this structural gap, they either fail to capture semantic continuity between related diagnoses or suffer from unconstrained text generation that produces taxonomic hallucina-tions and parent–child label violations. To address these limitations, we propose TaxoMIL, a taxonomy-constrained framework that reformulates WSI diagnosis as a multi-granularity text generation task. TaxoMIL uti-lizes a dual-head Transformer decoder to generate coarse- and fine-level diagnostic text, and introduces taxonomy-guided objectives that explic-itly structure the label embedding space and strictly ground slide-level vi-sual representations within the clinical taxonomy. Extensive experiments across three diverse WSI datasets demonstrate that TaxoMIL consis-tently outperforms state-of-the-art MIL classifiers and VLM-based gen-erative methods, yielding accurate and hierarchy-aware diagnostic pre-dictions. The code is released at https://github.com/QuIIL/TaxoMIL .
+
+Keywords: Hierarchical diagnosis · WSI-to-text generation · Multiple instance learning 
+
+1 Introduction 
+
+In computational pathology, WSI analysis is a cornerstone for building decision-support diagnostic systems. The rapid progress in deep learning has acceler-ated the development of automated tools capable of analyzing and quantify-ing complex tissue and cellular characteristics in WSIs. However, due to the gigapixel-scale of WSIs, direct end-to-end optimization remains computationally intractable. Consequently, MIL methods have emerged as a practical pipeline,  
+
+> ⋆
+
+Corresponding author.  
+
+> arXiv:2606.31100v1 [cs.CV] 30 Jun 2026 2C. Lee et al.
+
+where a slide is decomposed into local patch-level instances, encoded into fea-ture embeddings, and aggregated into a global slide-level representation for pre-diction. Throughout these standard frameworks, slide-level diagnosis has been overwhelmingly formulated as a flat, mutually exclusive classification task over discrete label indices, which contradicts the structured nature of clinical label space (Figure 1).  
+
+> Fig. 1: Flat vs. hierarchical WSI analysis. Flat classification treats labels as indepen-dent categories, ignoring clinical relationships. Hierarchical classification models the coarse-to-fine taxonomy, ensuring parent–child consistency across diagnostic levels.
+
+Clinical diagnosis is inherently hierarchical and often proceeds in a coarse-to-fine manner. A pathologist may first assign a broad diagnostic category (e.g., “Malignant ”) and then refine the assessment into specific subtypes or grades (e.g., “Ductal Carcinoma In Situ, Invasive Carcinoma ”) (Figure 1). Yet, when labels are treated as unrelated class indices, standard optimization objectives provide no explicit incentive to preserve coarse-to-fine (or parent–child) consistency or to encode semantic proximity among taxonomically related diagnoses. These gaps motivate moving beyond conventional flat classification toward formulations that natively capture the taxonomic relationships inherent in clinical reasoning. Recent advances address this structural gap through two divergent paradigms: discrete hierarchical classifiers and unconstrained VLMs. Hierarchical classi-fiers [10] incorporate label taxonomies via multi-branch architectures but still rely on flat, discrete class indices, failing to capture the semantic continuity be-tween diagnostic labels. Conversely, VLM-based models [5, 7] output clinically readable text that naturally accommodates varying granularities. However, ro-bust diagnostic generation for WSIs remains challenging. Without explicit tax-onomic constraints in the learned representation space, these generative models are prone to hallucinations, inconsistent diagnoses, and parent–child violations. Hence, neither paradigm simultaneously achieves structured reasoning, taxo-nomic faithfulness, and interpretable text generation. To bridge this gap, we propose TaxoMIL, a taxonomy-constrained MIL frame-work that casts WSI diagnosis as hierarchical, taxonomy-consistent text gener-ation. A standard MIL representation is modulated into coarse- and fine-level TaxoMIL 3
+
+representations via a taxonomy-aware conditioning mechanism, and a dual-head Transformer decoder generates the corresponding diagnostic label text. To en-force clinical structure, taxonomy-guided objectives shape the label embedding space and align slide-level representations with taxonomy-consistent semantics, improving coarse-to-fine coherence and reducing hierarchical contradictions. Our contributions are three-fold: 
+
+– We propose a taxonomy-constrained framework that reformulates WSI di-agnosis as a multi-granularity text generation task to enable structured, hierarchy-aware clinical reasoning. 
+
+– We introduce taxonomy-guided hierarchical objectives that explicitly struc-ture the label embedding space and ground slide representations within the clinical taxonomy. 
+
+– We evaluate on three WSI datasets (GastWSI, BRACS [1], and PANDA [2]), demonstrating that TaxoMIL consistently outperforms state-of-the-art MIL classifiers and VLM-based methods. 
+
+2 Related Work 
+
+MIL for WSI Classification. WSIs are commonly modeled as bags of patch instances, where MIL aggregates instance features into a slide-level representa-tion. Early approaches relied on permutation-invariant pooling (e.g., mean/max pooling), while attention-based MIL introduced instance weighting and became a standard backbone for WSI analysis [9]. Subsequent works incorporated instance selection, multi-branch attention, or cluster-level constraints to handle intra-slide heterogeneity [11], while Transformer-based aggregators modeled inter-instance interactions via self-attention [15]. More recently, state space models [8, 17] of-fered linear-time aggregation for long-instance sequences. In parallel, multimodal and language-guided MIL has been explored to inject semantic priors into WSI representations, such as ViLa-MIL [16], which leverages vision–language pre-training to improve slide-level discrimination and interpretability. 
+
+Hierarchical MIL Learning in Pathology. To better capture clinical tax-onomies, several WSI methods explicitly incorporate label hierarchies. HMIL [10] exploited label hierarchies at both instance and bag levels via a dual-branch design with class-wise attention, hierarchical alignment modules, and super-vised contrastive learning. Beyond pathology, Chang et al. [4] utilized top-down traversal over a coarse-to-fine label hierarchy, showing benefits from disentan-gling coarse- and fine-level feature learning. While our approach conceptually aligns with these multi-granular, hierarchical formulations, we impose hierarchy directly on textual label embeddings and perform WSI-to-text generation rather than through multi-head classification over discrete IDs. 
+
+Vision–Language Modeling and Text Generation for Pathology. VLMs combine a visual encoder with a pretrained language model to generate inter-pretable outputs, and recent pathology works extend this paradigm to slide-or region-level retrieval, question answering, and instruction-following assistants [5, 7, 13]. WSI-VQA [5] reframes diverse slide-level objectives into a generative 4 C. Lee et al. 
+
+visual question answering setting, enabling question-guided reasoning on WSIs. CAMP [13] similarly provides patch- and slide-level pathology classification that casts prediction as text generation, capturing task-specific knowledge via train-able adaptors. SlideChat [7] further moves toward instruction-following assis-tants, utilizing two-stage cross-domain alignment and visual instruction learn-ing. These approaches can provide clinically readable outputs and reduce the semantic gap between model predictions and diagnostic terminology. Neverthe-less, accurate and taxonomically coherent WSI diagnosis by generation remains challenging. 
+
+3 Methods 
+
+3.1 Problem Formulation 
+
+In standard MIL practice, a WSI I is decomposed into a disjoint set of patches: 
+
+P = {pi}Np
+
+> i=1
+
+, where Np denotes the number of patches. A feature extractor 
+
+E(·) encodes each patch into embedding space: xi = E(pi) ∈ RD , X = {xi}Np
+
+> i=1
+
+,where D is the embedding dimension. A MIL aggregator Agg (·) pools these patch-level embeddings into a slide-level embedding: z = Agg (X) ∈ RD . For flat classification, z is fed to a linear classifier to predict a slide-level label y ∈ Y ,where Y denotes a set of classes. Clinical diagnosis, however, inherently follows a structured taxonomy. To formalize this, let C and F denote sets of coarse- and fine-level diagnostic text labels (i.e., natural language class names), respectively. The taxonomy mapping 
+
+H : F → C specifies the parent–child relationship, such that ground truth text labels satisfy H(y(f )) = y(c), y(c) ∈ C , y(f ) ∈ F . The objective of TaxoMIL is to learn a mapping from the WSI space to taxonomically coherent text label pairs: 
+
+(ˆ y(c), ˆy(f )) = fθ (I), s.t. H(ˆ y(f )) = ˆ y(c) (1) where (ˆ y(c), ˆy(f )) are the generated coarse- and fine-level diagnostic text strings, and fθ represents the proposed taxonomy-constrained MIL framework. 
+
+3.2 Overview of TaxoMIL 
+
+TaxoMIL reframes WSI diagnosis as a taxonomy-constrained hierarchical text generation problem. As illustrated in Figure 2, the framework comprises three major components: (1) a MIL backbone ( E(·), Agg (·)) producing a global slide-level representation z ∈ RD ; (2) a dual-branch multimodal conditioning module 
+
+V that transforms z into coarse- and fine-level visual representations conditioned on label context; and (3) a dual-head decoder T generating the corresponding diagnostic label text. The algorithm of TaxoMIL is provided in Supp. A. TaxoMIL 5
+
+Fig. 2: Overview of TaxoMIL. TaxoMIL consists of a MIL backbone, dual-branch mul-timodal conditioning module, and a dual-head text decoder. The model is optimized with label-text generation and supervised contrastive learning (CL) losses, augmented by taxonomy-guided label hierarchy (HIER) and image–text alignment (ITAL) objec-tives. 
+
+3.3 Dual-branch Multimodal Conditioning Module 
+
+Given the global slide-level representation z ∈ RD and semantic priors from the clinical taxonomy, the dual-branch conditioning module V produces two granularity-specific conditioning sequences for the dual-head decoder T . This supports decoupled label-text generation and provides an interface for injecting taxonomy semantics. 
+
+Embedding Decoupling. The MIL backbone produces the global slide-level representation z ∈ RD . To support decoupled hierarchical reasoning, we split 
+
+z into two equal-sized embeddings along the feature dimension: z = [ zc; zf ],where zc, zf ∈ RD/ 2 denote coarse- and fine-level embeddings, respectively. Each embedding is projected into the embedding space of the dual-head text decoder T via a dedicated lightweight adaptor: v(c) = gc(zc), v(f ) = gf (zf ),where v(c), v(f ) ∈ RH , and H is the embedding dimension of T . Each adaptor is a linear projection followed by layer normalization and GELU activation. 
+
+Label Embedding Construction. TaxoMIL uses label names not only as generation targets but also as semantic priors for taxonomy-constrained opti-mization. Recall that C = {y(c) 
+
+> i
+
+}|C|  
+
+> i=1
+
+and F = {y(f ) 
+
+> i
+
+}|F|  
+
+> i=1
+
+denote the coarse-and fine-level text labels, respectively. Each text label is tokenized into a se-quence of token IDs using TOK , the designated tokenizer of T . The correspond-ing token embeddings are retrieved and combined via mean-pooling to form base label-text representations {b(c) 
+
+> i
+
+}|C|  
+
+> i=1
+
+and {b(f ) 
+
+> i
+
+}|F| 
+
+> i=1
+
+. A shared learnable projection head ϕ(·) is then applied to produce coarse- and fine-level label-text embeddings: 
+
+{t(c) 
+
+> i
+
+}|C|  
+
+> i=1
+
+= {ϕ(b(c) 
+
+> i
+
+)}|C|  
+
+> i=1
+
+and {t(f ) 
+
+> i
+
+}|F|  
+
+> i=1
+
+= {ϕ(b(f ) 
+
+> i
+
+)}|F| 
+
+> i=1
+
+. These embeddings serve as the semantic anchors for the taxonomy-constrained objectives. 6 C. Lee et al. 
+
+Conditioning Sequence Construction. To condition hierarchical label-text generation on both visual evidence and taxonomy semantics, we construct a short decoder prefix for each granularity by concatenating four components: (1) a granularity-specific visual token embedding ( v(c) or v(f )), (2) a learnable image token embedding ( eimg ), (3) a granularity-specific label-context token embedding (e(c) 
+
+> ctx
+
+or e(f )
+
+> ctx
+
+), and (4) prompt token embeddings ( Eprompt ). Formally, the coarse-and fine-level conditioning sequences are formed as follows: 
+
+E(c) = [ v(c); eimg ; e(c)
+
+> ctx
+
+; Eprompt ], E(f ) = [ v(f ); eimg ; e(f )
+
+> ctx
+
+; Eprompt ]. (2) Here, eimg ∈ RH is a learnable token embedding for the special image token 
+
+<|img|> , which serves as a fixed visual reference for decoding. The label-context token embeddings e(c)
+
+> ctx
+
+, e(f ) 
+
+> ctx
+
+∈ RH provide global semantic priors over their re-spective label space, grounding the label-text generation in the clinical taxon-omy. We compute these embeddings by averaging the corresponding base la-bel embeddings across all classes at each granularity: e(c) 
+
+> ctx
+
+= 1
+
+> |C|
+
+P|C|  
+
+> i=1
+
+b(c) 
+
+> i
+
+and 
+
+e(f ) 
+
+> ctx
+
+= 1
+
+> |F|
+
+P|F|  
+
+> i=1
+
+b(f ) 
+
+> i
+
+. The prompt token embeddings Eprompt ∈ RLp×H serve as a natural language instruction that steers the dual-head text decoder T toward generating short label-like outputs (i.e., class name phrases). The prompt is a fixed template string, tokenized and mapped to the embedding space of T with a prepended BOS token. To reduce sensitivity to specific prompt phrasing, we adopt a template sampling strategy during training, randomly sampling from a curated set of 10 semantically equivalent but syntactically diverse templates. At inference, a fixed prompt is used for deterministic decoding. The prompt templates are listed in Supp. B and Table S1. 
+
+3.4 Dual-Head Text Decoder 
+
+The dual-head text decoder T generates coarse- and fine-level diagnostic label text from the branch-specific conditioning sequences E(c) and E(f ). To encour-age consistent label text generation, we use a shared autoregressive backbone 
+
+Tshared and attach two lightweight heads to perform granularity-specific gener-ation. Specifically, given E(c) and E(f ), Tshared produces hidden states: 
+
+M(c) = Tshared (E(c)) ∈ RL(c)×H , M(f ) = Tshared (E(f )) ∈ RL(f )×H . (3) where L(c) and L(f ) denote the maximum token lengths for coarse- and fine-level predictions, respectively. Each hidden state is passed through a generation head (one Transformer decoder block) and a separate unembedding projection to produce token logits, from which the coarse- and fine-level label texts ˆy(c)
+
+and ˆy(f ) are decoded autoregressively. 
+
+3.5 Training Strategies 
+
+TaxoMIL is trained end-to-end with a primary hierarchical label-text generation loss for both granularities, complemented by a supervised contrastive loss on TaxoMIL 7
+
+visual embeddings and taxonomy-guided losses that (1) explicitly structure the label embedding space according to the clinical hierarchy and (2) ground visual embeddings in this taxonomy-structured label space. 
+
+Overall Objective. The overall training objective is given by: 
+
+L = wgen LGEN + whier LHIER + wital LIT AL + wcl LCL , (4) where LGEN supervises hierarchical label-text generation, LHIER structures the label embedding space according to the clinical taxonomy, LIT AL grounds slide-level representations to the taxonomy-structured label space, and LCL regular-izes the visual embedding space. wgen , whier , wital , and wcl denote the corre-sponding loss weights. Let (Ii, y(c) 
+
+> i
+
+, y(f ) 
+
+> i
+
+) Bi=1 be a mini-batch of B WSIs, where Ii is a WSI and 
+
+y(c) 
+
+> i
+
+∈ C and y(f ) 
+
+> i
+
+∈ F denote the corresponding coarse- and fine-level text labels, respectively. For each WSI Ii, the MIL backbone ( E(·) and Agg (·)) and dual-branch multimodal conditioning module V produce granularity-specific visual token embeddings v(c) 
+
+> i
+
+and v(f ) 
+
+> i
+
+and coarse- and fine-level conditioning sequences 
+
+E(c) 
+
+> i
+
+and E(f ) 
+
+> i
+
+. The dual-head text decoder T uses E(c) 
+
+> i
+
+and E(f ) 
+
+> i
+
+to generate coarse- and fine-level text labels ˆy(c) 
+
+> i
+
+and ˆy(f ) 
+
+> i
+
+, respectively. 
+
+Hierarchical Label-Text Generation Objective. For the label-text gen-eration, we employ standard token-level cross-entropy for each granularity as 
+
+LGEN = L(c) 
+
+> GEN
+
++ L(f ) 
+
+> GEN
+
+, which serves as the primary loss. 
+
+Label Hierarchical Loss. Given the projected coarse- and fine-level label-text embeddings {t(c) 
+
+> i
+
+}|C|  
+
+> i=1
+
+and {t(f ) 
+
+> i
+
+}|F| 
+
+> i=1
+
+, we enforce them to respect the predefined clinical taxonomy H. Formally, we define the label hierarchy loss (HIER), which consists of (1) a hierarchy alignment loss LHAL and (2) a sibling-margin loss 
+
+LSML : LHIER = LHAL + LSML .
+
+Hierarchy Alignment Loss. To enforce the clinical taxonomy in the label embedding space, the hierarchy alignment loss LHAL is defined as: 
+
+LHAL = − 1
+
+|C| 
+
+> |C|
+
+X
+
+> k=1
+
+log 
+
+ S3(k)
+
+S3(k) + S1(k) + S2(k)
+
+
+
+, (5) where S1(k) = P  
+
+> k′̸=k
+
+exp  t(c) 
+
+> k
+
+· t(c)
+
+> k′
+
+, S2(k) = 1  
+
+> nk(nk−1)
+
+Pi,j ∈I k
+
+> i̸=j
+
+exp  t(f ) 
+
+> i
+
+· t(f )
+
+> j
+
+,
+
+S3(k) = 1
+
+> nk
+
+P 
+
+> i∈I k
+
+exp  t(c) 
+
+> k
+
+· t(f )
+
+> i
+
+, and Ik = {i | H (i) = k} defines the set of child fine-level indices for a coarse-level k, with nk = |I k|.This encourages that each coarse-level label embedding aligns with its descen-dant fine-level label embeddings ( S3) and remains separated from other coarse-level labels ( S1), while sibling fine-level label embeddings are separated from each other ( S2). 
+
+Sibling Margin Loss. In LHAL , although S2 implicitly encourages the relative separation of sibling fine label embeddings, these embeddings frequently collapse into highly clustered regions of embedding space. This likely occurs when the coarse–fine alignment term ( S3) dominates LHAL . To explicitly prevent sibling 8 C. Lee et al. 
+
+collapse, we formulate the sibling margin loss LSML based on a hard Euclidean margin: 
+
+LSML = 1
+
+|P| 
+
+X
+
+> (i,j )∈P
+
+ψ
+
+
+
+m2 − ∥ t(f ) 
+
+> i
+
+− t(f ) 
+
+> j
+
+∥22
+
+
+
+, (6) where m > 0 is a target margin, ψ(·) is a smooth hinge implemented with softplus, and the sibling pair set is defined as P = ∪kPk, with a parent-specific subset Pk = {(i, j ) | i < j, H(i) = H(j) = k}.
+
+Image–Text Alignment Loss. To ground the visual embeddings v(c) 
+
+> i
+
+, v(f ) 
+
+> i
+
+in taxonomy-consistent label space, we align these embeddings to their correspond-ing label-text embeddings. For a branch b ∈ { c, f }, the image–text alignment loss (ITAL) is computed as: 
+
+L(b) 
+
+> IT AL
+
+= −
+
+> B
+
+X
+
+> i=1
+
+log exp 
+
+
+
+v(b)⊤ 
+
+> i
+
+t(b)
+
+> y(b)
+> i
+
+/τ 
+
+PNb 
+
+> j=1
+
+exp 
+
+
+
+v(b)⊤ 
+
+> i
+
+t(b) 
+
+> j
+
+/τ 
+
+ (7) where τ is a temperature and Nb denotes total classes ( Nc = |C| and Nf = |F| ). The total ITAL is obtained by summing branch-specific objectives: LIT AL =
+
+L(c) 
+
+> IT AL
+
++ L(f )
+
+> IT AL
+
+. This anchors visual embeddings to their ground-truth label semantics, forcing them to inherit the label-space hierarchy. 
+
+Supervised Contrastive Loss. To further improve discriminability under weak slide-level supervision, we regularize the visual embeddings via supervised con-trastive learning. For a branch b ∈ { c, f }, the supervised contrastive objective (CL) is formulated as: 
+
+L(b) 
+
+> CL
+
+= −
+
+> B
+
+X
+
+> i=1
+
+1
+
+|G (b)(i)|
+
+X
+
+> g∈G (b)(i)
+
+log exp 
+
+
+
+v(b)⊤ 
+
+> i
+
+v(b) 
+
+> g
+
+/τ 
+
+P  
+
+> j̸=i
+
+exp 
+
+
+
+v(b)⊤ 
+
+> i
+
+v(b) 
+
+> j
+
+/τ 
+
+ (8) where G(b)(i) denotes indices of positives for an anchor i. We compute L(b)
+
+> CL
+
+independently for both branches and sum them to obtain the final CL loss: 
+
+LCL = L(c) 
+
+> CL
+
++ L(f )
+
+> CL
+
+.
+
+Cyclic Loss Scheduling. The overall objective includes four distinct loss terms. We fix wgen = 1 .0 as generation is the primary task. Since LHIER and LCL 
+
+enforce intra-modal structuring while LIT AL promotes cross-modal alignment, optimizing all three jointly empirically induces instability. To mitigate this, we employ an alternating cyclic loss schedule that separates representation struc-turing from cross-modal alignment. Let u = t/T ∈ [0 , 1] denote normalized training progress at epoch t out of T total epochs. We define a cyclic modu-lator c(u) = cos 2(πn cycles u) to dynamically adjust the corresponding weights: 
+
+whier (u) = wmax  
+
+> hier
+
+c(u), wcl (u) = wmax  
+
+> cl
+
+c(u), and wital (u) = wmax  
+
+> ital
+
+(1 − c(u)) . In this manner, LHIER and LCL are emphasized when LIT AL is down-weighted, and vice versa. TaxoMIL 9
+
+4 Experiments and Results 
+
+4.1 Datasets and Label Hierarchies 
+
+We evaluate TaxoMIL on three WSI datasets, each structured according to a two-level taxonomy with coarse-level labels and fine-level subtypes or grades. GastWSI is a private dataset containing 7,228 gastric WSIs organized into 4 coarse-level and 23 fine-level categories. BRACS [1] and PANDA [2] are public breast and prostate datasets, respectively. BRACS includes 545 WSIs with 3 coarse-level and 7 fine-level labels. PANDA comprises 10,614 WSIs annotated with 6 fine-level labels (normal and five ISUP grades). The fine-level labels are grouped into three coarse-level risk strata to construct a two-level hierarchy. The details of the datasets and label hierarchies are summarized in Supp. C and Table S2. 
+
+4.2 Evaluation Protocol 
+
+For MIL-based baselines, predictions are evaluated using standard top-1 ac-curacy at both coarse and fine levels. For text generation methods, including TaxoMIL and VLM-based baselines, we adopt a strict exact match evaluation protocol to ensure fair comparison. A generated text is correct only if the entire token sequence exactly matches the ground-truth label string, after decoding and removing special tokens. Partial or prefix matches and semantically similar but non-identical outputs are strictly counted as incorrect to prevent diagnostic confusion in clinical settings. 
+
+4.3 Baselines 
+
+We compare TaxoMIL against a total of twelve baselines spanning MIL-based flat and hierarchical methods as well as VLM-based methods. All baselines were retrained from their official implementations under identical data splits, frozen UNI features, and evaluation protocols to ensure a fair comparison. 
+
+MIL-based Baselines. We employ five single-label MIL baselines (TransMIL [15], CLAM-SB [11], ABMIL [9], MambaMIL [17], and S4MIL [8]) and four hierarchical MIL baselines (HMIL [10], Chang et al. [4], ViLa-MIL [16], and HiClass [3]). ViLa-MIL is originally a dual-magnification single-label classifier. We adapt its dual-scale design to a dual-granularity setting by training one branch on coarse-level labels and the other on fine-level labels. 
+
+VLM-based Baselines. We include three VLM baselines (WSI-VQA [5], SlideChat [7], and CAMP [13]), which perform text-based reasoning over WSIs. 
+
+4.4 Implementation Details 
+
+For all three WSI datasets, we extract patch embeddings using the frozen UNI [6] foundation model as the feature extractor E. The shared autoregressive text decoder backbone Tshared is initialized from the pretrained GPT-2 small (124M) 10 C. Lee et al. 
+
+Table 1: Results of holistic evaluation on three datasets. 
+
+Method GastWSI BRACS PANDA 
+
+ACC (%) W-F1 κ ACC (%) W-F1 κ ACC (%) W-F1 κ
+
+TransMIL [15] 58.42 0.5684 0.5362 53.70 0.5150 0.4318 49.72 0.4731 0.3486 CLAM-SB [11] 62.42 0.6033 0.5793 66.67 0.6660 0.5936 49.06 0.4742 0.3475 ABMIL [9] 61.02 0.5849 0.5631 68.52 0.7024 0.6159 49.06 0.4756 0.3471 MambaMIL [17] 58.42 0.5855 0.5388 62.96 0.6321 0.5489 48.31 0.4828 0.3425 S4MIL [8] 59.72 0.5844 0.5509 61.11 0.6064 0.5116 49.06 0.4672 0.3431 HMIL [10] 55.07 0.5363 0.4993 61.11 0.6274 0.5255 49.25 0.4721 0.3448 Chang et al. [4] 59.72 0.6023 0.5544 64.81 0.6429 0.5604 48.12 0.4545 0.3292 ViLa-MIL [16] 61.58 0.5806 0.5679 68.52 0.6855 0.6130 47.84 0.4733 0.3359 HiClass [3] 61.02 0.5934 0.5641 61.11 0.6370 0.5333 50.09 0.4824 0.3552 WSI-VQA [5] 56.74 0.5620 0.4204 64.81 0.6652 0.5696 50.28 0.4928 0.3648 SlideChat [7] 54.79 0.4969 0.4885 51.85 0.4284 0.3880 46.72 0.4331 0.3093 CAMP [13] 63.26 0.6044 0.5874 66.67 0.6726 0.5895 47.47 0.4353 0.3145 TaxoMIL ( Ours ) 64.55 0.6183 0.6210 75.78 0.7662 0.6974 54.60 0.5347 0.4127 
+
+Table 2: Results of coarse- and fine-level evaluations on three datasets. 
+
+Method GastWSI BRACS PANDA 
+
+ACC (%) W-F1 κ ACC (%) W-F1 κ ACC (%) W-F1 κ
+
+> Coarse-level
+
+TransMIL [15] 83.91 0.8387 0.7848 83.33 0.8435 0.7276 69.61 0.6628 0.4409 CLAM-SB [11] 86.42 0.8646 0.8180 85.19 0.8444 0.7410 69.61 0.6604 0.4424 ABMIL [9] 86.60 0.8661 0.8205 87.04 0.8676 0.7771 69.32 0.6691 0.4247 MambaMIL [17] 83.53 0.8336 0.7783 83.33 0.8490 0.7370 68.95 0.6605 0.4359 S4MIL [8] 86.98 0.8691 0.8254 88.89 0.8878 0.8099 70.36 0.6749 0.4609 HMIL [10] 84.19 0.8417 0.7877 85.19 0.8495 0.7435 69.89 0.6675 0.4485 Chang et al. [4] 86.42 0.8656 0.8174 88.89 0.8898 0.8121 68.67 0.6516 0.4247 ViLa-MIL [16] 85.95 0.8578 0.8120 87.04 0.8776 0.7862 68.39 0.6558 0.4291 HiClass [3] 85.86 0.8605 0.8097 81.48 0.8378 0.7072 69.42 0.6621 0.4434 WSI-VQA [5] 83.44 0.8336 0.7779 81.48 0.8236 0.6917 70.17 0.6745 0.4604 SlideChat [7] 85.49 0.8546 0.8054 75.93 0.7393 0.5720 68.95 0.6579 0.4334 CAMP [13] 86.79 0.8680 0.8226 87.04 0.8776 0.7862 67.73 0.6357 0.4055 TaxoMIL ( Ours ) 88.56 0.8856 0.8466 90.74 0.9089 0.8438 71.29 0.6890 0.4787 
+
+> Fine-level
+
+TransMIL [15] 60.09 0.5722 0.5526 53.70 0.5049 0.4275 50.94 0.4790 0.3608 CLAM-SB [11] 63.53 0.6015 0.5896 70.37 0.6826 0.6351 49.81 0.4781 0.3529 ABMIL [9] 62.51 0.5816 0.5771 70.37 0.7147 0.6370 51.13 0.4867 0.3487 MambaMIL [17] 61.21 0.5933 0.5666 66.67 0.6662 0.5909 50.19 0.4936 0.3600 S4MIL [8] 60.28 0.5783 0.5549 61.11 0.5909 0.5048 50.38 0.4751 0.3556 HMIL [10] 57.40 0.5257 0.5185 61.11 0.5971 0.5120 50.66 0.4775 0.3573 Chang et al. [4] 62.05 0.5966 0.5760 64.81 0.6367 0.5589 50.00 0.4688 0.3487 ViLa-MIL [16] 62.33 0.5755 0.5740 68.52 0.6831 0.6123 49.25 0.4790 0.3486 HiClass [3] 62.79 0.5937 0.5812 66.67 0.6784 0.5947 51.13 0.4876 0.3651 WSI-VQA [5] 58.23 0.5667 0.5342 64.81 0.6492 0.5656 50.84 0.4968 0.3702 SlideChat [7] 56.93 0.5015 0.5089 51.85 0.4150 0.3727 47.56 0.4396 0.3171 CAMP [13] 63.26 0.6044 0.5874 66.67 0.6726 0.5895 47.47 0.4353 0.3145 TaxoMIL ( Ours ) 65.86 0.6183 0.6154 77.78 0.7632 0.7178 55.07 0.5358 0.4172 
+
+[14] with 12 decoder layers. We use the standard GPT-2 tokenizer as TOK for all text processing. During training, we set the temperature τ = 0 .07 for both 
+
+LIT AL and LCL , and we apply a margin m = 1 .5 for LSM L . For the cyclic loss scheduling, we set the number of cycles to ncycles = 3 and define the maximum loss weights as wmax 
+
+hier = 0 .3, wmax 
+
+ital = 0 .3, and wmax 
+
+cl = 0 .1 in all experiments. Further implementation and training details are available in Supp. D. 
+
+4.5 Main Results 
+
+We assess TaxoMIL against state-of-the-art MIL classifiers and generative VLMs across three evaluation scenarios: (1) Holistic evaluation (exact match required TaxoMIL 11 
+
+at both coarse and fine levels), (2) Coarse-level evaluation, and (3) Fine-level evaluation. We report accuracy (ACC), weighted F1 (W-F1), and Cohen’s kappa (κ) to capture overall correctness, robustness to class imbalance, and agreement beyond chance, respectively. The computational efficiency of TaxoMIL and com-peting baselines is provided in Table S5. 
+
+Holistic Evaluation. Table 1 reports holistic performance across all three datasets, serving as a strict benchmark for clinical usability, as it requires both coarse- and fine-level predictions to be correct. TaxoMIL achieved the best holis-tic performance on all three datasets by consistent margins in all evaluation metrics. Compared to the strongest per-dataset baseline, TaxoMIL yielded sub-stantial gains by +1.29% ACC, +0.0139 W-F1, and +0.0336 κ on GastWSI (vs. CAMP), +7.26% ACC, +0.0638 W-F1, and +0.0815 κ on BRACS (vs. ABMIL), and +4.32% ACC, +0.0419 W-F1, and +0.0479 κ on PANDA (vs. WSI-VQA). Notably, none of the baselines demonstrated consistent performance across all three datasets. While CAMP, ABMIL, and WSI-VQA exhibited competitive results on a single dataset, their performance degraded substantially on the re-maining two. Overall, these results indicate stronger end-to-end coarse-to-fine consistency of TaxoMIL. 
+
+Coarse-level Evaluation. As shown in Table 2, the overall performance of all models increased substantially at the coarse-level compared to the holistic evaluation, reflecting the reduced complexity of broader diagnostic categories. Nevertheless, TaxoMIL consistently outperformed both MIL and VLM baselines. Specifically, TaxoMIL provided performance gains of 1.58% to 5.12% ACC for GastWSI, 1.85% to 14.81% ACC for BRACS, and 0.93% to 3.56% ACC for PANDA, relative to baselines. Consistent improvements were also observed for W-F1 and κ, further validating the reliability of TaxoMIL. 
+
+Fine-level Evaluation. At the fine-level, TaxoMIL maintained its superior per-formance (Table 2), demonstrating its ability to resolve the subtle morphologi-cal ambiguities. Relative to the coarse-level evaluation, TaxoMIL obtained even larger performance margins over baselines; for instance, 2.33% to 8.93% ACC for GastWSI, 7.41% to 25.93% ACC for BRACS, and 3.94% to 7.60% ACC for PANDA. These consistently larger improvements at the fine-level suggest that taxonomy-constrained text generation and the hierarchy-guided objectives par-ticularly benefit fine-level discrimination, where inter-class boundaries are more ambiguous and precise hierarchy-aware reasoning is most critical. 
+
+4.6 Ablation Studies 
+
+We conducted systematic ablation studies to assess the impact of the proposed training strategies and decoder prefix design. 
+
+Effect of Training Strategies. Table 3 presents a progressive ablation study, incrementally adding each objective to a base model trained with the text genera-tion loss ( LGEN ). Adding the supervised contrastive learning loss ( LCL ) yielded modest but consistent gains across datasets, likely due to improved discrim-inability among visually similar slides. Introducing the label hierarchical loss 12 C. Lee et al. 
+
+Table 3: Ablation study of training strategies on three datasets.                                                                                                                                                     
+
+> Components GastWSI BRACS PANDA
+> LGEN LCL LHIER LIT AL Cyclic ACC (%) W-F1 κACC (%) W-F1 κACC (%) W-F1 κ
+> Holistic  ✓61.58 0.6014 0.5714 66.67 0.6409 0.5850 49.53 0.4895 0.3585
+> ✓✓62.60 0.6053 0.5821 62.96 0.5558 0.5246 51.97 0.5124 0.3855
+> ✓✓✓✓63.07 0.6141 0.5879 72.22 0.7205 0.6521 51.41 0.5092 0.3793
+> ✓✓✓✓✓64.55 0.6183 0.6210 75.78 0.7662 0.6974 54.60 0.5347 0.4127
+> Coarse-level  ✓87.35 0.8738 0.8304 85.19 0.8620 0.7578 70.54 0.6798 0.4659
+> ✓✓88.00 0.8800 0.8391 90.74 0.9089 0.8438 71.20 0.6837 0.4738
+> ✓✓✓✓88.19 0.8819 0.8418 88.89 0.8930 0.8146 70.36 0.6749 0.4609
+> ✓✓✓✓✓88.56 0.8856 0.8466 90.74 0.9089 0.8438 71.29 0.6890 0.4787
+> Fine-level  ✓63.53 0.5974 0.5900 70.37 0.6821 0.6278 51.88 0.5015 0.3794
+> ✓✓63.63 0.5946 0.5905 62.96 0.5489 0.5209 52.53 0.5126 0.3897
+> ✓✓✓✓64.47 0.6093 0.6005 74.07 0.7214 0.6727 52.63 0.5170 0.3922
+> ✓✓✓✓✓65.86 0.6183 0.6154 77.78 0.7632 0.7178 55.07 0.5358 0.4172
+
+Table 4: Ablation study of the decoder conditioning sequence on three datasets. 
+
+Model Variant GastWSI BRACS PANDA 
+
+ACC (%) W-F1 κ ACC (%) W-F1 κ ACC (%) W-F1 κ
+
+> Holistic
+
+Full 64.55 0.6183 0.6210 75.78 0.7662 0.6974 54.60 0.5347 0.4127 
+
+w/o ectx 62.51 0.6030 0.5803 70.37 0.7006 0.6285 50.56 0.4915 0.3647 w/o <|img|> 62.05 0.6072 0.5766 70.37 0.6647 0.6295 53.10 0.5232 0.4065 
+
+> Coarse-level
+
+Full 88.56 0.8856 0.8466 90.74 0.9089 0.8438 71.29 0.6890 0.4787 
+
+w/o ectx 87.63 0.8763 0.8342 87.04 0.8776 0.7862 69.51 0.6600 0.4360 w/o <|img|> 87.72 0.8774 0.8355 88.89 0.8930 0.8146 70.92 0.6831 0.4718 
+
+> Fine-level
+
+Full 65.86 0.6183 0.6154 77.78 0.7632 0.7178 55.07 0.5358 0.4172 
+
+w/o ectx 64.47 0.6089 0.6000 74.07 0.7130 0.6687 51.22 0.4943 0.3700 w/o <|img|> 64.19 0.6112 0.5979 72.22 0.6929 0.6509 53.85 0.5261 0.4065 
+
+(LHIER ) and image–text alignment loss ( LIT AL ) produced the largest improve-ments, concentrated at the fine-level and holistic evaluations. On BRACS, fine-level and holistic ACCs improved by approximately +10.00%, demonstrating the efficacy of hierarchy-guided objectives for fine-level discrimination. Notably, adding LCL alone on BRACS achieved stronger coarse-level performance but degraded fine-level results, suggesting that LCL without hierarchical constraints can lead to over-clustering of coarse categories at the expense of sibling dis-crimination. Finally, the inclusion of cyclic scheduling (full model) delivered the highest performance across all datasets. These results indicate that each compo-nent contributes complementary benefits for robust coarse-to-fine learning. 
+
+Effect of Decoder Design. Table 4 examines the impact of the decoder con-ditioning sequence by removing the learnable image token ( <|img|> ) or label-context token ( ectx ). Removing either component consistently degraded perfor-mance across all granularities. For example, under holistic evaluation, the ex-clusion of <|img|> decreased ACC by 2.50%, 5.41%, and 1.50% on GastWSI, BRACS, and PANDA, respectively. Similarly, omitting ectx yielded compara-ble drops of 2.04%, 5.41%, and 4.04% on the same datasets. These consistent drops highlight their roles in structural grounding. Specifically, <|img|> helps to disentangle visual conditioning from prompt tokens, while ectx provides a global semantic prior. We further examined two architectural variants: replac-ing the text decoder with classification heads (TaxoMIL-Cls) and varying the decoder backbone (Supp. E and Table S3). The generative formulation consis-TaxoMIL 13        
+
+> Fig. 3: Visualization of label-text and image embeddings. MDS projections compare (a) the raw label-text embeddings (from a pretrained GPT-2), (b) the taxonomy-constrained label-text embeddings learned by TaxoMIL, and (c) image em-bedding centroids of coarse- and fine-level categories on the GastWSI dataset. Rect-angles and circles represent coarse- and fine-level labels, respectively. C and F denote silhouette scores for coarse- and fine-level labels, respectively, summarizing cluster sep-aration within each group.
+
+tently improves holistic performance over its classification counterpart, and the lightweight GPT-2 small backbone yields the best accuracy–efficiency trade-off, indicating that the gains stem primarily from taxonomy-aware representation learning rather than decoder capacity. 
+
+4.7 Qualitative Assessments Label Embedding Geometry. To investigate the effectiveness of the proposed hierarchy-guided objectives, we visualize the label-text embeddings {t(c) 
+
+> k
+
+}∪{ t(f ) 
+
+> i
+
+}
+
+by projecting them into a lower-dimensional manifold using multidimensional scaling (MDS). Figure 3 a and b compare the resulting manifolds before and after taxonomy-constrained training. Prior to training, fine-level labels intermingle across coarse-level categories, and sibling fine-level labels frequently collapse, 14 C. Lee et al. 
+
+demonstrating the lack of explicit taxonomic structure in the raw pretrained embedding space. After training, we observe a markedly more taxonomy-aligned organization: (1) coarse-level labels gravitate toward the centroids of their child fine-level labels, serving as structural anchors for the hierarchy, (2) unrelated coarse-level categories become better separated, reducing high-level diagnostic confusion, and (3) sibling fine-level labels become more dispersed, facilitating fine-level discrimination. These observations closely match the design principles of the proposed hierarchy-guided objectives. 
+
+Image Embedding Centroid Geometry. To further examine the organiza-tion of the learned image representations, we apply the same MDS technique to project slide-level embeddings from the GastWSI dataset. Figure 3 c visualizes the class centroids for both granularities, computed by averaging slide-level em-beddings from the same class, and compares TaxoMIL against a representative MIL model (CLAM-SB) and a representative VLM model (CAMP). Relative to these baselines, TaxoMIL exhibits clearer separation among coarse-level cat-egories while producing a highly structured fine-class layout within each coarse category, which is consistent with the label-text geometry. In contrast, CLAM-SB and CAMP show intermingled and overlapping class structures, indicating weaker hierarchical organization. These observations align with the improved coarse- and fine-level silhouette scores achieved by TaxoMIL (Figure 3 c). 
+
+5 Limitations and Future Work 
+
+TaxoMIL assumes a fixed taxonomy defined by label-text embeddings and parent– child relations. Although it can be extended to deeper hierarchies via level-wise alignment and sibling-margin constraints, adapting to evolving taxonomies would require dynamic taxonomy construction, which we leave for future work. TaxoMIL also reduces but does not fully eliminate parent–child violations, as shown by the PCVR analysis in Supp. E and Table S4, and incurs additional parameter and memory overhead from the autoregressive decoder, as discussed in Supp. F and Table S5. 
+
+6 Conclusion 
+
+We present TaxoMIL, a taxonomy-constrained WSI-to-text label generation framework for hierarchical pathology diagnosis. Built on a standard MIL back-bone for slide-level representations, TaxoMIL employs a dual-head autoregres-sive decoder to jointly generate coarse-level categories and corresponding fine-level subtypes within a unified generative pipeline. To enforce clinical structure, hierarchy-guided objectives organize the label embedding space according to the clinical taxonomy, align slide-level representations with taxonomy-consistent se-mantics, and improve parent–child coherence while reducing hierarchical con-tradictions. Across three WSI benchmarks, TaxoMIL yields more accurate and hierarchically consistent diagnostic predictions, outperforming state-of-the-art TaxoMIL 15 
+
+MIL classifiers and VLM methods. These results highlight the benefit of embed-ding clinical taxonomic structure directly into the learning objective, supporting interpretable and clinically meaningful diagnostic reasoning. 
+
+Acknowledgements 
+
+This work was supported by a grant of the National Research Foundation of Korea (NRF) (No. RS-2025-00558322 and RS-2024-00397293). 
+
+References 
+
+1. Brancati, N., Anniciello, A.M., Pati, P., Riccio, D., Scognamiglio, G., Jaume, G., De Pietro, G., Di Bonito, M., Foncubierta, A., Botti, G., Gabrani, M., Feroce, F., Frucci, M.: BRACS: A dataset for BReAst carcinoma subtyping in H&E histology images. Database 2022 , baac093 (2022) 2. Bulten, W., Kartasalo, K., Chen, P.H.C., Ström, P., Pinckaers, H., Nagpal, K., Cai, Y., Steiner, D.F., van Boven, H., Vink, R., et al.: Artificial intelligence for diagnosis and Gleason grading of prostate cancer: The PANDA challenge. Nature Medicine 28 (1), 154–163 (2022) 3. Byeon, K., Song, J., Hong, S.M., Chong, Y., Kwak, J.T.: HiClass: Hierarchi-cal classification for improved histopathology image analysis. arXiv preprint arXiv:2603.00504 (2026) 4. Chang, D., Pang, K., Zheng, Y., Ma, Z., Song, Y.Z., Guo, J.: Your “Flamingo” is my “Bird”: Fine-grained, or not. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 11476–11485 (2021) 5. Chen, P., Zhu, C., Zheng, S., Li, H., Yang, L.: WSI-VQA: Interpreting whole slide images by generative visual question answering. In: European Conference on Computer Vision. pp. 401–417 (2024) 6. Chen, R.J., Ding, T., Lu, M.Y., Williamson, D.F., Jaume, G., Song, A.H., Chen, B., Zhang, A., Shao, D., Shaban, M., et al.: Towards a general-purpose foundation model for computational pathology. Nature Medicine 30 (3), 850–862 (2024) 7. Chen, Y., Wang, G., Ji, Y., Li, Y., Ye, J., Li, T., Hu, M., Yu, R., Qiao, Y., He, J.: SlideChat: A large vision-language assistant for whole-slide pathology image understanding. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 5134–5143 (2025) 8. Fillioux, L., Boyd, J., Vakalopoulou, M., Cournède, P.H., Christodoulidis, S.: Struc-tured state space models for multiple instance learning in digital pathology. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 594–604. Springer (2023) 9. Ilse, M., Tomczak, J., Welling, M.: Attention-based deep multiple instance learning. In: International Conference on Machine Learning. pp. 2127–2136. PMLR (2018) 10. Jin, C., Luo, L., Lin, H., Hou, J., Chen, H.: HMIL: Hierarchical multi-instance learning for fine-grained whole slide image classification. IEEE Transactions on Medical Imaging 44 (4), 1796–1808 (2025) 11. Lu, M.Y., Williamson, D.F.K., Chen, T.Y., Chen, R.J., Barbieri, M., Mahmood, F.: Data-efficient and weakly supervised computational pathology on whole-slide images. Nature Biomedical Engineering 5(6), 555–570 (2021) 16 C. Lee et al. 12. Luo, R., Sun, L., Xia, Y., Qin, T., Zhang, S., Poon, H., Liu, T.Y.: BioGPT: Gener-ative pre-trained transformer for biomedical text generation and mining. Briefings in Bioinformatics 23 (6), bbac409 (2022) 13. Nguyen, A.T., Byeon, K., Kim, K., Song, B., Chae, S.W., Kwak, J.T.: CAMP: Continuous and adaptive learning model in pathology. npj Artificial Intelligence 
+
+2(1), 2 (2026) 14. Radford, A., Wu, J., Child, R., Luan, D., Amodei, D., Sutskever, I.: Language models are unsupervised multitask learners. Tech. rep. (2019) 15. Shao, Z., Bian, H., Chen, Y., Wang, Y., Zhang, J., Ji, X., et al.: TransMIL: Trans-former based correlated multiple instance learning for whole slide image classifica-tion. Advances in Neural Information Processing Systems 34 , 2136–2147 (2021) 16. Shi, J., Li, C., Gong, T., Zheng, Y., Fu, H.: ViLa-MIL: Dual-scale vision-language multiple instance learning for whole slide image classification. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 11248– 11258 (2024) 17. Yang, S., Wang, C., Chen, H.: MambaMIL: Enhancing long sequence modeling with sequence reordering in computational pathology. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 296–306 (2024) TaxoMIL 1
+
+# TaxoMIL: Taxonomy-Constrained Learning for Hierarchical Whole Slide Image Analysis 
+
+– Supplementary Material – A Algorithm 
+
+Algorithm 1 TaxoMIL Training Process 
+
+1: # Phase 1: Label-text initialization 
+
+2: (bc, b f ) ← LabelTextEmbeddings (C, F) ▷ mean-pooled token embeddings 3: (tc, t f ) ← Projection (C, F) ▷ projected label embeddings 4: for t ← 1 to T do 
+
+5: # Phase 2: Cyclic loss weighting 
+
+6: (λh, λ i, λ c) ← CyclicWeights (t, T, n cyc , W )
+
+7: for all mini-batch B ⊂ D do 
+
+8: # Phase 3: MIL forward and dual-branch conditioning 
+
+9: z ← MILBackbone (X) ▷ aggregate instances to slide embedding 10: (vc, v f ) ← SplitAndCondition (z) ▷ coarse/fine representations 11: # Phase 4: Decoder input construction (prefix) 
+
+12: p ← SamplePrompt  ▷ template prompt 13: ec 
+
+> ctx
+
+← Mean (bc) ▷ coarse context token 14: ef 
+
+> ctx
+
+← Mean (bf ) ▷ fine context token 15: Ec ← BuildPrefix (vc, ⟨| img |⟩ , e c
+
+> ctx
+
+, p )
+
+16: Ef ← BuildPrefix (vf , ⟨| img |⟩ , e f
+
+> ctx
+
+, p )
+
+▷ E = img feat , <|img|> , context , prompt 
+
+17: # Phase 5: Multi-objective training 
+
+18: (ˆ yc, ˆyf ) ← DualHeadDecode (Ec, E f ) ▷ shared trunk + two heads 19: LGEN ← CrossEntropy (ˆ yc, ˆyf , y c, y f ) ▷ generation loss 20: LHIER ← TaxonomicConsistency (tc, t f , H) ▷ HAL + SML 21: LIT AL ← ImageTextAlign (vc, v f , t c, t f , y c, y f )
+
+22: LCL ← SupConLoss (vc, v f , y c, y f )
+
+23: # Phase 6: Unified optimization 
+
+24: L ← L GEN + λhLHIER + λiLIT AL + λcLCL 
+
+25: θ ← Update (θ, ∇θ L)
+
+26: end for 
+
+27: end for 
+
+B Prompt Templates 
+
+We use 10 base prompt templates, which are randomly selected during training. For multi-dataset training, the organ term is substituted by the dataset domain: 
+
+gastric → breast for BRACS and gastric → prostate for PANDA. At inference time, we use the first template as the default prompt. The prompt templates are provided in Table S1. 2 C. Lee et al. 
+
+Table S1: Prompt templates used for training/inference.   
+
+> Setting Prompt template Training The observed condition in the gastric image is: The diagnosis for the gastric image shows signs of: The medical findings for this image indicate: This gastric image reveals the presence of: The condition detected in the gastric image is: The histopathological observation in this image suggests: The pathology result from this gastric image describes: The condition diagnosed from the image analysis is: The elements detected in the gastric region of the image are: The visible medical observation in the image corresponds to: Inference The observed condition in the gastric image is:
+
+C Datasets 
+
+We evaluate TaxoMIL on three WSI benchmarks spanning distinct organs and hierarchical diagnostic protocols. Each dataset provides a two-level taxonomy with a coarse-level category and a fine-level subtype or grade. GastWSI is a pri-vate dataset containing 7,228 gastric WSIs with 4 coarse-level categories and 23 fine-level diagnoses. We adopt a 7 : 1 .5 : 1 .5 train/val/test split to ensure suffi-cient samples for rare fine-level diagnoses. BRACS [1] is a public breast pathology benchmark with 3 coarse-level categories and 7 fine-level labels across 545 WSIs with an 8 : 1 : 1 train/val/test split. PANDA [2] is a public prostate dataset that comprises 10,614 WSIs annotated with ISUP grading. ISUP grading is a modern, simplified prostate cancer classification scheme that is standard in dig-ital pathology. We retain all 10,614 WSIs without excluding ambiguous cases, a comparatively challenging setting that contributes to the lower absolute perfor-mance observed across all models on PANDA. We adopt a 8 : 1 : 1 train/val/test split and construct a two-level hierarchy by grouping ISUP grades into three risk strata at the coarse-level and using the original ISUP grades as fine-level labels. The specific coarse- and fine-level labels are provided in Table S2. 
+
+D Implementation Details 
+
+All WSIs are processed at 20 × magnification. We use a patch size of 512 ×
+
+512 pixels for GastWSI and BRACS, and 256 × 256 pixels for PANDA. We extract patch embeddings using the frozen UNI [6] foundation model as the feature extractor E. The shared autoregressive text decoder backbone Tshared is initialized from pretrained GPT-2 small (124M) [14], consisting of 12 decoder layers. We use the standard GPT-2 tokenizer as TOK for all text processing. For text generation, greedy decoding is implemented with maximum generation lengths of L(c) = 5 and L(f ) = 15 tokens for coarse- and fine-level predictions, respectively. The patch- and slide-level embedding dimension is D = 1024 , and the decoder hidden state size is H = 768 .The model is trained up to 100 epochs with early stopping based on validation performance. We use AdamW with weight decay 0.01 and a cosine annealing TaxoMIL 3
+
+Table S2: Label hierarchies. 
+
+Dataset Coarse label Fine label GastWSI benign tumor fundic gland polyp hyperplastic polyp inflammatory polyp xanthoma gastritis cystica polyposa granulation tissue type polyp cancer adenocarcinoma, moderately differentiated adenocarcinoma, poorly cohesive carcinoma adenocarcinoma, well differentiated malignant lymphoma NOS neuroendocrine tumor squamous cell carcinoma dysplasia low grade high grade indefinite inflammatory disease chronic inflammation, mild chronic inflammation, moderate chronic inflammation, marked erosion ulceration intestinal metaplasia neutrophilic activity BRACS benign normal pathological benign usual ductal hyperplasia atypical atypical ductal hyperplasia flat epithelial atypia malignant ductal carcinoma in situ invasive carcinoma PANDA normal and low risk normal low risk, ISUP grade 1 intermediate risk intermediate favourable risk, ISUP grade 2 intermediate unfavourable risk, ISUP grade 3 high risk high risk, ISUP grade 4 the highest risk, ISUP grade 5 
+
+learning-rate scheduler. The learning rate is set to 1 × 10 −5 for GastWSI and 
+
+1 × 10 −4 for BRACS and PANDA, with a batch size of 64. During training, we set the temperature τ = 0 .07 for both LIT AL and LCL , and we apply a margin 
+
+m = 1 .5 for LSM L . For the cyclic loss scheduling, we set the number of cycles to 
+
+ncycles = 3 and define the maximum loss weights as wmax 
+
+hier = 0 .3, wmax 
+
+ital = 0 .3, and 
+
+wmax 
+
+cl = 0 .1 in all experiments. All experiments are conducted on an NVIDIA A6000 GPU. 
+
+E Additional Ablation Analyses 
+
+Non-generative control. To isolate the contribution of taxonomy-constrained text generation, we compare TaxoMIL with TaxoMIL-Cls, a variant that replaces the autoregressive decoder with classification heads while keeping the same back-bone and taxonomy-aware objectives. As shown in Table S3, the generative for-mulation consistently improves holistic performance across all three datasets, 4 C. Lee et al. 
+
+Table S3: Performance comparison for TaxoMIL with classification heads and different LLM decoders. 
+
+Dataset Model Holistic Coarse Fine ACC W-F1 κ ACC W-F1 κ ACC W-F1 κ
+
+Classifier Head GastWSI TaxoMIL-Cls 63.81 .623 .595 88.00 .881 .839 65.95 .627 .617 TaxoMIL 64.55 .618 .621 88.56 .886 .847 65.86 .618 .615 BRACS TaxoMIL-Cls 72.22 .726 .657 87.04 .871 .778 74.07 .735 .677 TaxoMIL 75.78 .766 .697 90.74 .909 .844 77.78 .763 .718 PANDA TaxoMIL-Cls 52.35 .524 .394 70.54 .682 .470 53.66 .528 .409 TaxoMIL 54.60 .535 .413 71.29 .689 .479 55.07 .536 .417 LLM Decoder GastWSI BioGPT 62.23 .614 .580 88.56 .886 .847 63.72 .613 .594 GPT2-M 62.79 .600 .618 87.35 .873 .831 63.91 .602 .594 GPT2-S 64.55 .618 .621 88.56 .886 .847 65.86 .618 .615 BRACS BioGPT 72.22 .733 .659 87.04 .877 .786 72.22 .728 .659 GPT2-M 66.67 .696 .667 83.33 .847 .730 74.07 .734 .676 GPT2-S 75.78 .766 .697 90.74 .909 .844 77.78 .763 .718 PANDA BioGPT 51.31 .509 .379 71.01 .682 .470 52.35 .511 .388 GPT2-M 52.63 .522 .405 70.64 .680 .467 53.56 .526 .404 GPT2-S 54.60 .535 .413 71.29 .689 .479 55.07 .536 .417 
+
+and TaxoMIL-Cls alone still surpasses most baselines, confirming that the core architecture and taxonomy-aware supervision are effective independently of the generation head. 
+
+Decoder choice. As our outputs are short, closed-taxonomy label strings, we adopt GPT-2 small (124M) as a lightweight decoder. We compare it against a domain-specific decoder (BioGPT [12], 347M) and a larger general decoder (GPT-2 medium, 355M) in Table S3. Both alternatives are inferior to GPT-2 small, with GPT-2 medium showing notably lower coarse-level performance on BRACS, likely due to the limited dataset size. 
+
+Table S4: Parent–child violation rate (%) comparison across models. 
+
+Model GastWSI BRACS PANDA Avg. TransMIL 5.21 11.11 3.56 6.63 CLAM-SB 4.56 5.56 2.72 4.28 ABMIL 6.23 3.70 5.44 5.12 MambaMIL 7.91 3.70 4.50 5.37 S4MIL 4.56 5.56 3.75 4.62 HMIL 13.67 14.81 4.32 10.93 Chang et al. 9.76 1.85 3.75 5.12 ViLa-MIL 4.84 1.85 3.19 3.29 HiClass 7.26 7.41 3.00 5.89 WSI-VQA 5.76 3.70 1.22 3.56 SlideChat 8.09 7.69 2.06 5.95 TaxoMIL 5.30 5.56 1.41 4.09 
+
+Hierarchical consistency. In this closed-taxonomy setting, all generation-based methods yield a 0% invalid-label rate under the exact-match protocol. To TaxoMIL 5
+
+further assess consistency, we report the parent–child violation rate (PCVR) in Table S4, defined as the proportion of predictions whose fine-level label is incon-sistent with the predicted coarse-level label. CAMP is excluded as its paired out-put structurally prevents violations. TaxoMIL maintains a competitive PCVR while achieving the highest holistic accuracy, indicating a favorable accuracy– consistency trade-off. 
+
+F Computational Efficiency 
+
+Table S5: Computational efficiency comparison across models.                                                       
+
+> Model Trainable Params (M) Latency (ms) GPU (MB) GFLOPs TransMIL 2.69 3.16 99.37 24.99 CLAM-SB 0.83 0.46 20.12 1.58 ABMIL 0.60 0.32 18.24 1.18 MambaMIL 4.00 1.02 55.32 7.87 S4MIL 1.10 0.80 163.83 1.07 HMIL 1.35 1.10 27.33 6.45 Chang et al. 0.60 2.49 18.22 1.18 ViLa-MIL 47.21 16.55 267.35 166.23 HiClass 4.33 0.94 33.47 1.58 WSI-VQA 23.96 288.92 235.56 701.39 SlideChat 3117.45 97.33 6671.69 6352.55 CAMP 55.34 204.77 1834.67 84.37 TaxoMIL 218.77 114.37 897.44 14.08
+
+Table S5 compares trainable parameters, latency, GPU memory, and GFLOPs. The text decoder introduces overhead over standard MIL aggregators, yet Tax-oMIL requires far fewer GFLOPs and achieves latency comparable to VLM base-lines.
