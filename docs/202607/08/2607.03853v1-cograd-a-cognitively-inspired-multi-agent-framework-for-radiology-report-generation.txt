@@ -1,0 +1,485 @@
+Title: CogRad: A Cognitively-Inspired Multi-Agent Framework for Radiology Report Generation
+
+URL Source: https://arxiv.org/pdf/2607.03853v1
+
+Published Time: Tue, 07 Jul 2026 02:11:39 GMT
+
+Number of Pages: 25
+
+Markdown Content:
+# CogRad: A Cognitively-Inspired Multi-Agent Framework for Radiology Report Generation 
+
+# Saif Ur Rehman Khan 1,2* , Hasaan Maqsood 1, Sebastian Vollmer 1,2 ,Andreas Dengel 1,2 , Muhammad Nabeel Asim 1,2,3,4* 
+
+> 1
+
+Department of Computer Science, Rhineland-Palatinate Technical University of Kaiserslautern-Landau, Kaiserslautern, 67663, Germany. 
+
+> 2
+
+German Research Center for Artificial Intelligence, Kaiserslautern, 67663, Germany. 
+
+> 3
+
+Intelligentx GmbH (intelligentx.com), Kaiserslautern, Germany. 
+
+> 4
+
+Department of Core Informatics, Graduate School of Informatics, Osaka Metropolitan University, Sakai, 599-8531, Japan. *Corresponding author(s). E-mail(s): saif ur rehman.khan@dfki.de; muhammad nabeel.asim@dfki.de; Contributing authors: hasaankhattak159@gmail.com; sebastian.vollmer@dfki.de; andreas.dengel@dfki.de; 
+
+Abstract 
+
+Automated radiology report generation (RRG) can ease radiologist workload, yet most existing systems produce a report in a single forward pass, with no mechanism to check a claim against the image or revisit a finding once stated. We present CogRad, a cognitively inspired multi-agent framework that struc-tures generation around four stages of a radiologist’s reading process. A Scout agent discovers anatomical regions directly from image patches via slot attention and assigns region and disease-level triage scores; an Investigator agent concen-trates representational capacity on the regions Scout flags as suspicious; a Writer agent compiles these signals into a disease gated visual prefix for a large language model; and a Verifier agent supervises training with a visual entailment loss and, at inference, re-examines its own draft sentence by sentence, regenerating any report it judges insufficiently grounded. On CheXpert Plus, CogRad attains a BLEU-4 of 0.316 and a CIDEr of 0.322, the best scores among the methods we compare against. On IU X-Ray, it attains a BLEU-4 of 0.201 and a CIDEr of 0.724, leading every baseline on every standard NLG metric. We further evaluate CogRad with RadGraph F1, CheXbert F1, and a hallucination analysis to assess 
+
+1 
+
+> arXiv:2607.03853v1 [cs.CV] 4 Jul 2026 clinical accuracy beyond standard text-overlap metrics, complemented by abla-tion studies and Grad-CAM-based visualizations that characterize each agent’s contribution and the model’s visual grounding.
+> Keywords: Radiology Report Generation, Agent-Based Learning, Large Language Models, Chest X-Ray
+
+# 1 Introduction 
+
+Accurate and timely radiology reporting is essential for effective clinical decision-making and patient management. However, the growing volume of medical imaging studies has substantially increased the workload of radiologists, creating a demand for intelligent computer aided solutions. One important application of clinical artificial intelligence is the automatic generation of radiology reports from chest X-ray images. Hundreds of millions of chest radiographs are acquired worldwide each year, and the workload associated with manual interpretation contributes to inter-reader variabil-ity, diagnostic delays, and radiologist burnout. Automated RRG systems can serve as effective clinical decision-support tools by highlighting critical findings, reducing repetitive documentation tasks, and improving reporting efficiency and productivity. Recent advances in vision language alignment and large language models (LLMs) have led to a new generation of RRG systems. R2GenCSR [1] leverages Mamba [2] for efficient linear complexity visual encoding with context-guided retrieval, R2GenGPT [3] couples a Swin Transformer [4] with LLaMA-2-7B for high-quality report generation, and AM-MRG [5] integrates dual Hopfield memory networks with a Swin Transformer to enable disease-aware associative reasoning. Despite their linguis-tic fluency, these approaches remain constrained by a single-pass generation paradigm: once visual features are encoded and projected into the LLM embedding space, reports are generated autoregressively with no mechanism for visual verification, uncertainty-driven attention redistribution, or iterative re-analysis of the image. As a result, generated reports may contain unsupported findings or overlook subtle abnormalities that would have benefited from additional visual scrutiny. This workflow differs markedly from how radiologists work in practice. Rather than producing a report in a single pass, a radiologist first surveys the entire image to identify potential abnormalities, inspects suspicious regions more closely, progressively formulates findings, and checks each conclusion against the image before finalizing the report. Every stage of this process is visually grounded and evidence-driven, and it is not strictly sequential: radiologists frequently return to a region after an initial read, revising an impression once a later observation puts an earlier one in a different light. Information is continuously integrated across anatomical structures and imaging pat-terns, so that local findings are interpreted in light of the global clinical image rather than in isolation. It is this combination staged visual attention, explicit grounding of each claim in image evidence, and a willingness to revisit and revise that current single-pass RRG architectures do not represent explicitly. 2A growing body of work [6–8] has explored structured multi-agent frameworks for radiology report generation as a way to make this staged reasoning explicit, decomposing report generation into multiple collaborating components to improve interpretability and enable intermediate verification. Existing approaches in this direc-tion, however, each leave part of the radiologist’s workflow unaddressed: some rely on text-only regional descriptions for inter-agent communication, discarding the continu-ous visual representation that would let a later stage re-examine the image directly [7]; some incur substantial inference cost from sequential tool invocations [6]; and some confine visual understanding to an isolated agent without a structured channel for sharing visual evidence across agents [8]. None of these directions provide a mecha-nism for the model to revisit its own output once a draft report has already been produced, which is precisely the self-checking step that distinguishes an experienced radiologist’s reading from a single forward pass. We introduce CogRad , a cognitively-inspired multi-agent framework for chest X-ray report generation that is organized around four stages of the radiologist’s reading process global triage, focused investigation, structured reporting, and visual verification and that, unlike prior agentic approaches, carries a continuous visual rep-resentation through all four stages and is able to revisit a generated report when its own verification stage judges a statement to be weakly grounded. The four agents are as follows. 
+
+# 1.1 Multi-Agent Cognitive Architecture 
+
+The proposed framework, termed CogRad , employs a four-agent cognitive archi-tecture designed to emulate the workflow of an experienced radiologist. Each agent performs a specialized task while collaboratively contributing to accurate disease classification and clinically reliable report generation. 
+
+Scout Agent: Dynamic Anatomical Scanner 
+
+The Scout Agent performs an initial global assessment of the chest X-ray to pre-dict the presence of 14 standard thoracic diseases and identify potentially abnormal regions. Unlike conventional region-partitioning approaches that rely on fixed image grids, the Scout Agent incorporates a Slot-Attention mechanism. This module consists of multiple learnable slots that dynamically compete to represent clinically mean-ingful anatomical structures and pathological regions. Consequently, the model can automatically adapt to variations in patient anatomy, image size, and acquisition conditions. The primary objective of the Scout Agent is to provide a coarse yet compre-hensive understanding of the image by localizing abnormalities and generating a patient-specific anatomical representation that guides subsequent analysis. 
+
+Investigator Agent: Fine-Grained Diagnostic Analyzer 
+
+The Investigator Agent receives the candidate abnormal regions identified by the Scout Agent and performs detailed examination of these areas. A self-attention mechanism enables interactions among different anatomical regions, allowing the model to capture 3clinically relevant dependencies. For example, automatically finding the boundaries of the lungs or heart dynamically, even if the image size changes. To improve diagnostic precision, the Investigator Agent allocates additional computational resources to the top-K most suspicious regions, enabling deeper fea-ture extraction and more discriminative pathological representations. This targeted analysis provides detailed visual evidence for downstream report generation. 
+
+Writer Agent: Structured Clinical Reasoning Module 
+
+The Writer Agent transforms the visual representations extracted by previous agents into a structured sequence suitable for report generation using a LLM, such as LLaMA-7B. Inspired by the reasoning process of radiologists, the information is organized hierarchically: 1. Disease-level diagnostic context, 2. Regional pathological evidence, 3. Global image observations. Furthermore, a confidence-based gating mechanism suppresses tokens associated with highly unlikely disease categories. By filtering weak diagnostic signals before they reach the language model, the Writer Agent reduces the risk of hallucinated findings and improves report consistency. 
+
+Verifier Agent: Hallucination Detection and Correction 
+
+The Verifier Agent serves as a fact-checking component that continuously validates the generated clinical report against image-derived evidence. Unlike existing approaches that utilize verification only during training, the proposed framework maintains the Verifier Agent during inference. For each generated sentence, the Verifier Agent computes a confidence score within the range [0 , 1]. If the confidence falls below a predefined threshold (e.g., 0.5), the sentence is considered potentially unreliable. The system then initiates a corrective feedback cycle in which: 1. The Scout Agent updates abnormality prioritization scores. 2. The Investigator Agent performs additional examination of suspicious regions. 3. The Writer Agent regenerates the report using refined visual evidence. This iterative verification process can be repeated up to two times, ensuring that the final report remains strongly grounded in image evidence and minimizing the occurrence of hallucinated clinical statements. Our contributions are organized around four aspects of this design. 
+
+• A cognitively structured agent pipeline with learned visual regions: We replace the fixed anatomical grouping used in prior region-aware RRG models with a slot-attention mechanism that discovers region representations directly from patch features, and we use triage-guided focus weighting and disease-gated visual 4prompting to carry this structure through to the language model’s input, preserv-ing visual-semantic alignment across the full pipeline rather than only at the point of image encoding. 
+
+• An inference time self-correction loop: Beyond using visual entailment as a training-time loss, we introduce a sentence-level verification mechanism that oper-ates after a draft report has already been generated, allowing the model to flag and selectively regenerate statements it judges to be weakly grounded a capability closer to a radiologist’s own self-checking than a single forward pass through the language model can offer. 
+
+• A hallucination aware training signal without additional annotation: The Verifier entailment loss gives the model a direct, differentiable signal for whether a claim is visually supported, reducing reliance on post-hoc filtering or extra clinical labels beyond the disease labels already used for Scout supervision. 
+
+• Evaluation that goes beyond n-gram overlap: Alongside the standard NLG metrics (BLEU-1/2/3/4, ROUGE-L, CIDEr) used, we also used RadGraph F1, CheXbert-14/5 F1, and an entity-level hallucination analysis, together with Grad-CAM-based interpretability and ablation studies, providing a more complete image of when the framework’s gains do and do not translate into clinically accurate reporting. 
+
+# 2 Related Work 
+
+RRG aims to automatically produce clinically accurate and coherent diagnostic reports from medical images, reducing radiologists’ workload and improving reporting effi-ciency. Recent advances in deep learning, particularly vision-language models, have significantly improved report quality by jointly modeling visual findings and tex-tual descriptions. More recently, multi-agent systems have emerged as a promising paradigm, enabling specialized agents to collaboratively perform image interpreta-tion, clinical reasoning, and report refinement. This collaborative framework enhances report accuracy, consistency, and interpretability compared with conventional single-model approaches. 
+
+# 2.1 Radiology Report Generation 
+
+Early RRG methods adapted image captioning frameworks by integrating CNN-based feature extractors with attention mechanisms to generate free-text reports [9]. The introduction of Transformer based encoders, particularly the Swin Transformer [4], substantially improved visual feature representation and report generation perfor-mance. Subsequent studies explored advanced retrieval and alignment strategies, including hierarchical vision-language alignment [10], associative Hopfield memory networks [5], and context-guided retrieval augmentation [1] to enhance disease-aware token retrieval. Among these approaches, R2Gen [9] established a strong baseline by introducing a memory-driven Transformer architecture for medical report generation. A paradigm shift occurred with the emergence of LLMs. R2GenGPT [3] demon-strated that lightweight projection-based alignment of visual features with LLaMA-2-7B can match or even outperform specialized report-generation architectures. 5R2GenKG [11] further enhanced LLM-based report generation by incorporating knowledge graphs constructed with GPT-4o. Despite their strong performance, these approaches remain limited to a single forward pass, preventing iterative re-examination of visual evidence and verification of generated findings against the input image. To address this limitation, recent RRG frameworks have increasingly incorporated knowl-edge graphs to capture anatomical structures and their relational dependencies [11]. Despite their effectiveness, these approaches inadequately model hierarchical seman-tic dependencies that require the joint optimization of coarse-grained disease level consistency and fine-grained region-to-word alignment. Furthermore, they are compu-tationally expensive and prone to error propagation from manually curated knowledge resources. 
+
+# 2.2 Multi-Agent Systems for Medical AI 
+
+The use of multi-agent frameworks for medical report generation remains relatively limited. [8] proposed a multi-agent system that decomposes RRG into specialized retrieval, drafting, refinement, visual analysis, and synthesis agents. However, the framework relies on sequential text-based coordination, and although a dedicated Vision Agent processes medical images, visual grounding is confined to a single stage without structured visual interaction across the remaining agents. In contrast, EviAgent [6] reformulates report generation as an evidence-driven, multi-step rea-soning process by integrating a multimodal planner, discriminative perceptual tools, and pathology specific retrieval augmented generation (RAG). This design enables each diagnostic conclusion to be explicitly supported by corresponding visual evi-dence. However, due to its multi-round tool invocation process, the framework relies on sequential single-agent planning, resulting in substantial inference latency. To improve laterality consistency and clinical accuracy, MARL-Rad [7] formulates RRG as a collaborative multi-agent reinforcement learning framework, where region-specific agents (left, right, and central) interact with a global integration agent and are jointly optimized using MA-GSPO with clinically verifiable reward signals. Never-theless, inter-agent communication remains text-based, relying solely on intermediate regional diagnoses, without structured visual feature exchange or explicit cross-modal grounding. In contrast, the proposed CogRad enables communication through struc-tured tensor representations, including triage scores, attention weights, and regional embeddings, while allowing each agent direct access to the original image features. This design facilitates richer information sharing and more effective cross-agent collaboration. 
+
+# 3 Methodology 
+
+We introduce CogRad, a cognitively inspired multi-agent framework for radiology report generation in which four specialized agents communicate through structured tensor representations rather than free-text instructions. The design is motivated by how an expert radiologist reads a chest X-ray: a rapid global survey to flag suspicious regions, a focused second look at those regions, a synthesis of findings into a structured impression, and a final self-check of whether each stated finding is actually supported 6by what is visible in the image. CogRad operationalizes this four-stage process as a 
+
+Scout agent, an Investigator agent, a Writer agent, and a Verifier agent, all shar-ing a common vision encoder so that representations remain consistent across stages (Fig. 1). Unlike prior soft-prompting approaches to report generation, which condition the language model on a single pooled image embedding, CogRad constructs its visual prompt compositionally from disease-level, region-level, and patch-level evidence, and revisits that prompt at inference time whenever the language model own output casts doubt on its visual grounding. 
+
+Fig. 1 : Overview of the CogRad framework and its four specialized agents. 
+
+# 3.1 Problem Formulation 
+
+Given a chest X-ray image L ∈ RH×W ×3, where H and W denote the image height and width, the objective is to generate a clinically accurate diagnostic report s =(s1, s 2, . . . , s T ), where each st is a discrete output token and T is the report length. The training dataset is 
+
+D = {(Lx, sx)}yx=1 ,
+
+where Lx is the x-th chest X-ray image, sx its corresponding ground-truth report, and 
+
+y the total number of image report pairs. To encourage anatomically grounded and factually consistent reports, we augment the standard language-modeling objective with two auxiliary clinical supervision losses, learning model parameters θ by max  
+
+> θ
+
+E(L,s)∼D 
+
+h
+
+log pθ (s | L)
+
+i
+
+− λsLScout − λv LVer , (1) 7where λs, λ v ∈ R+ balance the disease-classification loss LScout of the Scout agent against the visual-entailment loss LVer of the Verifier agent, and pθ(s | L) is the model’s conditional likelihood of the report given the image. The remainder of this section details each agent in turn. 
+
+3.1.1 Vision Encoder 
+
+A Swin Transformer-Base [4] serves as the shared visual backbone. For an input image 
+
+L, the encoder produces a grid of Np patch-level features, 
+
+Fvis = Swin( L) ∈ RB×Np×Cv , (2) where Cv = 1024 is the visual feature dimension and B the batch size. We deliber-ately keep Np a free variable rather than a fixed constant: a 224 × 224 input yields 
+
+Np = 49 patches, while higher-resolution inputs used for the CheXpert experiments yield Np = 144. All downstream modules, including the region-discovery mechanism described next, are designed to operate on an arbitrary number of patches without retraining or architectural modification. Patch features are additionally projected to the language model embedding dimension Cl = 4096 via a linear layer followed by layer normalization, giving Fllm ∈ RB×Np×Cl for later use by the Writer. 
+
+3.1.2 Scout Agent: Global Triage over Learned Anatomical Regions 
+
+Rather than imposing a fixed anatomical grid on the patch grid which presupposes a particular input resolution and a hand-specified correspondence between patch index and anatomical location the Scout agent discovers its own set of region representations directly from the data. We adopt a slot-attention mechanism in which |R| = 5 learn-able region queries compete, via iterative cross-attention, for the patch features that best explain them. Concretely, starting from a set of slot embeddings Ureg ∈ R|R|× Cv
+
+sampled from a learned Gaussian, each of niter = 3 refinement steps computes atten-tion between slot queries and patch keys/values, updates each slot with a GRU cell, and applies a per-slot feed-forward residual: 
+
+αkj =exp 
+
+
+
+⟨qk, kj ⟩/√d
+
+P 
+
+> k′
+
+exp 
+
+
+
+⟨qk′ , kj ⟩/√d
+
+ , uk =
+
+> Np
+
+X
+
+> j=1
+
+αkj 
+
+P 
+
+> j′
+
+αkj ′
+
+vj , (3) where qk, kj , and vj are linear projections of slot k and patch j, d is the dimension of these projections used to scale the dot product, and the competition for normalization is over slots rather than patches, ensuring that each region of the image is claimed by exactly one slot in expectation. Because patch position carries diagnostic information (e.g., the lower zones are more likely to show effusions than the apices), we add a positional bias to the patch features before slot attention. This bias is stored as a base embedding at a reference resolution and bilinearly interpolated to match Np at runtime, allowing the same learned positional prior to transfer across the differing input resolutions of our two datasets. The resulting slot outputs are projected back to 
+
+Cv and lightly blended with the global mean-pooled patch feature through a learnable 8per-slot gate, yielding region features H ∈ RB×|R|× Cv with the same shape as the fixed grouping it replaces, so that downstream agents require no modification. We also retain the slot-to-patch attention maps produced in the final iteration, which double as interpretable region-assignment maps at inference time. Each region representation hk is then scored for abnormality by a sigmoid-gated MLP, 
+
+rk = σ(MLP triage (hk)) ∈ [0 , 1] , (4) producing the per-region triage vector r = ( r1, . . . , r |R| ) that drives the Investigator agent. In parallel, a 14-class disease classifier operates on the global average patch feature ¯ a = mean( Fvis ) ∈ RB×Cv to predict soft pathology probabilities c ∈ [0 , 1] B×14 ,supervised by labels y ∈ { 0, 1}B×14 extracted from the reference reports via negation-aware keyword matching: 
+
+c = σ(MLP dis (¯ a)) , LScout = BCE( c, y). (5) The Scout agent passes the triage scores r, the disease probabilities c, and the region features H forward to the Investigator. 
+
+3.1.3 Investigator Agent: Adaptive Regional Focus 
+
+The Investigator concentrates representational capacity on the regions the Scout flags as suspicious, in the same way a radiologist returns for a closer look at an area of concern rather than re-examining the whole image uniformly. The region features first pass through a self-attention layer in which H serves simultaneously as queries, keys, and values, allowing regions to inform one another and capture clinically meaningful co-occurrence patterns for instance, the frequent association between cardiomegaly and pleural effusion: ˆH = MHA( H, H, H) + H. (6) Triage-guided focus weights are then computed by concatenating each region inter-acted representation with its scalar triage score and passing the result through an MLP, with the triage score additionally injected as a direct additive bias so that high-scoring regions are favored even before the MLP has fully adapted: 
+
+ϕ = softmax 
+
+
+
+MLP  [ ˆH; r] + 2 r
+
+
+
+∈ RB×|R| . (7) Across L = 2 investigation layers, each region representation is iteratively refined by cross-attending to the full patch grid, with the resulting update scaled by its focus weight before being added back: 
+
+H(ℓ+1) = LN 
+
+
+
+H(ℓ) + ϕ ⊙ MHA  H(ℓ), Fvis , Fvis 
+
+
+
+, ℓ = 0 , . . . , L − 1, (8) where ⊙ denotes elementwise multiplication along the region axis. This scheme allocates more refinement to regions Scout considers abnormal without discarding information from regions it considers normal, since all regions continue to receive at least a baseline residual update. After the final layer, the top-K regions by focus 9weight ( K = 3) are selected and projected into the language model embedding space, 
+
+Rtop ∈ RB×K×Cl , while a focus-weighted summary of all regions is compressed into a single global investigation context vector cinv ∈ RB×Cv . Both are passed to the Writer. 
+
+3.1.4 Writer Agent: Disease-Gated Visual Prefix 
+
+Before any text is generated, the Writer assembles the Scout’s and Investigator outputs into a single structured visual prefix that conditions the language model. The token ordering is a deliberate design choice intended to mirror a radiologist’s reasoning: disease-level prior context is presented first, followed by the specific regional findings that support or contradict it, and finally the full image as a basis for confirmation. Disease scores are converted into soft prompt tokens through a sigmoid gate con-ditioned on the Scout score for that disease, so that diseases predicted as absent are driven toward a near-zero embedding and are effectively masked from the language model without being removed from the sequence: 
+
+pk = ek ⊙ σ(Vgate ck + b) , k = 1 , . . . , 14 , (9) where ek ∈ RCl is a learnable embedding for disease k, Vgate ∈ RCl×1 projects the scalar disease score into a full-dimensional gate, and b is a learnable bias. The full visual prefix concatenates a learnable prefix token, the 14 disease tokens, the projected investigation context, the top-K regional tokens, and the projected global patch features: 
+
+Q = qcls ; p1:14 ; c′
+
+> inv
+
+; Rtop ; Fllm 
+
+ ∈ RB×TP ×Cl , TP = 1 + 14 + 1 + K + Np, (10) where c′ 
+
+> inv
+
+is the investigation context projected to Cl. Note that TP depends on Np
+
+and therefore on input resolution: it is 68 tokens for the 224 × 224 inputs used on IU X-Ray and 163 tokens for the 384 × 384 inputs used on CheXpert Plus ( Np = 144), with no change to the architecture itself. The language model’s input sequence during training is X = [ xbos ; Q; Etext ], where Etext are the embeddings of the target report tokens, and the model is trained with the standard autoregressive cross-entropy loss 
+
+LCE = −
+
+> T
+
+X
+
+> t=1
+
+log pθ (st | X<t ). (11) 
+
+3.1.5 Verifier Agent: Training Time Visual Entailment and Inference Time Re-Examination 
+
+Report generators conditioned only on a forward language-modeling loss have no explicit mechanism to penalize a claim that is fluent but visually unsupported. We address this with a Verifier agent that operates in two complementary ways: as a training-time auxiliary loss that discourages ungrounded generation, and as an inference-time controller that detects and revises low-confidence claims in the model’s own draft output. 10 Training time entailment loss. 
+
+During training, the patch features Fvis and Scout’s region features H are projected into a shared verification space of dimension Ch = 512, alongside the target text embeddings: 
+
+Z = MLP z ([ Fvis ; H]) ∈ RB×(Np+|R| )×Ch , G = MLP g (Etext ) ∈ RB×T ×Ch . (12) Each text token attends to the visual keys via cross-attention, (O, β) =MHA( G, Z, Z), producing both an attended visual context O and attention weights 
+
+β ∈ RB×T ×(Np+|R| ) that can be read directly as token-to-patch grounding maps at no extra inference cost. A per-token entailment logit ˆ et = MLP e([ gt; ot]) is trained toward a high target, encouraging every generated token to be visually defensible, while a disease-mention consistency term checks whether diseases the Scout scored highly are actually reflected in the attended representation, and a global alignment term encourages the mean-pooled visual and textual representations to agree: 
+
+LVer = BCE(ˆ e, 1·0.9) 
+
+| {z }
+
+> visual grounding
+
++ 0 .3 MSE( σ(ˆ cm), csg )
+
+| {z }
+
+> disease consistency
+
++ 0 .2  1 − cos(¯ z, ¯g)| {z }
+
+> global alignment
+
+, (13) where the pooled representations and the disease-mention prediction are ¯z = 1
+
+Np + |R| 
+
+X
+
+> i
+
+zi, ¯g = 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+gt, ˆcm = MLP m
+
+ 1
+
+> T
+
+PTt=1 ot
+
+
+
+∈ RB×14 ,
+
+(14) and csg denotes the Scout disease scores with gradients stopped, so that the Verifier’s loss shapes the language model’s outputs without back-propagating into the Scout’s own classification head. The Verifier adds no parameters to the inference-time forward pass through the language model and is active only during training in this role. 
+
+Inference time multi-round re-examination: 
+
+A single forward pass through Writer and the language model produces a fluent draft, but fluency is not evidence of grounding, particularly for findings that are plausi-ble in general chest radiographs but absent from the specific image at hand. We therefore extend the Verifier with a lightweight sentence-level head that, at inference time, re-examines the model’s own draft sentence by sentence and selectively triggers regeneration where confidence is low. Concretely, the draft report is split into sentences using a rule-based splitter that protects common clinical abbreviations and decimal values from being mistaken for sentence boundaries. For each sentence, its tokens are embedded and mean-pooled, projected into the verification space, and concatenated with the mean-pooled visual context (patch and region features, pooled identically to training time) before being passed through a sentence-confidence head: conf(sentence) = σ MLP sent 
+
+ [¯ usent ; ¯k] ∈ [0 , 1] . (15) 11 Sentences scoring below a confidence threshold τ (we use τ = 0 .5) flag their report for re-examination. For flagged samples, the Scout’s triage scores are uniformly boosted (s ← min(1 .5 s, 1)) before being passed back through the Investigator and Writer, producing an updated visual prefix that allocates more attention to potentially under-examined regions; the language model then regenerates the full report for that sample from the updated prefix. This loop runs for up to two rounds and exits early once no sentence in any sample remains flagged, so that well-grounded drafts incur no additional inference cost beyond a single forward pass of the (computationally cheap) sentence scorer. We deliberately regenerate the full report for a flagged sample rather than splicing in a replacement for only the flagged sentence, since chest X-ray findings are frequently described in a way that depends on surrounding sentence context (e.g., a stability statement that refers back to an earlier finding), and partial replacement risks introducing internal inconsistency that a full regeneration from a corrected prefix avoids. 
+
+# 3.2 Training Objective 
+
+CogRad is trained end-to-end by minimizing 
+
+L = LCE + λs LScout + λv LVer , (16) where LCE is the autoregressive report-generation loss, LScout the disease-classification loss, and LVer the visual-entailment loss, with λs and λv scalar weights kept smaller than the coefficient on LCE so that clinical supervision shapes generation without compromising fluency. The sentence-level confidence head used by the inference-time re-examination loop shares the Verifier’s visual and textual projections and is trained jointly with the rest of the Verifier; it adds negligible parameter overhead and does not introduce a separate loss term beyond the entailment objective above. All four agents and the language model backbone (LLaMA-7B, optionally adapted with LoRA on the vision encoder, the language model, or both) are optimized jointly, with the region-discovery mechanism in the Scout agent receiving gradient signal both from the disease-classification loss and, indirectly, from the downstream report-generation loss. 
+
+# 3.3 TRIPOD Compliance 
+
+This study adheres to the TRIPOD (Transparent Reporting of a multivariable predic-tion model for Individual Prognosis Or Diagnosis) reporting guidelines for prediction model development and validation. Table 1 summarizes compliance with the TRIPOD items relevant to this work. 
+
+# 4 Experiments and Analyses 
+
+# 4.1 Datasets 
+
+We evaluate CogRad on two publicly available chest X-ray report generation bench-marks that differ substantially in scale, imaging protocol, and report structure, 12 Table 1 : TRIPOD compliance checklist for CogRad. Items not applicable to radiology report generation are marked N/A. 
+
+Item Section TRIPOD Criterion Status 
+
+1 Title Identify the study as developing a pre-diction model 
+
+✓
+
+2 Abstract Structured summary of objectives, methods, and results 
+
+✓
+
+3 Introduction Scientific background and clinical moti-vation 
+
+✓
+
+4 Introduction Objectives and intended use of the model 
+
+✓
+
+5 Methods Source of data and eligibility criteria ✓
+
+6 Methods Outcome definition (radiology report generation from CXR) 
+
+✓
+
+7 Methods Predictors and pre-processing described ✓
+
+8 Methods Sample size and data partitioning reported 
+
+✓
+
+9 Methods Statistical and model development methods described 
+
+✓
+
+10 Methods Model evaluation metrics defined (BLEU, ROUGE-L, CIDEr, RadGraph F1, CheXbert F1, hallucination rate) 
+
+✓
+
+11 Methods Internal validation strategy (held-out test set) 
+
+✓
+
+12 Results Characteristics of study datasets reported 
+
+✓
+
+13 Results Model performance reported on CheX-pert Plus and IU X-Ray 
+
+✓
+
+14 Results Ablation study and comparison with SOTA provided 
+
+✓
+
+15 Results Explainability analysis via GradCAM heatmaps provided 
+
+✓
+
+16 Discussion Limitations discussed ✓
+
+17 Discussion Generalisability and future directions addressed 
+
+✓
+
+18 Other Funding and conflicts of interest declared 
+
+✓
+
+allowing us to probe how the framework behaves both in a large, clinically diverse setting and in a smaller, more curated one. The CheXpert Plus dataset [12] comprises 223,462 paired chest X-ray images and radiology reports collected from 187,711 examinations involving 64,725 patients. Each report is annotated with 14 expert-labeled disease categories following the CheXpert labeling schema. To prevent patient-level leakage across partitions, we use a patient-wise split of 70% training, 10% validation, and 20% testing. IU X-Ray [13] is a smaller, publicly available dataset from Indiana University containing 3,955 radiology reports and 7,470 chest X-ray images, each report consisting of Findings and Impression sections. We follow the official train/validation/test split and evaluate on both sections according to the standard protocol. An overview of both datasets is given in Fig. 2. 13 CheXpert Plus 
+
+IU X-Ray Fig. 2 : Overview of the two evaluation datasets. 
+
+# 4.2 Implementation Details 
+
+CogRad uses LLaMA-2-7B-Chat [14] as the backbone language model, fine-tuned with LoRA [15] ( r = 16, α = 16), and a Swin Transformer-Base [4] vision encoder, produc-ing Np = 49 patch tokens at the 224 × 224 resolution used for IU X-Ray and Np = 144 at the higher resolution used for CheXpert Plus, with no change to the architecture between the two settings. All agent modules use a hidden dimension of 512, |R| = 5 learned region slots, K = 3 selected regions, and L = 2 investigation layers. Training was run on a single NVIDIA A100 GPU with AdamW, cosine annealing, and bf16 mixed precision; CheXpert Plus was trained for up to 25 epochs with learning rate 5 × 10 −6, 8-step gradient accumulation, and clinical loss weights λs = 0 .1, λv = 0 .2, while IU X-Ray was trained for up to 25 epochs with learning rate 1 × 10 −4, 4-step accumulation, and λs = 0 .1, λv = 0 .1; in both cases the checkpoint with the best combined BLEU-4 and CIDEr on the validation set was kept (epoch 18 for CheXpert Plus, epoch 9 for IU X-Ray). Inference uses beam search with beam size 5 for CheX-pert Plus and beam size 3 for IU X-Ray, gradient clipping at 1.0, and up to two rounds of the inference-time re-examination loop with sentence-confidence threshold τ = 0 .5. 14 4.3 Evaluation Metrics 
+
+We assess generated reports along two complementary axes. Linguistic quality is measured with the standard NLG metrics used throughout the report-generation literature: BLEU-1/2/3/4 [16], ROUGE-L [17], and CIDEr [18], computed at the cor-pus level. Clinical accuracy is assessed with three complementary metrics: RadGraph F1 [19], which scores entity and relation level overlap between generated and refer-ence reports using a clinically trained information extraction model; CheXbert F1 [20], computed both over the full 14-label CheXpert taxonomy and over the 5 competi-tion conditions, using a BERT based labeler applied independently to generated and reference text and an entity level hallucination analysis that extracts pathology and device mentions from both generated and reference reports via a negation-aware lex-icon, reporting the hallucination rate (fraction of generated entities absent from the reference), the miss rate (fraction of reference entities absent from the generation), and their harmonic mean as an entity F1 score. For interpretability, we visualize the Verifier agent’s cross-modal attention weights as GradCAM heatmaps and inspect the confidence scores produced by the sentence-level verification head used in the inference-time re-examination loop. 
+
+# 4.4 Comparison with State-of-the-Art 
+
+Table 2 compares CogRad against recent report-generation baselines on both datasets. On CheXpert Plus, CogRad obtains substantially higher BLEU-1 through BLEU-4 and ROUGE-L than every baseline we compare against, with BLEU-4 reaching 0.316, well ahead of any baseline in the comparison. We attribute this gap primarily to the disease-gated visual prefix, which conditions generation on an explicit, per-disease probability rather than a single pooled image vector, encouraging the language model to commit early to a small set of likely findings and phrase them consistently a pattern that n-gram overlap metrics reward heavily. CogRad also obtains the best CIDEr score in the comparison, reaching 0.322, indicating that the disease-gated visual prefix gains are not confined to n-gram precision metrics alone. We examine whether this NLG advantage is matched by entity-level clinical accuracy in Section 4.6. On IU X-Ray, CogRad outperforms every baseline on every NLG metric, reach-ing a BLEU-4 of 0.201 and a CIDEr of 0.724. Given that IU X-Ray’s reports are shorter and more templated than CheXpert Plus’s, this result indicates that the gains from CogRad’s explicit triage-investigate-write-verify decomposition are not confined to larger, more heterogeneous corpora. We examine whether this NLG advantage is matched by entity-level clinical accuracy in Section 4.6. 
+
+# 4.5 Ablation Study 
+
+To isolate the contribution of each agent auxiliary loss, we re-train CogRad with the Scout agent disease-classification supervision removed ( w/o Scout ), with the Verifier visual-entailment loss removed ( w/o Verifier ), and, on IU X-Ray, with both removed simultaneously ( w/o Scout+Verifier ). 15 Table 2 : Comparison with state-of-the-art methods on CheXpert Plus and IU X-Ray. Best results in bold , second best underlined. – indicates not reported in the original paper.                                                              
+
+> Dataset Method B-1 B-2 B-4 R-L CIDEr CheXpert Plus
+> R2GenCSR [1] (2024) ––0.103 0.272 0.193 AM-MRG [5] (2025) 0.381 0.238 0.109 0.282 0.221 R2GenKG [11] (2025) 0.376 0.234 0.106 0.269 0.125 EMRRG [21] (2025) 0.375 0.232 0.104 0.273 0.167
+> CogRad (Ours) 0.429 0.366 0.316 0.480 0.322 IU X-Ray
+> R2Gen [9] (2020) 0.470 0.304 0.165 0.371 –R2GenGPT [3] (2023) 0.488 0.316 0.173 0.377 0.438 AM-MRG [5] (2025) 0.489 0.339 0.192 0.384 0.613 HSA [10] (2024) 0.527 0.361 0.196 0.405 0.598 R2GenKG [11] (2025) 0.468 0.312 0.181 0.383 0.701
+> CogRad (Ours) 0.549 0.379 0.201 0.429 0.724
+
+Table 3 : Ablation study on CheXpert Plus and IU X-Ray. All scores are corpus-level NLG metrics on the respective test sets.                                  
+
+> Dataset Variant B-1 B-4 R-L CIDEr CheXpert Plus
+> Full CogRad 0.429 0.316 0.480 0.322
+> w/o Scout 0.420 0.312 0.478 0.289 w/o Verifier 0.427 0.310 0.478 0.273
+> IU X-Ray
+> Full CogRad 0.549 0.201 0.429 0.724
+> w/o Scout 0.449 0.189 0.404 0.576 w/o Verifier 0.458 0.175 0.421 0.605 w/o Scout+Verifier 0.471 0.186 0.410 0.655
+
+# Analysis 
+
+On both datasets, the full model outperforms every ablated variant on every metric. On CheXpert Plus, removing the Verifier entailment loss costs slightly more on CIDEr than removing the Scout’s disease-classification loss (0.273 vs. 0.289), while both abla-tions produce smaller, consistent reductions on BLEU-1, BLEU-4, and ROUGE-L. On IU X-Ray, the margins are larger and the pattern reverses: removing the Scout costs more on CIDEr than removing the Verifier (0.576 vs. 0.605), and removing both components together leaves CIDEr at 0.655, higher than either single ablation alone. This asymmetry between datasets the Verifier mattering more on CheXpert Plus and the Scout mattering more on IU X-Ray suggests that the two losses provide com-plementary rather than redundant signal, with their relative importance shaped by 16 dataset-specific factors such as label density and report length rather than by a fixed hierarchy between the two components. 
+
+Fig. 3 : Ablation results on IU X-Ray. 
+
+Fig. 4 : Ablation results on CheXpert Plus. All three runs are independently trained. 
+
+# 4.6 Clinical Accuracy and Hallucination Analysis 
+
+The NLG metrics in Table 2 measure surface agreement with a single reference report; they do not directly assess whether the pathologies a generated report states are actually present, nor how often it states pathologies that are not. Table 4 reports RadGraph F1, CheXbert-14 and CheXbert-5 F1, and the hallucination/miss/entity-F1 statistics described in Section 4 for both datasets. 17 Fig. 5 : Performance profiles of CogRad and its ablated variants across both datasets. 
+
+Table 4 : Clinical accuracy and hallucination metrics for CogRad on both datasets.                 
+
+> Metric IU X-Ray CheXpert Plus
+> RadGraph F1 (partial) 0.316 0.162 CheXbert-14 F1 0.287 0.330 CheXbert-5 F1 0.083 0.265 Hallucination rate ↓0.437 0.441 Miss rate ↓0.439 0.409 Entity F1 0.497 0.268
+
+These results complicate the image suggested by Table 2 alone. On IU X-Ray, CogRad achieves a higher RadGraph F1 (0.316) and a substantially lower hallucina-tion rate (0.437) than the CheXpert Plus run, indicating that a non-trivial share of its generated content is entity-correct even where the exact phrasing diverges from the single available reference. CheXbert-5 F1 is low (0.083), reflecting that the five com-petition conditions are comparatively rare in IU X-Ray’s outpatient population, so a small number of label disagreements has an outsized effect on this subset’s F1. On CheXpert Plus, the hallucination rate is 0.441 and is dominated by device-and finding-related terms: the most frequently hallucinated entities are pneumothorax, pleural effusion, lung opacity, consolidation, and the ”no finding” category, while the most frequently missed entities are consolidation, effusion, lung opacity, lung lesion, and pneumothorax a pattern that points to the model both over-generating and under-localizing exactly the high-prevalence findings that dominate this dataset’s case mix, rather than confusing them with rare or unrelated pathologies. Because CheXpert Plus 18 is drawn substantially from inpatient and ICU populations, in which support devices and acute findings are reported far more frequently than in IU X-Ray’s outpatient cohort, some portion of this gap reflects the underlying case mix rather than a uniform weakness of the model. The lower RadGraph F1 (0.162) on CheXpert Plus relative to IU X-Ray, despite CheXpert much stronger BLEU/ROUGE scores in Table 2, is itself informative: it shows directly that the disease-gated prefix strong n-gram performance on CheXpert Plus is not fully matched by entity-level factual accuracy, reinforcing why we treat the two metric families as complementary rather than substitutable, and why CogRad strong BLEU/ROUGE/CIDEr scores on CheXpert Plus (Section 4.4) should not be read in isolation as a verdict on clinical quality. 
+
+# 4.7 Clinical Explainability Analysis 
+
+To assess the interpretability of the proposed framework, we visualize the cross-modal attention maps produced by the Verifier agent as Grad-CAM heatmaps. These visu-alizations highlight the image regions that contribute most strongly to the generation and verification of clinical findings, providing a transparent link between radiographic evidence and the generated narrative. Fig. 6 presents representative examples comparing input chest radiographs, atten-tion heatmaps, ground-truth reports, and CogRad’s generated reports. On CheXpert Plus, the attention maps concentrate on the central thoracic region and right lung field, corresponding to postoperative changes, catheter placement, and pulmonary opacities described in both the reference and generated reports; the generated report captures the key clinical observations with strong semantic consistency with the ground truth. On IU X-Ray, the heatmaps concentrate on the lower thoracic and diaphragmatic regions, consistent with the reported right basilar atelectatic changes and elevated hemidiaphragm, and the generated report correctly reflects the absence of focal con-solidation, pleural effusion, and pneumothorax while preserving the overall diagnostic interpretation. A lateral-view example similarly shows attention concentrated around the cardiomediastinal and lower lung regions, supporting findings related to normal cardiomediastinal contours, pulmonary vascularity, and the absence of acute thoracic abnormalities. Beyond these static attention maps, the sentence-level confidence head used by the inference-time re-examination loop (Section 3) offers a second, comple-mentary form of explainability: rather than only indicating where in the image a token attends, it provides a direct, per-sentence confidence score that can be surfaced to a clinician reviewing the report, flagging statements the model itself judged to be only weakly supported by the image before any human review takes place. 
+
+# 4.8 Limitations and Future Directions 
+
+Limitations 
+
+Our evaluation surfaces three limitations worth stating plainly. First, although CogRad now outperforms every baseline on both datasets in NLG terms, its CIDEr score on CheXpert Plus (0.322) is still far below its RadGraph F1 advantage would suggest is achievable, indicating that strong n-gram overlap and strong entity-level factual accuracy do not automatically move together, and that NLG metrics alone should not 19 Fig. 6 : Clinical explainability analysis for X-ray image diagnosis. be treated as a proxy for clinical accuracy. Second, the hallucination rate on CheXpert Plus (0.441) is slightly higher than on IU X-Ray (0.437) and is concentrated in high-prevalence findings and support devices; while this is consistent with CheXpert Plus’s more acute, device-heavy case mix, we cannot yet fully separate the contribution of dataset distribution from a genuine weakness in how the Investigator allocates attention when multiple plausible findings co-occur. 
+
+Future directions 
+
+We see three natural extensions. Extending the entity lexicon used in our hallucination analysis to map specific sentences to specific anatomical regions, rather than scoring hallucination at the report level, would let the inference-time re-examination loop tar-get re-generation more precisely instead of regenerating an entire report when only one sentence is flagged. Moreover, given the gap between CogRad’s strong CheXpert Plus NLG scores and its more modest RadGraph F1 on the same dataset, directly incorporating a clinical-accuracy signal such as RadGraph or CheXbert into the train-ing loss rather than using it only for evaluation is a promising direction for narrowing that gap. 20 5 Discussion 
+
+The experimental results indicate that CogRad’s structured multi-agent architecture brings a measurable benefit over single-pass generation baselines, though that benefit is concentrated rather than uniform across metrics and datasets. The clearest gains are on CheXpert Plus, where the availability of structured disease annotations lets the Scout agent learn an informative triage signal: CogRad reaches a BLEU-4 of 0.316 and a ROUGE-L of 0.480, well ahead of any baseline in the comparison, consistent with the idea that decomposing generation into triage, investigation, prefix construction, and verification captures clinically relevant structure that a single forward pass does not represent explicitly. The ablation study in Section 4.5 suggests this benefit is concentrated in CIDEr rather than spread evenly across all NLG metrics on CheXpert Plus, with both the Scout’s disease-classification loss and the Verifier’s entailment loss contributing a small, consistently positive effect on that metric specifically. The results on IU X-Ray reinforce the same pattern: CogRad reaches a BLEU-4 of 0.201 and a CIDEr of 0.724, both ahead of every baseline in the comparison. Even so, CogRad’s own RadGraph F1 on IU X-Ray (0.316) is higher than its RadGraph F1 on CheXpert Plus (0.162), despite CheXpert Plus being where its BLEU and ROUGE-L scores are strongest a reminder that leading on n-gram-based metrics on a given dataset does not guarantee a proportionally larger lead in entity-level clinical accuracy, and the reason we report RadGraph F1 [19] and CheXbert F1 [20] alongside the standard NLG metrics rather than treating either family as sufficient on its own. More broadly, CogRad’s design choice to maintain a continuous tensor-level visual representation across all four agents, rather than collapsing to text at any intermediate stage, gives the Verifier’s cross-modal attention weights a natural interpretability benefit: they double as token-level grounding maps without any auxiliary explainability module or post-hoc analysis, letting a reviewing radiologist see which image regions a given statement is anchored to. This is a meaningfully different starting point from approaches that treat visual encoding and language generation as loosely coupled stages connected only through text. 
+
+# 6 Conclusion 
+
+We presented CogRad, a cognitively-inspired multi-agent framework for chest X-ray report generation that structures the generation process around four stages of a radiologist’s reading workflow: global triage over learned anatomical regions, focused investigation of suspicious areas, disease-gated visual prompting of a language model, and a Verifier agent that supervises training with a visual-entailment loss and, at inference, re-examines and selectively regenerates low-confidence sentences in its own draft. Across CheXpert Plus and IU X-Ray, CogRad’s gains are real but uneven: it outperforms recent baselines on standard NLG metrics on both CheXpert Plus and IU X-Ray, while its RadGraph F1 and CheXbert F1 scores show that this NLG advan-tage does not translate into a proportionally larger advantage in entity-level clinical accuracy. We see this unevenness, together with the open ablation question on IU X-Ray, as the most useful outcome of this work alongside the architecture itself: it 21 indicates concretely where a structured, self-checking agent pipeline helps, where cur-rent overlap-based metrics fail to reflect that help, and where further evaluation is still needed before the gains reported here should be treated as settled. 
+
+# Declarations 
+
+• Ethics approval and consent to participate: Not applicable. 
+
+• Funding: No funding. 
+
+• Declaration of competing interest: The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper. 
+
+• Consent for publication: Not applicable. 
+
+• Data availability: Available from corresponding author upon request. 
+
+• CRediT authorship contribution statement: Saif Ur Rehman Khan & Hasaan Maqsood: Conceptualization, Data curation, Methodology, Software, Validation, Writing original draft & Formal analysis. Muhammad Nabeel Asim, Sebastian Vollmer & Andreas Dengel: Conceptualization, Funding acquisition, Review. 
+
+# Abbreviations 
+
+Table 5 lists the key abbreviations used throughout this paper. 22 Table 5 : Abbreviations and Definitions 
+
+Abbreviation Definition Clinical & Medical Imaging 
+
+RRG Radiology Report Generation CXR Chest X-Ray AI Artificial Intelligence XAI Explainable Artificial Intelligence 
+
+Model Components & Architecture 
+
+LLM Large Language Model VLM Vision–Language Model MHA Multi-Head Attention MLP Multi-Layer Perceptron LN Layer Normalisation LoRA Low-Rank Adaptation 
+
+Training & Optimisation 
+
+BCE Binary Cross-Entropy Loss MSE Mean Squared Error CE Cross-Entropy Loss AdamW Adam Optimiser with Decoupled Weight Decay AMP Automatic Mixed Precision bf16 Brain Float 16-bit Precision 
+
+Evaluation Metrics 
+
+BLEU Bilingual Evaluation Understudy ROUGE Recall-Oriented Understudy for Gisting Evaluation CIDEr Consensus-based Image Description Evaluation F1 F1 Score (Harmonic Mean of Precision and Recall) NLG Natural Language Generation 
+
+Datasets 
+
+IU X-Ray Indiana University Chest X-Ray Dataset CheXpert Chest Expert – Stanford Large-Scale Chest Radiograph Dataset CheXpert Plus Extended CheXpert Dataset with Radiology Reports and 14 Pathology Labels 
+
+# References 
+
+[1] Wang, X., Li, Y., Wang, F., Wang, S., Li, C., Jiang, B.: R2GenCSR: Retrieving context samples for large language model based X-ray medical report generation. arXiv preprint arXiv:2408.09743 (2024) [2] Gu, A., Dao, T.: Mamba: Linear-time sequence modeling with selective state spaces. arXiv preprint arXiv:2312.00752 (2023) [3] Wang, Z., Liu, L., Wang, L., Zhou, L.: R2GenGPT: Radiology report generation with frozen LLMs. Meta-Radiology 1(3), 100033 (2023) 23 [4] Liu, Z., Lin, Y., Cao, Y., Hu, H., Wei, Y., Zhang, Z., Lin, S., Guo, B.: Swin trans-former: Hierarchical vision transformer using shifted windows. In: Proceedings of the IEEE/CVF International Conference on Computer Vision, pp. 10012–10022 (2021) [5] Wang, X., Wang, F., Wang, H., Jiang, B., Li, C., Wang, Y., Tian, Y., Tang, J.: Activating associative disease-aware vision token memory for LLM-based X-ray report generation. IEEE Transactions on Medical Imaging (2025) [6] Qi, T., Bu, S., Xiang, Y., Dai, Z.: EviAgent: Evidence-driven agent for radiology report generation. arXiv preprint arXiv:2603.13956 (2026) [7] Baba, K., Kishikawa, R., Kodera, S.: Multi-modal multi-agent reinforcement learning for radiology report generation. arXiv preprint arXiv:2603.16876 (2026) [8] Yi, Z., Xiao, T., Albert, M.V.: A multimodal multi-agent framework for radiology report generation. arXiv preprint arXiv:2505.09787 (2025) [9] Chen, Z., Song, Y., Chang, T.H., Wan, X.: Generating radiology reports via memory-driven transformer. In: Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP), pp. 1439–1449 (2020) [10] Zhu, Z., Cheng, X., Zhang, Y., Chen, Z., Long, Q., Li, H., Huang, Z., Wu, X., Zheng, Y.: Multivariate cooperative game for image-report pairs: Hierarchical semantic alignment for medical report generation. In: International Conference on Medical Image Computing and Computer-Assisted Intervention (MICCAI), pp. 303–313. Springer, Cham (2024) [11] Wang, F., Qiao, Y., Wang, X., Wang, F., Zhang, Y., Sun, D.: R2GenKG: Hierar-chical multi-modal knowledge graph for LLM-based radiology report generation. arXiv preprint arXiv:2508.03426 (2025) [12] Irvin, J., Rajpurkar, P., Ko, M., Yu, Y., Ciurea-Ilcus, S., Chute, C., Marklund, H., Haghgoo, B., Ball, R., Shpanskaya, K., Seekins, J.: CheXpert: A large chest radio-graph dataset with uncertainty labels and expert comparison. In: Proceedings of the AAAI Conference on Artificial Intelligence, vol. 33, pp. 590–597 (2019) [13] Demner-Fushman, D., Kohli, M.D., Rosenman, M.B., Shooshan, S.E., Rodriguez, L., Antani, S., Thoma, G.R., McDonald, C.J.: Preparing a collection of radiology examinations for distribution and retrieval. Journal of the American Medical Informatics Association 23 (2), 304–310 (2016) [14] Touvron, H., Lavril, T., Izacard, G., Martinet, X., Lachaux, M.A., Lacroix, T., Rozi` ere, B., Goyal, N., Hambro, E., Azhar, F., Rodriguez, A.: LLaMA: Open and efficient foundation language models. arXiv preprint arXiv:2302.13971 (2023) [15] Hu, E.J., Shen, Y., Wallis, P., Allen-Zhu, Z., Li, Y., Wang, S., Wang, L., Chen, W.: 24 LoRA: Low-rank adaptation of large language models. International Conference on Learning Representations (ICLR) (2022) [16] Papineni, K., Roukos, S., Ward, T., Zhu, W.J.: BLEU: A method for automatic evaluation of machine translation. In: Proceedings of the 40th Annual Meeting of the Association for Computational Linguistics, pp. 311–318 (2002) [17] Lin, C.Y.: ROUGE: A package for automatic evaluation of summaries. In: Text Summarization Branches Out, pp. 74–81 (2004) [18] Vedantam, R., Zitnick, C.L., Parikh, D.: CIDEr: Consensus-based image descrip-tion evaluation. In: Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pp. 4566–4575 (2015) [19] Jain, S., Agrawal, A., Saporta, A., Truong, S.Q., Duong, D.N., Bui, T., Chambon, P., Zhang, Y., Lungren, M.P., Ng, A.Y., et al.: Radgraph: Extracting clinical entities and relations from radiology reports. arXiv preprint arXiv:2106.14463 (2021) [20] Smit, A., Jain, S., Rajpurkar, P., Pareek, A., Ng, A.Y., Lungren, M.: Combining automatic labelers and expert annotations for accurate radiology report labeling using bert. In: Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing (EMNLP), pp. 1500–1519 (2020) [21] Zhang, M., Gao, J., Xu, D., Yu, J., Qiao, Y., Chen, L., Tang, J., Wang, X.: EMRRG: Efficient fine-tuning pre-trained X-ray Mamba networks for radiology report generation. arXiv preprint arXiv:2510.16776 (2025) 25

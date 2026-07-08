@@ -1,0 +1,838 @@
+Title: DriftST: One-Step Generative Inference of Spatial Transcriptomics from H&E Histology
+
+URL Source: https://arxiv.org/pdf/2607.04740v1
+
+Published Time: Tue, 07 Jul 2026 03:07:32 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+Preprint 
+
+# DRIFT ST: ONE -S TEP GENERATIVE INFERENCE OF 
+
+# SPATIAL TRANSCRIPTOMICS FROM H&E H ISTOLOGY 
+
+Yuhang Yang 1,∗, Yonggan Bu 1,∗, Shengyuan Zhou 2, Yiming Luo 2, Kai Zhang 1,†
+
+> 1
+
+University of Science and Technology of China, Hefei, China 
+
+> 2
+
+Peking University Cancer Hospital, Beijing, China 
+
+> ∗
+
+Equal contribution †Corresponding author: kkzhang08@ustc.edu.cn 
+
+ABSTRACT 
+
+Spatial Transcriptomics (ST) measures gene expression while preserving spatial context, but its high cost and low throughput leave public datasets small. In-ferring expression directly from widely available Hematoxylin and Eosin (H&E) stained histology offers a cost-effective alternative. However, existing approaches face several limitations: i) regression methods over-smooth toward the conditional mean, while generative methods are faithful but need slow multi-step inference; ii) most treat genes as independent and equally important, ignoring inter-gene dependencies and the heterogeneity of gene informativeness; iii) and most are tai-lored to a single resolution, spot-level or cell-level. To address these issues, we propose DriftST , a unified framework for inferring spatially resolved gene expres-sion from H&E images. DriftST builds on a Cellular Drifting generative model that learns a direct drift from a histology-conditioned source to the expression distribution, retaining generative expressiveness while enabling efficient one-step generation. To capture gene structure, we introduce the STransformer, which com-bines a co-expression attention module for inter-gene dependencies with a gene residual gate for differential gene importance. Operating on a generic gene-panel representation, DriftST applies directly to both spot-level and cell-level data in one framework, and extensive experiments across diverse tissues and platforms show it achieves state-of-the-art performance at both resolutions. Code is available at 
+
+https://github.com/yyh030806/DriftST .
+
+1 INTRODUCTION 
+
+Spatial Transcriptomics (ST) St˚ ahl et al. (2016) measures gene expression while preserving the spatial organization of cells within a tissue, revealing how expression varies across regions and microenvironments, a spatial context that neither bulk Wang et al. (2009) nor single-cell RNA se-quencing Macosko et al. (2015) can resolve. This is essential for dissecting processes such as tumor invasion, tissue development, and immune infiltration, where cellular function is tightly coupled to position. Current ST technologies fall into two families: sequencing-based platforms (e.g., 10x Vi-sium St˚ ahl et al. (2016)) profile capture spots tens of micrometers wide that typically span multiple cells, yielding spot-level resolution over a near-transcriptome-wide panel; imaging-based platforms (e.g., MERFISH Chen et al. (2015), Xenium Janesick et al. (2023)) report true single-cell resolution by imaging individual transcripts in situ, over a more limited pre-selected panel. Together, these complementary modalities have advanced our ability to map the spatial transcriptional landscape of complex tissues. However, ST remains costly to deploy, demanding specialized equipment, technical expertise, and long turnaround times at hundreds to thousands of dollars per sample St˚ ahl et al. (2016), leaving public datasets small and narrow. Hematoxylin and Eosin (H&E) stained histology images, by contrast, are cheap, fast to acquire, and routine in clinical pathology Chen et al. (2024). Since cell morphology in H&E is closely tied to cell type, state, and thus the underlying transcriptome, inferring spatially resolved gene expression directly from H&E has become an appealing direction: a reliable solution would unlock genomics-level analysis from abundant imaging data without costly wet-lab profiling. 1
+
+> arXiv:2607.04740v1 [cs.CV] 6 Jul 2026
+
+Preprint A growing body of work has tackled this problem. Early methods cast it as spot-level regression, pre-dicting expression directly from H&E patches, including ST-Net He et al. (2020), HisToGene Pang et al. (2021), Hist2ST Zeng et al. (2022), BLEEP Xie et al. (2023), TRIPLEX Chung et al. (2024), and M2ORT Wang et al. (2024). More recently, generative formulations such as STEM Zhu et al. (2025) and GenAR Ouyang et al. (2025) model the conditional distribution rather than a point esti-mate. In parallel, the latest efforts, GHIST Fu et al. (2025) and sCellST Chadoutaud et al. (2026), target the harder cell-level setting, predicting expression at single-cell rather than coarse multi-cell spot resolution. While encouraging, these methods share several limitations. i) Predicting paradigm. Regression methods are efficient with only one forward pass per prediction, but minimizing an expected error drives them toward the conditional mean, yielding over-smoothed profiles that fail to recover true biological heterogeneity across locations Xie et al. (2023); Zhu et al. (2025). Generative methods model the conditional distribution far more faithfully, but diffusion- and autoregressive-based for-mulations need many iterative refinement steps at inference, making them expensive and slow. ii) Model architecture. Existing methods largely treat panel genes as independent and interchange-able, overlooking two key properties: genes are not independent, acting in concert through reg-ulatory networks, signaling pathways, and co-expression modules Barab´ asi & Oltvai (2004), so predicting each in isolation discards meaningful structure; and genes are not equally informative, as some are highly variable and discriminative while others are near-constant or noise-dominated, yet current models give all equal capacity. iii) Data applicability. Most methods are designed for a single resolution, spot-level or cell-level, and do not transfer between the two, limiting generality across ST platforms. To address these limitations, we propose DriftST , a unified framework for inferring spatially re-solved gene expression from H&E images. As a paradigm, DriftST builds on a Cellular Drifting 
+
+generative model that learns a direct drift transporting a histology-conditioned source distribution to the expression distribution, preserving generative expressiveness and the one-to-many morphology-transcriptome relationship while enabling one-step generation, thus pairing generative fidelity with regression efficiency. Architecturally, we introduce the STransformer , which models gene structure explicitly: a co-expression attention module propagates inter-gene dependencies, and a gene resid-ual gate adaptively reweights each gene by its informativeness. Operating on a generic gene-panel representation, DriftST applies directly to both spot-level and cell-level data in one framework. Extensive experiments across multiple tissues and platforms show DriftST achieves state-of-the-art (SOTA) performance. Our main contributions are summarized as follows: • A novel modeling paradigm. We reformulate H&E-to-ST inference as Cellular Drifting, a generative process that learns a direct drift from histology to transcriptome and produces high-fidelity predictions in a single step, resolving the long-standing trade-off between regression efficiency and generative fidelity. • A gene-aware architecture. We design the STransformer, which treats genes as struc-tured rather than independent variables, combining a co-expression attention module that captures inter-gene dependencies with a gene residual gate that adaptively reweights each gene’s contribution by importance. • SOTA and general performance. Within a single framework, DriftST applies directly to both spot-level and cell-level resolutions and achieves SOTA results across a wide range of datasets spanning diverse tissues and sequencing platforms. 
+
+2 RELATED WORK 
+
+2.1 SPATIAL GENE EXPRESSION PREDICTION FROM HISTOLOGY 
+
+Predicting spatially resolved gene expression from H&E-stained histology offers a cost-effective al-ternative to spatial transcriptomics (ST) experiments (He et al., 2020; Xie et al., 2023). Early work regressed per-spot expression from CNN features (He et al., 2020), followed by efforts to incorporate spatial context via Vision Transformers (Pang et al., 2021) and graph neural networks (Zeng et al., 2022). BLEEP (Xie et al., 2023) reframed the task as contrastive image–expression alignment, while 2Preprint M2ORT (Wang et al., 2024) and TRIPLEX (Chung et al., 2024) fused multi-scale features across magnifications. More recent generative approaches employ diffusion (Zhu et al., 2025) or autore-gressive (Ouyang et al., 2025) modeling, and sCellST (Chadoutaud et al., 2026) and GHIST (Fu et al., 2025) further push prediction to single-cell resolution. However, these methods universally rely on per-spot regression or likelihood-based objectives, without exploiting structural information from the prediction distribution to guide learning. 2.2 PATHOLOGY FOUNDATION MODELS 
+
+Large-scale self-supervised pretraining has produced powerful visual encoders for computational pathology. CTransPath (Wang et al., 2022) pioneered pathology-specific pretraining with DINO on TCGA data. UNI (Chen et al., 2024) and its successor UNI2 (Chen et al., 2025) scaled DINOv2-based training to over 100 million patches, achieving strong cross-task generalization. Comple-mentarily, CONCH (Lu et al., 2024) adopted vision-language contrastive learning on pathology image-text pairs, capturing semantic-level information beyond pure morphological features. Pure vision models and vision-language models encode orthogonal information, and their concatenation has been shown to benefit downstream prediction tasks. 2.3 DRIFTING -B ASED GENERATIVE MODELS 
+
+Deng et al. (2026) proposed the Drifting Model, a generative paradigm that enables single-step generation by shifting distributional evolution into training. Several concurrent works have since analyzed its theoretical foundations: Lai et al. (2026), Turan & Ovsjanikov (2026), and Li & Zhu (2026) connected the drifting field to score matching and flow matching, while He et al. (2026) proposed Sinkhorn-Drifting to improve training stability via entropic optimal transport. However, all existing drifting models operate in unconditional or class-conditional settings and none addresses paired prediction tasks such as spatial gene expression prediction. 
+
+3 METHODOLOGY 
+
+3.1 PRELIMINARIES 
+
+Notations. Let Xcnt ∈ NN ×G be the raw ST count matrix for N spatial locations (multi-cell spots or single cells) across G genes, and S ∈ RN ×2 their spatial coordinates. We model the log1p -normalized expression X = log(1 + Xcnt ) ∈ RN ×G, while the raw counts Xcnt are retained for the ZINB likelihood (Sec. 3.2). The H&E histology image is I ∈ RH×W ×3, from which we crop a localized patch Is ∈ RP ×P ×3 at location s. Our task is to infer the expression profile x ∈ RG (in 
+
+log1p space) from Is, with xcnt ∈ NG its corresponding raw counts. 
+
+Overview. DriftST is a unified generative framework that directly learns the distributional drift from the H&E morphology distribution pH&E to the ST expression distribution pST , combining the fidelity of generative modeling with the efficiency of a single forward pass. At its core, a Cellular Drifting model (Figure 1) transports the H&E-conditioned source distribution to the target pST (x). By min-imizing this drift field during training, the pushforward distribution qθ = [ fθ (Is)] #pH&E is driven to match pST , which removes the need for iterative sampling at inference Deng et al. (2026). The generator fθ is instantiated as the STransformer (Figure 2), which extracts morphological features from Is while explicitly modeling the inter-gene dependencies and differential gene importance of the output space RG.
+
+Cellular Drifting Field. To transport the pushforward distribution qθ toward pST , we construct a cellular drifting field that decouples the interaction into a positive attraction and a negative repulsion, which prevents the single paired target from being overwhelmed by the abundant negatives. For a patch Is, the generator produces a prediction x = fθ (Is). We define the positive set P = {x+} as the paired ground-truth profile of Is (hence |P| = 1 ), and the negative set N as the union of the K−1
+
+other stochastic dropout predictions of the same patch and a pool of historical predictions sampled from a prediction bank; the prediction’s own copy is excluded from N , so it is never repelled from itself. To stabilize the vector field in the high-dimensional space RD , we apply a global distance 3Preprint umap 
+
+c
+
+a b    
+
+> Spot Level
+> Cell Level
+> Regression Model
+> Generative Model Gene Expression
+> i. Individual Vectors
+> ii. Distance Weights
+> iii. Pos/Neg Vectors
+> iv. Drifting Vector
+> Pos Samples
+> Neg Samples
+> Pos Individual Vectors
+> Neg Individual Vectors
+> Pos Vector
+> Neg Vector
+> Drifting Vector
+> Vector Weight
+
+Figure 1: Framework of the Cellular Drifting. a, Problem formulation for inferring spatial tran-scriptomics from spot- and cell-level H&E images, contrasting regression and generative models. 
+
+b, The cellular drifting field: positive (ground truth) and negative (generated) samples interact via distance-weighted vectors to form a unified drifting vector. c, As the drift loss decreases over epochs, the generated distribution (UMAP) progressively aligns with the target, enabling one-step genera-tion at inference. scaling factor σd = max( 1√D E[d], ϵ ), where E[d] is the mean Euclidean distance from x to all samples in P ∪ N , and denote the scaled features as ˜x = x/σ d.We compute the field with a multi-scale formulation over a set of bandwidth ratios R (e.g., R =
+
+{0.02 , 0.05 , 0.2}), so that both local and global structure are captured. For each r ∈ R , the effective temperature is τr = r√D, and the attraction and repulsion weights are computed independently via softmax: 
+
+w(r)pos (x+) = softmax 
+
+
+
+− ∥˜x − ˜x+∥2
+
+τr
+
+
+
+, ∀ x+ ∈ P , (1) 
+
+w(r)neg (x−) = softmax 
+
+
+
+− ∥˜x − ˜x−∥2
+
+τr
+
+
+
+, ∀ x− ∈ N . (2) By enforcing P wpos = 1 and P wneg = 1 separately, we guarantee that the positive target (a single paired ground-truth sample, Npos = 1 ) exerts a normalized driving force that strictly guides the prediction, avoiding numerical dominance by the large negative bank. The velocity field for scale r is the difference between the expected positive and negative directions, and the final field averages over all scales: 
+
+Vr (x) = X
+
+> x+∈P
+
+w(r)pos (x+) ˜ x+ − X
+
+> x−∈N
+
+w(r)neg (x−) ˜ x−, V (x) = 1
+
+|R| 
+
+X
+
+> r∈R
+
+Vr (x). (3) 
+
+Drifting Loss Optimization. With the multi-scale, split-form velocity field V (x) established, we cast training as a self-consistent iterative optimization: rather than optimizing over a static error sur-face, the network updates its predictions toward an evolving target guided by the biological drifting field. For a current prediction x and its scaled counterpart ˜x, we define the local goal state as an incremental drift step with step-size hyperparameter η:
+
+˜xgoal = stopgrad (˜ x + ηV (x)) 
+
+The stopgrad operator is crucial here: by freezing the target coordinate, it prevents the network from minimizing the objective through representation collapse or trivial identity shortcuts. The generator 4Preprint Foundation 
+
+> Model
+> Encoder
+> ...
+> FiLM
+> Decoder
+> co-expression
+> Atention
+> ...
+> ...
+> ...
+
+a
+
+b c d       
+
+> i. H&E Patches
+> ii. KDTree
+> iv. Neighbors Fusion
+> r
+> iii. Extract Embedding
+> co-expression
+> Atention
+> H&E Preprocessing Co-expression Attention Gene Residual Gate
+> Attention
+> MLP
+> 0.95 x
+> 0.32 x
+> 0.65 x
+> 0.08 x
+> +
+> UNI2 CONCH
+> Q
+> K
+> V
+> softmax
+> H&E Input H&E Space Latent Space ST Space ST Output
+> Attention
+> Matrix Co-expression
+> Matrix
+> ...
+> ...
+
+Figure 2: Architecture of the STransformer. a, Overall pipeline mapping localized H&E patches to spatial gene expression through tailored generative modules. b, H&E preprocessing: dual pathology foundation models (CONCH, UNI2) extract visual embeddings, fused with KDTree-based neighbors for local context. c, Co-expression Attention: self-attention over the gene dimension models biolog-ical pathways and co-expression dependencies. d, Gene Residual Gate: adaptive gating reweights each gene by its informativeness and discriminative power. 
+
+fθ is then optimized to contract the distance between its prediction and this stabilized goal, using an MSE drift loss in the scaled feature space: 
+
+Ldrift = EIs∼pH&E 
+
+|| ˜x − ˜xgoal || 22
+
+
+
+Minimizing Ldrift implicitly establishes a contraction mapping that progressively drives the velocity field toward an equilibrium where V (x) → 0. As shown in Figure 1c, this objective reshapes the pushforward distribution over successive epochs until it mirrors the true transcriptomic landscape. Consequently, iterative sampling and stochastic path integration are entirely bypassed at inference: DriftST needs only a single deterministic forward pass to generate high-fidelity spatial expression profiles. 3.2 ST RANSFORMER NEURAL NETWORK 
+
+To serve as the generator fθ within the cellular drifting framework, we introduce the STransformer (Figure 2a). Unlike standard architectures that treat output dimensions as independent, it is explic-itly designed to capture the inter-dependencies and heterogeneous informativeness inherent to spatial transcriptomics. The network first encodes a patch and its microenvironment into a unified spot rep-resentation, then unfolds it into gene-specific tokens that are progressively refined by co-expression attention and gene-wise gating before being decoded into the final expression profile. 
+
+H&E Preprocessing. As shown in Figure 2b, for a patch Is we extract two complementary visual embeddings using dual pathology foundation models, CONCH Lu et al. (2024) and UNI2 Chen et al. (2025), denoted z(m) 
+
+> s
+
+for m ∈ { CONCH , UNI2 }, which together capture fine-grained morphologi-cal and high-level semantic features. To incorporate the surrounding microenvironment, we build a KDTree over the spatial coordinates S and retrieve, for each location, the set of neighbors Ks falling within a radius r, with a validity mask ms,k ∈ { 0, 1}. Rather than averaging neighbors uniformly, we aggregate them with a learned spatial attention that weights each neighbor by its relevance to the center patch: 
+
+αs,k = softmax   
+
+> k:ms,k =1
+
+
+
+w⊤[z(m) 
+
+> s
+
+∥ z(m) 
+
+> s,k
+
+]
+
+
+
+, ¯z(m) 
+
+> s
+
+= MLP 
+
+ X 
+
+> k∈K s
+
+αs,k z(m)
+
+> s,k
+
+
+
+(4) where w is a learnable scoring vector and [· ∥ · ] denotes concatenation. The aggregated neighbor-hood context ¯z(m) 
+
+> s
+
+is then fused with the center embedding to form a niche-aware per-model rep-5Preprint resentation, and the two foundation-model streams are combined by an MLP encoder into a single spot representation hs ∈ RD :
+
+h(m) 
+
+> s
+
+= Fuse 
+
+
+
+[ MLP (z(m) 
+
+> s
+
+) ∥ ¯z(m) 
+
+> s
+
+]
+
+
+
+, hs = MLP 
+
+
+
+[ h(CONCH ) 
+
+> s
+
+∥ h(UNI2 ) 
+
+> s
+
+]
+
+
+
+(5) Rather than treating genes homogeneously, which risks collapsing predictions into a generic profile, we initialize a learnable gene embedding matrix E ∈ RG×D to modulate hs via Feature-wise Linear Modulation (FiLM) Perez et al. (2018). The initial hidden token for gene i is 
+
+x(0)  
+
+> i
+
+= Proj (γ(ei) ⊙ hs + β(ei)) , (6) which disentangles the shared histology into gene-specific tokens X(0) ∈ RG×D , so the model can capture the distinct morphological cues required for each gene. 
+
+Co-expression Attention. As shown in Figure 2c, we model inter-gene regulatory dependen-cies through a sequence of bio-guided self-attention blocks operating along the gene dimension. In each layer l, the input tokens X(l) are first normalized via Adaptive Layer Normalization (AdaLN) (Dhariwal & Nichol, 2021) conditioned on hs, so that morphological context continu-ously guides feature refinement: AdaLN (X(l), hs) = γl(hs) ⊙ LayerNorm (X(l)) + βl(hs), (7) where γl(·) and βl(·) are layer-wise scale and shift parameters predicted from the spot representa-tion. To inject structural biological priors, we add a global gene co-expression matrix R ∈ RG×G
+
+built from the training set as an additive attention bias: CoAttn (Q, K, V) = softmax 
+
+ QK T
+
+√d + λ(hs) · R
+
+
+
+V, (8) where the query, key and value are linear projections of the normalized tokens, and λ(hs) ∈ RH
+
+is a spot-dependent, per-head scaling factor predicted from hs. This allows the model to calibrate its reliance on co-expression priors according to the local tissue state, maintaining strict regulatory rules in normal regions while relaxing them to accommodate pathway reprogramming in anomalous tumor microenvironments. 
+
+Gene Residual Gate. Since the transcriptomic landscape is highly uneven, with stable housekeep-ing genes requiring minimal processing compared to complex biomarker genes, we introduce a progressive Gene Residual Gate (Figure 2d). For each gene token at layer l, a soft gate gl ∈ (0 , 1) 
+
+is dynamically computed from its current state, the global context hs, and its connectivity in the co-expression graph R:
+
+gl = σ
+
+
+
+Score 
+
+
+
+ϕt(X(l)) ⊙ ϕc(hs)
+
+
+
++ bbio 
+
+
+
+, (9) where ϕt and ϕc project the token state and the global context into a shared space, Score (·) is an MLP, and bbio is a bias derived from the node degree of each gene in R, encoding how strongly a gene is coupled to its regulatory neighbors. The gated residual update then modulates the per-gene contribution of each block: 
+
+X(l+1) = X(l) + gl ⊙ F l(X(l)), (10) so that informative, tightly-coupled genes receive deeper refinement while stable genes pass through with near-identity updates, which stabilizes optimization across the heterogeneous output space. 
+
+Expression Readout. After L co-expression blocks, a shared head maps each refined gene token to a scalar, and a per-gene affine (αi, β i) rescales it to the target range: 
+
+ˆxi = αi Head  X(L)
+
+> i
+
+ + βi, ˆx = [ˆ x1, . . . , ˆxG] ∈ RG, (11) in log1p space. This ˆx = fθ (Is) is both the sample driven by the cellular drifting field and the final inference output, closing the loop between the generator and the distributional drift objective. For the auxiliary ZINB term, the same head additionally produces a per-gene log-dispersion (yielding 
+
+θi = exp( ·) > 0) and a per-(spot, gene) zero-inflation logit πi, while the ZINB mean is obtained from the point prediction via μi = expm1(ReLU(ˆ xi)) ; both are dropped at inference. 6Preprint 
+
+4 EXPERIMENTS 
+
+4.1 EXPERIMENTAL SETTINGS 
+
+Datasets. We evaluate on four HEST-1k (Jaume et al., 2024) datasets: cell-level Xenium Breast Cancer Janesick et al. (2023) and COAD 10x Genomics (2023), and spot-level HER2ST Andersson et al. (2021) and Kidney Visium Lake et al. (2023) (details in Appendix A). 
+
+Preprocessing. H&E patches centered on cells or spots are resized to 256 ×256 for CONCH and 224 ×224 for UNI2. Gene counts are log1p-normalized to form the drift target, retaining 200–300 HMHVGs per dataset; the corresponding raw integer counts are also kept to evaluate the ZINB likelihood. 
+
+Evaluation. We use spatial 5-fold cross-validation for Xenium datasets and a leave-one-slide-out protocol for spot-level datasets. Metrics include average per-gene Pearson correlation (PCC-10/50/200), MSE, and MAE in log 2 space. 4.2 RESULTS ON CELL -BASED DATASETS                                                                                            
+
+> Xenium Breast Cancer Xenium COAD Method PCC-10 ↑PCC-50 ↑PCC-200 ↑MSE ↓MAE ↓PCC-10 ↑PCC-50 ↑PCC-200 ↑MSE ↓MAE ↓
+> BLEEP Xie et al. (2023) 0.415 0.229 0.200 0.181 0.229 0.645 0.458 0.217 0.114 0.110 M2ORT Wang et al. (2024) 0.515 0.409 0.192 0.163 0.213 0.677 0.488 0.239 0.107 0.112 TRIPLEX Chung et al. (2024) 0.539 0.427 0.218 0.166 0.222 0.681 0.489 0.212 0.103 0.131 STEM Zhu et al. (2025) 0.375 0.239 0.088 0.533 0.305 0.513 0.299 0.114 0.140 0.109 GenAR Ouyang et al. (2025) 0.361 0.201 0.070 0.531 0.332 0.541 0.309 0.110 0.148 0.142 GHIST Fu et al. (2025) 0.458 0.364 0.172 0.194 0.226 0.592 0.427 0.134 0.135 0.108
+> sCellST Chadoutaud et al. (2026) 0.372 0.290 0.149 0.217 0.232 0.426 0.306 0.154 0.130 0.110
+> DriftST (Ours) 0.587 0.447 0.227 0.184 0.212 0.699 0.518 0.268 0.103 0.109
+
+Table 1: Experimental results on the cell-based datasets (Xenium Breast Cancer and Xenium COAD). The best results are highlighted in bold . ↑ indicates higher is better. 
+
+Xenium Breast Cancer. DriftST leads on four of five metrics, improving PCC-10/50/200 over the strongest baseline TRIPLEX by 0.048, 0.020, and 0.009 (8.9% relative on PCC-10) with the lowest MAE (0.212); M2ORT attains the best MSE (0.163) but trails on PCC. Generative methods strong at spot level degrade sharply at cell resolution (e.g., GenAR PCC-10: 0.361), whereas DriftST stays consistent across granularities. 
+
+Xenium COAD. DriftST leads on all three PCC metrics and matches the best MSE (0.103, tied with TRIPLEX), improving PCC-10/50/200 over TRIPLEX by 0.018, 0.029, and 0.056, and still gaining 0.029 on PCC-200 over the strongest long-tail baseline M2ORT (0.239); MAE (0.109) is on par with the best (GHIST, 0.108). The spot-to-cell transfer gap persists, confirming that spot-level models are insufficient for cell-level prediction. 4.3 RESULTS ON SPOT -BASED DATASETS                                                                        
+
+> HER2ST Kidney Visium Method PCC-10 ↑PCC-50 ↑PCC-200 ↑MSE ↓MAE ↓PCC-10 ↑PCC-50 ↑PCC-200 ↑MSE ↓MAE ↓
+> BLEEP Xie et al. (2023) 0.773 0.714 0.565 1.243 0.833 0.500 0.422 0.314 1.926 0.945 M2ORT Wang et al. (2024) 0.810 0.759 0.660 1.151 0.820 0.494 0.447 0.318 1.785 0.925 TRIPLEX Chung et al. (2024) 0.783 0.714 0.586 1.212 0.857 0.542 0.469 0.336 1.732 0.887 STEM Zhu et al. (2025) 0.831 0.770 0.625 1.199 0.787 0.567 0.483 0.322 1.832 0.997 GenAR Ouyang et al. (2025) 0.842 0.784 0.663 1.082 0.745 0.589 0.514 0.354 1.636 0.871 DriftST (Ours) 0.862 0.817 0.757 1.019 0.807 0.602 0.532 0.387 1.553 0.957
+
+Table 2: Experimental results on the spot-based datasets (HER2ST and Kidney Visium). The best results are highlighted in bold . ↑ indicates higher is better, ↓ indicates lower is better. 
+
+HER2ST. DriftST leads on four of five metrics, improving PCC-10/50/200 over GenAR by 0.020, 0.033, and 0.094. The largest gain is on PCC-200 (14.2% relative), indicating particular strength 7Preprint on harder-to-model, low-variability genes; MSE also drops from 1.082 to 1.019. GenAR retains an edge on MAE (0.745 vs. 0.807), which we attribute to the drift loss optimizing distributional alignment rather than absolute error. 
+
+Kidney Visium. DriftST leads on four metrics, improving PCC-10/50/200 over GenAR by 0.013, 0.018, and 0.033 and reducing MSE from 1.636 to 1.553 (5.1%). Overall metrics are lower due to severe batch effects and cross-patient heterogeneity under distinct clinical conditions, making generalization an open challenge. GenAR again leads on MAE (0.871 vs. 0.957), consistent with HER2ST. 4.4 ABLATION STUDY                                              
+
+> Model PCC-10 ↑PCC-50 ↑PCC-200 ↑JSD-20 ↓JSD-50 ↓JSD-100 ↓SSIM-20 ↑SSIM-50 ↑SSIM-100 ↑
+> w/o Drift 0.691 0.509 0.264 0.504 0.519 0.509 0.535 0.468 0.411 w/o Co-expr 0.683 0.498 0.240 0.418 0.479 0.467 0.599 0.532 0.498 w/o Gate 0.696 0.510 0.261 0.405 0.392 0.332 0.606 0.542 0.512 DriftST (Full) 0.699 0.518 0.268 0.401 0.370 0.310 0.644 0.581 0.539
+
+Table 3: Effect of each component on Xenium COAD. All three variants are ablated from the full DriftST model. ↑ indicates higher is better, ↓ indicates lower is better. Best results in bold .
+
+Component Ablation. We evaluate three variants on Xenium COAD (Table 3): w/o Drift (ZINB loss only), w/o Co-expr (standard self-attention), and w/o Gate. Removing the drift loss severely degrades distributional alignment (JSD-20: 0.401 →0.504, SSIM-20: 0.644 →0.535). Dropping the co-expression prior hurts the long tail (PCC-200: 0.268 →0.240, JSD-100: 0.310 →0.467), proving that biological priors add value beyond drift loss. Omitting the Gate drops SSIM-20 (0.644 →0.606), validating its role in per-gene spatial fidelity. The full model combines these into synergistic gains. Encoder PCC-10 ↑ PCC-50 ↑ PCC-200 ↑ JSD-20 ↓ JSD-50 ↓ JSD-100 ↓ SSIM-20 ↑ SSIM-50 ↑ SSIM-100 ↑                                    
+
+> ResNet-18 (He et al., 2016) 0.650 0.470 0.239 0.471 0.463 0.409 0.575 0.506 0.486 CONCH (Lu et al., 2024) 0.697 0.511 0.263 0.405 0.381 0.320 0.641 0.577 0.539 UNI2 (Chen et al., 2025) 0.691 0.507 0.261 0.412 0.393 0.335 0.637 0.572 0.533 DriftST (Full) 0.699 0.518 0.268 0.401 0.370 0.310 0.644 0.581 0.539
+
+Table 4: Effect of pathology encoder choice on Xenium COAD. ↑ indicates higher is better, ↓
+
+indicates lower is better. Best results in bold .
+
+Pathology Encoder Ablation. Replacing domain-specific foundation models with a general-purpose ResNet-18 drops all metrics substantially (PCC-10: 0.699 →0.650), confirming the ne-cessity of specialized pretraining. CONCH slightly outperforms UNI2 due to its vision-language semantic capabilities, while concatenating both yields consistent gains, indicating that morpholog-ical and semantic features are complementary. Additional ablation of parameters is provided in Appendix B 4.5 DOWNSTREAM ANALYSIS 
+
+Cell Level. We annotate cell types from predicted expressions and compare them in UMAP and spatial spaces (Figure 3). DriftST faithfully reproduces the main manifold (e.g., Tumor Epithelial and Endothelial cells) and recovers minority clusters. Conversely, regression baselines over-smooth and collapse rare cell types into the bulk, while generative baselines distort cluster boundaries, prov-ing DriftST effectively conserves the biological heterogeneity required for downstream cell-type analysis. 
+
+Spot Level. DriftST predictions track ground-truth distributions across spatial, density, spot, and gene views (Figure 4). The joint density concentrates along the y = x line, demonstrating well-calibrated magnitudes rather than mean-collapsed outputs. High per-spot correlations (mean r =0.667 on Kidney, 0.473 on HER2ST) and strong recovery of top genes (e.g., IGFBP7, DDX5) confirm that DriftST yields accurate and spatially faithful predictions at spot resolution. Further downstream analysis is provided in Appendix E 8Preprint GT BLEEP GenAR sCellST STEM TRIPLEX DriftST       
+
+> Cell Type Endothelial Fibroblasts Myeloid Myoepithelial Tumor_Epithelial
+> GT BLEEP GenAR GHIST sCellST STEM TRIPLEX DriftST
+> GHIST
+> Cell Type Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial
+
+Xenium-COAD Cell Type Distribution Xenium-BC Cell Type Distribution 
+
+> UMAP UMAP  Spatial Spatial
+
+a
+
+b
+
+Figure 3: Cell-type distribution recovered from predicted expression. Cells are annotated from each method’s predicted expression and shown in UMAP (top) and spatial (bottom) coordinates. a, 
+
+Xenium COAD. b, Xenium BC. Columns: GT and seven methods; colors denote cell types as in the legend. 0 1 2 3 4 5 6 7Groundtruth Expression 1234567Predicted Expression                       
+
+> Kidney Density Distribution
+> y = x (perfect)
+> −0.6 −0.4 −0.2 0.0 0.2 0.4 0.6 0.8 1.0
+> Per-Spot Pearson r 010 20 30 40 50 Count
+> Kidney Spot Distribution
+> Mean=0.667
+> 0.0 0.5 1.0 1.5 2.0
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0
+> 0.0 0.5 1.0 1.5 2.0 2.5
+> 012345123456Predicted Expression y = x (perfect)
+> −0.6 −0.4 −0.2 0.0 0.2 0.4 0.6 0.8 1.0
+> Per-Spot Pearson r 0510 15 20 25 30 35 40 Count
+> HER2ST Spot Distribution
+> Mean=0.473 DDX5
+> Gene
+
+a b ce f g h         
+
+> A1BG -GT A1BG -Pred
+> 1.0 0.8 0.6 0.4 0.2 0.0
+> 0.0 0.5 1.0 1.5 2.0 2.5 3.0
+> A2M -GT A2M -Pred
+> ACADVL -GT ACADVL -Pred ACTA2-GT ACTA2 -Pred
+> 1.0 0.8 0.6 0.4 0.2 0.0
+> HER2ST Density Distribution
+> Groundtruth Expression
+> HER2ST Gene Distribution
+> Per-Gene Pearson r
+> 0.00 0.25 0.50 0.75 1.00
+
+d          
+
+> CALML5
+> 0.00 0.25 0.50 0.75 1.00
+> Gene
+> IGFBP7 REN
+> Kidney Gene Distribution
+> A2M -GT A2M -Pred ACTB -GT ACTB -Pred
+> ACTG1 -GT ACTG1 -Pred ACTN4 -GT ACTN4 -Pred
+> 0.0 0.5 1.0 1.5 2.0 0.0 0.5 1.0 1.5 2.0 2.5 3.0 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0 0.0 0.5 1.0 1.5 2.0 2.5
+> Kidney Spatial Distribution HER2ST Spatial Distribution
+
+Figure 4: Prediction quality on spot-level datasets. a–d, Kidney Visium; e–h, HER2ST. a,e, 
+
+Spatial maps of GT and predicted expression for representative genes. b,f, Density of predicted vs. ground-truth expression, with the y = x line marking perfect prediction. c,g, Histogram of per-spot Pearson r (dashed line: mean). d,h, Per-gene Pearson r sorted from highest to lowest. 
+
+5 CONCLUSION 
+
+We presented DriftST, a unified framework for inferring spatially resolved gene expression from H&E histology at both spot- and cell-level resolution. It reformulates the task as Cellular Drifting, a generative model that predicts in a single forward pass via an STransformer with co-expression attention and a gene residual gate, achieving SOTA results across four datasets while preserving the heterogeneity that regression baselines over-smooth. This faithful recovery of spatial variance ensures the reliability of downstream biological discoveries. DriftST also has limitations that point to future work. Its predictions are restricted to the genes in the training panel rather than the full transcriptome, and cross-patient generalization under heteroge-neous tissue conditions and strong batch effects, as observed on Kidney Visium, remains challeng-ing. Extending the framework to transcriptome-wide prediction, jointly modeling multiple slides and patients to learn domain-invariant features, and integrating complementary modalities such as spatial multi-omics are promising directions for broadening its applicability, moving a step closer to practical computational pathology. 9Preprint 
+
+ETHICS STATEMENT 
+
+This work uses only publicly available, de-identified spatial transcriptomics datasets and H&E im-ages; no new human or animal data were collected. We complied with dataset licenses and standard citation practices. The models are released for research use only and are not intended for clinical decision-making. 
+
+REPRODUCIBILITY STATEMENT 
+
+We took several steps to support reproducibility. The paper details the method in Section 3 (ar-chitecture, training objective, multi-scale drifting design), the datasets, gene selection, prepro-cessing pipeline, and metrics in Section 4. Appendix B provides comprehensive ablation stud-ies covering all key hyperparameters, and Appendix C lists complete training and implementa-tion details (optimizers, batch sizes, scales, hardware). Source code is available at https: //github.com/yyh030806/DriftST .
+
+REFERENCES 
+
+10x Genomics. Human colon preview data: Xenium human colon gene expression panel 1. https: //www.10xgenomics.com/datasets/human-colon-preview-data-xenium-h uman-colon-gene-expression-panel-1-standard , 2023. Accessed: 2025. Alma Andersson, Joseph Bergenstr˚ ahle, Michaela Asp, Ludvig Bergenstr˚ ahle, Annelie Juber, Joakim Lundeberg, and Jonas Nilsson. Spatial deconvolution of HER2-positive breast cancer delineates tumor-associated cell type interactions. Nature Communications , 12(1):6012, 2021. Albert-L´ aszl´ o Barab´ asi and Zolt´ an N. Oltvai. Network biology: understanding the cell’s functional organization. Nature Reviews Genetics , 5(2):101–113, 2004. Lo¨ ıc Chadoutaud, Marvin Lerousseau, Daniel Herrero-Saboya, Julian Ostermaier, Jacqueline Fontugne, Emmanuel Barillot, and Thomas Walter. sCellST predicts single-cell gene expression from H&E images. Nature Communications , 17(1):1194, 2026. Kok Hao Chen, Alistair N. Boettiger, Jeffrey R. Moffitt, Siyuan Wang, and Xiaowei Zhuang. Spa-tially resolved, highly multiplexed RNA profiling in single cells. Science , 348(6233):aaa6090, 2015. Richard J. Chen, Tong Ding, Ming Y. Lu, Drew F. K. Williamson, Guillaume Jaume, Andrew H. Song, Bowen Chen, Andrew Zhang, Daniel Shao, Muhammad Shaban, et al. Towards a general-purpose foundation model for computational pathology. Nature Medicine , 30(3):850–862, 2024. Richard J. Chen, Tong Ding, Ming Y. Lu, Drew F. K. Williamson, Guillaume Jaume, Andrew H. Song, et al. UNI2: Universal pathology foundation models. arXiv preprint , 2025. Youngmin Chung, Ji Hun Ha, Kyeong Chan Im, and Joo Sang Lee. Accurate spatial gene expression prediction by integrating multi-resolution features. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 11591–11600, 2024. Mingyang Deng, He Li, Tianhong Li, Yilun Du, and Kaiming He. Generative modeling via drifting. 
+
+arXiv preprint arXiv:2602.04770 , 2026. Prafulla Dhariwal and Alexander Quinn Nichol. Diffusion models beat GANs on image synthesis. In Advances in Neural Information Processing Systems , volume 34, pp. 8780–8794, 2021. Xiaohang Fu, Yue Cao, Beilei Bian, Chuhan Wang, Dinny Graham, Nirmala Pathmanathan, Ellis Patrick, Jinman Kim, and Jean Yee Hwa Yang. Spatial gene expression at single-cell resolution from histology using deep learning with GHIST. Nature Methods , 22:1900–1910, 2025. Bryan He, Ludvig Bergenstr˚ ahle, Linnea Stenbeck, Abubakar Abid, Alma Andersson, ˚ Ake Borg, Jonas Maaskola, Joakim Lundeberg, and James Zou. Integrating spatial gene expression and breast tumour morphology via deep learning. Nature Biomedical Engineering , 4(8):827–834, 2020. 10 Preprint Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recog-nition. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition , pp. 770–778, 2016. Ping He, Om Khangaonkar, Hamed Pirsiavash, Yikun Bai, and Soheil Kolouri. Sinkhorn-drifting generative models. arXiv preprint arXiv:2603.12366 , 2026. Amanda Janesick, Robert Shelansky, Andrew D. Gottscho, Florian Wagner, Stephen R. Williams, Morgane Rouault, Ghezal Beliakoff, Carolyn A. Morrison, Michelli F. Oliveira, Jordan T. Sicher-man, et al. High resolution mapping of the tumor microenvironment using integrated single-cell, spatial and in situ analysis. Nature Communications , 14(1):8353, 2023. Guillaume Jaume, Paul Doucet, Andrew H. Song, Ming Y. Lu, Cristina Almagro-Perez, Sophia J. Wagner, Anurag J. Vaidya, Richard J. Chen, Drew F. K. Williamson, Ahrong Kim, and Faisal Mahmood. HEST-1k: A dataset for spatial transcriptomics and histology image analysis. In 
+
+Advances in Neural Information Processing Systems , 2024. Chieh-Hsin Lai, Bac Nguyen, Naoki Murata, Yuhta Takida, Toshimitsu Uesaka, Yuki Mitsufuji, Stefano Ermon, and Molei Tao. A unified view of drifting and score-based models. arXiv preprint arXiv:2603.07514 , 2026. Blue B. Lake, Rajasree Menon, Seth Winfree, et al. An atlas of healthy and injured cell states and niches in the human kidney. Nature , 619(7970):585–594, 2023. Zhiqi Li and Bo Zhu. A long-short flow-map perspective for drifting models. arXiv preprint arXiv:2602.20463 , 2026. Ming Y. Lu, Bowen Chen, Drew F. K. Williamson, Richard J. Chen, Ivy Liang, Tong Ding, Guil-laume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, et al. A visual-language foundation model for computational pathology. Nature Medicine , 30(3):863–874, 2024. Evan Z. Macosko, Anindita Basu, Rahul Satija, James Nemesh, Karthik Shekhar, Melissa Goldman, Itay Tirosh, Allison R. Bialas, Nolan Kamitaki, Emily M. Martersteck, et al. Highly parallel genome-wide expression profiling of individual cells using nanoliter droplets. Cell , 161(5):1202– 1214, 2015. Jiarui Ouyang, Yihui Wang, Yihang Gao, Yingxue Xu, Shu Yang, and Hao Chen. GenAR: Next-scale autoregressive generation for spatial gene expression prediction. arXiv preprint arXiv:2510.04315 , 2025. Minxing Pang, Kenong Su, and Mingyao Li. Leveraging information in spatial transcriptomics to predict super-resolution gene expression from histology images in tumors. bioRxiv , pp. 2021–11, 2021. Ethan Perez, Florian Strub, Harm de Vries, Vincent Dumoulin, and Aaron Courville. FiLM: Visual reasoning with a general conditioning layer. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 32, 2018. Patrik L. St˚ ahl, Fredrik Salm´ en, Sanja Vickovic, Anna Lundmark, Jos´ e Fern´ andez Navarro, Jens Magnusson, Stefania Giacomello, Michaela Asp, Jakub O. Westholm, Mikael Huss, et al. Visual-ization and analysis of gene expression in tissue sections by spatial transcriptomics. Science , 353 (6294):78–82, 2016. Erkan Turan and Maks Ovsjanikov. Generative drifting is secretly score matching: a spectral and variational perspective. arXiv preprint arXiv:2603.09936 , 2026. Hongyi Wang, Xiuju Du, Jing Liu, Shuyi Ouyang, Yen-Wei Chen, and Lanfen Lin. M2ORT: Many-to-one regression transformer for spatial transcriptomics prediction from histopathology images. 
+
+arXiv preprint arXiv:2401.10608 , 2024. Xiyue Wang, Sen Yang, Jun Zhang, Minghui Wang, Jing Zhang, Wei Yang, Junzhou Huang, and Xiao Han. Transformer-based unsupervised contrastive learning for histopathological image clas-sification. Medical Image Analysis , 81:102559, 2022. 11 Preprint Zhong Wang, Mark Gerstein, and Michael Snyder. RNA-Seq: a revolutionary tool for transcrip-tomics. Nature Reviews Genetics , 10(1):57–63, 2009. Ronald Xie, Kuan Pang, Sai W. Chung, Catia T. Perciani, Sonya A. MacParland, Bo Wang, and Gary D. Bader. Spatially resolved gene expression prediction from H&E histology images via bi-modal contrastive learning. In Advances in Neural Information Processing Systems , volume 36, 2023. Yuansong Zeng, Zhuoyi Wei, Weijiang Yu, Rui Yin, Yuchen Yuan, Bingling Li, Zhonghui Tang, Yutong Lu, and Yuedong Yang. Spatial transcriptomics prediction from histology jointly through transformer and graph neural networks. Briefings in Bioinformatics , 23(5):bbac297, 2022. Sichen Zhu, Yuchen Zhu, Molei Tao, and Peng Qiu. Diffusion generative modeling for spatially resolved gene expression inference from histology images. In The Thirteenth International Con-ference on Learning Representations , 2025. 12 Preprint 
+
+A DATASETS AND EVALUATION 
+
+We evaluate DriftST on four spatial transcriptomics datasets spanning two measurement resolutions (spot-level and cell-level) and three profiling platforms. Table 5 summarizes the key statistics. Dataset Platform Resolution Spots/Cells Genes Evaluation HER2ST SpatialTranscriptomics Spot 13,594 300 Leave-one-slide-out Kidney Visium 10x Visium Spot 25,944 200 Leave-one-slide-out Xenium BC 10x Xenium In Situ Cell 95,273 280 5-fold spatial CV Xenium COAD 10x Xenium In Situ Cell 161,984 280 5-fold spatial CV Table 5: Summary of the four evaluation datasets. 
+
+HER2ST Andersson et al. (2021) is a breast cancer dataset sequenced on the SpatialTranscriptomics platform, containing 36 tissue slides from 8 patients (patients A–D with six sections each; patients E–H with three consecutive sections each) totalling 13,594 spots at 100 μm diameter. The samples include both normal breast tissue and HER2-positive cancerous regions. We select 300 highly-mean and highly-variable genes (HMHVGs) by ranking genes according to the product of their mean expression and variance across all spots. We adopt leave-one-slide-out cross-validation and report results on the held-out test slide SPA138. 
+
+Kidney Visium Lake et al. (2023) consists of 23 kidney tissue slides from the Kidney Precision Medicine Project (KPMP) atlas, profiled on the 10x Visium platform with 55 μm spatial spots. The number of spots per slide ranges from 315 to 4,159, covering three pathological states (healthy con-trols, chronic kidney disease, and acute kidney injury) across both cortical and medullary anatomical regions. Nearly every slide originates from a different patient, making cross-slide generalization un-der heterogeneous tissue conditions particularly challenging. We select 200 HMHVGs using the same ranking criterion as HER2ST. We adopt the same leave-one-slide-out protocol and report re-sults on the held-out test slide NCBI697. 
+
+Xenium Breast Cancer Janesick et al. (2023) is a human breast cancer FFPE section profiled using the 10x Xenium In Situ platform with a 280-gene panel. After quality control filtering, 95,273 cells are retained. We predict all 280 panel genes. We partition the single slide into 5 horizontal bands by spatial coordinate and perform 5-fold cross-validation, reporting average performance across all folds. 
+
+Xenium COAD 10x Genomics (2023) is a human colon adenocarcinoma FFPE section profiled us-ing the 10x Xenium In Situ platform with a pre-designed colon gene expression panel supplemented by an add-on panel. After the same quality control filtering as Xenium Breast Cancer, 161,984 cells are retained. We select 280 HMHVGs to align with the Xenium Breast Cancer setting. The same 5-fold spatial cross-validation protocol is applied. 
+
+B ADDITIONAL ABLATION STUDY 
+
+B.1 DRIFTING HYPERPARAMETERS 
+
+We analyze the sensitivity of the cellular drifting mechanism to its three key hyperparameters on Xenium COAD: the bandwidth ratio set R, the prediction bank capacity, and the number of negative samples drawn per update. In addition to the HMHVG PCC, we report SVG PCC-k, the per-gene PCC on the top-k spatially variable genes (SVG) ranked by Moran’s I spatial autocorrelation. 
+
+Bandwidth Ratio Set R. Table 6 compares single-scale drifting fields against the multi-scale for-mulation. 13 Preprint HMHVG SVG 
+
+R PCC-10 ↑ PCC-50 ↑ PCC-200 ↑ PCC-20 ↑ PCC-50 ↑{0.02 } 0.685 0.500 0.245 0.584 0.451 
+
+{0.05 } 0.677 0.495 0.241 0.573 0.439 
+
+{0.20 } 0.624 0.441 0.212 0.518 0.382 
+
+{0.02 , 0.05 , 0.2} 0.699 0.518 0.268 0.601 0.468 
+
+Table 6: Ablation on the bandwidth ratio set R.Among single-scale settings, smaller bandwidth ratios yield consistently better performance, as fine-grained kernels more precisely resolve local structure in the gene expression space. However, the large-scale kernel ( r = 0 .2) alone performs substantially worse, confirming that coarse interactions are insufficient for accurate distributional transport. The multi-scale combination {0.02 , 0.05 , 0.2}
+
+outperforms all individual scales, including the best single scale ( r = 0 .02 ), demonstrating that aggregating velocity fields across multiple resolutions captures both local precision and global co-herence in the drifting dynamics. 
+
+Prediction Bank Capacity. Table 7 examines the effect of the prediction bank size, which deter-mines the pool of historical negative samples available for constructing the drifting field. HMHVG SVG Bank Size PCC-10 ↑ PCC-50 ↑ PCC-200 ↑ PCC-20 ↑ PCC-50 ↑
+
+256 0.675 0.483 0.233 0.572 0.430 1024 0.667 0.477 0.229 0.558 0.420 4096 0.699 0.518 0.268 0.601 0.468 
+
+Table 7: Ablation on the prediction bank capacity. Performance is non-monotonic at small bank sizes but improves sharply once the bank is large enough: a bank of 256 and 1024 perform comparably (PCC-10 0.675 vs. 0.667), whereas 4096 yields a pronounced jump to 0.699. A larger bank provides a more representative and diverse pool of negative samples, enabling the drifting field to more accurately estimate the pushforward distribution 
+
+qθ and thereby produce more informative repulsion gradients. The comparable scores at 256 and 1024 suggest that moderately enlarging the bank without reaching sufficient coverage offers little benefit, while 4096 crosses a critical threshold where the bank adequately represents the diversity of generated expression profiles. 
+
+Bank Sample Size. Table 8 varies the number of negative samples drawn from the prediction bank for each drifting field computation. HMHVG SVG Sample Size PCC-10 ↑ PCC-50 ↑ PCC-200 ↑ PCC-20 ↑ PCC-50 ↑
+
+64 0.692 0.509 0.253 0.596 0.457 256 0.681 0.490 0.231 0.576 0.437 1024 0.699 0.518 0.268 0.601 0.468 
+
+Table 8: Ablation on the number of negative samples drawn per update. Using the full bank (1024 samples from a bank of 4096) yields the best results. A larger sample size reduces the variance of the estimated repulsion field, providing a more stable and accurate di-rectional signal for each training step. Interestingly, 64 samples outperform 256, which we attribute to stochastic regularization: very small samples introduce noise that can prevent the drifting field from overfitting to particular negative modes, whereas the intermediate size of 256 offers neither the regularization benefit of high stochasticity nor the low-variance benefit of dense sampling. 14 Preprint B.2 GENE RESIDUAL GATE HYPERPARAMETERS 
+
+We examine the sensitivity of the Gene Residual Gate to its regularization hyperparameters on Xe-nium COAD. The gate is regularized via a sparsity loss weighted by λgate , a target sparsity schedule 
+
+(shigh , s low ) defining the desired gate activation range across layers, and an entropy regularization weight λent .
+
+Gate Regularization Weight λgate . Table 9 varies the weight of the gate sparsity loss. HMHVG SVG 
+
+λgate PCC-10 ↑ PCC-50 ↑ PCC-200 ↑ PCC-20 ↑ PCC-50 ↑
+
+0.1 0.699 0.518 0.268 0.601 0.468 0.2 0.698 0.520 0.271 0.604 0.470 0.5 0.699 0.519 0.271 0.607 0.473 1.0 0.701 0.522 0.272 0.607 0.472 
+
+Table 9: Ablation on the gate regularization weight λgate .Performance is remarkably stable across a tenfold range of λgate , with all PCC-10 values falling within a 0.003 band. A slight upward trend is observed at higher weights, indicating that stronger sparsity encouragement marginally improves the gate’s ability to differentiate gene complexity. 
+
+Per-Layer Gene Retention Targets (r1, r 2). Table 10 varies the target gene retention ratio at each transformer layer, where r1 and r2 denote the fraction of genes that remain active (i.e., receive non-negligible gate values) at the first and second layers, respectively. A schedule of (0 .85 , 0.50) , for instance, encourages 85% of genes to remain active through the first layer while only 50% continue updating through the second, implementing a progressive funneling of computational resources. HMHVG SVG 
+
+(r1, r 2) PCC-10 ↑ PCC-50 ↑ PCC-200 ↑ PCC-20 ↑ PCC-50 ↑
+
+(0.50, 0.20) 0.700 0.520 0.270 0.607 0.470 (0.70, 0.10) 0.701 0.521 0.272 0.608 0.473 (0.70, 0.20) 0.702 0.521 0.271 0.610 0.473 
+
+(0.85, 0.30) 0.701 0.519 0.268 0.610 0.470 (0.85, 0.40) 0.700 0.520 0.270 0.606 0.471 (0.85, 0.50) 0.701 0.522 0.272 0.607 0.472 Table 10: Ablation on the per-layer gene retention targets. All six schedules produce virtually identical performance (PCC-10 range: 0.700–0.702), demon-strating strong robustness to the specific retention targets. Whether the model aggressively prunes early (0.50, 0.20) or retains most genes through the first layer before funneling (0.85, 0.50), the final prediction quality is nearly unchanged. This suggests that the gate learns a biologically grounded al-location of computational depth driven primarily by the intrinsic complexity hierarchy among genes, rather than by the imposed retention schedule. 
+
+Entropy Regularization Weight λent . Table 11 varies the entropy regularization weight, which encourages gate values to be decisive (near 0 or 1) rather than uniformly intermediate. 15 Preprint HMHVG SVG 
+
+λent PCC-10 ↑ PCC-50 ↑ PCC-200 ↑ PCC-20 ↑ PCC-50 ↑
+
+0 0.701 0.523 0.272 0.606 0.472 0.02 0.702 0.521 0.271 0.610 0.473 
+
+0.05 0.702 0.519 0.269 0.609 0.472 0.10 0.700 0.520 0.268 0.605 0.470 Table 11: Ablation on the gate entropy regularization weight λent .Performance remains stable across all entropy weights, with a marginal preference for λent = 0 .02 ,which achieves the best PCC on SVG genes. Removing entropy regularization entirely ( λent = 0 )yields comparable HMHVG performance but slightly lower SVG prediction accuracy, suggesting that a mild entropy penalty helps produce more decisive gating decisions that translate to slightly improved prediction of spatially variable genes. 
+
+Summary. The Gene Residual Gate exhibits strong robustness across all three hyperparameters, with performance varying by less than 0.5% in PCC-10 across all tested configurations. This stability is a desirable property for practical deployment, as it indicates that the gating mechanism does not require careful hyperparameter tuning to achieve its intended effect of adaptive computational allocation across genes. 
+
+C IMPLEMENTATION DETAILS AND REPRODUCIBILITY 
+
+DriftST is implemented in PyTorch. All experiments use the same set of hyperparameters across all four datasets. 
+
+Model. The encoder consists of a 2-layer residual MLP with hidden dimension 128, followed by 2 Bio-guided Attention layers with 4 attention heads and dropout rate 0.3. Progressive Gene Gating is enabled with gate sparsity weight λgate = 0 .1 and entropy regularization weight λent = 0 .02 .The number of output genes is 300 for HER2ST, 200 for Kidney Visium, and 280 for both Xenium datasets. 
+
+Feature extraction. We use frozen UNI2 and CONCH encoders to extract 1,536-d and 512-d patch embeddings, respectively, which are concatenated into a 2,048-d input vector per spot or cell. Model weights are publicly available from their original releases. 
+
+Training. We use AdamW with learning rate 3 × 10 −4, weight decay 10 −4, and cosine annealing schedule for 250 epochs with batch size 512. The drift loss weight is α = 0 .15 with K = 8 
+
+dropout copies per sample. The PredictionBank has capacity 4,096 and 1,024 negatives are sampled per batch. The multi-scale bandwidth ratio set is R = {0.02 , 0.05 , 0.2} with step size η = 1 .0.Gradients are clipped to a maximum norm of 1.0. 
+
+Hardware and runtime. All experiments are conducted on a single NVIDIA RTX 4090 GPU. On the largest dataset (Xenium COAD, 161,984 cells), one fold takes approximately 7 hours (250 epochs, ∼1.7 min/epoch), with the best checkpoint typically reached around epoch 100. For cell-level datasets with 5-fold cross-validation, total training time is approximately 35 hours per dataset. 
+
+Reproducibility. Source code and preprocessed data are publicly available at https://github .com/yyh030806/DriftST .
+
+D TRAINING AND INFERENCE ALGORITHM 
+
+Algorithm summarizes the DriftST training procedure. 
+
+Training. Before training begins, the PredictionBank is populated by running K stochastic forward passes over the training set to ensure a diverse negative pool is available from the first iteration. At each training step, each input is forwarded K times through the model with dropout active, produc-ing K stochastic predictions per spot. Only the first forward pass retains gradients; the remaining 16 Preprint 
+
+K−1 passes are detached to reduce memory cost. After each batch, all B × K predictions are enqueued into the PredictionBank as future negative samples. 
+
+Inference. At test time, DriftST performs a single deterministic forward pass (with dropout dis-abled), directly mapping the concatenated image features to predicted gene expression. Neither the PredictionBank nor iterative decoding is required, making inference substantially simpler than existing generative approaches that rely on multi-step iterative decoding or denoising. 
+
+Algorithm 1 DriftST Training 
+
+Require: Dataset D = {(Ii, xi, xcnt  
+
+> i
+
+)}, bank capacity M , dropout copies K, negative size N ,bandwidth ratio set R 
+
+> 1:
+
+Initialize model fθ , PredictionBank B ← ∅  
+
+> 2:
+
+WARM UPBANK (fθ , D, B, K ) ▷ pre-fill bank with K-fold dropout predictions  
+
+> 3:
+
+for epoch = 1 , . . . , E do  
+
+> 4:
+
+for each mini-batch {(Ii, xi, xcnt  
+
+> i
+
+)}Bi=1 do  
+
+> 5:
+
+ˆx(1)  
+
+> i
+
+, . . . , ˆx(K) 
+
+> i
+
+← K stochastic forward passes of fθ (Ii) ▷ only ˆx(1) retains gradient; 
+
+fθ also emits θ, π  
+
+> 6:
+
+μi ← expm1(ReLU(ˆ x(1)  
+
+> i
+
+)) ; LZINB ← ZINB( xcnt  
+
+> i
+
+, μ i, θ, π ) 
+
+> 7:
+
+n1, . . . , nN ← SAMPLE (B, N ) ▷ historical negatives from the bank  
+
+> 8:
+
+for each r ∈ R do  
+
+> 9:
+
+A+ 
+
+> r
+
+, A − 
+
+> r
+
+← split-form softmax over positive xi and negatives {ˆx(k) 
+
+> i
+
+}k ∪ { nj }j ▷
+
+self excluded  
+
+> 10:
+
+vr ← A+ 
+
+> r
+
+xi − A− 
+
+> r
+
+[ˆ x(k) 
+
+> i
+
+; nj ] 
+
+> 11:
+
+end for  
+
+> 12:
+
+g ← ˆx(1)  
+
+> i
+
++ η
+
+|R| 
+
+P 
+
+> r
+
+vr ▷ drift goal (detached)  
+
+> 13:
+
+Ldrift ← ∥ ˆx(1)  
+
+> i
+
+− g∥2 
+
+> 14:
+
+L ← α Ldrift + (1 − α) LZINB + λgate Lgate  
+
+> 15:
+
+update θ by ∇θ L 
+
+> 16:
+
+B.ENQUEUE (ˆ x(1)  
+
+> i
+
+, . . . , ˆx(K) 
+
+> i
+
+) ▷ ring buffer update  
+
+> 17:
+
+end for  
+
+> 18:
+
+end for 
+
+E FURTHER DOWNSTREAM ANALYSIS 
+
+To assess whether the profiles generated by DriftST support biologically meaningful downstream analysis rather than merely minimizing per-gene error, we evaluate two single-cell resolution Xe-nium sections:a colorectal adenocarcinoma sample (COAD, Figure 5) and a breast cancer sample (BC, Figure 6) . For each, we ask whether the predictions preserve marker gene localization, repro-duce tissue-level spatial structure, and retain enough cell-state information to recover the underlying cellular composition through unsupervised clustering. 
+
+Marker gene and spatial fidelity. Figures 5a and 6a visualize representative lineage markers spanning the major compartments: epithelial (KRT8, CEACAM5), myeloid (CD68), fibroblast (COL1A1), and lymphoid (CD3D, GNLY). DriftST reproduces the GT pattern of each marker, keep-ing high-expression regions confined to their corresponding compartments and recovering the sharp boundary between the malignant epithelium and the surrounding stroma. Several baselines either blur these boundaries or over-amplify the signal; GenAR in particular produces diffuse, saturated maps in which marker specificity is largely lost. Panel b confirms this at the tissue level: the spatial expression map from DriftST is the closest visual match to GT, preserving both the position and the relative intensity of the high-expression foci, whereas competing methods tend to smooth out or displace these structures. 
+
+Cell-type composition recovery. To probe how well each prediction retains discrete cell identities, we cluster the generated profiles and align the resulting clusters to the GT annotations, reporting row-normalized confusion matrices (Figures 5c and 6c). The dominant malignant compartment is recovered almost perfectly by every method: Tumor Epithelial recall remains at 99% on BC and ranges from 86% to 99% on COAD, indicating that the transcriptomic phenotype of tumor cells 17 Preprint 0.0 0.2 0.4 0.6 0.8 1.0                                                                                                   
+
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> GT DriftST BLEEP GenAR GHIST sCellST STEM TRIPLEX 0.0 0.2 0.4 0.6 0.8 1.0 1.000 0.651 0.472 0.621 0.583 0.628 0.673 0.790 GT DriftST BLEEP GenAR GHIST sCellST STEM TRIPLEX 0.0 0.2 0.4 0.6 0.8 1.0 1.000 0.388 0.265 0.347 0.289 0.336 0.369 0.505 GT DriftST BLEEP GenAR GHIST sCellST STEM TRIPLEX 100% 38% 48% 31% 27% 30% 23% 100% 68% 39% 36% 53% 28% 100% 25% 16% 39% 64% 33% 28% 55% 100% 25% 17% 26% 32% 20% 25% 38% 100% 98% 99% 86% 98% 93% 92% 98% Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial 48% 49% 63% 8% 28% 44% 16% 35% 24% 17% 59% 99% BLEEP 76% 20% 81% 8% 11% 35% 24% 17% 24% 33% 33% 34% 99% DriftST Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial 36% 38% 22% 39% 38% 10% 13% 26% 39% 11% 23% 21% 17% 26% 36% 13% 86% GenAR Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial 31% 10% 5% 54% 42% 16% 7% 36% 5% 64% 7% 24% 10% 9% 32% 49% 98% GHIST Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial 27% 26% 5% 9% 33% 28% 36% 6% 8% 23% 23% 9% 33% 10% 24% 27% 6% 6% 20% 40% 93% sCellST Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial 30% 39% 6% 9% 17% 21% 53% 6% 11% 10% 13% 23% 28% 14% 22% 14% 20% 11% 25% 30% 6% 92% STEM Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial 23% 14% 10% 17% 36% 9% 28% 9% 20% 35% 4% 55% 16% 24% 8% 19% 38% 33% 98% TRIPLEX GT BLEEP GenAR GHIST sCellST STEM TRIPLEX DriftST
+> CEACAM5
+> CD3D COL1A1 GNLY
+> GT BLEEP GenAR GHIST sCellST STEM TRIPLEX DriftST Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial GT Cell Type
+> ARI NMI
+> Score Score Endothelial Fibroblasts Lymphocyte Myeloid Tumor_Epithelial GT Cell Type
+
+a
+
+bc Spatial 
+
+fd e
+
+Figure 5: Downstream analysis on the Xenium colorectal adenocarcinoma (COAD) dataset. a, 
+
+Spatial expression of representative lineage markers (CEACAM5, CD3D, COL1A1, GNLY) for the ground truth (GT) and predictions from DriftST and six baselines. b, Tissue-level spatial expression maps, comparing the reconstructed spatial structure against GT. c, Row-normalized confusion ma-trices of cell-type assignment, obtained by clustering each method’s predicted profiles and aligning the clusters to GT annotations (rows: GT cell types). d,e, Adjusted Rand Index (ARI) and Normal-ized Mutual Information (NMI) between the predicted and GT clusterings. f, Per-cell-type recovery (diagonal recall) summarized across all evaluated methods. is readily reconstructed from morphology. The discriminating factor lies in the minority compart-ments. On BC, DriftST is the only method besides BLEEP to recover the Myoepithelial layer (96% versus 87% ), whereas GenAR, sCellST, STEM, and TRIPLEX collapse it entirely into Tu-mor Epithelial ( 100% misassignment), erasing a clinically important basal population. On COAD, DriftST attains the highest Endothelial recall ( 76% ) together with near-perfect Tumor Epithelial recovery ( 99% ), although it tends to absorb part of the Fibroblast population into the Endothelial cluster. Rare immune cells remain the hardest target for all methods: Myeloid (both datasets) and Lymphocyte (COAD) are frequently routed into the tumor or stromal clusters, with only GHIST (64% ) and TRIPLEX ( 55% ) recovering an appreciable fraction of lymphocytes. Panel f summarizes this structure across methods, showing a near-uniformly high tumor row alongside progressively harder rare-cell rows. 
+
+Clustering concordance. We quantify the global agreement between the predicted and GT clus-terings using ARI and NMI (Figures 5d,e and 6d,e). On COAD, DriftST achieves the highest scores among all methods on both metrics (ARI 0.790 , NMI 0.505 ), clearly ahead of the next-best TRIPLEX (ARI 0.673 ) and BLEEP (NMI 0.388 ), reflecting a substantially cleaner separation of cellular states. On BC, the ranking is tighter: DriftST stays competitive (ARI 0.605 , NMI 0.386 ), ranking second in ARI behind GHIST ( 0.681 ) and within the leading group on NMI, where GHIST (0.450 ) and TRIPLEX ( 0.402 ) are strongest. This contrast is consistent with the confusion structure of the two tissues. BC is dominated by a few well-separated compartments on which several meth-18 Preprint KRT8                            
+
+> GT GenAR sCellST STEM BLEEP TRIPLEX DriftST GHIST
+> CD68
+> GT
+> DriftST
+> BLEEP
+> GenAR
+> sCellST
+> STEM
+> TRIPLEX
+> GHIST
+> 100% 38% 45% 43% 53% 100% 48% 56% 46% 40% 56% 63% 100% 7% 19% 100% 96% 87% 100% 99% 99% 95% 97% 96% 100% 99% 0.0 0.2 0.4 0.6 0.8 1.0
+
+Endothelial Fibroblasts Myeloid Myoepithelial Tumor_Epithelial                                  
+
+> Endothelial
+> Fibroblasts
+> Myeloid
+> Myoepithelial
+> Tumor_Epithelial
+> 53% 47% 37% 62% 7% 93% 87% 13% 99%
+> Endothelial
+> Fibroblasts
+> Myeloid
+> Myoepithelial
+> Tumor_Epithelial
+> 65% 35% 64% 36% 32% 68% 100% 99%
+> Endothelial
+> Fibroblasts
+> Myeloid
+> Myoepithelial
+> Tumor_Epithelial
+> 42% 58% 60% 40% 20% 80% 100% 99%
+> Endothelial
+> Fibroblasts
+> Myeloid
+> Myoepithelial
+> Tumor_Epithelial
+> 43% 13% 5% 39% 10% 40% 10% 40% 9% 12% 7% 72% 100% 96%
+> Endothelial
+> Fibroblasts
+> Myeloid
+> Myoepithelial
+> Tumor_Epithelial
+> 53% 20% 28% 8% 56% 36% 6% 91% 100% 100%
+> Endothelial
+> Fibroblasts
+> Myeloid
+> Myoepithelial
+> Tumor_Epithelial
+> 54% 14% 32% 13% 53% 34% 8% 15% 76% 96% 4% 99%
+> Endothelial
+> Fibroblasts
+> Myeloid
+> Myoepithelial
+> Tumor_Epithelial
+> 80% 18% 63% 33% 14% 19% 67% 93% 7% 99%
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> GT DriftST BLEEP GenAR sCellST STEM TRIPLEX GHIST 0.0 0.2 0.4 0.6 0.8 1.0 1.000 0.314 0.339 0.248 0.205 0.402 0.386 0.450 GT DriftST BLEEP GenAR sCellST STEM TRIPLEX GHIST 0.0 0.2 0.4 0.6 0.8 1.0 1.000 0.461 0.578 0.460 0.449 0.569 0.605 0.681
+
+ARI f        
+
+> GT GenAR sCellST STEM BLEEP TRIPLEX DriftST GHIST GenAR sCellST STEM BLEEP TRIPLEX DriftST GHIST
+
+NMI 
+
+> GT Cell Type
+
+Endothelial Fibroblasts Myeloid Myoepithelial Tumor_Epithelial GT Cell Type 
+
+abcd e
+
+> Score Score Spatial
+> 52%
+
+Figure 6: Downstream analysis on the Xenium breast cancer (BC) dataset. a, Expression of representative lineage markers (KRT8, CD68) shown on the cell embedding for GT and all meth-ods. b, Tissue-level spatial expression maps. c, Row-normalized cell-type confusion matrices from clustering the predicted profiles (rows: GT cell types, including the breast-specific Myoepithelial compartment). d,e, ARI and NMI between the predicted and GT clusterings. f, Per-cell-type recov-ery summarized across methods. ods perform comparably, whereas COAD presents a more granular immune and stromal landscape, on which the distributional modeling of DriftST yields a clearer advantage. 
+
+Summary. Across both tissues, DriftST does not merely fit per-gene values but generates expres-sion profiles that retain cell-state structure usable for clustering, marker-based annotation, and spatial interpretation. It recovers compartments that competing methods erase, such as the breast Myoep-ithelial layer, and delivers the strongest clustering concordance on the more heterogeneous COAD section. The results also identify rare immune populations as a limitation shared by all current methods, marking a clear direction for future work. 
+
+F LARGE LANGUAGE MODEL USAGE 
+
+Large Language Models were used as general-purpose writing assistance tools to improve the gram-mar, clarity, and organization of the manuscript. The core research contributions, methodology, experimental design, and scientific insights are entirely original work by the authors. 19
