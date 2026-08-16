@@ -1,0 +1,577 @@
+Title: SkillSmith: Enhancing Locally Deployed Agents via Automatic Skill Construction and Evolution
+
+URL Source: https://arxiv.org/pdf/2608.08037v1
+
+Published Time: Tue, 11 Aug 2026 00:41:45 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# SkillSmith: Enhancing Locally Deployed Agents via Automatic Skill Construction and Evolution 
+
+Xinle Jiang ∗, Remy Xie †, and Ming Tang ∗‡ ∗Southern University of Science and Technology, China 
+
+†AOE Tech Labs Ltd., Hong Kong 
+
+‡Corresponding author 
+
+Abstract —LLM-based agent frameworks now act as personal assistants for multi-step tasks. Existing agent frameworks such as OpenClaw commonly follow the Cloud Agent depolyment mode using closed-source cloud LLMs as backbone model, which may expose private user information and incur repeated LLM-calling costs. Local Agents address these deployment concerns by depolying frontier open-source SLMs on user-controlled devices, but their task effectiveness still lags far behind Cloud Agents. Through diagnostic analysis, we reveal that the limited effec-tiveness of Local Agents with frontier SLM backbones mainly comes from missing environment knowledge caused by limited backbone model scale including environment rules and opera-tion procedures. To supply such knowledge non-parametrically, context-efficiently, and without expert authoring, we present SkillSmith, a Cloud–Local Agent collaboration framework that uses Skill as a context-efficient knowledge carrier, automatic constructs Skill from Cloud Agent task exploration and evolves Skill using Local Agent execution feedback to enhance a frozen Local Agent. Experiments on daily agent task datasets AppWorld and WorkBench show that the automatically generated Skill enables the Local Agent with Qwen3.6-27B(SLM) to achieve task effectiveness comparable to Cloud Agents with frontier LLMs, outperform the strongest non-parametric baselines, reduce av-erage actions per task from 36.1 to 9.9 on AppWorld-Normal, and generalize to other SLM backbone models without rerunning Skill construction. 
+
+I. I NTRODUCTION 
+
+Large language model (LLM)-based agent frameworks such as OpenClaw [1], Claude Code [2], and Hermes [3] now act as personal assistants for multi-step tasks, including sending email, scheduling, and mobile-app operation. Most existing agent frameworks are deployed as cloud-hosted agents (Cloud Agents), which use closed-source cloud LLMs as backbone models. Since each execution step requires sending local task context to the cloud LLM, Cloud Agents may expose private user information and incur repeated LLM calling costs. To address this deployment overhead, researchers have proposed locally deployed agents (Local Agents) [4], [5], where a frontier open-source small language model (SLM) is deployed as the backbone model on the user-controlled local or edge device. Since the task context remains on device throughout execution, Local Agents reduce privacy exposure and avoid repeated cloud-LLM calling costs. However, we observe that Local Agents still lack real-world task effectiveness by using frontier open-source SLMs as the backbone model. As shown in Fig. 1, the task pass rates of the Local Agent with Qwen3.6-27B are only 36.3%, 28.1%, AppWorld Normal AppWorld Challenge WorkBench    
+
+> 025 50 75 100
+> Average task pass rate (%)
+> 94.0 85.6 73.7 90.5 89.2 75.4 36.3 28.1 51.1
+> 78.6 74.9 89.0
+> +42.3 +46.8 +37.9
+> LLM: Claude Opus 4.7 LLM: GPT-5.5 SLM: Qwen3.6-27B SLM: Qwen3.6-27B + SkillSmith
+
+Fig. 1. Task pass rates under three deployment settings: Cloud Agents with large LLM backbones, a Local Agent with an SLM backbone, and the same Local Agent augmented with SkillSmith. Green “ +∆ ” labels denote the absolute gain of SkillSmith over the baseline Local Agent using the same Qwen3.6-27B backbone. 
+
+and 51.1% in AppWorld-Normal, AppWorld-Challenge, and WorkBench tasks, respectively, far below Cloud Agents with frontier LLMs. A natural explanation is the model scale of the backbone model. But this explanation is underspecified. As agent execution depends on at least two factors: core agentic capabilities (such as tool use, instruction following and general reasoning), and environment knowledge (including environment rules and operation procedures). This explanation does not clarify what concrete factors model scale causes. We therefore analyze this gap empirically. Our analysis yields three findings that specify the model-scale explanation. First, frontier open-source models such as Qwen3.6-27B are already comparable to closed-source LLMs on core agentic capabilities, suggesting that these capabilities are not primarily determined by parameter scale. Second, Local Agent failures primarily stem from missing environment knowledge in the backbone model, including environment rules and operation procedures that determine how the Agent should act. This is where the effect of model scale: larger cloud LLMs can encode broader environment knowledge in their parameters, whereas a smaller local SLM may miss it. Third, preliminary experiments show that non-parametrically providing the missing environment knowledge such as inject-ing into prompt, can improved task effectiveness of Local Agent without fine-tuning the backbone model. These findings motivate us to provide environment knowl-edge externally rather than update the Local Agent’s back-arXiv:2608.08037v1 [cs.AI] 8 Aug 2026 bone model. However, prior methods that supply environment knowledge non-parametrically are not directly applicable to a context-limited Local Agent, which can be organized in three families. Prompt-based methods [6], [7] are the most direct: using system prompt as the carrier of environment knowledge to enhance Local Agent. However, constructing such prompts relies on expert prior knowledge and repeated manual revision. Moreover, since only a small subset of the knowledge is relevant to any single task, exposing the entire collection at every task consumes the limited context of local SLMs, resulting in context inefficiency . Memory-based 
+
+methods [8], [9] remove most of this manual effort by distilling trajectories and evaluator feedback into reusable memories. However, the resulting memories are not always reliably environment knowledge due to noise in execution trajectories and distillation errors from models.And these methods lack a mechanism to verify and correct these memories. Skill-based 
+
+methods [10] use Skill as a more suitable carrier than the prompt through progressive disclosure : this makes the context cost depend on the knowledge needed by the current task, rather than on the size of the entire knowledge collection. Constructing a high-quality Skill, however, still relies on expert authoring and evolution. Recent work automates the subsequent evolution [11]–[13] through rollout feedback, but this process relies on initial usable Skill and therefore does not completely remove the expert dependency. These limitations suggest the lack of methods that can jointly satisfy three requirements for practical environment knowledge provision: (R1) a suitable carrier that avoids context inefficiency, (R2) automatic construction of high-quality initial knowledge with-out expert authoring, and (R3) automatic iterative evolution with verification and correction from Local Agent execution feedback. To satisfy R1 to R3 jointly, we present SkillSmith, a Cloud– Local Agent collaboration framework that automatically con-structs and evolves high-quality Skills to enhance the frozen Local Agent. SkillSmith adopts the Skill as a context-efficient carrier for environment knowledge (R1), adotpts the Cloud Agent to replace human experts in initial Skill construction (R2), and adopts the Cloud Agent based on Local Agent execution feedback to drive iterative Skill evolution (R3). This design leverages Cloud Agent’s richer parametric en-vironment knowledge and its stronger reflection and summa-rization abilities. However, Cloud Agent assistance alone is insufficient to make this framework reliable. Realizing it raises two technical problems. P1: How can the Cloud Agent construct a high-quality initial Skill from representative task executions and available task feedback? Directly prompting the Cloud Agent to write a Skill is unreliable be-cause task descriptions under-specify the actual environment, so the generated Skill may hallucinate unsupported rules or miss implicit procedures. P2: How can the initial Skill be iteratively evolved based on Local Agent’s execution feed-back? Naively feeding the current Skill, failed trajectories, and evaluator feedback to the Cloud Agent is ineffective: failures are ambiguous, recurring defects are hard to identify across long traces, and unconstrained revisions can bloat the Skill or regress previously successful tasks. Inspired by how human experts construct and evolve Skills from task trials and execution feedback, SkillSmith addresses the two problems by designing a multi-agent collaboration mechanism with two stages. To solve P1, the Skill Creation Stage first performs Explore and Reflect : the Cloud Agent executes representative tasks and summarizes each trajectory into a Reflection Report. It then performs Create Initial Skill :the Cloud Agent clusters the reports, distills reusable environ-ment knowledge, and merges it into a length-bounded initial Skill. To solve P2, the Skill Evolution Stage first performs 
+
+Execute and Compress : the Local Agent executes tasks with the current Skill, and failed executions are compressed into Failure Reports. It then performs Evolve Skill : the Cloud Agent clusters recurring failures, identifies Skill-addressable defects, and applies bounded revisions. In summary, this paper makes the following contributions:  
+
+> •
+
+We reveal that the limited task effectiveness of Local Agents with frontier SLM backbones mainly comes from missing environment knowledge caused by limited back-bone model scale. We further show that such knowledge can be supplied non-parametrically to substantially im-prove Local Agent performance, avoiding fine-tuning the backbone model.  
+
+> •
+
+To supply environment knowledge non-parametrically, context-efficiently, and without expert authoring, we present SkillSmith, a Cloud–Local Agent collaboration framework that automatically constructs and evolves high-quality Skills to enhance a frozen Local Agent.  
+
+> •
+
+We evaluate SkillSmith on two daily agent task datasets, AppWorld and WorkBench. Experiments show that the generated Skill enables a Local Agent with Qwen3.6-27B to achieve task effectiveness comparable to Cloud Agents with frontier LLMs, outperforming the strongest non-parametric baseline on each dataset by 11.3 to 26.2 points, reducing average AppWorld-Normal actions per task from 36.1 to 9.9, and generalize to other SLM backbone models without rerunning Skill construction. II. B ACKGROUND AND MOTIVATION 
+
+A. LLM-based Agent Framework and Two Deployment Modes 
+
+LLM-based agent frameworks, including OpenClaw [1], Claude Code [2], and Hermes [3], consist of three components: the Agent Controller, the local execution environment, and the backbone model. Most of these frameworks adopt the ReAct paradigm [14], where execution proceeds through repeated observation, thought, and action steps. As illustrated in Fig. 2, the Controller maintains this process by accumulating obser-vations from the local execution environment, sending the cu-mulative observation to the backbone model, and executing the returned action locally. At step i, after action ai−1 is executed, the environment returns a new observation oi. The Controller updates the cumulative observation as Oi = ( Oi−1, o i), where 
+
+(·, ·) denotes appending the new observation to the ordered Observation Thought Action Act step i step i-1        
+
+> ...
+> Local Execution Environment
+> ...
+> step i+1
+> ...your password: 1ab***...
+> Tool Set Skill Library File System & User Data Send: Observation
+> Observation 𝐀 𝐀
+> Backbone Model in Cloud / Edge
+> Reply: Thought
+> Serving in Local Device
+> Thought ℎ𝐀 Action 𝐀 𝐀
+> I have got account info. To pay money,I should login and pay to Bob. System & Task: ... Prompts: ... Step i-1: ... password:1ab***....
+> apis.paypal.login( username="sam_w", password="1ab***") >>> script.py
+> bash ./script.py
+> Reply: Action
+> Agent Execution On Step i
+> show_account
+> Agent Task:
+> Could you pay $10 to Bob via paypal?
+> Work Done !
+> Agent Controller
+> Model
+
+Fig. 2. LLM-based agent framework and two deployment modes: Cloud Agent and Local Agent. Red text marks private user information that may be included in the cumulative observation and uploaded to the cloud. TABLE I CORE AGENTIC CAPABILITY RESULTS FOR QWEN 3.6-27B (SLM) AND 
+
+CLAUDE OPUS 4.5 (LLM), REPORTED IN THE QWEN 3.6-27B TECHNICAL REPORT [15]. Benchmark Qwen3.6-27B Opus 4.5 ∆ (pp) SWE-bench Verified [16] 77.2 80.9 −3.7
+
+Terminal-Bench 2.0 [17] 59.3 59.3 0.0
+
+QwenClawBench [18] 53.4 52.3 +1 .1
+
+GPQA Diamond [19] 87.8 87.0 +0 .8
+
+context, and sends Oi to the backbone model. The backbone model then produces thought hi and next action ai, which the Controller executes in the local environment. This loop continues until the task is completed or the agent stop. Agents built on this framework have two deployment modes. The mainstream mode is the Cloud Agent, which keeps the Agent Controller and local execution environment on the local device, but deploys a closed-source LLM backbone in the cloud, often with more than one trillion parameters. In this mode, the Controller sends the cumulative observation Oi to the cloud model at every step [1], [2]. Since Oi may contain task instructions, user-file contents and application state, this deployment can expose private user information to the cloud while also incurring repeated API costs. To avoid these costs, researchers have proposed the Local Agent mode [4], [5], which deploys an open-source small language model (SLM), typically below 35B parameters [15], as the backbone on the user-controlled local or edge device. In this mode, Oi remains on device throughout execution, reducing privacy exposure and avoiding repeated cloud-model API calls. 
+
+B. Failure Analysis of Agent Task Execution 
+
+Despite the privacy protection and cost-saving benefits of local deployment, Local Agents with frontier open-source SLMs still show limited task effectiveness, falling far behind Cloud Agents on all three task sets (Fig. 1). A natural explana-tion is the difference in backbone model scale. However, this Step j: 
+
+Obs.: Passwords display as *** in print output. 
+
+Thought: The masking is only in print rendering. The Python variable still holds the real value — I can extract it directly and pass to login. 
+
+Action: pw = x["account_name"=="spotify"][0] apis.spotify.login(username=name, password=pw) 
+
+Task: play any song from my Spotify album library 
+
+Step i: 
+
+Obs.: Spotify login requires username + password. 
+
+Thought: I can get the supervisor's credentials by script. 
+
+Action: print(show_account_passwords(“spotify”)) 
+
+Step i+1: 
+
+Obs: Passwords display as *** in print output. 
+
+Thought: This is a error. I need to find the credentials somewhere — maybe notes or emails. 
+
+Action: Searches notes, emails, filesystem directories for password resets — all fail or irrelevant 
+
+Loop search on other apps to maximize step count. 
+
+Local Agent Execution Trace Cloud Agent Execution Trace 
+
+Fig. 3. Representative failures caused by missing environment-specific proce-dures. The Local Agent treats a visually masked password as unavailable and searches elsewhere; the Cloud Agent recognizes that the credential remains accessible and succeeds. TABLE II 
+
+> RESOLUTION AFTER INJECTING MANUALLY AUTHORED ENVIRONMENT KNOWLEDGE
+
+. R ESLV . AFTER KNOWL . DENOTES RESOLVED AFTER INJECTING ENVIRONMENT KNOWLEDGE .Root Cause Failures Ratio Reslv. after Knowl. Missing environment rule 19 52.8% 15/19 Missing operation procedure 14 38.9% 11/14 
+
+Knowledge-related subtotal 33 91.7% 26/33 
+
+Invalid action format 1 2.8% 0/1 Reasoning or instruction error 2 5.6% 1/2 
+
+Capability-related subtotal 3 8.3% 1/3 Total 36 100.0% 27/36 
+
+explanation is still underspecified, because it does not clarify what concrete execution gap is caused by model scale. We therefore conduct a deeper analysis. 
+
+Finding 1: Frontier open-source SLMs already have core agentic capabilities comparable to closed-source LLMs. 
+
+Core agentic capabilities refer to the core abilities required for agent execution, including tool use, instruction following, and general reasoning. Table I compares Qwen3.6-27B with Claude Opus 4.5 [20] across benchmarks that cover these capabilities. SWE-bench Verified evaluates software-level tool use; Terminal-Bench evaluates command-line task execution and instruction following; QwenClawBench provides an in-tegrated evaluation of task execution; and GPQA Diamond reflects advanced reasoning ability. Across these benchmarks, Qwen3.6-27B is comparable to Claude Opus 4.5, suggesting that model scale does not lead to a significant difference in core agentic capabilities. 
+
+Finding 2: Local Agent failures primarily stem from missing environment knowledge in the backbone model. 
+
+Completing application tasks requires both core agentic ca-pabilities and environment knowledge, including the rules and procedures that govern action selection. Since Finding 1 suggests that the Local Agent already has comparable core capabilities, the remaining gap is more likely due to missing environment knowledge in the backbone model. Larger cloud LLMs can encode more environment knowledge, whereas a smaller local SLM may miss such knowledge. This is reflected in failure trajectories: Fig. 3 shows that the Local Agent mis-judges a visually masked password as inaccessible, while the Cloud Agent applies the correct rule and succeeds. To quan-tify this effect, we randomly sampled 36 failure trajectories from Local Agent with Qwen3.6-27B on AppWorld-Normal. Table II shows that 33 failures (91.7%) are caused by missing environment rules or operation procedures, indicating that the remaining effectiveness gap mainly comes from environment knowledge rather than core agentic capability. 
+
+Finding 3: Providing environment knowledge non-parametrically improves Local Agent task execution. Acommon way to address missing environment knowledge is to collect additional data to fine-tune the backbone model [5]. However, it is often impractical due to limited training data and computational resources, so we examine whether a non-parametric method is sufficient. We injected manually authored environment knowledge into the system prompt and reran the same 36 failed tasks. The guidance provides general missing rules and procedures rather than task-specific an-swers.Table II shows that this intervention resolves 26 /33 knowledge-related failures, indicating that application-specific environment knowledge can repair most such failures without updating model parameters. 
+
+C. Non-parametric Environment Knowledge Provision 
+
+These findings motivate us to provide environment knowl-edge by non-parametric methods rather than update the Local Agent’s back- bone model. However, existing non-parametric methods for providing environment knowledge have signifi-cant limitations which can be roughly grouped into prompt-based, memory-based, and skill-based methods [21]. 
+
+Prompt-based methods [6], [7] directly inject environment knowledge into the system prompt, but they rely on expert-written prompts and often overload the limited context of local SLMs with irrelevant knowledge. Memory-based methods [8], [9], [22]–[24] distill trajectories and feedback into reusable memories, but noisy executions and model-reflection errors can make these memories unreliable, and they usually lack mechanisms for verification and correction. 
+
+Skill-based methods provide a more structured carrier com-pare to prompt. Following Anthropic Agent Skills [10], we define an Agent Skill S as 
+
+S = ( M, R, C), (1) where M is the main Markdown file SKILL.md (hereafter 
+
+main manual ), containing metadata, general instructions, and pointers to references in R; R = {rj }Jj=1 stores reference files with environment rules and operation procedures, and 
+
+C = {κj }Jj=1 records the loading condition for each reference. Skills support progressive disclosure : During execution, the Agent first reads the general guidance in M and loads a reference file rj ∈ R only when its loading condition κj ∈ C 
+
+is satisfied. This progressive disclosure makes Skills context-efficient for local SLMs because the Agent places only task-relevant environment knowledge into the context, rather than the entire knowledge collection. Recent methods such as Trace2Skill [11] and EvoSkill [12] further show that Skills can be automatic evolved from Agent rollout feedback [25]– [27], but they still assume a usable initial Skill remain expert-authored. 
+
+D. Design Goals and Technical Challenges 
+
+These limitations suggest three requirements for practical non-parametric environment knowledge provision: (R1) a suit-able carrier that avoids context inefficiency, (R2) automatic construction of high-quality initial environment knowledge without expert authoring, and (R3) automatic iterative evo-lution from Local Agent feedback. No existing unified frame-work is designed to satisfy all three requirements. To meet them, SkillSmith adopts Skills as the carrier for R1 and uses Cloud–Local Agent collaboration to replace human experts in Skill construction and evolution for R2 and R3. Realizing this design raises two technical problems. P1: 
+
+How can the Cloud Agent construct a high-quality initial Skill from representative task executions and available task feedback? P2: How can the initial Skill be reliably evolved from Local Agent execution feedback? III. S YSTEM DESIGN 
+
+This section presents SkillSmith, which enhances a frozen Local Agent by automatically constructing and evolving Skills. We first overview the two-phase workflow, then formulate Skill learning as black-box optimization, and finally instantiate it through Skill Creation and Skill Evolution. 
+
+A. System Overview 
+
+SkillSmith has an Offline Learning Phase and an Online Serving Phase , as shown in Fig. 4. Offline Learning Phase constructs and evolves a target-scenario Skill from repre-sentative tasks and evaluator feedback through Cloud–Local Agent collaboration. The Online Serving Phase deploys the frozen Local Agent with the produced Skill to improve task effectiveness, with no Cloud LLM calls and all user data kept local. Offline Learning Phase contains two connected stages. In the Skill Creation stage, the inputs are training tasks sampled from the target application scenario and the user-provided eval-uator. The Cloud Agent executes each task, obtains evaluator feedback, and writes Reflection Reports( 1 ). SkillSmith then clusters the Reflection Reports, distills reusable insights from each cluster, and merges them into the initial Skill S0 ( 2 ). The Skill Evolution stage is an iterative loop. At iteration 
+
+i, SkillSmith loads the ready-to-evolve Skill Si−1 from the Skill Library ( 3 ). The Local Agent executes the training tasks with Si−1, and failed executions are compressed with evaluator feedback into Failure Reports ( 4 ). The Cloud Agent clusters Local Agent 
+
+①①            
+
+> Task: Pay $10 to Bob via PayPal Step1:
+> Obs: [AppWorld Skill Metadata ]: Appworld Skill can be used in PayPal,Amzon...
+> Think: This task needs use PayPal, so I can use AppWorld Skill.
+> Action: Skill_Veiw(‘AppWorld’) Step2:
+> Obs: [SKILL.md Content ]: ... you can get more details about PayPal, reference in ‘paypal.md’ ...
+> Think: I need see more information from ‘paypal.md’.
+> Action: Skill_View(‘AppWorld’,paypal.md) Step3:
+> Obs: [paypal.md Content ]: ... you should get account passwords before login ...
+> Think: let’s get account password
+> Action: api.paypal.show_passwords() ...
+
+AppWorld/ # Skill in Skill Library 
+
+├── SKILL.md # ~100 lines ├── reference/ │ ├─-- paypal.md # ~120 lines │ ├── file_system.md # ~150 lines │ └── amazon.md # ~160 lines 𝐀𡠀𝐀𦀀𦀀 𝐀 0
+
+Skill Library 
+
+> Train Tasks
+
+Cluster 
+
+... ... 
+
+Distill Merge 
+
+Cluster 
+
+... ... 
+
+Analyze Merge 
+
+𝐀𡠀𝐀𦀀𦀀 𝐀 𝐀 𝐀𡠀𝐀𦀀𦀀 𝐀 𝐀−1 
+
+> 𝐀𡠀𝐀𦀀𦀀 𝐀 𝐀−1
+> Train Tasks
+
+1. Skill Creation Stage 2. Skill Evolution Stage 
+
+Online Serving Phase Offline Learning Phase 
+
+Continue Evolve Skill  
+
+> Reports Insight i
+> Reports
+> 1. Task 2. Execute Trace 3. More Efficient Path 4. Pitfalls met 5. Tool used
+
+① Explore & Reflect  
+
+> Evaluator Feedback Execution Trace Reflection Report
+
+⑥ Store evolved 𝐀𮠀𝐀𳀀𳀀 𝐀 𝐀  
+
+> Failure Reports Modify Note
+
+② Create initial Skill 
+
+④ Execute & Compress  
+
+> 1. Task 2. Execute Trace 3. Evaluation Score 4. Failure Assertion Evaluator Feedback Execution Trace Failure Report
+> Reports
+
+③ Load ready evolve 𝐀𮠀𝐀𳀀𳀀 𝐀 𝐀−𝐀 
+
+⑤ Evolve Skill 
+
+: Local Agent : Cloud Agent 
+
+Load Skill Fig. 4. SkillSmith system overview. 
+
+these reports, attributes failures against the current Skill, and merges the modifications into Si ( 5 ) Finally, Si is stored back into the Skill Library for the next iteration ( 6 ). 
+
+B. Problem Formulation 
+
+To clarify how the Offline Learning Phase obtains a high-quality Skill f, we cast Offline Learning as black-box Skill optimization. We first define Skill-conditioned execution and the objective, then introduce Skill Creation and Skill Evolution as operators that search for an approximate solution. Let T denote the task distribution of the target application scenario, and let Dtrain be a set of training tasks sampled from 
+
+T before deployment. Each task is 
+
+ξ = ( D, y ∗), (2) where D is the task instruction and y∗ is the expected outcome used by the evaluator. The Local Agent Gs is frozen. Recall from Sec. II-C that a Skill is defined as S = ( M, R, C). We use Lmax to denote the Skill length budget imposed by the Local Agent’s limited context capacity, and let SLmax be the feasible space of valid Skills satisfying this budget. At each step t, let Ht denote the interaction trajectory observed so far, including previous observations, thoughts, and actions. The Local Agent selects the next action based on the task instruction, the observed trajectory, and the loaded Skill: 
+
+at ∼ πGs (· | D, H t, S) . (3) When the task terminates, the Local Agent produces an execution trace τ and final output ˆy, which are evaluated against the expected outcome y∗:
+
+(r, e ) = Eval ( τ, ˆy, y ∗) , (4) where r ∈ { 0, 1} denotes task success and e is evaluator feedback. We write r(S; ξ) and e(S; ξ) when the dependence on the Skill S and the task ξ needs to be made explicit. The optimization objective is to find a valid Skill that maximizes the expected pass rate of the frozen Local Agent: 
+
+S⋆ = arg max 
+
+> S∈ SLmax
+
+Eξ∼T [r(S; ξ)] , (5) Since T is unknown, SkillSmith uses the empirical pass rate on the sampled training tasks: 
+
+JDtrain (S; Gs) = 1
+
+|D train |
+
+X
+
+> ξ∈D train
+
+r(S; ξ). (6) This objective cannot be solved directly because SLmax is a discrete natural-language document space and the Local Agent’s pass rate has no gradient. Inspired by TextGrad [28], it treats LLM-generated feedback as a gradient-like signal and uses an LLM as a text optimizer to approach . Analogously, SkillSmith uses the Cloud Agent Gc as the Skill optimizer. It first constructs an initial Skill from training tasks: 
+
+S0 = Create( Gc, Dtrain ). (7) It then evolves the Skill for R rounds, using Local Agent executions as feedback and the Cloud Agent to propose updates: 
+
+Si = Evolve( Gc, G s, Si−1, Dtrain ), i = 1 , . . . , R. (8) The final deployed Skill is the version with the best empirical pass rate on Dtrain .Reflection Reports          
+
+> Cluster Agent Prompt: Input: all reflection.md files
+> Cluster Rules ：
+> 1. create cluster by tasks/apps/tools from reflection.md 2. similar tasks/apps/tools to same cluster 3. small size cluster should merge 4. make sure total clusters <= 10
+> Output:
+> {cluster} folders with reflection.md files
+> Cluster Agent
+> ... .. .
+> Merge Agent
+> Reports Insight A
+> Distill SubAgents Prompt: Role:
+> analyze one reflection cluster only
+> Input: all reflection.md in this cluster
+> Extract 5 content signals to insight file:
+> 1. step sequence + code template + frequency 2. pitfalls + trigger + remedy + frequency 3. cluster-specific rules 4. trigger keywords from task text 5. cross-cluster generality judgment
+> Output: cluster_{name}.md
+> Merge Agent Prompt: Role: create init skill
+> Input: all cluster_{name}.md
+> Create Rules:
+> Promote to SKILL.md if: 1. step appears in >= N/2 clusters 2. pitfall appears in >= 3 clusters 3. environment rule appears in >= N/2 clusters
+> Skill Template:
+> SKILL.md:
+> §0 loading triggers to references
+> §1 environment rules
+> §2 common workflow
+> §3 cross-cutting pitfalls
+> §4 API quick reference
+> §5 checklist Specific details: references/{cluster}.md
+> Output: init skill
+> Create initial Skill
+> Cluster ACluster B
+> 𝐀𡠀𝐀𦀀𦀀 𝐀 0
+> Distill SubAgent for each cluste r
+
+Fig. 5. Skill Creation pipeline and prompts for three cloud-agent roles. 
+
+C. Skill Creation 
+
+Skill Creation aims to produce a high-quality initial Skill 
+
+S0 without expert-authored initialization. A naive approach is to ask the Cloud Agent Gc to directly write a Skill based on the task description. This is unreliable because Gc is not initially familiar with the target application scenario and may invent unsupported rules or miss implicit procedures. Inspired by how human experts learn a new application scenario and write Skills by trying tasks, checking outcomes, reflecting, and summarizing reusable insights, we design the agentic Skill Creation pipeline, which consists of two steps: Explore and Reflect, and Create Initial Skill. 
+
+Explore and Reflect. This step aims to collect material for Skill writing by letting the Cloud Agent execute target-scenario tasks and observe evaluator feedback. However, raw trajectories are not directly usable as environment knowl-edge: they contain redundant observations, exploratory de-tours, and failed attempts, while useful Skill material should be reusable experience such as procedures, environment rules, tool-use conventions, and common pitfalls. Inspired by prior work showing that LLM agents can acquire reusable ex-perience through self-reflection after interaction [8], [29], [30], SkillSmith uses the Cloud Agent to preprocess the sampled training tasks into a compact Reflection Report set: 
+
+Q ← EXECUTE REFLECT (Gc, Dtrain ). This operator follows Algorithm 1: for each training task, the Cloud Agent executes the task, invokes the evaluator, and reflects on the execution trace and feedback. The Cloud Agent is prompted with a report template covering the task, a compressed execution trace, the evaluation result, a more efficient solution path, pitfalls encountered, and tools or resources used. The output is a report set Q = {qi}ni=1 , where n = |D train |.
+
+Create Initial Skill. This step aims to transform task-level Reflection Reports into a scenario-level initial Skill 
+
+S0. The main difficulty is scale and mixture: the reports often exceed 100 files and 10K lines in total, and they mix repeated procedures with task-specific details. Directly placing them into the Local Agent context would exceed the context budget and dilute attention. SkillSmith therefore creates the initial Skill through three cloud-agent roles, as illustrated in Fig. 5. (i) The Cluster Agent first groups the reports as 
+
+{Q c}Cc=1 ← CLUSTER (Gc, Q). The Cluster Agent groups reports by task type, application, and tool usage, merges Failure Reports            
+
+> Cluster Agent Prompt: Input: all failure.md files
+> Cluster Rules ：
+> 1. cluster by tasks and failure assert from failure.md 2. similar tasks and failure assert reason to same cluster 3. small size cluster should merge 4. make sure total clusters <= 10
+> Output:
+> {cluster} folders with failure.md files
+> Cluster Agent
+> ... ...
+> Merge Agent
+> Reports Modify Note A
+> Merge Agent Prompt: Role: evolve Skill by merging notes
+> Input: all modifyNote_{name}.md and ready to evolve Skill
+> Merge Rules:
+> 1. find common and resolve conflicts on notes. 2. modify skill by priority 3. If the modified content exceeds skill length budget, do compress operator
+> Output: Evolved Skill
+> Analyze SubAgents Prompt:
+> Role: analyze one failure cluster only
+> Input: all failure.md in this cluster and ready to evolve Skill
+> Analyze Rlues:
+> 1. See Expected And Actual: evaluator says what should happen and Actual traces 2. Attribute faillures to Skill: A if Skill or references not loaded B if Skill instruct incomplete/wrong C if careless case(close to pass) 3. Write ModifyNote For A, modify the skill and references trigger condition. For B, add your modify comments For C, add quick check item 4. Add modify priority based on failure frequency.
+> Output: modifyNote_{name}.md
+> Evolve Skill
+> Cluster ACluster B
+> 𝐀𡠀𝐀𦀀𦀀 𝐀 𝐀
+> Analyze SubAgent for each cluster
+> 𝐀𡠀𝐀𦀀𦀀 𝐀 𝐀−1
+
+Fig. 6. Skill Evolution pipeline and prompts for three cloud-agent roles. 
+
+small or semantically similar groups, and keeps the number of clusters C bounded. (ii) A Distill SubAgent is assigned to each cluster Qc and extracts reusable signals into an insight file 
+
+Ic = DISTILL (Gc, Qc), including step sequences, code or API templates, pitfalls and remedies, cluster-specific rules, trigger keywords, and judgments about whether an item is cluster-specific or cross-cluster. (iii) The Merge Agent induces the initial Skill by S0 ← MERGE (Gc, {Ic}Cc=1 , L max ): frequent cross-cluster rules and workflows are promoted to the main manual, while scenario-specific details are written into refer-ence files with corresponding loading triggers, subject to the budget Lmax .
+
+D. Skill Evolution 
+
+Although Skill Creation provides an initial Skill S0, this Skill is distilled mainly from Cloud Agent executions and may not fully match the failure modes of the frozen Local Agent. Some knowledge may be missing, some references may not be loaded under the right conditions, and some instructions may be too weak for the Local Agent to follow reliably. Skill Evolution therefore iteratively improves the current Skill Si−1
+
+using Local Agent failures, evaluator feedback, and Cloud Agent analysis. Each evolution iteration consists of two steps: Execute & Compress and Evolve Skill. 
+
+Execute and Compress. This step aims to expose what the current Skill still fails to support. The output is a failure-report set B−
+
+i , together with the current pass rate ji−1. At iteration i, SkillSmith runs (B−
+
+i , j i−1) ←
+
+EXECUTE COMPRESS (Gs, G c, Si−1, Dtrain ). For each failed task, SkillSmith combines the execution trace, evaluator feed-back, and Skill-loading record into a compact Failure Report. This compression is necessary because raw failure traces are long and noisy: they include observations, tool outputs, actions, and loaded Skill content, while Skill editing only needs the critical mismatch between the expected and actual execution. 
+
+Evolve Skill. This step aims to convert recurring Local Agent failures into length-bounded Skill updates. The budget 
+
+Lmax is necessary because Local Agents using SLMs have tighter context constraints, and oversized Skill files make relevant instructions harder to attend to. The key difficulty is failure attribution: a failed task may indicate that the relevant Skill or reference was not loaded, that the loaded Algorithm 1 Offline Skill Optimization in SkillSmith                                                                                         
+
+> Require: Sampled training tasks Dtrain , Cloud Agent Gc, Local Agent Gs,Evolution rounds R, Capacity Lmax
+> Ensure: Deployed Skill S⋆
+> 1: Part I: Skill Creation
+> 2: Q ← EXECUTE REFLECT (Gc,Dtrain )
+> 3: {Q c}Cc=1 ←CLUSTER (Gc,Q)
+> 4: Ic←DISTILL (Gc,Qc)for all cin parallel 5: S0←MERGE (Gc,{Ic}Cc=1 , L max )
+> 6: Part II: Skill Evolution
+> 7: (B−
+> 1, j 0)←EXECUTE COMPRESS (Gs, G c,S0,Dtrain )
+> 8: S⋆← S 0;j⋆←j0
+> 9: for i= 1 to Rdo
+> 10: if B−
+> i=∅then
+> 11: break
+> 12: end if
+> 13: {B −
+> i,c }Ci
+> c=1 ←CLUSTER (Gc,B−
+> i)
+> 14: mi,c ←ANALYZE (Gc,B−
+> i,c ,Si−1)for all cin parallel 15: Si←MERGE (Gc,{mi,c }Ci
+> c=1 ,Si−1, L max )
+> 16: (B−
+> i+1 , j i)←EXECUTE COMPRESS (Gs, G c,Si,Dtrain )
+> 17: if ji> j ⋆then
+> 18: S⋆← S i;j⋆←ji
+> 19: end if
+> 20: end for
+> 21: return S⋆
+
+instruction is incomplete or wrong, that the Local Agent made a near-miss careless error, or that the failure is beyond textual repair. Blindly appending every failure case would bloat the Skill and may damage tasks that already succeed. Inspired by the workflow of expert Skill evolution, SkillSmith makes revisions reliable by first clustering recurring failures, then attributing each cluster against the current Skill, and finally applying only bounded edits with explicit priority. As shown in Fig. 6, Local Agent evolves the Skill through three cloud-agent roles. (i) The Cluster Agent groups Failure Reports as 
+
+{B −
+
+> i,c
+
+}Ci 
+
+> c=1
+
+← CLUSTER (Gc, B− 
+
+> i
+
+) by task type and failure assertion, merges small or similar groups, and keeps the number of clusters Ci bounded. (ii) Each Analyze SubAgent inspects one failure cluster with the ready-to-evolve Skill, 
+
+mi,c ← ANALYZE (Gc, B−
+
+> i,c
+
+, Si−1). It compares the evaluator’s expected outcome with the actual trace, attributes the failure to Skill loading, Skill content, near-miss execution, or non-Skill-addressable causes, and writes a Modify Note with edit priority. (iii) The Merge Agent combines all Modify Notes into the evolved Skill, Si ← MERGE (Gc, {mi,c }Ci
+
+> c=1
+
+, Si−1, L max ).Merge resolves conflicts, applies edits by priority, and com-presses the Skill when it exceeds the length budget. After each iteration, the evolved Skill Si is evaluated by re-running E X-
+
+> ECUTE
+
+COMPRESS to get failure feedback for evolution. After 
+
+R evolution iterations, SkillSmith selects the Skill version with the best empirical pass rate as S⋆.The full offline Skill optimization procedure is summarized in Algorithm 1. The prompt examples in Fig. 5 and Fig. 6 illustrate one implementation of the pipeline; They are not fixed components and can be adapted to user requirements or application-specific constraints. IV. I MPLEMENTATION AND EVALUATION 
+
+Our experiments answer four research questions. RQ1: 
+
+How effective is SkillSmith compared with state-of-the-art methods? RQ2: How much does SkillSmith cost to generate and use skills? RQ3: What are the contributions of each component? RQ4: How well do the generated skills generalize across different foundation models? 
+
+A. Experimental Setup 
+
+Datasets. We evaluate SkillSmith on two agentic datasets that cover daily-life and office-work scenarios. AppWorld [31] requires agents to complete user instructions by interacting with simulated mobile applications via APIs, such as Amazon and Gmail, to sending emails, shopping and other daily activities. AppWorld contains two difficulty levels: AppWorld-Normal and AppWorld-Challenge, where the latter contains more cross-application tasks. WorkBench [32] evaluates agents on workplace tasks involving calendar, analytics, project-management, and multi-domain activities. We randomly sam-ple 180 AppWorld tasks (about 25%) and 207 WorkBench tasks (about 30%) as training set; the remaining tasks are used as test set for evaluation. 
+
+Baselines. We compare SkillSmith with cloud agents pow-ered by closed-source frontier LLMs and three families of non-parametric enhancement methods.  
+
+> •
+
+Closed-source frontier LLMs. We adopt GPT-5.5 [33] and Claude Opus 4.7 [20] as backbone models for cloud agents.  
+
+> •
+
+Prompt-based methods. These methods inject environ-ment knowledge into the prompt: Few-shot ICL [6] injects a small number of successful execution trajectories as in-context demonstrations, Doc-Prompting [7] injects API-level tool documentation and operation manuals.  
+
+> •
+
+Memory-based methods. These methods store reusable experience extracted from agent trajectories and retrieve relevant memories during task execution: ExpeL [8] ex-tracts natural-language insights and compact successful trajectories, AWM [9] abstracts successful trajectories into workflow memories.  
+
+> •
+
+Skill-based methods. Trace2Skill [11] evolves an exist-ing skill by automatic revising skill based on execution traces. In our implementation, We initialize Trace2Skill with a initial skill derived from the description of datasets. 
+
+Implementation details. We implement the offline Cloud Agent with the Claude Code SDK [2] using Claude Opus 4.7 [20] as the backbone model, and implement the Lo-cal Agent based on the Hermes agent framework [3] using Qwen3.6-27B [15] as the backbone model. Skill Evolution runs for at five rounds. We set Lmax = 400 lines for the main manual and cap each reference file at 250 lines. For a fair comparison, all non-cloud methods are evaluated with the same Hermes agent framework and Qwen3.6-27B backbone model. Cloud-agent baselines also use the Hermes agent framework, but replace the local backbone with the corresponding cloud LLM. TABLE III TASK EFFECTIVENESS ON APP -N OR .(A PP WORLD -N ORMAL ), APP -C HAL .(A PP WORLD -C HALLENGE ), AND WB.(W ORK BENCH ); EST 
+
+LOCAL AGENT RESULTS .
+
+App-Nor. App-Chal. WB Method PR AS PR AS PR 
+
+Closed-source frontier LLMs 
+
+Claude Opus 4.7 [20] 94.0 0.966 85.6 0.939 73.7 GPT-5.5 [33] 90.5 0.960 89.2 0.962 75.4 
+
+Vanilla with frontier SLMs 
+
+Qwen3.6-27B [15] 36.3 0.525 28.1 0.424 51.1 
+
+Prompt-based methods 
+
+Few-shot ICL [6] 67.3 0.779 41.7 0.528 48.9 Doc-Prompting [7] 28.0 0.508 21.6 0.451 47.4 
+
+Memory-based methods 
+
+ExpeL [8] 65.9 0.816 62.1 0.867 49.5 AWM [9] 51.5 0.749 45.6 0.630 48.7 
+
+Skill-based methods 
+
+Trace2Skill [11] 59.8 0.754 42.9 0.621 62.8 SkillSmith (ours) 78.6 0.907 74.9 0.922 89.0 
+
+B. Task Effectiveness (RQ1) 
+
+Table III reports the main task-effectiveness results on AppWorld and WorkBench. We use pass rate (PR) as the primary metric for both datasets and additionally report the AppWorld average evaluator score (AS). 
+
+Comparison with non-parametric enhancement meth-ods. SkillSmith consistently achieves the best performance among all non-parametric enhancement methods. SkillSmith outperforms the strongest baseline on every dataset by at least 11.3 points, reaching 78.6%, 74.9%, and 89.0% PR on AppWorld-Normal, AppWorld-Challenge, and WorkBench, respectively. These results suggest that SkillSmith extracts higher-quality environment knowledge from training tasks and organizes it into Skill to enhance Local Agent. We also observe that prompt-based and memory-based methods bring little improvement and even slightly degrade performance on WorkBench. This suggests that, in some scenarios, useful envi-ronment knowledge cannot be obtained from one-shot context injection or memory extraction alone; instead, it requires multiple rounds of refinement based on execution feedback. 
+
+Comparison with Cloud Agents. SkillSmith substantially narrows the effectiveness gap between the Local Agent and Cloud Agents. Compared with the strongest Cloud Agent on each dataset, the vanilla Local Agent is 57.7, 61.1, and 24.3 points lower in PR on AppWorld-Normal, AppWorld-Challenge, and WorkBench, respectively. After loading the SkillSmith Skill, the first two gaps narrow to 15.4 and 14.3 points, and the WorkBench result becomes a 13.6-point ad-vantage over the strongest Cloud Agent. These results suggest that the Skill generated by SkillSmith substantially reduces the environment-knowledge deficit caused by the smaller back-bone model, allowing the Local Agent to approach the task effectiveness of Cloud Agent and to exceed it some scenarios. offline 500 750 1,000         
+
+> Tasks served online
+> 050 100 150
+> Cumulative LLM API cost ($)
+> $88 $0 $88 $79 $88 $118 $88 $158 AppWorld
+> offline 750 1,500 2,250
+> Tasks served online
+> $77 $0 $77 $42 $77 $84 $77 $126
+> WorkBench
+> Explore & Reflect Create initial Skill Evolve Skill Cloud Agent serving
+
+Fig. 7. LLM API cost of SkillSmith versus a Cloud Agent with Claude Opus 4.7. Dashed lines denote SkillSmith’s one-time offline cost under local serving. TABLE IV ONLINE QWEN 3.6-27B INFERENCE WITH AND WITHOUT THE 
+
+SKILL SMITH SKILL . A CTIONS IS THE AVERAGE NUMBER OF ACTIONS PER TASK . C UMULATIVE CONTEXT AND OUTPUT TOKENS ARE SUMMED OVER ALL INFERENCE STEPS OF A TASK , NOT THE SIZE OF A SINGLE CONTEXT WINDOW ; BOTH ARE REPORTED IN K TOKENS .                   
+
+> AppWorld-Normal WorkBench Setting Actions Cum. Ctx. Output Actions Cum. Ctx. Output
+> Without Skill 36.1 450.7 6.3 8.0 32.6 2.0 With SkillSmith Skill 9.9 200.6 3.7 6.5 99.8 2.0
+
+C. Offline Cost and Online Overhead (RQ2) 
+
+Offline cost. Fig. 7 compares the LLM API costs of SkillSmith and a Cloud Agent using Opus 4.7 as the backbone model, with costs broken down by phase. All numbers are collected from backend LLM API usage logs. For SkillSmith, the total cost of producing a deployable Skill is $87.95 on AppWorld and $77.27 on WorkBench, of which Skill Evolution accounts for $52.40 and $53.89, respectively. This is a one-time offline cost paid before deployment. By contrast, the Cloud Agent incurs LLM API cost for every served task, so its cumulative serving cost keeps increasing with usage. In this way, SkillSmith shifts cost from online serving to offline construction: after roughly 560 AppWorld tasks and 1,400 WorkBench tasks, the Cloud Agent has already spent more on serving than SkillSmith spent on building the Skill, while SkillSmith continues serving locally without additional LLM API cost. 
+
+Online inference overhead. Table IV compares the average number of actions per task and the cumulative token overhead per task with and without the Skill generated by SkillSmith. Loading a Skill may introduce additional context overhead as the Local Agent needs to read the relevant procedural knowledge during execution. However, this overhead can be partially mitigated, as the environment knowledge in the Skill helps the agent avoid unnecessary trial-and-error and skip invalid actions. On AppWorld, the no-Skill agent spends many actions on exploration and failed attempts; after introducing the Skill, the agent completes tasks more directly, reducing actions per task from 36.1 to 9.9, cumulative context tokens from 450.7k to 200.6k, and output tokens from 6.3k to 3.7k. TABLE V STAGE -LEVEL ABLATION . V ALUES ARE PR (%). C REATION -ONLY USES THE INITIAL SKILL BEFORE SKILL EVOLUTION .                           
+
+> Setting AppWorld-Normal AppWorld-Challenge WorkBench
+> No Skill 36.3 28.1 51.1 Skill Creation only 66.3 71.6 87.8 Creation + Evolution 78.6 74.9 89.0
+> Creation gain +30.0 +43.5 +36.7 Evolution gain +12.3 +3.3 +1.2 S0 S1 S2 S3 S4 S5
+> Skill Version
+> 55 65 75 85
+> Pass Rate (%)
+> 71.6 75.6 81.1 76.1 74.4 85.0
+> 56.3 67.9 71.3 75.4 70.7 74.8
+> (a) Training Evolution
+> AppWorld-Normal AppWorld-Challenge
+> 78.6 74.9 70.4 68.5
+> (b) Final Test PR
+> Full created Skill Simplified init Skill
+> Fig. 8. Skill Evolution dynamics on AppWorld. (a) Training pass rate across Skill versions on the training set. (b) Final pass rate on the test set.
+
+D. Ablation Study (RQ3) 
+
+Table V shows ablation study of the two stages of Skill-Smith: Skill Creation Stage adds 30.0 points on AppWorld-Normal, 43.5 points on AppWorld-Challenge, and 36.7 points on WorkBench over the no-Skill Local Agent. Skill Evolution Stage then adds 12.3, 3.3, and 1.2 points, respectively. These results show that Skill Creation is the dominant contributor, while Skill Evolution provides additional refinement. Figure 8 compares two different S0 initializations: the full Skill produced by Skill Creation and a simplified init Skill that keeps only the main procedural body of the full version. We then apply five rounds of Skill Evolution to both initializations. With the full created Skill, training PR starts at 71.6% and reaches 85.0% at S5; with the simplified init Skill, training PR starts at 56.3% and reaches 75.4% at S3 before oscillating. This explains why Evolution brings a smaller marginal gain in the full pipeline: Skill Creation already provides a strong initial solution, leaving less room for subsequent local refine-ment. Accordingly, SkillSmith supports two operating modes: Creation-only and Creation + Evolution. 
+
+E. Skill Transferability (RQ4) 
+
+This part studies whether a Skill generated for SkillSmith can still be useful when the backbone model changes. In this experiment, we keep the same agent framework and generated Skill unchanged, and only replace the Local Agent backbone model. Table VI shows consistent gains across all evaluated backbones. On the original Qwen3.6-27B backbone, the Skill improves PR by 42.3 points on AppWorld-Normal and 37.9 points on WorkBench. Without rerunning offline                            
+
+> TABLE VI CROSS -BACKBONE SKILL TRANSFERABILITY . T HE QWEN 3.6-27B S KILL IS LOADED UNCHANGED BY EACH DEPLOYMENT BACKBONE . V ALUES ARE
+> PR (%).
+> AppWorld-Normal WorkBench Backbone No Skill +Skill ∆No Skill +Skill ∆
+> Qwen3.6-27B (self) 36.3 78.6 +42.3 51.1 89.0 +37.9 Qwen3.6-30B-A3B [34] 3.1 23.2 +20.1 29.4 60.2 +30.8 Gemma-4-31B [35] 17.9 66.1 +48.2 73.9 81.7 +7.8
+
+construction, the same Skill also improves Qwen3.6-30B-A3B by 20.1 and 30.8 points, and Gemma-4-31B by 48.2 and 7.8 points, respectively. Overall, these results suggest that the Skills generated by SkillSmith exhibit strong cross-backbone transferability. V. R ELATED WORK 
+
+A. Large–Small Model Collaboration 
+
+Large and small models are often combined through online selection or offline parameter transfer. Routing and cascade systems such as FrugalGPT [36] choose among models per re-quest, while cloud–edge methods such as CE-CoLLM [4] keep a local model as the default executor and invoke a cloud model for difficult requests. These methods still keep the cloud model in the serving loop. Agent Distillation [5] moves the transfer offline by training small agents from cloud-agent trajectories, but requires local-model updates. In contrast, SkillSmith uses a Cloud Agent only before deployment to build a non-parametric Skill; the deployed Local Agent remains frozen and runs without cloud API calls. 
+
+B. Knowledge enhancement and Skill Evolution 
+
+These work equip agents with reusable non-parametric knowledge. Prompt-based methods [6], [7] place demonstra-tions or manuals in context. For memory-based methods, Memento [22] learns procedural memory from interaction so agent behavior can be adapted without fine-tuning LLM weights. REMe [37] maintains dynamic procedural memory and refines it with new experience and feedback. Memp [23] explores how agent procedural memory can be organized for future reuse. MACLA [38] builds hierarchical procedural memory with Bayesian selection and contrastive refinement. For skill-based methods, EvoSkill [12] refiness skills from execution trajectories, SkillRL [26] distills past experience into a hierarchical SkillBank and recursively evolves it with RL, SkillOpt [27] optimizes skill documents through bounded edits and validation gates, and CoEvoSkills [13] uses co-evolutionary verification to improve skills and reduce regres-sions. VI. C ONCLUSION 
+
+This paper introduces SkillSmith, a Cloud–Local Agent collaboration framework that automatically constructs and evolves high-quality Skills to enhance a frozen Local Agent. Our experiments show that the generated Skill enables a Local Agent with Qwen3.6-27B to achieve effectiveness comparable to Cloud Agents, outperforming the strongest non-parametric baseline on each dataset by 11.3 to 26.2 points, reducing av-erage actions per task, and generalize to other SLM backbone models without rerunning Skill construction. REFERENCES [1] OpenClaw, “OpenClaw documentation,” https://docs.openclaw.ai/, 2026, accessed July 22, 2026. [2] Anthropic, “Claude Code documentation,” https://code.claude.com/docs/ en/overview, 2026, accessed July 22, 2026. [3] Nous Research, “Hermes Agent,” https://github.com/NousResearch/ hermes-agent, 2026, gitHub repository. Accessed July 22, 2026. [4] H. Jin and Y. Wu, “CE-CoLLM: Efficient and adaptive large language models through cloud-edge collaboration,” arXiv preprint arXiv:2411.02829 , 2024. [5] M. Kang, J. Jeong, S. Lee, J. Cho, and S. J. Hwang, “Distilling LLM agent into small models with retrieval and code tools,” arXiv preprint arXiv:2505.17612 , 2025. [6] T. B. Brown, B. Mann, N. Ryder, M. Subbiah, J. Kaplan, P. Dhariwal, A. Neelakantan, P. Shyam, G. Sastry, A. Askell, S. Agarwal, A. Herbert-Voss, G. Krueger, T. Henighan, R. Child, A. Ramesh, D. M. Ziegler, J. Wu, C. Winter, C. Hesse, M. Chen, E. Sigler, M. Litwin, S. Gray, B. Chess, J. Clark, C. Berner, S. McCandlish, A. Radford, I. Sutskever, and D. Amodei, “Language models are few-shot learners,” in Advances in Neural Information Processing Systems (NeurIPS) , vol. 33, 2020, pp. 1877–1901. [7] C.-Y. Hsieh, S.-A. Chen, C.-L. Li, Y. Fujii, A. Ratner, C.-Y. Lee, R. Krishna, and T. Pfister, “Tool documentation enables zero-shot tool-usage with large language models,” arXiv preprint arXiv:2308.00675 ,2023. [8] A. Zhao, D. Huang, Q. Xu, M. Lin, Y.-J. Liu, and G. Huang, “ExpeL: LLM agents are experiential learners,” in Proceedings of the AAAI Conference on Artificial Intelligence , vol. 38, no. 17, 2024, pp. 19 632– 19 642. [9] Z. Z. Wang, J. Mao, D. Fried, and G. Neubig, “Agent workflow memory,” in International Conference on Machine Learning (ICML), PMLR 267 ,2025, pp. 63 897–63 911. [10] Anthropic, “Equipping agents for the real world with agent skills,” https://www.anthropic.com/engineering/ equipping-agents-for-the-real-world-with-agent-skills, 2025, announced October 16, 2025. [11] J. Ni, Y. Liu, X. Liu, Y. Sun, M. Zhou, P. Cheng, D. Wang, E. Zhao, X. Jiang, and G. Jiang, “Trace2skill: Distill trajectory-local lessons into transferable agent skills,” arXiv preprint arXiv:2603.25158 , 2026. [12] S. Alzubi, N. Provenzano, J. Bingham, W. Chen, and T. Vu, “EvoSkill: Automated skill discovery for multi-agent systems,” arXiv preprint arXiv:2603.02766 , 2026. [13] H. Zhang, S. Fan, H. P. Zou, Y. Chen, Z. Wang, J. Zhou, C. Li, W.-C. Huang, Y. Yao, K. Zheng, X. Liu, X. Li, and P. S. Yu, “Co-EvoSkills: Self-evolving agent skills via co-evolutionary verification,” 
+
+arXiv preprint arXiv:2604.01687 , 2026. [14] S. Yao, J. Zhao, D. Yu, N. Du, I. Shafran, K. Narasimhan, and Y. Cao, “ReAct: Synergizing reasoning and acting in language models,” in 
+
+International Conference on Learning Representations (ICLR) , 2023. [15] Qwen Team, “Qwen3.6-27B model card,” https://huggingface.co/Qwen/ Qwen3.6-27B, 2026, accessed July 22, 2026. [16] C. E. Jimenez, J. Yang, A. Wettig, S. Yao, K. Pei, O. Press, and K. Narasimhan, “SWE-bench: Can language models resolve real-world GitHub issues?” in International Conference on Learning Representa-tions (ICLR) , 2024. [17] M. A. Merrill, A. G. Shaw, N. Carlini, B. Li, H. Raj, I. Bercovich 
+
+et al. , “Terminal-bench: Benchmarking agents on hard, realistic tasks in command line interfaces,” arXiv preprint arXiv:2601.11868 , 2026. [18] Skylenage AI, “QwenClawBench: A real-user-distribution bench-mark for evaluating OpenClaw agents,” https://huggingface.co/datasets/ skylenage-ai/QwenClawBench, 2026, hugging Face Datasets. [19] D. Rein, B. L. Hou, A. C. Stickland, J. Petty, R. Y. Pang, J. Dirani, J. Michael, and S. R. Bowman, “GPQA: A graduate-level google-proof Q&A benchmark,” in Conference on Language Modeling (COLM) ,2024. [20] Anthropic, “Claude model overview,” https://platform.claude.com/docs/ en/docs/about-claude/models/overview, 2026, accessed July 22, 2026. [21] Y. Jiang, D. Li, H. Deng, B. Ma, X. Wang, Q. Wang, and G. Yu, “SoK: Agentic skills – beyond tool use in LLM agents,” arXiv preprint arXiv:2602.20867 , 2026. [22] H. Zhou, Y. Chen, S. Guo, X. Yan, K. H. Lee, Z. Wang, K. Y. Lee, G. Zhang, K. Shao, L. Yang, and J. Wang, “Memento: Fine-tuning LLM agents without fine-tuning LLMs,” arXiv preprint arXiv:2508.16153 ,2025. [23] R. Fang, Y. Liang, X. Wang, J. Wu, S. Qiao, P. Xie, F. Huang, H. Chen, and N. Zhang, “Memp: Exploring agent procedural memory,” in Findings of the Association for Computational Linguistics: ACL 2026 ,2026, pp. 17 490–17 502. [24] R. Zeng, J. Fang, S. Liu, and Z. Meng, “On the structural memory of LLM agents,” arXiv preprint arXiv:2412.15266 , 2024. [25] C. Wang, Z. Yu, X. Xie, W. Yao, R. Fang, S. Qiao, K. Cao, G. Zheng, X. Qi, P. Zhang, and S. Deng, “SkillX: Automatically constructing skill knowledge bases for agents,” arXiv preprint arXiv:2604.04804 , 2026. [26] P. Xia, J. Chen, H. Wang, J. Liu, K. Zeng, Y. Wang, S. Han, Y. Zhou, X. Zhao, H. Chen, Z. Zheng, C. Xie, and H. Yao, “SkillRL: Evolving agents via recursive skill-augmented reinforcement learning,” arXiv preprint arXiv:2602.08234 , 2026. [27] Y. Yang, Z. Gong, W. Huang, Q. Yang, Z. Zhou, Z. Huang, Y. Li, X. Gao, Q. Dai, B. Liu, K. Qiu, Y. Yang, D. Chen, X. Yang, and C. Luo, “SkillOpt: Executive strategy for self-evolving agent skills,” 
+
+arXiv preprint arXiv:2605.23904 , 2026. [28] M. Yuksekgonul, F. Bianchi, J. Boen, S. Liu, P. Lu, Z. Huang, C. Guestrin, and J. Zou, “Optimizing generative AI by backpropagating language model feedback,” Nature , vol. 639, no. 8055, pp. 609–616, 2025. [29] G. Wang, Y. Xie, Y. Jiang, A. Mandlekar, C. Xiao, Y. Zhu, L. Fan, and A. Anandkumar, “Voyager: An open-ended embodied agent with large language models,” Transactions on Machine Learning Research , 2024. [30] M. Chen, Y. Li, Y. Yang, S. Yu, B. Lin, and X. He, “AutoManual: Constructing instruction manuals by LLM agents via interactive environ-mental learning,” in Advances in Neural Information Processing Systems (NeurIPS) , 2024. [31] H. Trivedi, T. Khot, M. Hartmann, R. Manku, V. Dong, E. Li, S. Gupta, A. Sabharwal, and N. Balasubramanian, “AppWorld: A controllable world of apps and people for benchmarking interactive coding agents,” in Proceedings of the 62nd Annual Meeting of the Association for Computational Linguistics (ACL) , 2024, pp. 16 022–16 076. [32] O. Styles, S. Miller, P. Cerda-Mardini, T. Guha, V. Sanchez, and B. Vidgen, “WorkBench: A benchmark dataset for agents in a realistic workplace setting,” in Conference on Language Modeling (COLM) ,2024. [33] OpenAI, “OpenAI model documentation,” https://platform.openai.com/ docs/models, 2026, accessed July 22, 2026. [34] Qwen Team, “Qwen3-30B-A3B model card,” https://huggingface.co/ Qwen/Qwen3-30B-A3B, 2025, accessed July 31, 2026. [35] Google DeepMind, “Gemma 4 31B model card,” https://huggingface.co/ google/gemma-4-31B, 2026, accessed July 31, 2026. [36] L. Chen, M. Zaharia, and J. Zou, “FrugalGPT: How to use large language models while reducing cost and improving performance,” Transactions on Machine Learning Research , 2024. [37] Z. Cao, J. Deng, L. Yu, W. Zhou, Z. Liu, B. Ding, and H. Zhao, “Remember me, refine me: A dynamic procedural memory framework for experience-driven agent evolution,” in Findings of the Association for Computational Linguistics: ACL 2026 , 2026, pp. 16 803–16 822. [38] S. Forouzandeh, W. Peng, P. Moradi, X. Yu, and M. Jalili, “Learning hierarchical procedural memory for LLM agents through Bayesian selection and contrastive refinement,” in Proceedings of the International Conference on Autonomous Agents and Multiagent Systems (AAMAS) ,2026.

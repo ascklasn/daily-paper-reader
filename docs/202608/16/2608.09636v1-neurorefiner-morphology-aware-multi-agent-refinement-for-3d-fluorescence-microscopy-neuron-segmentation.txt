@@ -1,0 +1,527 @@
+Title: NeuroRefiner: Morphology-Aware Multi-Agent Refinement for 3D Fluorescence Microscopy Neuron Segmentation
+
+URL Source: https://arxiv.org/pdf/2608.09636v1
+
+Published Time: Tue, 11 Aug 2026 02:24:09 GMT
+
+Number of Pages: 21
+
+Markdown Content:
+# NeuroRefiner: Morphology-Aware Multi-Agent Refinement for 3D Fluorescence Microscopy Neuron Segmentation 
+
+Haiyang Yan 1,2 , Jinyue Guo 1,3 , Yanchao Zhang 1,2 , Bingqing Wang 1,3 ,Zhenchen Li 4 , Jing Liu 1 , Jiazheng Liu 1 , Linlin Li 1 , and Hua Han 1,2(B) 
+
+> 1
+
+State Key Laboratory of Brain Cognition and Brain-inspired Intelligence Technology, Institute of Automation, Chinese Academy of Sciences 
+
+{yanhaiyang2022, hua.han}@ia.ac.cn  
+
+> 2
+
+School of Future Technology, University of Chinese Academy of Sciences  
+
+> 3
+
+School of Artificial Intelligence, University of Chinese Academy of Sciences  
+
+> 4
+
+The State Key Laboratory of Cognitive Neuroscience and Learning, Beijing Normal University, Beijing, China 
+
+Abstract. Accurate 3D neuron segmentation in fluorescence microscopy is critical for neuroscience. However, the sparse and elongated morphol-ogy of neurons poses significant challenges to existing segmentation meth-ods. These methods struggle to preserve both local details and global topology, leading to fragmented results. To address this, we propose NeuroRefiner, a multi-agent system that formalizes the human expert workflow involving iterative global observation and local editing. Specifi-cally, NeuroRefiner comprises three collaborative agents dedicated to di-agnosing topological errors, generating correction instructions, and vali-dating refinement quality. To facilitate agent instruction-guided segmen-tation refinement, we propose TopoRefineNet, a dedicated 3D U-Net-based tool that leverages cross-modality feature fusion to generate refined masks. Through multi-round agent reasoning and voxel-level editing, NeuroRefiner produces topologically more accurate segmentations with enhanced interpretability. Experiments on the BigNeuron, CWMBS, and ZBFWB datasets demonstrate that NeuroRefiner outperforms state-of-the-art methods, notably achieving a 3.02% improvement in F1 score on the challenging ZBFWB dataset. 
+
+Keywords: Neuron reconstruction · Multi-agent system · Segmentation refinement · Fluorescence Microscopy 
+
+## 1 Introduction 
+
+Neuronal reconstruction aims to derive neuronal skeletons from 3D fluores-cence microscopy volumes, thereby enabling quantitative analysis in neuroscience [10, 47]. Accurate reconstruction requires not only recovering fine-grained struc-tural details but also preserving topological correctness. Unlike electron mi-croscopy (EM) neuron reconstruction [14,34,49], which typically deals with dense arXiv:2608.09636v1 [cs.CV] 10 Aug 2026 2 H. Yan et al. Segmentation    
+
+> network
+> Input
+> image
+> Imperfect
+> mask
+> (b)
+> Iterative refinement Global receptive field Transparent reasoning
+> Refined mask
+> Global Inspector
+> Blocks
+> to refine
+> Merge
+> sub-blocks
+> Topological anomaly
+> region detection
+> TopoRefineNet
+> Segmentation
+> Refinement tool
+> Multi-agent
+> Interaction Loop
+> ···
+> ···
+> instructions
+> Refinement Advisor
+> Generation of
+> refinement instruction
+> (a)
+> Input
+> image
+> ..
+> Input
+> Sliding
+> window
+> Prediction
+> Merge
+> ..
+> Single patch Single patch
+> Imperfect mask
+> Segmentation
+> network
+> Global receptive field Modify the incorrect result Interpretability
+> Change Validator
+> Assess refinement quality
+> vs and
+> and
+
+Fig. 1: (a) Mainstream neuron segmentation paradigms. Sliding window-based meth-ods fail to preserve holistic neuronal morphology. Moreover, a single forward pass can-not rectify segmentation errors and lacks interpretability. (b) Overview of NeuroRefiner. By combining global topological observation with local fine-grained refinement, it gen-erates continuous segmentation results consistent with topological priors. The explicit and transparent reasoning process of the agents offers enhanced interpretability. 
+
+cellular structures, fluorescence microscopy poses distinct challenges. These chal-lenges stem from extreme signal sparsity and filamentous morphology within high-resolution 3D volumes that are frequently corrupted by substantial noise [4, 23]. Consequently, robust automated reconstruction requires multi-scale fea-tures to preserve both structural details and global connectivity. Neuron segmentation plays a pivotal role in neuronal reconstruction by en-hancing weak signals and suppressing noise [20,22]. As shown in Fig. 1 (a), given the prohibitive size of raw image volumes, existing segmentation approaches [37, 38, 41, 44] typically rely on sliding-window strategies for inference. Never-theless, the limited receptive field in each local window precludes the modeling of long-range dependencies essential for preserving global neuronal morphol-ogy [42], resulting in fragmented segmentation. Furthermore, these end-to-end approaches typically operate as black boxes, lacking interpretability and offering no mechanism for the correction of significant topological errors in segmenta-tion. Such errors are challenging to localize and rectify, ultimately constituting a critical bottleneck for the automation of neuronal reconstruction. Agent-based biomedical image segmentation methods [15,16,45] have demon-strated enhanced performance and interpretability via the reasoning and tool in-NeuroRefiner 3
+
+vocation capabilities of large language models (LLMs). However, existing agents and their associated tool designs remain ill-suited for neuron segmentation. First, they depend on foundation models (e.g., MedSAM2 [25]) as tools, which process 3D volumes slice-by-slice using 2D encoders. Yet, this proves inadequate for neu-rons, as their structural sparsity and ambiguous boundaries hinder effective fea-ture extraction within isolated 2D planes [51]. Furthermore, these agents confine the workflow to single tool invocations, which lack the flexibility to iteratively refine the segmentation via agent instructions. These limitations underscore the critical need for a dedicated agent framework equipped with domain-specific tools tailored for neuron segmentation. Motivated by the neuroscientist’s cognitive paradigm of global observation and local refinement, we propose NeuroRefiner, a novel multi-agent framework designed for iterative, topology-aware neuron segmentation. As depicted in Fig. 1 (b), our approach comprises three specialized agents: the Global Inspector, which leverages initial segmentation masks and their corresponding Betti numbers to pinpoint sub-regions requiring correction; the Refinement Advisor, which gener-ates detailed refinement instructions for each sub-region; and the Change Val-idator, which assesses refinement validity and determines whether to accept or regenerate the refinement instructions. Complementing these reasoning agents is a dedicated execution tool, TopoRefineNet, which performs instruction-guided editing of the segmentation mask. This closed-loop pipeline effectively leverages multi-scale features and operates iteratively until the segmentation satisfies the structural completeness of neurons. In summary, our contributions are threefold: 
+
+– To overcome the limitations of existing neuron segmentation approaches, we present NeuroRefiner—the first LLM-based multi-agent system that achieves topology-aware iterative optimization of segmentation results. 
+
+– To enable efficient collaboration between reasoning agents and specialized segmentation models, we design TopoRefineNet, a dedicated segmentation editing tool, together with a tailored two-stage training strategy that aligns model behavior with structural refinement instructions. 
+
+– Experiments on three benchmarks demonstrate that our method outper-forms existing neuron segmentation and segmentation refinement approaches. 
+
+## 2 Related Work 
+
+Neuron Segmentation. Recent advancements have prioritized the design of specialized architectures to extract multi-scale features, aiming to simultaneously model global neuronal morphology and fine-grained structural details. Architec-turally, this is typically realized through the integration of dedicated convolu-tion [41, 43] or graph-based reasoning modules [35]. In terms of morphological constraints, methods such as SGSNet [44] and Tubular [37] augment feature representation via multi-task learning that predicts auxiliary geometric cues. To capture intrinsic morphological priors, MP-NRGAN [5] employs adversarial training utilizing weak supervision signals derived from reconstructed neurons. Furthermore, to mitigate the limitations of restricted receptive fields inherent in 4 H. Yan et al. 
+
+patch-based inference, GBP-Net [42] encodes long-range contextual information and fuses it with intra-patch features. Despite these advancements, prevailing models remain hindered by single-pass inference paradigms, which preclude iterative error correction. While certain approaches [3, 52] utilize point cloud networks to refine segmentation outputs, they fundamentally fail to recall omitted structural segments (false negatives) missed during the initial prediction. Conversely, our framework introduces a multi-round refinement mechanism guided by multi-scale features, effectively mitigating the errors in single-pass models. 
+
+Agent for Biomedical Image Segmentation. Existing agent-based approaches generally fall into two distinct paradigms. The first paradigm relies on con-ventional multi-agent reinforcement learning (MARL) for low-level, pixel-wise decision-making. Methods such as IteR-MRL [19] and BS-IRIS [24] employ multi-agent reinforcement learning for interactive 3D segmentation, treating voxels as collaborative agents to iteratively refine results. Similarly, dbMiM [6] employs MARL to optimize masking strategies for self-supervised neuron segmentation. However, these approaches are predominantly tailored for electron microscopy or general 3D modalities (e.g., MRI/CT), rendering them ineffective for handling neurons in fluorescence microscopy. The second paradigm represents a more advanced, LLM-driven approach. These agents are LLM-centric and leverage planning-execution loops to invoke external segmentation tools. For instance, Ophiuchus [16] adopts a three-stage training strategy to coordinate vision tools like SAM2 [31] and BiomedParse [53] for enhanced lesion segmentation. IBISAgent [15] generates textual click instruc-tions to invoke interactive segmentation tools for progressive mask refinement, while GenCellAgent [45] introduces a multi-agent framework that achieves intel-ligent tool routing via a planner-executor-evaluator loop. Although these meth-ods have improved accuracy, they lack topology-aware agent design and tools specifically tailored for sparse neurons. 
+
+Segmentation Refinement. High-resolution image segmentation convention-ally necessitates downsampling operations or patch-based inference strategies, which incur boundary artifacts or information loss. To mitigate these issues, a series of refinement methods has been proposed. Mask Transfiner [17] identifies incoherent regions to perform fine-grained label correction. SegRefiner [36] in-troduced a generic, iterative framework leveraging discrete diffusion processes to correct diverse segmentation errors. To achieve accurate segmentation of EM neurons, FGNet [18] refines the semantic features extracted by SAM2 [30] by training a lightweight fine-grained encoder. While effective for boundary reg-ularization, existing methods neglect global topology, which is paramount for preserving filamentous neuronal structures. Hence, topology-aware refinement for neuronal structures remains a critical, underexplored frontier. NeuroRefiner 5Global inspector  
+
+> ……
+> Step1 : Check the abnormal sub-blocks and output their types.
+> Step 2 : Propose correction suggestions
+> based on the image and the segmentation
+> Step 3 : Refine the segmentation based on the revised suggestions
+> Step 4 : Compare the results to determine whether to accept .
+> 𝓑 fix
+
+：{1:’FP’, 5:’FN’, … } 
+
+> 𝐼 5
+> Connected components: [8,4,3,5,7,3]
+> Merge
+> Merge
+
+𝒕 5: Connect the neurons located in the middle upper    
+
+> posterior region
+> 𝐼 1𝑀 1xy 𝑀 1yz
+> Step n : The result is complete and can be output.
+
+Refinement Advisor                        
+
+> 𝒕 1:Remove the isolated noise
+> located in the left upper front
+> …,from the overall image ,…
+> break in the middle …. Rechecking the id 5, …have afalse negative, ……examined the block with the high connected component …id 1, found noise …
+
++
+
+𝑀 init  𝐼 MIP  
+
+> Multi round
+> …
+> Refined Segmentation
+> 3D view
+> …
+> 𝑀 5xy 𝑀 5
+> yz
+> 𝑀 𝑖
+
+xy 
+
+𝑀 t
+
+> Text
+> Encoder
+> Block 1
+
+TopoRefineNet 
+
+𝑀 1
+
+refined 𝑀 1, 𝐼 1
+
+> Block 5
+
+TopoRefineNet 
+
+𝑀 5
+
+refined 𝑀 5, 𝐼 5      
+
+> …after refinement has
+> less irrelevant structure
+> and should be accepted .
+
+Change Validator            
+
+> Instruction adherence
+> Topological improvement
+> …result removed the noise
+> according to the instruction …
+> …after refinement has
+> better continuity and should be accepted .
+
+Change Validator    
+
+> Instruction adherence
+> Topological improvement
+> …result removed the
+> noise according to the instruction
+
+Refinement Advisor 
+
+> Text
+> Encoder
+
+Fig. 2: Collaborative NeuroRefiner workflow. The system performs multi-round refine-ment via the interaction of agents and TopoRefineNet to obtain topologically complete segmentation results. 
+
+## 3 Method 
+
+Sec. 3.1 describes the collaborative mechanism among agents in NeuroRefiner. Sec. 3.2 details the design of each individual agent and Sec. 3.3 presents the architecture and training strategy of our proposed tool, TopoRefineNet. 
+
+3.1 NeuroRefiner 
+
+Manual refinement of neuron segmentation follows a hierarchical workflow in which experts iteratively alternate between global morphological assessment and fine-grained local editing. Motivated by this paradigm, we propose a multi-agent collaborative framework, as outlined in Algorithm 1. The segmentation mask 
+
+M (t) is initialized using an off-the-shelf segmentation model. At each iteration, the Global Inspector conducts a holistic assessment of  M (t) to detect sub-regions that violate topological priors. Subsequently, the Refinement Advisor generates a set of structure-aware refinement instructions {ti}, each tailored to a specific anomalous sub-region. These instructions guide TopoRefineNet to produce re-fined sub-region masks, denoted as {M refined 
+
+i }. As a validation mechanism, the Change Validator acccepts only those refinements that yield an improvement over the original segmentation, as 
+
+M (t+1) = Merge 
+
+
+
+M (t), M refined 
+
+i | Validator (M refined 
+
+i ) = True 
+
+
+
+. (1) As illustrated in Fig. 2, the process terminates when the Global Inspector determines that the neuronal morphology is complete or upon reaching  Tmax 
+
+iterations. This iterative protocol ensures transparency, as the explicit diagnostic decisions and instructions generated at each step are auditable. 6 H. Yan et al. 
+
+Algorithm 1 NeuroRefiner: Morphology-Aware Multi-Agent Refinement 
+
+Require: 3D image I, initial mask M (0) , max iterations Tmax , iteration t ← 0
+
+1: while t < T max do 
+
+2: Compute z-axis MIP M xy , sub-blocks {bi}, and Betti numbers {β0(bi)}
+
+3: Bf ix , {τi} ← πins (M xy , {M xy i }, {β0(bi)}) // Identify blocks to fix 4: if Bf ix = ∅ then break //morphologically converged 5: for each block bi ∈ Bf ix do 
+
+6: Initialize retry counter k ← 0
+
+7: while k < T max do 
+
+8: ti ← πadv (Ixy i , I yz i , M xy i , M yz i , τ i) // Generate refinement instruction 9: M ref ined i ← TopoRefineNet (Ii, M i, t i) // Instruction-guided editing 10: ri ← πval (M xy i , M refined  
+
+> i
+
+, t i, τ i) // Validate refinement quality 11: if ri is Accept then 
+
+12: M [bi] ← M refined  
+
+> i
+
+, break //Update local mask 13: else 
+
+14: k ← k + 1 //Retry 15: end if 
+
+16: end while 
+
+17: end for 
+
+18: t ← t + 1 
+
+19: end while 
+
+20: return M final ← M (t)
+
+3.2 Design of Agents in NeuroRefiner Global Inspector leverages the high discriminability of global morphological anomalies to identify sub-regions violating topological priors. Given an initial 3D segmentation mask Minit and the corresponding image I, we first apply Maximum Intensity Projection (MIP) along the z-axis to obtain projection M xy 
+
+and Ixy . Performing MIP on sparse volumes facilitates their input into VLMs while inducing minimal signal overlap. The projected volume is then partitioned into a set of non-overlapping 2D sub-blocks B = {bi}Ni=1 , yielding corresponding image and mask patches {Ixy i } and {M xy i }.As a crucial metric for neuron segmentation, topological correctness serves as an effective guide for identifying erroneous regions. For each sub-block, the 0th-order Betti number is computed to quantify topological irregularities as β0(bi) = 
+
+CC (Mi), where CC (·) denotes the connected component counting function in the corresponding 3D region. An elevated β0 value, which indicates a greater number of isolated fragments within a sub-block, suggests a higher likelihood of topological errors. Based on this topological metric and the mask, the inspection policy πins identifies abnormal regions and categorizes their error types: 
+
+Bfix , τ i = πins (M xy , {M xy  
+
+> i
+
+}, β 0(bi)) , (2) where Bf ix ⊆ B denotes the subset of blocks requiring refinement and τi
+
+labels each block as either false-positive or false-negative. They provide guidance for the Refinement Advisor to generate detailed instructions. NeuroRefiner 7
+
+Refinement Advisor generates structured, morphology-aware instructions to guide the correction of identified sub-blocks. To precisely delineate the abnormal region along the z-axis, the agent first applies MIP to the 3D region correspond-ing to bi along the x-axis and then localizes the defect in the yz-plane. Upon obtaining the xy and yz plane projections of the target region, it jointly ana-lyzes the image and mask from orthogonal views to uncover connectivity cues and formulate a refinement instruction, as 
+
+ti = πadv 
+
+ Ixy i , I yz i , M xy i , M yz i , τ i
+
+. (3) Each instruction ti explicitly encodes both a spatial location (e.g., “upper-left-posterior”) and an editing operation (e.g., “connect” or “remove”). The editing module TopoRefineNet subsequently performs refinement based on the instruc-tion and outputs M refined  
+
+> i
+
+. This design decouples reasoning from voxel-level op-erations by using natural language as an intermediary, thereby fully unleashing the agent’s reasoning and expressive capabilities. 
+
+Change Validator ensures the reliability of iterative refinement by evaluating the output of TopoRefineNet and preventing erroneous edits from being merged. Specifically, it compares the initial mask Mi against the refined result M refined  
+
+> i
+
+,conditioned on the instruction ti and the error type τi to assess whether the edit is beneficial to morphology. This evaluation is formalized as 
+
+ri = πval 
+
+ M xy i , M refined  
+
+> i
+
+, ti, τ i
+
+. (4) The Change Validator only approves an edit when two criteria are satisfied: (1) instruction adherence—the modification correctly implements the spatial and operational intent of ti, and (2) topological improvement—the refined mask ex-hibits reduced fragmentation or noise without introducing new artifacts. If either condition fails, it triggers the refinement advisor to generate a new instruction, thereby closing the loop with corrective feedback. For cases that remain unre-solved after multiple refinement cycles, the system escalates the sub-block to human experts for manual intervention. 
+
+3.3 TopoRefineNet Architecture. Serving as the critical bridge between high-level agent reason-ing and low-level pixel operations, TopoRefineNet executes the conversion of topological instructions into voxel-level mask modifications. Inspired by recent advances in multimodal conditional generation [8,33,48], TopoRefineNet formu-lates segmentation refinement as an instruction-guided image editing task. As illustrated in Fig. 3 (a), it takes the image Ii and the noisy mask Mi ∈ RH×W ×D
+
+as input, which are concatenated and encoded by a visual encoder Eθ to produce a hierarchical feature pyramid, as {Fvi }Li=1 = Eθ ([ Ii; Mi]) . The instruction ti is embedded via a frozen pre-trained text encoder, as Ft = Tϕ(t) ∈ Rd . The in-teraction is achieved via cross-attention between the deepest visual features FvL
+
+and Ft, formulated as 8 H. Yan et al. Data Augmentation 
+
+> Synthetic
+> instruction
+> Label
+> Prediction
+> Synthetic
+> defect
+> Stage 1
+> Instruction from VLM
+> Real
+> defect
+> Prediction
+> Stage 2
+
+(b)  
+
+> Image Image
+> Label
+
+(a)   
+
+> Instruction Text
+> Encoder
+> Cross
+> Attention
+> Image Initial mask
+> Image
+> Encoder
+> Image
+> Decoder
+> TopoRefineNet
+> Refinement
+> Advisor
+> Prediction
+
+Fig. 3: (a) Architecture of TopoRefineNet. The image and instruction are encoded by their respective encoders, fused via cross-attention, and decoded to generate the cor-rected mask. (b) The proposed two-stage training paradigm. The first stage is trained on synthetic defects, while the second stage utilizes real masks with defects. 
+
+F′vL = CrossAttn (FvL, Ft) = softmax 
+
+ Wq FvL(WkFt)⊤
+
+√dk
+
+
+
+Wv Ft, (5) where Wq , Wk, Wv are learnable projection matrices and dk denotes the feature dimension. This mechanism dynamically recalibrates visual features by attending to regions and editing operations specified in the instruction. The fused feature 
+
+F′vL is passed to the decoder D, which integrates it with shallow features via skip connections and upsamples to yield the refined mask Mrefined . The entire process is concisely expressed as a conditional generation function, as 
+
+Mrefined = Fθ (Ii, M i, ti) = D ◦ CrossAttn  Eθ ([ Ii; Mi]) , Tϕ(ti). (6) This design addresses the limitations of general tools in editing sparse neuronal structures, empowering the system with essential capabilities for fine-grained morphological refinement. 
+
+Training Strategy. To endow TopoRefineNet with precise instruction-to-voxel editing capability, we devise a two-stage training strategy as shown in Fig. 3 (b). The initial stage prioritizes cross-modal alignment using synthetic data with morphological defects. Specifically, ground-truth masks  Mgt  are perturbed via data augmentation to yield corrupted variants (Sec. 4.1), with corresponding re-finement instructions generated based on the location and type of perturbation. The second stage subsequently shifts focus toward real-world generalization. We curate segmentation outputs from multiple networks trained on diverse neuronal datasets and specifically select instances that exhibit representative topological NeuroRefiner 9
+
+errors. For each identified error, a refinement instruction is synthesized using Qwen3-VL [1]. By progressively increasing defect complexity from synthetic sce-narios to complex real-world cases, this scheme stabilizes optimization and en-hances robustness against the diverse instructions encountered during inference. 
+
+## 4 Experiments 
+
+4.1 Experiments Setup Dataset. To evaluate NeuroRefiner across diverse neuronal morphologies and imaging conditions, we conducted experiments on three representative bench-marks, adhering to the training–testing splits established in prior work [22,42,44]. The BigNeuron [28] dataset comprises expert-annotated neurons spanning mul-tiple species. Images were acquired across different laboratories and imaging platforms, exhibiting substantial variations in appearance, resolution, and scale. The CWMBS [22] dataset is derived from whole-brain mouse imaging and con-tains volumes of size 256 × 256 × 256 voxels (physical resolution: 0.2μm × 0.2μm × 1μm), of which 83 exhibit strong background noise and 162 feature thin filamentary structures with weak signals. The ZBFWB dataset [9] consists of confocal microscopy images from 6-day-old zebrafish larvae (1000 × 2000 × 250 voxels; 0.5μm × 0.5μm × 1μm), presenting challenges due to its low contrast, long-range axonal projections, intricate network topologies, and low contrast. 
+
+Metrics. To ensure consistency with prior work [22, 42, 44], we use reconstruc-tions generated by APP2 [39] to assess segmentation quality from point-level accuracy to topological completeness. We compute the precision, recall, and F1-score to evaluate voxel-level accuracy and further employ the distance-based metric Spatial Distance (SD) to measure the average bidirectional distance be-tween prediction and ground-truth structures. Its variant SSD [29], excludes matched points within 2 voxels to focus on significant topological errors. Finally, MES [40] evaluates the overall morphological fidelity of topology by quantifying the lengths of missing and extra structures. Lower SD and SSD values, along with higher values for all other metrics, indicate superior reconstruction. 
+
+Details. In our experiments, all agents use Qwen3-VL-8B [1] as the foundation model, and text embeddings are obtained from Qwen3 Embedding 0.6B [50]. The Global Inspector performs error detection using a region of 128 × 128 pixels as its fundamental unit. The maximum number of iterations  Tmax  is set to 5. The prompts for all agents and the template of instructions for TopoRefineNet are provided in the supplementary material. Both training stages of TopoRefineNet employ cross-entropy loss and dice loss [26]. In the first stage, to synthesize FN segmentations, we randomly select a positive sample as the center and perform an erosion operation with a random kernel size k ∈ [5 , 20] to generate breaks of varying lengths. For FP samples, 10 H. Yan et al. 
+
+Table 1: Quantitative results (%) on the CWMBS dataset. The best results are bolded 
+
+and the second-best results are underlined in the following table. 
+
+Models Weak Signal Strong Noise 
+
+SD ↓ SSD ↓ PRE ↑ REC ↑ F1 ↑ MES ↑ SD ↓ SSD ↓ PRE ↑ REC ↑ F1 ↑ MES ↑
+
+3D Segmentation Baselines  
+
+> 3D U-Net
+
+28.35 33.71 93.85 62.37 74.94 46.21 24.98 31.61 94.16 69.57 79.23 54.30  
+
+> SwinU
+
+24.94 31.14 94.07 65.07 76.93 56.45 19.43 27.17 93.71 74.40 80.98 56.30  
+
+> nnUNet
+
+25.97 31.66 95.03 68.82 79.83 54.76 33.65 39.89 90.38 61.43 73.14 52.19 
+
+Neuron-tailored architectures  
+
+> V-Net
+
+23.80 29.97 93.58 71.12 80.82 55.47 34.96 40.17 88.16 56.34 68.75 46.95  
+
+> SGSNet
+
+35.70 40.82 92.44 55.63 69.46 50.29 19.59 26.79 94.79 73.13 82.56 58.25  
+
+> GBP-Net
+
+11.85 19.27 95.06 83.50 88.91 67.09 17.15 24.94 93.41 75.93 83.77 59.41  
+
+> ADTL-Net
+
+25.96 31.65 93.49 62.72 75.07 53.51 28.11 35.18 95.24 60.68 74.13 52.79 
+
+Refinement approaches on 3D UNet  
+
+> Transfiner
+
+27.33 32.14 94.10 62.28 74.95 46.22 24.53 31.52 94.33 70.22 80.51 56.28  
+
+> SegFix
+
+26.74 32.09 93.00 64.72 76.32 48.93 23.22 30.18 95.39 70.11 80.82 57.52  
+
+> SegRefiner
+
+17.61 23.79 94.92 77.84 85.54 62.31 21.64 27.80 92.19 72.84 81.38 57.91  
+
+> Ours
+
+9.17 15.21 95.72 85.05 90.07 70.32 13.29 19.52 94.31 79.66 86.37 64.39 
+
+Refinement approaches on nnUNet  
+
+> Transfiner
+
+25.34 31.73 95.63 66.29 78.30 53.16 33.24 39.70 91.69 63.79 75.24 53.27  
+
+> SegFix
+
+24.82 30.57 95.47 69.69 80.57 56.79 30.09 35.35 92.74 61.02 73.61 55.38  
+
+> SegRefiner
+
+15.98 22.60 96.71 73.46 83.50 61.41 22.53 27.83 94.35 66.37 77.92 54.93  
+
+> Ours
+
+7.26 11.86 96.79 87.39 91.85 72.60 15.96 20.17 93.76 77.47 84.84 61.82 
+
+we either randomly copy-paste annotations of other neurons or introduce Gaus-sian noise within local regions. In the second stage, we trained several common architectures—namely, 3D U-Net [7], V-Net [21], UNETR [12], nnFormer [54], and SwinUNETR [11]—on a subset of the training set, followed by inference on the complete training set. Based on connected component and F1 scores, we selected a total of 5,310 volumes of 128 × 128 × 64 voxels exhibiting significant segmentation errors for training. 
+
+4.2 Quantitative Results 
+
+We comprehensively evaluated NeuroRefiner against a diverse set of state-of-the-art (SOTA) methods for fluorescence microscopy neuron segmentation. The baselines include 3D U-Net [7], SwinUNETR [11], and nnUNet [13]; neuron-tailored architectures SGSNet [44], GBP-Net [42], Improved V-Net [21], and ADTL-Net [22]; refinement-based methods Mask Transfiner [17], SegFix [46], and SegRefiner [36]. We reproduced the corresponding 3D versions of the 2D-based refinement-based methods using the same training data as TopoRefineNet. NeuroRefiner 11 
+
+Table 2: Quantitative results (%) on the BigNeuron and ZBFWB datasets. Method SD↓ SSD↓ PRE↑ REC↑ F1↑ MES↑                                                                                                                  
+
+> BigNeuron 3D U-Net [7] 7.23 11.27 83.15 89.76 86.33 66.82 nnUNet [13] 5.16 8.68 87.34 86.87 87.10 68.72 Improved V-Net [21] 7.40 11.16 82.50 90.41 86.27 67.16 SGSNet [44] 5.90 9.34 86.22 90.28 88.20 69.90 GBP-Net [42] 4.89 8.41 88.83 89.23 89.03 70.77 ADTL-Net [22] 5.12 8.39 88.25 87.14 87.69 69.32 Mask Transfiner [17] 6.82 10.57 86.14 88.89 87.49 69.01 SegFix [46] 7.18 11.35 83.92 89.19 86.47 66.32 SegRefiner [36] 5.79 9.94 87.18 89.23 88.19 69.27 Ours 3.39 6.94 89.74 90.37 90.05 72.02
+> ZBFWB 3D U-Net [7] 38.65 45.41 86.33 63.15 72.94 53.63 nnUNet [13] 27.94 34.40 86.40 67.60 75.85 61.78 Improved V-Net [21] 42.43 49.06 84.27 58.16 68.82 51.45 SGSNet [44] 44.34 50.29 82.54 55.36 66.27 48.14 GBP-Net [42] 20.35 28.44 91.13 76.39 83.11 71.41 ADTL-Net [22] 46.74 54.87 82.53 52.77 64.38 48.79 Mask Transfiner [17] 36.23 43.12 88.26 63.92 74.14 54.87 SegFix [46] 36.42 42.97 87.21 62.94 73.11 55.96 SegRefiner [36] 30.18 36.25 88.25 65.19 74.99 60.32 Ours 16.31 23.66 92.77 80.38 86.13 74.25
+
+Tab. 1 reports quantitative results on the CWMBS subsets. CNN-based mod-els (3D U-Net, SGSNet) are hampered by local receptive fields, limiting gener-alization under distribution shifts, whereas multiscale methods (GBP-Net, Swi-nUNETR) demonstrate superior accuracy. Due to a lack of topology-centric refinement, Transfiner and SegFix yield only marginal gains on the masks of 3D U-Net and nnUNet. In contrast, our approach leverages agent-based reasoning and topology-centric refinement and improves F1 scores of various segmentation masks by over 10% on the weak-signal subset, establishing SOTA results across both subsets. Tab. 2 summarizes results on the BigNeuron and ZBFWB datasets, where all refinement approaches utilize 3D U-Net segmentation outputs as initializa-tion. Benefiting from multi-step refinement, both SegRefiner and our approach boost F1 scores on the BigNeuron dataset. Specifically, our method improves MES by 5.20% and reduces SSD by 4.33 relative to the initial segmentation. On the more challenging ZBFWB dataset, conventional CNN-based methods struggle to handle low-contrast regions, resulting in fragmented segmentation and suppressed recall. Although GBP-Net leverages enhanced multi-scale fea-tures to surpass other methods, it remains unable to correct topological defects. Furthermore, we observe that all segmentation refinement approaches yield con-sistent improvements. Notably, our method elevates the F1 score of 3D U-Net by 13.19%, achieving an F1 score 3.02% higher than GBP-Net. These results vali-date the effectiveness of our multi-agent system in leveraging topological priors and global features for iterative refinement. 12 H. Yan et al. (f)  (g)          
+
+> 3D UNet Image
+> (a) (b) (c) (d) (e) (j)
+> Ground truth Swin UNETR nnUNet Ours
+> (i) (f) (h)
+> SegRefiner SegFix ADTL-Net GBP-Net
+
+Fig. 4: Qualitative comparison of original images, ground truth, and segmentation results on the ZBFWB dataset. The orange boxes highlight regions with weak signals. Our method preserves the complete neuronal structure and yields superior performance. 
+
+Table 3: Ablation Study on Agents in NeuroRefiner.                            
+
+> Global Inspector Refinement Advisor Change Validator ZBFWB CWMBS
+> SSD F1 (%) SSD F1 (%) 34.52 76.39 30.23 79.96
+> ✓32.05 77.29 28.47 80.34
+> ✓✓25.24 83.47 18.93 87.14
+> ✓✓30.69 81.43 24.53 83.12
+> ✓✓✓23.66 86.13 16.65 88.83
+
+Fig. 4 depicts a neuron with long-range projections from the ZBFWB dataset, where irrelevant tissue signals significantly obscure the target structure. All single-pass segmentation methods yield results plagued by topological violations, characterized by extensive fragmentation and artifacts. Although refinement-based paradigms correct local errors in segmentation, they lack a neuron-specific error identification and correction protocol. In contrast, our method leverages agent-based reasoning and neuronal topological priors to guide the refinement with TopoRefineNet, achieving superior reconstructions. 
+
+4.3 Ablation Study Ablation Study on Agents in NeuroRefiner. To validate the efficacy of the proposed multi-agent system, we conducted ablation studies on the ZBFWB and CWMBS datasets, summarized in Table 3. In the absence of agents, TopoRe-fineNet refines all blocks indiscriminately for Tmax rounds. While this improves initial segmentation, the lack of global context and targeted guidance yields suboptimal results. Employing solely the Global Inspector for both error local-ization and instruction generation provides negligible gains, as a single agent struggles to manage these distinct tasks and lacks quality control mechanisms. The Refinement Advisor decouples instruction generation from inspection. This functional specialization yields F1 gains of 6.18% and 6.80%, respectively. Fur-ther incorporating the Change Validator to filter unreliable refinements yields NeuroRefiner 13 
+
+Table 4: Ablation Study on Foun-dation Model. Method CWMBS ZBFWB SSD F1 SSD F1 Intern-VL3-8B 17.70 87.94 28.11 83.81 Qwen2.5-VL-7B 18.33 87.14 27.31 84.77 Qwen3-VL-8B 16.65 88.83 23.66 86.13 0 1 2 3 4 5 6 
+
+> Iteration Count ( T)
+> 70 75 80 85 90 95
+> F1 Score (%)
+> CWMBS ZBFWB BigNeuron
+
+Fig. 5: Ablation Study on Iteration Num-bers Tmax .
+
+additional gains of 2.66% and 1.68%. Ultimately, the full system achieves opti-mal performance, confirming that synergistic collaboration is essential for robust, high-fidelity neuron segmentation refinement. Fig. 5 illustrates the impact of the number of iterations. The results indi-cate that across all three datasets, the initial iteration yields substantial gains, whereas improvements diminish significantly after the fifth iteration. Conse-quently, we set the maximum iteration count Tmax = 5 . Notably, the more challenging ZBFWB and CWMBS datasets require more steps to converge and demonstrate significant improvement over the baseline segmentation. 
+
+Ablation Study on Foundation models. We evaluated NeuroRefiner us-ing alternative open-source VLMs. As shown in Tab. 4, while Qwen3-VL-8B achieves optimal performance due to its advanced reasoning capabilities, substi-tuting it with weaker models like Qwen2.5-VL-7B [2] and Intern-VL3-8B [55] still yields significant improvements over the baseline (+4.82% F1 with Intern-VL3 on CWMBS). This confirms that the performance gain stems primarily from the multi-agent refinement framework and TopoRefineNet, rather than the specific foundation model. 
+
+Ablation Study on Global Inspector. We conduct ablation studies on the input configuration, as summarized in Tab. 5. When relying solely on  M xy  , the inspector tends to overlook fragmentation artifacts, leading to marginal refine-ment gains. In contrast, providing the full sequence of patch-level projections alongside the global view enables it to jointly leverage holistic context and lo-cal cues. This significantly enhances the ability to pinpoint topological defects and improves the F1 score by 3.43% and 3.20%. Although the MIP of the seg-mentation results is sufficient to identify most topological anomalies in sparsely distributed neurons, a small number of complex volumes may still suffer from interference due to neuron overlap. Therefore, incorporating the 0-th Betti num-ber  β0 as an auxiliary topological indicator effectively directs attention toward regions with high connected component counts. This configuration achieved the best performance across multiple datasets. 14 H. Yan et al.                                               
+
+> Table 5: Ablation Study on Global Inspector. Inputs ZBFWB CWMBS
+> Mxy {Mxy
+> i}β0(bi)SSD F1 (%) SSD F1 (%)
+> ✓32.86 77.36 27.11 81.89
+> ✓✓26.27 80.79 21.47 85.09
+> ✓✓29.16 82.41 25.93 82.64
+> ✓✓✓23.66 86.13 16.65 88.83 Table 6: Ablating TopoRefineNet. Method CWMBS ZBFWB SSD F1 SSD F1 AdaLN 19.37 86.46 26.78 84.38 CDP 17.89 88.07 22.14 86.07 CAB 16.65 88.83 23.66 86.13
+
+Ablation Study on TopoRefineNet. We carry out ablation studies on the architecture and training strategies of TopoRefineNet. First, we compared three multimodal fusion strategies: channel-wise dot product (CDP) [32], cross-attention in the bottleneck (CAB), and AdaLN [27]. As shown in Tab. 6, since CDP and CAB yield comparable accuracy, we adopt the more efficient CAB. Second, we replace the text encoder with the larger Qwen3-4B. It yields no significant im-provement, indicating that the 0.6B variant suffices for precise encoding of the structured instructions. To validate the two-stage curriculum learning strategy, we trained on real defects from scratch as a comparison. This single-stage variant exhibited a 23.57% increase in the rejection rate of Change Validator, alongside F1 score degradations of 1.17% and 1.89% in ZBFWB and CWMBS, respec-tively. The decline confirms the necessity of our training strategy. 
+
+## 5 Conclusion 
+
+In this paper, we present NeuroRefiner, the first LLM-based multi-agent system for neuron segmentation refinement. By coordinating morphology-aware global inspection, language-guided editing, and validation, our approach achieves pro-gressive refinement without agent training. Consequently, it overcomes the lim-ited topological fidelity and poor interpretability inherent in end-to-end segmen-tation models. The proposed TopoRefineNet bridges the gap between instruc-tions and segmentation models, offering novel insights into agent–tool interaction design. Notably, our framework is agnostic to the foundation model, ensuring it evolves in tandem with advancements in VLMs. 
+
+Limitation While NeuroRefiner’s 2D MIP detects topological anomalies in sparse neurons, it loses depth information in dense regions, hindering precise 3D error localization. Future work can introduce depth-aware encoding, which maps Z-axis depth to pseudo-color channels or generates depth-weighted projec-tions, allowing the Global Inspector to resolve occlusions and accurately infer the Z-axis depth of topological defects. 
+
+Acknowledgement This work was supported by the Brain Science and Brain-like Intelligence Technology - National Science and Technology Major Project (2021ZD0204500, 2021ZD0204503 to L.L.), National Key Research and Devel-opment Program of China (2025YFA1614600 to J.L.). NeuroRefiner 15 
+
+## References 
+
+1. Bai, S., Cai, Y., Chen, R., Chen, K., Chen, X., Cheng, Z., Deng, L., Ding, W., Gao, C., Ge, C., et al.: Qwen3-vl technical report. arXiv preprint arXiv:2511.21631 (2025) 2. Bai, S., Chen, K., Liu, X., Wang, J., Ge, W., Song, S., Dang, K., Wang, P., Wang, S., Tang, J., et al.: Qwen2. 5-vl technical report. arXiv preprint arXiv:2502.13923 (2025) 3. Balsiger, F., Soom, Y., Scheidegger, O., Reyes, M.: Learning shape representation on sparse point clouds for volumetric image segmentation (2019) 4. Chen, R., Liu, M., Chen, W., Wang, Y., Meijering, E.: Deep learning in mesoscale brain microscopy image analysis: A review. Computers in Biology and Medicine p. 107617 (2023) 5. Chen, X., Zhang, C., Zhao, J., Xiong, Z., Zha, Z.J., Wu, F.: Weakly supervised neuron reconstruction from optical microscopy images with morphological priors. IEEE Trans. Med. Imag. 40 (11), 3205–3216 (2021) 6. Chen, Y., Huang, W., Zhou, S., Chen, Q., Xiong, Z.: Self-supervised neu-ron segmentation with multi-agent reinforcement learning. arXiv preprint arXiv:2310.04148 (2023) 7. Çiçek, Ö., Abdulkadir, A., Lienkamp, S.S., Brox, T., Ronneberger, O.: 3d u-net: learning dense volumetric segmentation from sparse annotation. In: International conference on medical image computing and computer-assisted intervention. pp. 424–432. Springer (2016) 8. Couairon, G., Verbeek, J., Schwenk, H., Cord, M.: Diffedit: Diffusion-based seman-tic image editing with mask guidance. arXiv preprint arXiv:2210.11427 (2022) 9. Du, X., Yue, Z., Wei, J., Li, W., Chen, M., Chen, T., Hu, H., Ren, H., Jia, Z., Ning, X., et al.: Central nervous system atlas of larval zebrafish constructed using the morphology of single excitatory and inhibitory neurons. bioRxiv pp. 2025–06 (2025) 10. Gou, L., Wang, Y., Gao, L., Zhong, Y., Xie, L., Wang, H., Zha, X., Shao, Y., Xu, H., Xu, X., et al.: Gapr for large-scale collaborative single-neuron reconstruction. Nature Methods 21 (10), 1926–1935 (2024) 11. Hatamizadeh, A., Nath, V., Tang, Y., Yang, D., Roth, H.R., Xu, D.: Swin unetr: Swin transformers for semantic segmentation of brain tumors in mri images. In: International MICCAI brainlesion workshop. pp. 272–284. Springer (2021) 12. Hatamizadeh, A., Tang, Y., Nath, V., Yang, D., Myronenko, A., Landman, B., Roth, H.R., Xu, D.: Unetr: Transformers for 3d medical image segmentation. In: Proceedings of the IEEE/CVF winter conference on applications of computer vi-sion. pp. 574–584 (2022) 13. Isensee, F., Jaeger, P.F., Kohl, S.A., Petersen, J., Maier-Hein, K.H.: nnU-Net: A self-configuring method for deep learning-based biomedical image segmentation. Nature Methods 18 (2), 203–211 (2021) 14. Jiang, L., Lu, Y., Zhang, Y., Liu, J., Han, H.: Neuromamba: Multi-perspective feature interaction with visual mamba for neuron segmentation. arXiv preprint arXiv:2601.15929 (2026) 15. Jiang, Y., Li, Q., Xu, B., Sun, H., Ding, C., Dong, J., Cai, Y., Zhang, X., Yin, J.: Ibisagent: Reinforcing pixel-level visual reasoning in mllms for universal biomedical object referring and segmentation. arXiv preprint arXiv:2601.03054 (2026) 16. Jiang, Y., Zhang, Y., Zhang, P., Li, Y., Chen, J., Shi, X., Zhen, S.: Incentivizing tool-augmented thinking with images for medical image analysis. arXiv preprint arXiv:2512.14157 (2025) 16 H. Yan et al. 17. Ke, L., Danelljan, M., Li, X., Tai, Y.W., Tang, C.K., Yu, F.: Mask transfiner for high-quality instance segmentation. In: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition. pp. 4412–4421 (2022) 18. Li, Z., Chen, H., Sun, Z., Li, K., Hu, X.: Fgnet: Leveraging feature-guided attention to refine sam2 for 3d em neuron segmentation. arXiv preprint arXiv:2511.13063 (2025) 19. Liao, X., Li, W., Xu, Q., Wang, X., Jin, B., Zhang, X., Wang, Y., Zhang, Y.: Iteratively-refined interactive 3d medical image segmentation with multi-agent re-inforcement learning. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 9394–9402 (2020) 20. Liu, C., Jiang, Y., Zheng, N.: Netracer: A topology-aware iterative tracing approach for tubular structure extraction. In: Proceedings of the IEEE/CVF International Conference on Computer Vision. pp. 20593–20602 (2025) 21. Liu, M., Luo, H., Tan, Y., Wang, X., Chen, W.: Improved v-net based image segmentation for 3D neuron reconstruction. In: Proc. 2018 IEEE Int. Conf. Bioinf. Biomed. (BIBM). pp. 443–448. IEEE (2018) 22. Liu, M., Wu, S., Chen, R., Lin, Z., Wang, Y., Meijering, E.: Brain image seg-mentation for ultrascale neuron reconstruction via an adaptive dual-task learning network. IEEE Trans. Med. Imag. (2024) 23. Liu, Y., Wang, G., Ascoli, G.A., Zhou, J., Liu, L.: Neuron tracing from light mi-croscopy images: Automation, deep learning and bench testing. Bioinformatics 
+
+38 (24), 5329–5339 (2022) 24. Ma, C., Xu, Q., Wang, X., Jin, B., Zhang, X., Wang, Y., Zhang, Y.: Boundary-aware supervoxel-level iteratively refined interactive 3d image segmentation with multi-agent reinforcement learning. IEEE Transactions on Medical Imaging 40 (10), 2563–2574 (2020) 25. Ma, J., Yang, Z., Kim, S., Chen, B., Baharoon, M., Fallahpour, A., Asakereh, R., Lyu, H., Wang, B.: Medsam2: Segment anything in 3d medical images and videos. arXiv preprint arXiv:2504.03600 (2025) 26. Milletari, F., Navab, N., Ahmadi, S.A.: V-net: Fully convolutional neural networks for volumetric medical image segmentation. In: Proc. 2016 4th Int. Conf. 3D Vis. (3DV). pp. 565–571. IEEE (2016) 27. Peebles, W., Xie, S.: Scalable diffusion models with transformers. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 4195–4205 (2023) 28. Peng, H., Hawrylycz, M., Roskams, J., Hill, S., Spruston, N., Meijering, E., Ascoli, G.A.: Bigneuron: Large-scale 3D neuron reconstruction from optical microscopy images. Neuron 87 (2), 252–256 (2015) 29. Peng, H., Ruan, Z., Long, F., Simpson, J.H., Myers, E.W.: V3d enables real-time 3D visualization and quantitative analysis of large-scale biological image data sets. Nature Biotechnol. 28 (4), 348–353 (2010) 30. Ravi, N., Gabeur, V., Hu, Y.T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rädle, R., Rolland, C., Gustafson, L., et al.: Sam 2: Segment anything in images and videos. arXiv preprint arXiv:2408.00714 (2024) 31. Ravi, N., Gabeur, V., Hu, Y.T., Hu, R., Ryali, C., Ma, T., Khedr, H., Rdle, R., Rolland, C., Gustafson, L.: Sam 2: Segment anything in images and videos (2024) 32. Rokuss, M., Langenberg, M., Kirchhoff, Y., Isensee, F., Hamm, B., Ulrich, C., Regnery, S., Bauer, L., Katsigiannopulos, E., Norajitra, T., et al.: Voxtell: Free-text promptable universal 3d medical image segmentation. arXiv preprint arXiv:2511.11450 (2025) NeuroRefiner 17 33. Rombach, R., Blattmann, A., Lorenz, D., Esser, P., Ommer, B.: High-resolution image synthesis with latent diffusion models. In: Proceedings of the IEEE/CVF conference on computer vision and pattern recognition. pp. 10684–10695 (2022) 34. Sheridan, A., Nguyen, T.M., Deb, D., Lee, W.C.A., Saalfeld, S., Turaga, S.C., Manor, U., Funke, J.: Local shape descriptors for neuron segmentation. Nature methods 20 (2), 295–303 (2023) 35. Wang, H., Song, Y., Zhang, C., Yu, J., Liu, S., Pengy, H., Cai, W.: Single neuron segmentation using graph-based global reasoning with auxiliary skeleton loss from 3D optical microscope images. In: IEEE 18th Int. Symp. Biomed. Imaging (ISBI). pp. 934–938. IEEE (2021) 36. Wang, M., Ding, H., Liew, J.H., Liu, J., Zhao, Y., Wei, Y.: Segrefiner: Towards model-agnostic segmentation refinement with discrete diffusion process. arXiv preprint arXiv:2312.12425 (2023) 37. Wang, X., Liu, M., Wang, Y., Fan, J., Meijering, E.: A 3D tubular flux model for centerline extraction in neuron volumetric images. IEEE Trans. Med. Imag. 41 (5), 1069–1079 (2021) 38. Wang, Y., Lang, R., Li, R., Zhang, J.: Nrtr: Neuron reconstruction with transformer from 3D optical microscopy images. IEEE Trans. Med. Imag. (2023) 39. Xiao, H., Peng, H.: App2: Automatic tracing of 3D neuron morphology based on hierarchical pruning of a gray-weighted image distance-tree. Bioinformatics 29 (11), 1448–1454 (2013) 40. Xie, J., Zhao, T., Lee, T., Myers, E., Peng, H.: Anisotropic path searching for automatic neuron reconstruction. Med. Image Anal. 15 (5), 680–689 (2011) 41. Yan, H., Zhai, H., Guo, J., Li, L., Han, H.: Neurolink: Bridging weak signals in neuronal imaging with morphology learning. In: Int. Conf. Med. Image Comput. Comput.-Assist. Interv. (MICCAI). pp. 467–477. Springer (2024) 42. Yan, H., Zhang, Y., Li, Z., Guo, J., Zhai, H., Liu, J., Zhong, Y., Yuan, J., Shen, L., Li, L., et al.: Glancing beyond patch: Spatial contextual cues for 3d neuron segmentation. IEEE Transactions on Medical Imaging (2025) 43. Yang, B., Chen, W., Luo, H., Tan, Y., Liu, M., Wang, Y.: Neuron image segmen-tation via learning deep features and enhancing weak neuronal structures. IEEE J. Biomed. Health Informat. 25 (5), 1634–1645 (2020) 44. Yang, B., Liu, M., Wang, Y., Zhang, K., Meijering, E.: Structure-guided segmenta-tion for 3D neuron reconstruction. IEEE Trans. Med. Imag. 41 (4), 903–914 (2021) 45. Yu, X., Yang, Y., Liu, Q., Du, Y., McSweeney, S., Lin, Y.: Gencellagent: General-izable, training-free cellular image segmentation via large language model agents. arXiv preprint arXiv:2510.13896 (2025) 46. Yuan, Y., Xie, J., Chen, X., Wang, J.: Segfix: Model-agnostic boundary refine-ment for segmentation. In: European conference on computer vision. pp. 489–506. Springer (2020) 47. Zhang, L., Huang, L., Yuan, Z., Hang, Y., Zeng, Y., Li, K., Wang, L., Zeng, H., Chen, X., Zhang, H., et al.: Collaborative augmented reconstruction for scaled production of 3d neuron morphology in mouse and human brains. bioRxiv pp. 2023–10 (2023) 48. Zhang, L., Rao, A., Agrawala, M.: Adding conditional control to text-to-image diffusion models. In: Proceedings of the IEEE/CVF international conference on computer vision. pp. 3836–3847 (2023) 49. Zhang, Y., Guo, J., Zhai, H., Liu, J., Han, H.: Segneuron: 3d neuron instance seg-mentation in any em volume with a generalist model. In: International Conference on Medical Image Computing and Computer-Assisted Intervention. pp. 589–600. Springer (2024) 18 H. Yan et al. 50. Zhang, Y., Li, M., Long, D., Zhang, X., Lin, H., Yang, B., Xie, P., Yang, A., Liu, D., Lin, J., et al.: Qwen3 embedding: Advancing text embedding and reranking through foundation models. arXiv preprint arXiv:2506.05176 (2025) 51. Zhang, Y., Jiao, R.: Towards segment anything model (sam) for medical image segmentation: a survey. arXiv preprint arXiv:2305.03678 (2023) 52. Zhao, R., Wang, H., Zhang, C., Cai, W.: Pointneuron: 3d neuron reconstruction via geometry and topology learning of point clouds. In: Proceedings of the IEEE/CVF winter conference on applications of computer vision. pp. 5787–5797 (2023) 53. Zhao, T., Gu, Y., Yang, J., Usuyama, N., Lee, H.H., Naumann, T., Gao, J., Crab-tree, A., Abel, J., Moung-Wen, C.: Biomedparse: a biomedical foundation model for image parsing of everything everywhere all at once (2024) 54. Zhou, H.Y., Guo, J., Zhang, Y., Han, X., Yu, L., Wang, L., Yu, Y.: nnformer: Volumetric medical image segmentation via a 3d transformer. IEEE transactions on image processing 32 , 4036–4045 (2023) 55. Zhu, J., Wang, W., Chen, Z., Liu, Z., Ye, S., Gu, L., Tian, H., Duan, Y., Su, W., Shao, J., et al.: Internvl3: Exploring advanced training and test-time recipes for open-source multimodal models. arXiv preprint arXiv:2504.10479 (2025) NeuroRefiner 19 Prompt for Global Inspector 
+
+You are a Neuron Segmentation Topology Quality Inspection Expert . Evaluate segmentation quality based on the morphological features of the Segmentation Mask and Connected Components ( CC ) metrics . # Task You will receive a set of neuron segmentation data : 1. ** Global Segmentation Map **: The overall segmentation result marked with Block IDs . 2. ** Sub - region Masks **: Binary segmentation masks for each Block . 3. ** Connected Components Metrics **: The pre - calculated number of Connected Components within each Block . Your goal is to identify erroneous blocks that cause neuron discontinuity or contain noise . The final ideal state is : ** Only a few connected components across the entire map , with no isolated noise .** # Judgment Logic Please make judgments based on the following morphological and topological rules : ## 1. False Negative ( FN ) - Topological Breakage - ** Characteristic **: Neurons should be continuous but are disconnected within the block or at block boundaries . - ** Mask Appearance **: - Multiple large connected components exist within the block , oriented towards each other but unconnected . - The neuron skeleton abruptly terminates within the block ( not at the boundary ) . - Neuron endings at the block boundary do not find continuation in adjacent blocks . ## 2. False Positive ( FP ) - Isolated Noise - ** Characteristic **: Background areas incorrectly labeled as neurons . - ** Mask Appearance **: - Presence of tiny , isolated connected components ( spot - like ) . - Component shapes are irregular and do not conform to the neuron " slender tubular " morphological prior . - No physical connection with the main neuron skeleton . ## 3. Normal : Good connectivity within the block , morphology conforms to neuron characteristics . # Workflow 1. ** Metric Filtering **: Prioritize Blocks with abnormally high CC counts , as this usually indicates breakage or noise . 2. ** Morphological Analysis **: Observe the shapes of components within high - CC blocks . Is it FN or FP ? 3. ** Boundary Check **: Observe whether the segmentation at block edges is smooth and continuous , or if there are abrupt truncations . 4. ** Global Consistency **: Consider whether correcting this block would help improve the connectivity of the entire map . # Output Format Only output problematic Block IDs . Values are limited to " FN " or " FP ". Format Example : {"1": " FN " , "5": " FP " , "12": " FN "} # Constraints - ** Do Not Fabricate **: Judge solely based on the provided mask morphology ; do not assume raw signals that do not exist . - ** Strict Format **: Must comply with JSON standards . - ** Convergence Condition **: If the neuron morphology is judged to be intact , output an empty JSON object . 20 H. Yan et al. Prompt for Refinement Advisor 
+
+You are a senior biomedical image analysis expert specializing in the reconstruction and segmentation quality assessment of 3 D neuronal microscopy images . You possess strong spatial reasoning capabilities and can infer 3 D structures from 2 D Maximum Intensity Projection ( MIP ) images . You will receive 4 images , categorized into two view groups ( XY plane and YZ plane ) . Each group contains one " Original Fluorescence Image " and one " Segmentation Mask ". The defects present in the current segmentation results are : [ Placeholder ]. Specifically : - ** False Negative ( FN ) **: Signal exists in the original image , but is missing in the segmentation result ( broken or lost ) . - ** False Positive ( FP ) **: No signal in the original image , but marked in the segmentation result ( noise or over - segmentation ) . Your core task is to locate errors across dual views by comparing the original image with the segmentation results , and generate executable structured correction instructions . # Input Definition Image 1: Original image in XY view . Image 2: Segmentation result in XY view . Image 3: Original image in YZ view . 4. Image 4: Segmentation result in YZ view . Please strictly follow the steps below for reasoning and output : ## Step 1: Compare Image 1 and Image 2. - ** Clues **: Identify corresponding fluorescence signal features ( e . g . , brightness , continuity , texture ) in the original image ( Image 1) . For False Negatives , look for potential connection clues . For False Positives , identify the location of noise . - ** Localization **: Determine the relative position of the error on the XY plane ( Top / Bottom / Left / Right / Center ) . ## Step 2: YZ View Analysis and Localization - Compare Image 3 and Image 4 to determine the relative position of the error on the YZ plane ( Top / Bottom / Front / Rear / Center ) . * Note : The left side represents the Front direction *. ## Step 3: Generate Correction Instructions Based on the error classification , generate standardized natural language instructions : - ** For False Negatives ( FN ) **: - ** Long - range Discontinuity **: If the neuron trunk break spans alarge distance , specify connection endpoints . Format : ‘ Connect neuron from [ Start Position ] to [ End Position ] ‘ ( Example : Connect neuron from top - left - rear to bottom - left - front ) . - ** Short - range Discontinuity **: If it is only a local gap , specify the break point . Format : ‘ Repair break at [ Specific Position ] ‘ ( Example : Repair break at top - right - front ) . - ** For False Positives ( FP ) **: Specify the region to be removed . Format : ‘ Remove artifact / noise at [ Specific Position ] ‘ ( Example : Remove isolated noise at right - center - rear ) or ‘ Remove noise from [ Start Position ] to [ End Position ] ‘. # Constraints - Must be based on image evidence ; fabricating non - existent structures is strictly prohibited . - Position descriptions must include both planar information ( e . g . , " Top - Left ") and depth information ( e . g . , " Rear ") to ensure accurate 3 D localization . - Output must be objective and concise ; avoid ambiguous vocabulary ( e . g . , " approximately " , " possibly ") . NeuroRefiner 21 Prompt for Change Validator 
+
+You are a senior Neuron Segmentation Quality Assessment Specialist . Your task is to evaluate the effectiveness of automated correction workflows on neuron segmentation results . # Input Data 1. ** Image A ( Pre - correction ) **: Initial neuron segmentation result . 2. ** Image B ( Post - correction ) **: Segmentation result after algorithmic processing . 3. ** Correction Command **: {{ c o r r e c t i o n _ c o m m a n d _ p l a c e h o l d e r }} # Evaluation Criteria Compare Image A and Image B strictly based on the following two dimensions . ** The correction is accepted ONLY if BOTH dimensions are satisfied .** ## Dimension 1: Topological Quality Image B must demonstrate equal or superior structural integrity compared to Image A . Focus on : - ** Continuity **: Are neurites more continuous with fewer breaks / discontinuities ? - ** Noise Control **: Are background artifacts or isolated noise points effectively suppressed ? - ** Connectivity **: Are critical branching points preserved with plausible connections , avoiding erroneous disconnections or abnormal mergers ? * Note : Perfection is not required , but a clear trend toward " denoising " or " connection repair " must be observable .* ## Dimension 2: Instruction Compliance Changes in Image B must explicitly align with the semantic intent of the [ Correction Command ]. - If the command is " connect broken segments " , is the specified break actually connected in Image B ? - If the command is " remove noise " , are the targeted artifacts eliminated in Image B ? - If the command is ignored , partially executed , or misapplied ( e . g . , valid neurites erroneously deleted ) , mark as non - compliant . # Workflow 1. ** Visual Comparison **: Carefully examine differences between Image A and B . 2. ** Command Verification **: Semantically match observed changes against the [ Correction Command ]. 3. ** Topology Assessment **: Judge whether structural quality improved ( cleaner , more continuous ) . 4. ** Final Decision **: Apply logic : ‘ Accept = ( Topology Improved OR Unchanged ) AND ( Command Compliant ) ‘. ** Evaluation Conclusion **: - Result : [ ACCEPT / REJECT ] - Reason : [ If REJECTED , specify whether due to topology degradation or command non - compliance ; if ACCEPTED , briefly state the improvement ]

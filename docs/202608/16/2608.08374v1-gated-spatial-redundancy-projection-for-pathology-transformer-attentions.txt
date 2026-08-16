@@ -1,0 +1,547 @@
+Title: Gated Spatial Redundancy Projection for Pathology Transformer Attentions
+
+URL Source: https://arxiv.org/pdf/2608.08374v1
+
+Published Time: Tue, 11 Aug 2026 01:13:02 GMT
+
+Number of Pages: 28
+
+Markdown Content:
+> arXiv:2608.08374v1 [cs.CV] 8 Aug 2026
+
+YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 1
+
+# Gated Spatial Redundancy Projection for Pathology Transformer Attentions 
+
+Zhiyuan Yang 1
+
+zhiyuan.yang@mail.concordia.ca 
+
+Jiahao Cheng 1
+
+jiahao.cheng@mail.concordia.ca 
+
+Vincent Quoc-Huy Trinh 2
+
+quoc-huy.trinh@umontreal.ca 
+
+Mahdi S. Hosseini 1,3 
+
+mahdi.hosseini@concordia.ca  
+
+> 1
+
+Department of Computer Science and Software Engineering (CSSE), Concor-dia University, Montreal, Canada  
+
+> 2
+
+Axe Cancer, Centre de recherche du CHUM, Université de Montréal, Mon-tréal, Canada  
+
+> 3
+
+Mila - Quebec AI Institute, Montreal, Canada 
+
+Abstract 
+
+Transformer models are increasingly used for whole-slide image analysis in compu-tational pathology. Yet, WSIs differ fundamentally from natural images: neighbouring patches often contain highly similar tissue type, stain, texture, and cellular composi-tion. We identify this local spatial redundancy as a pathology-specific failure mode of self-attention, where dominant neighbourhood features can be repeatedly mixed into patch-tokens and weaken subtle diagnostic or prognostic deviations. We propose Gated Spatial Redundancy Projection (Gated SRP) , a lightweight drop-in correction module for self-attention layers. For each patch token and attention head, Gated SRP estimates a local redundancy axis from neighbouring value vectors, projects the attention output onto this axis, and applies a learned signed gate to correct the redundancy-aligned com-ponent geometrically. Across five TCGA survival cohorts, Gated SRP obtains the highest mean C-index among the compared attention variants in all cohorts, with an average im-provement over the base attention, while adding only +0.02% parameters. Across five slide-level classification datasets, it improves the base attention on 12 of 16 reported metrics and achieves the best AUC on three datasets. Code is publicly available here. 
+
+# 1 Introduction 
+
+In computational pathology, transformer models are widely used to analyze giga-pixel whole-slide images (WSIs) from tissue specimens which are used for patch-level and slide-level prediction tasks [20]. However, unlike natural images, WSIs are often locally homogeneous within proximity of tissue regions i.e. nearby patches from the same anatomical or patholog-ical area tend to share tissue type, stain, texture, and cellular composition [19, 20, 42]. We refer to this near-duplicate neighbourhood structure as local spatial redundancy , illustrated in Figure 1. This redundancy provides useful spatial context, but it also creates a distinctive challenge in transformer models [13, 39]. When neighbouring patch tokens carry similar visual information, the token with subtle diagnostic evidence can be easily overwhelmed by 
+
+© 2026. The copyright of this document resides with its authors. It may be distributed unchanged freely in print or electronic forms. 2 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+Figure 1: Local spatial redundancy in pathology. (a) Nearby crops in a natural image often contain distinct semantic content. (b) Nearby crops in a whole-slide image (WSI) often show the same tissue type, stain, and texture. (c) In transformer models, after self-attention layers, each WSI patch token has a high cosine similarity to its 3 × 3-neighbour mean, whereas the corresponding similarities for natural image patches are spread far lower. We refer to this near-duplicate neighbourhood structure as local spatial redundancy , which can drive transformer models to mix redundant information into diagnostically important patch tokens, and make them less distinguishable from their surrounding tissue context. repetitive information, making it less distinguishable from other tokens after attention lay-ers. This problem can be especially prominent in prognostic tasks such as survival analysis ,where risk prediction often relies on weak microenvironmental cues spread across homoge-neous tissue regions. Existing research in generic transformers has shown that attention outputs, token inter-actions, and redundant tokens can be modified to improve model behaviour [3, 11, 17, 21, 25, 26, 30, 31, 32, 34, 35, 38, 43, 44]. In computational pathology, WSI transformer models have also made strong progress in slide-level aggregation, efficient token handling, and rep-resentation learning [2, 7, 8, 9, 10, 12, 16, 23, 24, 28, 29, 37, 41]. However, most of these methods are not aware of the local spatial redundancy of WSIs as an image property. Generic transformer methods are usually designed for natural images, where redundancy is often re-garded as a problem of noise, routing, efficiency, or token roles rather than as a property of the image. On the other hand, pathology models often use attention to aggregate slide-level evidence, but they do not explicitly address how locally repeated tissue patterns may introduce redundant information to the tokens. This leaves a natural question: can we make transformer attention more suitable for pathology by making patch-token updates aware of local spatial redundancy? 
+
+We propose Gated Spatial Redundancy Projection (Gated SRP) , a lightweight drop-in module for attention layers. For each patch token and attention head, Gated SRP estimates a local spatial redundancy direction from neighbouring value vectors, projects the attention output onto this direction, and uses a small signed gate to decide how much of the projected component should be corrected. The module is applied only to patch tokens, leaving the  
+
+> CLS
+
+token unchanged for slide-level aggregation. It can be inserted after any attention layers without changing the attention routing, classifier, or loss function. Furthermore, Gated SRP is designed as a safe low-overhead correction rather than a large new prediction module. On average, it adds only a lightweight gate with ~0.02% of total parameters. The base attention remains exactly reachable throughout training: when the learned correction coefficient is zero, the layer reduces to the original attention layer. This identity path makes the module safe to integrate after attention blocks, because the model can suppress the spatial correction YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 3
+
+whenever the baseline attention update is preferable. Our contributions are as follows: • A novel self-attention correction method for pathology. We introduce Gated Spa-tial Redundancy Projection (Gated SRP) to correct the patch tokens, following self-attention layers, to mitigate the risk of repetitive patterns within the proximity of the tissue region in WSI, which can overwhelm subtle diagnostic evidence in each token. • A pathology-driven view of transformer attention. We identify local spatial redun-dancy as a potential failure mode of self-attention in pathology transformers, helping to explain why attention in highly homogeneous WSIs can differ from natural images. • Flexibility, efficiency, and stability. Gated SRP is a lightweight drop-in module that can be inserted after any self-attention block with minimal additional parameters. The module is designed to be able to recover the base attention layer when necessary, which makes the performance on par with the base attention in the worst-case scenario. • A systematic evaluation of the Gated SRP mechanism. We evaluate the Gated SRP on five TCGA survival cohorts and five slide-level classification datasets, where Gated SRP achieves favorable performance across survival and classification settings, with ablations supporting the contribution of the proposed spatial correction mechanism. 
+
+# 2 Related Works 
+
+Attention correction and token roles. Recent work shows that attention can contain re-dundant or noisy components that should be explicitly corrected. Exclusive Self-Attention (XSA) identifies token self-information as redundant information and explicitly removes self-information from each token because it occupies the token’s capacity to carry contex-tual information [44]. Differential Transformer subtracts paired attention maps to reduce common attention noise [43], and related methods further study negative, integral, or gated forms of attention correction [21, 30, 31]. These works suggest attention is not always best used as-is. However, these methods correct attention outputs in a generic way and are not built from the spatial neighbourhoods of pathology slides. Another related direction studies the different roles of patch tokens and the CLS token. CaiT delays CLS-token interaction, and recent token-specialization work shows that patch tokens and readout tokens may ben-efit from different processing rules [32, 38]. Similarly, pathology transformer models must preserve local patch evidence while still producing a global slide representation, suggesting attention corrections should be done differently on patch tokens and the CLS token. 
+
+Locality and token redundancy in vision transformers. Another line of work also studies locality and redundant tokens in Vision Transformers, which relates closely to local spa-tial redundancy in WSIs. ConViT introduces a soft convolutional bias into attention, while Swin Transformer and Neighborhood Attention Transformer restrict attention to local win-dows or neighbourhoods [11, 17, 26]. These methods show that local image structure is useful in natural images. However, this contradicts the local spatial redundancy property of WSIs. These methods encourage/limit the tokens to attend to neighbour tokens, which leads to redundant token information being explicitly mixed together and potentially harms the downstream performance in pathology tasks. Other methods treat redundancy as an efficiency problem: DynamicViT and EViT remove less useful tokens, TokenLearner sum-marizes an image with a small set of learned tokens, and ToMe merges similar tokens to 4 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+reduce computation [3, 25, 34, 35]. These methods recognize that many visual tokens can be repeated or less informative. However, they usually prune, merge, summarize, or reroute to-kens, which sometimes destabilize model training through changed token behavior and loss of information. 
+
+Whole-slide image modelling in computational pathology. In computational pathology, many WSI models focus on learning slide-level representations from large sets of patches. MIL methods such as CLAM and DSMIL identify important regions for slide-level predic-tion [23, 28]. Transformer and graph-based methods such as TransMIL, Patch-GCN, and HIPT further model spatial or hierarchical relations among tissue regions [7, 8, 37]. Pathol-ogy foundation models such as UNI, CONCH, TITAN, GigaPath and MOOZY provide strong patch-, slide-, or patient-level representations that can be transferred to downstream tasks [9, 12, 22, 29, 41]. More recent methods address WSI scale by selecting represen-tative patches, filtering tokens, or compressing slide representations [2, 10, 16, 24]. These works have greatly improved WSI analysis, but they mostly use attention for aggregation and representation learning, or efficiency. They do not directly study how local common tissue patterns can affect attention updates and weaken subtle diagnostic or prognostic signals. 
+
+# 3 Methodology 
+
+## 3.1 Preliminaries 
+
+In standard vision transformers [13], a transformer block takes a set of N visual tokens 
+
+{xi}Ni=1, xi ∈ RD as inputs, optionally preceded by a learned classification token xCLS . Each block uses multi-head self-attention with H heads of head dimension d = D/H. For a single head we drop the head index in this subsection; per-head matrices are introduced explicitly only when the distinction matters. 
+
+Standard self-attention (SA). For tokens {xi}, projections qi = Wqxi, k j = Wkx j, v j =
+
+Wvx j ∈ Rd , attention weights and output are 
+
+ai, j =
+
+exp 
+
+
+
+q⊤ 
+
+> i
+
+k j/√d
+
+
+
+∑ j′ exp 
+
+
+
+q⊤ 
+
+> i
+
+k j′ /√d
+
+ , yi = ∑
+
+> j
+
+ai, j v j. (1) A residual connection then adds xi back at the block boundary, so the token’s own informa-tion is preserved at the block output regardless of what the attention contribution yi adds. The SA contribution yi is the object the post-attention modifications below operate on. 
+
+Exclusive Self-Attention (XSA). Zhai [44] observed that under standard SA, the output yi
+
+frequently retains a non-trivial component along the token’s own value vector vi, even when the diagonal weight ai,i is small. This happens either through residual paths or via correlated 
+
+{v j} across the softmax weights ai,·. Over-emphasizing token self-information limits the model’s ability to gather contextual information from other tokens, thus harming the model’s performance. To force the attention update to carry strictly contextual information, XSA replaces yi with its projection onto the subspace orthogonal to vi:
+
+zi = yi − y⊤ 
+
+> i
+
+vi
+
+∥vi∥22
+
+vi = yi − proj vi yi (per head; 44, Eq. 2) (2) YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 5
+
+Equivalently, with ˆ vi = vi/∥vi∥2,
+
+zi = yi − (y⊤ 
+
+> i
+
+ˆvi) ˆvi, (3) i.e. exact removal of the component of yi along the unit value vector ˆ vi. This orthogonal pro-jection separates where attention is allocated from which direction of the aggregated value is retained . The model may still attend to token i, but the ˆ vi-aligned component is removed after aggregation. It is often preferred over token removal or attention masking because the latter changes the routing problem itself and can discard useful orthogonal context. Therefore, projection preserves the routing capacity of the attention while leaving self-like, point-wise content to the residual/FFN path, matching the division of labour motivating XSA. 
+
+## 3.2 Motivation 
+
+XSA provides a simple and intuitive approach to remove certain information from atten-tion output tokens. However, WSIs and their image patches have three key properties that constrain token-modification mechanisms: • Redundancy is local spatial information. Adjacent patch tokens inside tumour, stroma, or lymphoid regions often share cell type, staining, and texture, so the rele-vant redundancy axis is local neighbourhood context rather than the token’s own value alone. • Projection strength should be token-dependent. A patch token inside homogeneous tissue may tolerate strong projection, whereas an isolated tumour focus may contain the slide’s entire diagnostic signal. • Rare evidence may require amplification. For isolated or boundary tokens, the use-ful signal is their disagreement with the neighbourhood; one-sided removal can sup-press exactly that evidence. XSA’s three coupled choices (projection along ˆ vi, a fixed coefficient uniformly applied to all tokens, and one-sided removal) directly contradict the three properties above. In the next subsection, we propose the gated spatial redundancy projection attention, which addresses the three properties directly. 
+
+## 3.3 Gated Spatial Redundancy Projection (Gated SRP) 
+
+As illustrated in Figure 2, Gated SRP is a drop-in attention correction module after any self-attention layers. It modifies only the attention contribution yi,h of a visual token i in head h.It first defines the local common component 
+
+ci,h = proj ri,h yi,h =  y⊤ 
+
+> i,h
+
+ˆri,h
+
+ˆri,h, (4) where ri,h is the local spatial redundancy vector and ˆ ri,h is the L2-normalized ri,h that represents the spatial-neighbourhood redundancy axis , as shown in Eq 6. Then, the local common component is multiplied by a signed, token-specific coefficient βeff , i,h (Eq 7), and subtracted from yi,h to correct it: 
+
+zi,h = yi,h − βeff , i,h ci,h (per head) (5) 6 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+Figure 2: Method overview. (a) Gated SRP is a lightweight drop-in module inserted after a self-attention layer, adding only ~0.02% parameters. (b) For each patch-token attention output y, Gated SRP uses the local 3 × 3 neighbourhood to estimate a redundancy direction ˆ r.It projects y onto this direction to obtain the neighbourhood-aligned component c = proj ˆr(y).A learned gate predicts a signed coefficient β , and the corrected output is z = y − β c. The correction is applied to all patch tokens but not to the CLS token. This single equation implements the three changes motivated above. First, the axis ˆ r is spatial rather than self-referential. Second, the strength βeff varies per token and head. Lastly, the signed range of βeff lets the model choose anti-projection, identity, projection, or reflection as local context requires. We explain each component and design choices in later paragraphs, with a PyTorch-style pseudocode block provided in the appendix. 
+
+Local spatial redundancy axis. We define local spatial redundancy as the local common pattern within a spatial neighbourhood. For each visual token i, let N (i) be the set of valid spatial neighbours on the patch grid within a n × n window, where n is a hyperparameter. We use n = 3, which gives an 8-neighbour grid when coordinates are available, and the analogous fixed grid for patch-level images. The head-h neighbourhood mean is 
+
+ri,h = 1
+
+mi ∑ 
+
+> j∈N(i)
+
+StopGrad (v j,h), ˆri,h = ri,h
+
+   ∥ri,h∥2 + ε, mi = |N (i)|, (6) where StopGrad (·) denotes the stop-gradient operator and ε is a small stability constant. We stop gradients through ˆ ri,h so that the neighbour mean is a geometric reference rather than a trainable escape route through Wv. Therefore, the learnable part of the method is the decision of how to use this local axis, not the axis itself. 
+
+Signed local gate. The scalar βeff , i,h is produced from a gate logit ℓi,h (Eq 8) by a bounded signed head: 
+
+βeff , i,h = δ · tanh (ℓi,h) ∈ (−δ , +δ ). (7) where δ is a hyperparameter controlling the range of βeff , i,h. Although βeff is a real number that allows partial geometric corrections, certain βeff values have very specific geometric YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 7
+
+## (a) 
+
+> ˆr⊥
+
+ˆrc = ( y· ˆr) ˆrzre f l zpro j ziden = y zanti  
+
+> −c−2c+c
+
+## (b) Signed regimes                 
+
+> β=2: reflection
+> β=1: projection
+> β=0: identity
+> β<0: anti-proj.
+> βeff
+> −2−1012
+> −δ+δβeff =δtanh (ℓi,h)
+
+Figure 3: Geometric illustration of the signed gate. (a) For a fixed local redundancy axis ˆ r, the redundant component c = ( y · ˆr) ˆr lies along ˆ r, and the signed gate writes z =
+
+y − βeff c. Varying βeff therefore moves the output only along ˆ r. The identity endpoint is labelled y = ziden . The special cases are labelled as z variants: projection, reflection, and anti-projection (amplification). (b) The signed gate places these regimes on the bounded range βeff = δ tanh (ℓi,h), with the regime selected separately for each token and head. meanings, as shown in Fig 3 and the table below: 
+
+βeff operation on ci,h
+
+0 identity: z = y
+
+1 projection: remove the ˆ r-component 2 reflection: flip the ˆ r-component 
+
+< 0 anti-projection: amplify alignment with ˆ r.
+
+We use δ ∈ { 0.5, 1, 1.5, 2} as a small architectural choice: δ = 1 allows identity, projection, and anti-projection, δ = 2 also allows reflection, while 0 .5 and 1 .5 are kept as the middle ground in-between. Keeping δ fixed makes this representational choice explicit rather than hiding it inside optimization. 
+
+Factored gate logit. The logit combines token-level context with head-level alignment: 
+
+ℓi,h = gtok (dtok  
+
+> i
+
+)
+
+| {z }
+
+> shared across heads
+
++ w⊤ 
+
+> h
+
+dhead  
+
+> i,h
+
++ bh
+
+| {z }
+
+> head-specific
+
++ bl,h
+
+|{z} 
+
+> per-(layer, head) bias
+
+, (8) where gtok is a two-layer MLP with GELU activation, and dtok  
+
+> i
+
+∈ RTt and dhead  
+
+> i,h
+
+∈ RTh are the token/head-level diagnostics vectors. The diagnostic vectors are defined as 
+
+dtok  
+
+> i
+
+=  hlocal , i, mi/8, log (1 + mi) , (9) 
+
+dhead  
+
+> i,h
+
+=  cos (yi,h, ˆri,h), | cos (yi,h, ˆri,h)|, log (1 + ∥yi,h∥2) , (10) with Tt = Th = 3 in the default gate. The token features summarise whether the local tissue context is reliable enough to project against: • hlocal , i = m−1 
+
+> i
+
+∑ j∈N (i) cos (φi, φ j) is the mean cosine similarity between the raw patch embedding φi and its neighbours, so it measures how homogeneous the surrounding tissue actually is. • mi/8 is the linear fraction of valid neighbours, marking boundary and corner tokens whose spatial context is incomplete. 8 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+• log (1 + mi) is a log-confidence proxy for ˆ ri,h: the neighbour mean variance scales as 1/mi, so this term lets the gate shrink βeff when the axis is built from few samples. The head features describe how the current attention contribution yi,h relates to that axis: • cos (yi,h, ˆri,h) is the signed alignment of the head output with the redundancy axis, indicating whether subtracting ci,h acts as projection or anti-projection. • | cos (yi,h, ˆri,h)| is the unsigned alignment magnitude, separating how much of yi,h lies along ˆ ri,h from which direction it points. • log (1 + ∥yi,h∥2) is the log-magnitude of the contribution being projected, so the gate can avoid corrections on tokens whose attention output is essentially zero. The factorization of the gate logit is intentional: the shared token term decides whether the local tissue context is redundant; the per-head term decides how strongly this head’s attention output aligns with that context, and bl,h absorbs layer/head-specific scale shifts. This keeps the gate interpretable and small, with O(Tt hmlp + HT h) parameters per active block. In our settings, this contributes less than 0 .02% of the trainable parameter budget. The method is therefore primarily an inductive-bias change rather than a substantial capacity increase. 
+
+Identity initialization. The output layer of gtok , all per-head weights {wh, bh}, and all layer/head biases bl,h are initialized to zero. The hidden layer of gtok keeps its standard initialization. Consequently ℓi,h = 0 and βeff , i,h = 0 for every token and head at step 1, so Eq. (5) exactly recovers standard self-attention. Any non-zero projection is therefore learned during optimization rather than injected by the architecture at initialization. 
+
+Default gradient convention. Both diagnostic vectors dtok  
+
+> i
+
+and dhead  
+
+> i,h
+
+are detached before entering the gate. Thus, gate parameters are trained through their effect on zi,h, but the upstream attention projection does not receive an additional gradient path through feature construction. This separates the specified mechanism from the live-input ablation, where gradients through the diagnostic features are allowed and analyzed separately. 
+
+Application scope. Gated SRP is applied only to visual patch tokens. The CLS token is left unchanged due to the lack of spatial neighbours. When the classifier reads only CLS ,patch-token projection in the final attention block has no same-block path to the loss, so we omit the gate in that final block. The modified heads are concatenated and passed through the standard output projection and residual connection exactly as in the baseline transformer. 
+
+# 4 Experiments 
+
+## 4.1 Experiment Settings 
+
+We evaluate Gated SRP on four public WSI classification datasets, CAMELYON16/17[6, 14], BRACS[4], and PANDA[5], one in-house ADPv2-derived KGH WSI subset [42], and five TCGA survival cohorts, TCGA-KIRC, KIRP, LUAD, STAD, and UCEC [33]. We ex-tract non-overlapping tissue patches of size 256 × 256 pixels from all WSIs using AtlasPatch [1] at 20 × magnification. All patches are pre-embedded into feature vectors using UNI-v2 [9]. Since WSIs often lead to exploding memory consumption due to their large sizes, we use a four-layer TransMIL-style Nyström transformer aggregator as the base architecture in-stead of a dense ViT [13, 37, 40]. To recreate complete transformer blocks as in modern YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 9
+
+ViT models, we add the missing pre-norm FFN sub-block after the TransMIL transformer layers. For evaluation and comparisons, we integrate or replace the base attention layers with different methods. Specifically, we compare our method against the base Nyström Attention (NA) [40], XSA [44], and differential attention (Diff) [43]: 1. Nyström Attention (NA) is the base attention used in the TransMIL architecture to solve the exploding memory issue in WSIs [37, 40]. It approximates the standard MHSA using landmark tokens and low-rank kernel approximation [13, 39]. 2. XSA is a drop-in module after attention layers that removes the component of each attention output aligned with the token’s own value direction, enforcing a more ex-plicitly contextual attention update [44]. 3. Diff modifies a base attention layer by using paired attention modules, which sup-press common-mode attention patterns by subtracting the paired attention maps before forming the attention output [43]. The subtraction can lead to negative attentions being allocated to certain tokens, which actively removes their information from others. All experiments are conducted under the same five random seeds that control the dataset split, model initialization, and training. All compared methods share the same training and evaluation protocol under paired internal dataset splits. More dataset and implementation details are provided in the appendix. 
+
+## 4.2 Quantitative Results 
+
+Survival Analysis. We first evaluate Gated SRP on five TCGA survival cohorts [33]: KIRC, KIRP, LUAD, STAD, and UCEC, using the concordance index (C-index) to measure whether predicted risk scores correctly rank patients by survival outcome. Table 1 shows Table 1: Survival analysis results. Mean case-level C-index over five random seeds. Green/red in-dicates increase/decrease relative to the base NA.                          
+
+> Method KIRC KIRP LUAD STAD UCEC
+> NA [37, 40] 0.7110 0.7247 0.5513 0.5910 0.6756 XSA [44] 0.7192 0.6795 0.5359 0.6035 0.6233 Diff [43] 0.7241 0.7020 0.5546 0.5847 0.6489
+> Gated SRP 0.7257 0.7648 0.5832 0.6171 0.6973
+
+that Gated SRP obtains the highest mean C-index among the compared attention variants on all five cohorts. Compared with the base NA baseline, the mean C-index improves across all cohorts, although the magnitude of the improvement varies across datasets. The mixed behaviour of XSA is con-sistent with our motivation that redun-dancy in WSIs may be better captured by local spatial neighbourhoods than by a token’s own value direction alone. Removing the component aligned with a token’s own value direction is not as reliable as correcting the component aligned with its local tissue neighbourhood. The gains from our method are also consistent with the biological nature of survival prediction, where prognostic risk often depends on weak and spatially distributed cues from the tumour microenvironment. Our method leverages the information from local patch neighbourhoods, which provides a coarse spatial proxy for these microenvironmental relationships. This suggests that correcting the neighbourhood-aligned component may help reduce homogeneous local context while re-taining deviations that are useful for prognostic modelling. 
+
+WSI Classification. We further evaluate our Gated SRP on five slide-level classification datasets. We use F1, accuracy (Acc), and AUC for classification performance, with quadratic-weighted Cohen’s kappa κq for PANDA. Table 2 shows that Gated SRP gives the most 10 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+favourable overall mean performance relative to the base NA across the reported metrics, while XSA and Diff show more dataset-dependent behaviour. As a lightweight drop-in mod-ule, Gated SRP improves the base NA baseline on 12 of the 16 reported classification metrics, achieves the best mean AUC on three of the five datasets, and obtains the best F1 and accu-racy on KGH and BRACS. On CAMELYON17, our method is close to the base NA overall, whereas the other attention variants achieve lower mean performance. Table 2: Classification results. We report F1, accuracy, and AUC for all datasets. PANDA additionally reports quadratic-weighted Cohen’s kappa. Green and red indicate meaningful increase and decrease relative to the base NA. The highest score for each column is bolded .                                                            
+
+> Method CAM16 CAM17 KGH PANDA BRACS
+> F1 Acc AUC F1 Acc AUC F1 Acc AUC κqF1 Acc AUC F1 Acc AUC
+> NA [40] 0.9731 0.9741 0.9974 0.7836 0.9077 0.9470 0.8297 0.8337 0.9665 0.8822 0.6861 0.7374 0.9313 0.4179 0.5439 0.8472
+> XSA [44] 0.9730 0.9741 0.9977 0.7342 0.8916 0.9441 0.8469 0.8482 0.9642 0.8811 0.6854 0.7397 0.9289 0.4328 0.5567 0.8425 Diff [43] 0.9923 0.9926 0.9972 0.7578 0.8976 0.9303 0.8471 0.8482 0.9688 0.8826 0.6787 0.7322 0.9345 0.3874 0.5366 0.8325
+> Gated SRP 0.9808 0.9815 0.9986 0.7785 0.9015 0.9504 0.8544 0.8566 0.9695 0.8842 0.6932 0.7461 0.9292 0.4424 0.5603 0.8454
+
+Gate trajectory. We track the effective signed coefficient βeff during training to study gate behaviour. Each value is averaged over heads and patch tokens in the current batch. Figure 4 shows trajectories per epoch averaged over five global seeds. We include TCGA-KIRC, CAMELYON16, and PANDA because they represent three regimes. In TCGA-KIRC, the first two active layers rise above βeff = 1, indicating correction stronger than pure projection of the local common component. This is consistent with the possibility that survival pre-diction benefits from stronger suppression of homogeneous local context, although further analysis is needed to connect gate values to specific prognostic tissue patterns. In CAME-LYON16, all gates stay near zero, which is expected for a saturated metastasis detection task where the NA baseline already performs strongly, and Gated SRP can remain close to iden-tity. For PANDA, the first two layers learn modest positive corrections, and the third layer becomes slightly negative, suggesting that early layers reduce redundant local tissue context, whereas a deeper layer can preserve or reintroduce local grade context for ordered prostate grading. Full trajectories for the remaining datasets are provided in the appendix. 
+
+Figure 4: Effective gate trajectories for representative datasets. We plot βeff = δ tanh (g),where g is the learned gate logit, for the three gate-active Gated SRP layers. Curves show the mean across five global seeds, where each seed-level point averages the logged training-batch βeff values within an epoch. Shaded regions denote ±1 standard deviation across seeds. 
+
+## 4.3 Qualitative Results 
+
+For the qualitative study, a random selection of 10 WSIs per dataset and their attention maps were reviewed by a board-certified pathologist. Figure 5 shows one representative WSI from some datasets. The pathologist notably studied how attention maps focused on the lesion, YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 11 
+
+Figure 5: Qualitative comparison of attention maps. One representative WSI from some datasets. Each heatmap overlays the final layer CLS-to-patch attention score on the WSI thumbnail and is normalized within each slide and method for visualization. For Diff, the final attention operator is signed, A1 − λ A2. We report its positive support for comparison. Warmer colours consistently indicate higher attention. if the higher attention areas within the lesion correlated with known pathology features, and the degree of background attention on areas of less known biological and pathological value. Attention maps differed between models based on the task and the dataset. Gated SRP and the base NA showed mostly similar behavior, while XSA slightly diverged on these aspects. Diff was noticeably divergent compared to the other models. Overall, in the reviewed examples, Gated SRP attention maps appeared to place higher attention on lesion regions and showed better visual agreement with pathologist-identified tissue features. This observation was consistent for overall survival prediction tasks from the TCGA-KIRC, KIRP, LUAD, and STAD datasets. The only exception was with UCEC. Sim-ilar to the base NA, Gated SRP focuses on the underlying normal tissue that the cancer was invading, possibly due to the training signal pushing Gated SRP back to the base attention. For classification tasks, Gated SRP specifically identified the class lesion at higher rates than the other models. These observations provide qualitative examples that are consistent with the quantitative trends. 
+
+## 4.4 Ablation Studies 
+
+Our ablations focus on survival analysis tasks using three TCGA datasets (KIRP, LUAD, STAD) [33]. For classification tasks, we use KGH [42], PANDA [5], and BRACS [4]. All ablations use the same embedded patch features, data splits, optimizer, training schedule, and five global seeds as the main experiments. Each ablation changes one design choice while keeping the remaining Gated SRP configuration fixed. 
+
+Ablation on fixed projection strength. We replace the adaptive gate with fixed scalar pro-jection strengths. This ablation keeps the same local spatial redundancy axis and changes only the correction strength. As shown in Table 3, none of the fixed projections is uniformly reliable. In contrast, Gated SRP learns the correction coefficient from local neighbourhood geometry and head diagnostics, producing a more stable improvement pattern than the base NA. These results support the use of an adaptive local gate in our evaluated setting. 
+
+Ablation on gate range. To confirm the necessity of a signed gate range, we replace the tanh gate with a sigmoid gate while keeping the δ and gate hidden dimension fixed. The 12 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+Table 3: Fixed projection strength compared with a learned local gate. All rows use the same local spatial redundancy axis and differ only in the coefficient used to correct the projected component. β = 0 recovers the base attention, β = 1 removes the local component, 
+
+β = 2 reflects it, and β = −1 amplifies it. The final row uses the proposed learned local gate.                                       
+
+> Config KIRP LUAD STAD KGH PANDA BRACS
+> CCCF1 Acc AUC κqF1 Acc AUC F1 Acc AUC
+> Base Attention ( β=0) 0.7247 0.5513 0.5910 0.8297 0.8337 0.9665 0.8822 0.6861 0.7374 0.9313 0.4179 0.5439 0.8472
+> Projection ( β=1) 0.6863 0.5319 0.5571 0.8299 0.8313 0.9628 0.8829 0.6763 0.7290 0.9356 0.4323 0.5585 0.8396 Reflection ( β=2) 0.7051 0.5290 0.5669 0.8217 0.8229 0.9625 0.8819 0.6804 0.7335 0.9308 0.4224 0.5585 0.8401 Amplification ( β=−1) 0.6854 0.5655 0.5692 0.8251 0.8277 0.9676 0.8771 0.6769 0.7346 0.9243 0.4442 0.5585 0.8370
+> Gated SRP 0.7648 0.5832 0.6171 0.8544 0.8566 0.9695 0.8842 0.6932 0.7461 0.9292 0.4424 0.5603 0.8454
+
+signed tanh gate allows the correction coefficient to be negative or positive, while the sigmoid gate restricts it to nonnegative values. Table 4 suggests that the signed gate gives stronger overall mean performance in this setting. This result indicates that a one-sided nonnegative correction is too restrictive for local spatial redundancy correction. Instead, the stronger performance of the signed gate suggests that the model sometimes benefits from preserving or increasing the local component. This is consistent with the pathology setting, where nearby patches may either provide repeated tissue context or contain useful local evidence depending on the tissue region. The signed formulation is more flexible and avoids forcing every local common component only to be subtracted. Table 4: Gate range ablation. We compare the signed tanh gate with a nonnegative sigmoid gate while keeping each dataset’s selected δ and gate hidden dimension fixed. The signed range [−δ , δ ] allows both positive subtraction and negative reinforcement of the local com-mon component. The nonnegative range [0, δ ] removes the negative branch and only permits nonnegative correction coefficients.                              
+
+> Config KIRP LUAD STAD KGH PANDA BRACS
+> CCCF1 Acc AUC κqF1 Acc AUC F1 Acc AUC
+> Sigmoid [0,δ]0.7269 0.5512 0.5871 0.8338 0.8349 0.9635 0.8821 0.6761 0.7336 0.9236 0.4148 0.5421 0.8464 Signed tanh [−δ,δ]0.7648 0.5832 0.6171 0.8544 0.8566 0.9695 0.8842 0.6932 0.7461 0.9292 0.4424 0.5603 0.8454
+
+Ablation on gate input gradients. We compare detached gate inputs with live gate inputs to determine whether the local spatial reference should act as measured geometry or be opti-mized through the gate input path. In the detached setting, the local reference and diagnostic features are computed from the patch stream but do not send additional gradients back into that stream. The gate is still trained through its effect on the corrected attention output. In the live setting, gradients from the diagnostic construction also update the patch stream. Ta-ble 5 shows that detached inputs give stronger results on most metrics. This suggests that the local spatial reference is more reliable when it is used as a measured guide rather than as an additional optimization path. Thus, we use stop gradient in the default design, so the gate learns how strongly to apply the correction while the diagnostic reference remains stable. 
+
+Ablation on patch encoder. We test whether Gated SRP depends on the frozen patch en-coder used to construct the slide tokens. Besides UNI-v2 [9], we evaluate MedSigLIP-448 [36], a medical image-text encoder with a larger input field, and ViT-B/16 [13], a generic vision transformer encoder pretrained on ImageNet. Table 6 shows that Gated SRP provides improvements on many metrics across all three feature spaces. The most consistent improve-ments appear with UNI-v2, which suggests that a pathology-specific visual feature space provides a more reliable local reference for spatial redundancy correction. MedSigLIP-448 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 13 
+
+Table 5: Gate input gradient ablation. Detached inputs treat the local spatial reference and gate diagnostics as measured geometry. Live inputs allow gradients from those diagnostics to propagate into the patch stream.                      
+
+> Gradient path KIRP LUAD STAD KGH PANDA BRACS
+> CCCF1 Acc AUC κqF1 Acc AUC F1 Acc AUC
+> Live inputs 0.7177 0.5349 0.5902 0.8386 0.8410 0.9621 0.8795 0.6793 0.7333 0.9273 0.4166 0.5439 0.8475 Detached inputs 0.7648 0.5832 0.6171 0.8544 0.8566 0.9695 0.8842 0.6932 0.7461 0.9292 0.4424 0.5603 0.8454
+
+also improves all TCGA survival cohorts and several classification metrics, showing that medical image-text pretraining can still provide useful features for Gated SRP. ViT-B/16 is less aligned with pathology, so its performance remains weaker than other encoders, but still benefits from Gated SRP on several metrics. Overall, Gated SRP is compatible with mul-tiple encoders, and its benefit is strongest when the patch features are more aligned with histological morphology. Table 6: Patch encoder ablation. Base NA and Gated SRP are compared using frozen patch features from UNI-v2, MedSigLIP-448, and ViT-B/16. All image tiles are extracted at 20 ×
+
+optical magnification. Tile sizes are 256 × 256 for UNI-v2, 448 × 448 for MedSigLIP-448, and 224 × 224 for ViT-B/16.                                              
+
+> Encoder Attn. KIRP LUAD STAD KGH PANDA BRACS
+> CCCF1 Acc AUC κqF1 Acc AUC F1 Acc AUC
+> ViT-B/16 NA 0.6263 0.5679 0.5871 0.7919 0.7964 0.9532 0.7870 0.5545 0.6181 0.8851 0.3925 0.5090 0.8095
+> Gated SRP 0.6765 0.6043 0.6052 0.7966 0.8000 0.9537 0.7851 0.5649 0.6266 0.8878 0.4051 0.5146 0.8061 MSL-448 NA 0.6400 0.5223 0.5744 0.8010 0.8048 0.9572 0.8308 0.6161 0.6753 0.9120 0.4561 0.5676 0.8558
+> Gated SRP 0.6943 0.5438 0.6057 0.7958 0.8000 0.9539 0.8348 0.6193 0.6817 0.9133 0.4645 0.5768 0.8540 UNI-v2 NA 0.7247 0.5513 0.5910 0.8297 0.8337 0.9665 0.8822 0.6861 0.7374 0.9313 0.4179 0.5439 0.8472
+> Gated SRP 0.7648 0.5832 0.6171 0.8544 0.8566 0.9695 0.8842 0.6932 0.7461 0.9292 0.4424 0.5603 0.8454
+
+Ablation on gate factorization. To understand which signals drive the gate, we separate its information sources. The token-only row measures the effect of local geometry and neighbourhood counts. The head-only row uses attention head diagnostics without token diagnostics. Removing the learned bias tests whether the gate needs a task-specific prior. In Table 7, the full gate is mostly preferred. The token-only gate is never the best configuration, showing that local geometry alone is not sufficient for reliable correction. The head-only gate performs best on BRACS, while the gate without bias is strongest on LUAD. These exceptions suggest that some datasets benefit from simpler gate behaviour, but the full gate provides the most stable design across tasks by combining local tissue statistics, head-level responses, and a learned offset. Table 7: Gate factorization ablation. We isolate the full Gated SRP gate, a token-only gate, a head-only gate, and a gate without the learned bias term. 
+
+Gate form KIRP LUAD STAD KGH PANDA BRACS 
+
+C C C F1 Acc AUC κq F1 Acc AUC F1 Acc AUC 
+
+Token only 0.7038 0.5471 0.5722 0.8301 0.8325 0.9602 0.8793 0.6641 0.7248 0.9280 0.4312 0.5530 0.8458 Head only 0.7171 0.5815 0.5923 0.8353 0.8373 0.9610 0.8774 0.6687 0.7261 0.9218 0.4471 0.5640 0.8499 
+
+No bias 0.7087 0.5922 0.5947 0.8111 0.8157 0.9621 0.8784 0.6842 0.7335 0.9342 0.4146 0.5512 0.8481 
+
+Full gate 0.7648 0.5832 0.6171 0.8544 0.8566 0.9695 0.8842 0.6932 0.7461 0.9292 0.4424 0.5603 0.8454 
+
+Ablation on gate initialization. Initialization controls whether the model starts from the standard self-attention solution or from an immediate projection correction. Zero initializa-14 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+tion isolates the effect of learning the correction during training. Xavier [15] and Kaiming [18] initialization introduce a nonzero correction at the first step to probe optimization sta-bility. Table 8 shows that zero initialization is favourable in most scenarios, while Xavier and Kaiming are sometimes preferred, suggesting that some tasks may benefit from an early correction signal. In most of the cases, Gated SRP is more reliable when it starts from the identity solution and learns the projection correction gradually during training. Table 8: Gate initialization ablation. Zero initialization starts from the Standard SA at-tention contribution because the initial projection coefficient is zero. Xavier and Kaiming initialization test whether a non-identity starting gate changes optimization.                               
+
+> Init. KIRP LUAD STAD KGH PANDA BRACS
+> CCCF1 Acc AUC κqF1 Acc AUC F1 Acc AUC
+> Xavier 0.7271 0.5805 0.5799 0.8369 0.8373 0.9643 0.8857 0.6900 0.7423 0.9358 0.4466 0.5658 0.8565
+> Kaiming 0.6550 0.5587 0.5775 0.8343 0.8361 0.9646 0.8758 0.6684 0.7248 0.9295 0.4503 0.5530 0.8527
+> Zero 0.7648 0.5832 0.6171 0.8544 0.8566 0.9695 0.8842 0.6932 0.7461 0.9292 0.4424 0.5603 0.8454
+
+Ablation on architecture choice. Our main experiments use the TransMIL-style NA back-bone because dense self-attention is computationally expensive for large WSIs. To test whether Gated SRP also works in a standard MHSA setting, we evaluate it on a ViT [13] model using ADP [19] and PANDA [5], where the image sizes are small enough to make dense attention feasible. Table 9 shows that Gated SRP improves all reported metrics on both datasets. The gains are modest but consistent, indicating that the proposed correction is not tied to the Nyström approximation. This supports Gated SRP as a general attention correction, while NA remains the practical backbone for larger slide-level cohorts. Table 9: Architecture choice ablation. ADP uses patch-level multilabel classification and reports mAP, F1, accuracy, and AUC. PANDA uses slide-level grading and additionally re-ports quadratic weighted κq. Both methods use the ViT training protocol and differ only in the attention update.                          
+
+> Method ADP PANDA
+> mAP F1 Acc AUC κqF1 Acc AUC
+> MHSA 0.7768 0.6997 0.9360 0.9424 0.8801 0.6663 0.7264 0.9331
+> Gated SRP 0.7813 0.7031 0.9372 0.9439 0.8820 0.6721 0.7352 0.9351
+
+# 5 Conclusion 
+
+We presented Gated SRP, a lightweight post-attention correction module for pathology trans-formers. Motivated by the local spatial redundancy of WSIs, Gated SRP corrects each patch-token attention update along a learned local tissue-neighbourhood axis while preserving the original attention routing, classifier, and loss. Across five TCGA survival cohorts and five slide-level classification datasets, Gated SRP achieves favorable mean performance com-pared with the base NA attention while adding negligible parameter overhead. The abla-tion studies support the importance of the spatial axis, adaptive gate, and signed correction range. These results suggest that explicitly correcting neighbourhood-aligned redundancy is a promising and lightweight way to adapt transformer attention to pathology images. 
+
+Limitations and Future Work. Although Gated SRP is theoretically compatible with any self-attention block, the test of its effect on other transformer architectures, attention vari-YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 15 
+
+ants, and multi-scale WSI designs is still narrow. In addition, all main WSI evaluations use supervised downstream training with frozen patch features, while the ADP architecture choice ablation is the exception and trains from raw RGB patches. Given the increasing importance of self-supervised pretraining in pathology, future work should study whether Gated SRP can improve representation learning during large-scale WSI pretraining. Further directions include testing the learned gate across different magnifications, analyzing its rela-tionship with histological structures and microenvironment patterns, and validating whether the corrected attention maps provide more biologically meaningful evidence for prognostic modelling. 
+
+# References 
+
+[1] Ahmed Alagha, Christopher Leclerc, Yousef Kotp, Omar Metwally, Calvin Moras, Pe-ter Rentopoulos, Ghodsiyeh Rostami, Bich Ngoc Nguyen, Jumanah Baig, Abdelhakim Khellaf, Vincent Quoc-Huy Trinh, Rabeb Mizouni, Hadi Otrok, Jamal Bentahar, and Mahdi S. Hosseini. Atlaspatch: Efficient tissue detection and high-throughput patch ex-traction for computational pathology at scale. arXiv preprint arXiv:2602.03998 , 2026. [2] Areej Alsaafin, Peyman Nejat, Abubakr Shafique, Jibran Khan, Saghir Alfasly, Ghazal Alabtah, and Hamid R. Tizhoosh. Sequential patching lattice for image classifi-cation and enquiry: Streamlining digital pathology image processing. The Ameri-can Journal of Pathology , 194(10):1898–1912, 2024. ISSN 0002-9440. doi: https: //doi.org/10.1016/j.ajpath.2024.06.007. URL https://www.sciencedirect. com/science/article/pii/S0002944024002384 .[3] Daniel Bolya, Cheng-Yang Fu, Xiaoliang Dai, Peizhao Zhang, Christoph Feichten-hofer, and Judy Hoffman. Token merging: Your vit but faster, 2023. URL https: //arxiv.org/abs/2210.09461 .[4] Nadia Brancati, Anna Maria Anniciello, Pushpak Pati, Daniel Riccio, Giosuè Scog-namiglio, Guillaume Jaume, Giuseppe De Pietro, Maurizio Di Bonito, Antonio Fon-cubierta, Gerardo Botti, Maria Gabrani, Florinda Feroce, and Maria Frucci. Bracs: A dataset for breast carcinoma subtyping in h&amp;e histology images. Database ,2022:baac093, 01 2022. ISSN 1758-0463. doi: 10.1093/database/baac093. URL 
+
+https://doi.org/10.1093/database/baac093 .[5] Wouter Bulten, Kimmo Kartasalo, Po-Hsuan Cameron Chen, Peter Ström, Hans Pinck-aers, Kunal Nagpal, Yuannan Cai, David F. Steiner, Hester van Boven, Robert Vink, Christina Hulsbergen-van de Kaa, Jeroen van der Laak, Mahul B. Amin, Andrew J. Evans, Theodorus van der Kwast, Robert Allan, Peter A. Humphrey, Henrik Grön-berg, Hemamali Samaratunga, Brett Delahunt, Toyonori Tsuzuki, Tomi Häkkinen, Lars Egevad, Maggie Demkin, Sohier Dane, Fraser Tan, Masi Valkonen, Greg S. Cor-rado, Lily Peng, Craig H. Mermel, Pekka Ruusuvuori, Geert Litjens, Martin Eklund, Américo Brilhante, Aslı Çakır, Xavier Farré, Katerina Geronatsiou, Vincent Molinié, Guilherme Pereira, Paromita Roy, Günter Saile, Paulo G. O. Salles, Ewout Schaafsma, Joëlle Tschui, Jorge Billoch-Lima, Emíio M. Pereira, Ming Zhou, Shujun He, Sejun Song, Qing Sun, Hiroshi Yoshihara, Taiki Yamaguchi, Kosaku Ono, Tao Shen, Jianyi Ji, Arnaud Roussel, Kairong Zhou, Tianrui Chai, Nina Weng, Dmitry Grechka, Maxim V. 16 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+Shugaev, Raphael Kiminya, Vassili Kovalev, Dmitry Voynov, Valery Malyshev, Eliza-beth Lapo, Manuel Campos, Noriaki Ota, Shinsuke Yamaoka, Yusuke Fujimoto, Ken-taro Yoshioka, Joni Juvonen, Mikko Tukiainen, Antti Karlsson, Rui Guo, Chia-Lun Hsieh, Igor Zubarev, Habib S. T. Bukhar, Wenyuan Li, Jiayun Li, William Speier, Corey Arnold, Kyungdoc Kim, Byeonguk Bae, Yeong Won Kim, Hong-Seok Lee, Jeonghyuk Park, and the PANDA challenge consortium. Artificial intelligence for di-agnosis and gleason grading of prostate cancer: the panda challenge. Nature Medicine ,28(1):154–163, Jan 2022. ISSN 1546-170X. doi: 10.1038/s41591-021-01620-2. URL 
+
+https://doi.org/10.1038/s41591-021-01620-2 .[6] Péter Bándi, Oscar Geessink, Quirine Manson, Marcory Van Dijk, Maschenka Balken-hol, Meyke Hermsen, Babak Ehteshami Bejnordi, Byungjae Lee, Kyunghyun Paeng, Aoxiao Zhong, Quanzheng Li, Farhad Ghazvinian Zanjani, Svitlana Zinger, Keisuke Fukuta, Daisuke Komura, Vlado Ovtcharov, Shenghua Cheng, Shaoqun Zeng, Jeppe Thagaard, Anders B. Dahl, Huangjing Lin, Hao Chen, Ludwig Jacobsson, Martin Hedlund, Melih Çetin, Eren Halıcı, Hunter Jackson, Richard Chen, Fabian Both, Jörg Franke, Heidi Küsters-Vandevelde, Willem Vreuls, Peter Bult, Bram van Gin-neken, Jeroen van der Laak, and Geert Litjens. From detection of individual metas-tases to classification of lymph node status at the patient level: The camelyon17 challenge. IEEE Transactions on Medical Imaging , 38(2):550–560, 2019. doi: 10.1109/TMI.2018.2867350. [7] Richard J. Chen, Ming Y. Lu, Muhammad Shaban, Chengkuan Chen, Tiffany Y. Chen, Drew F. K. Williamson, and Faisal Mahmood. Whole slide images are 2d point clouds: Context-aware survival prediction using patch-based graph convolutional networks. In Marleen de Bruijne, Philippe C. Cattin, Stéphane Cotin, Nicolas Padoy, Stefanie Spei-del, Yefeng Zheng, and Caroline Essert, editors, Medical Image Computing and Com-puter Assisted Intervention – MICCAI 2021 , pages 339–349, Cham, 2021. Springer International Publishing. ISBN 978-3-030-87237-3. [8] Richard J. Chen, Chengkuan Chen, Yicong Li, Tiffany Y. Chen, Andrew D. Trister, Rahul G. Krishnan, and Faisal Mahmood. Scaling vision transformers to gigapixel im-ages via hierarchical self-supervised learning. In Proceedings of the IEEE/CVF Confer-ence on Computer Vision and Pattern Recognition (CVPR) , pages 16144–16155, June 2022. [9] Richard J Chen, Tong Ding, Ming Y Lu, Drew FK Williamson, Guillaume Jaume, Bowen Chen, Andrew Zhang, Daniel Shao, Andrew H Song, Muhammad Shaban, et al. Towards a general-purpose foundation model for computational pathology. Na-ture Medicine , 2024. [10] Zhuo Chen, Shawn Young, and Lijian Xu. Tc-ssa: Token compression via semantic slot aggregation for gigapixel pathology reasoning, 2026. URL https://arxiv. org/abs/2603.01143 .[11] Stéphane D’Ascoli, Hugo Touvron, Matthew L Leavitt, Ari S Morcos, Giulio Biroli, and Levent Sagun. Convit: Improving vision transformers with soft convolutional in-ductive biases. In Marina Meila and Tong Zhang, editors, Proceedings of the 38th International Conference on Machine Learning , volume 139 of Proceedings of Ma-chine Learning Research , pages 2286–2296. PMLR, 18–24 Jul 2021. URL https: //proceedings.mlr.press/v139/d-ascoli21a.html .YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 17 
+
+[12] Tong Ding, Sophia J Wagner, Andrew H Song, Richard J Chen, Ming Y Lu, Andrew Zhang, Anurag J Vaidya, Guillaume Jaume, Muhammad Shaban, Ahrong Kim, et al. A multimodal whole-slide foundation model for pathology. Nature Medicine , pages 1–13, 2025. [13] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Syl-vain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Trans-formers for image recognition at scale. ICLR , 2021. [14] Babak Ehteshami Bejnordi, Mitko Veta, Paul Johannes van Diest, Bram van Gin-neken, Nico Karssemeijer, Geert Litjens, Jeroen A. W. M. van der Laak, , and the CAMELYON16 Consortium. Diagnostic assessment of deep learning algorithms for detection of lymph node metastases in women with breast cancer. JAMA , 318(22): 2199–2210, 12 2017. ISSN 0098-7484. doi: 10.1001/jama.2017.14585. URL 
+
+https://doi.org/10.1001/jama.2017.14585 .[15] Xavier Glorot and Yoshua Bengio. Understanding the difficulty of training deep feed-forward neural networks. In Yee Whye Teh and Mike Titterington, editors, Proceedings of the Thirteenth International Conference on Artificial Intelligence and Statistics , vol-ume 9 of Proceedings of Machine Learning Research , pages 249–256, Chia Laguna Resort, Sardinia, Italy, 13–15 May 2010. PMLR. URL https://proceedings. mlr.press/v9/glorot10a.html .[16] Zhengrui Guo, Conghao Xiong, Jiabo Ma, Qichen Sun, Lishuang Feng, Jinzhuo Wang, and Hao Chen. Focus: Knowledge-enhanced adaptive visual compression for few-shot whole slide image classification. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 15590–15600, June 2025. [17] Ali Hassani, Steven Walton, Jiachen Li, Shen Li, and Humphrey Shi. Neighborhood attention transformer. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 6185–6194, June 2023. [18] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Delving deep into rectifiers: Surpassing human-level performance on imagenet classification. In Proceedings of the 2015 IEEE International Conference on Computer Vision (ICCV) , ICCV ’15, page 1026–1034, USA, 2015. IEEE Computer Society. ISBN 9781467383912. doi: 10. 1109/ICCV.2015.123. URL https://doi.org/10.1109/ICCV.2015.123 .[19] Mahdi S. Hosseini, Lyndon Chan, Gabriel Tse, Michael Tang, Jun Deng, Sajad Norouzi, Corwyn Rowsell, Konstantinos N. Plataniotis, and Savvas Damaskinos. At-las of digital pathology: A generalized hierarchical histological tissue type-annotated database for deep learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , June 2019. [20] Mahdi S. Hosseini, Babak Ehteshami Bejnordi, Vincent Quoc-Huy Trinh, Lyndon Chan, Danial Hasan, Xingwen Li, Stephen Yang, Taehyo Kim, Haochen Zhang, Theodore Wu, Kajanan Chinniah, Sina Maghsoudlou, Ryan Zhang, Jiadai Zhu, Samir Khaki, Andrei Buin, Fatemeh Chaji, Ala Salehi, Bich Ngoc Nguyen, Dimitris Sama-ras, and Konstantinos N. Plataniotis. Computational pathology: A survey review and the way forward. Journal of Pathology Informatics , 15:100357, 2024. ISSN 18 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+2153-3539. doi: https://doi.org/10.1016/j.jpi.2023.100357. URL https://www. sciencedirect.com/science/article/pii/S2153353923001712 .[21] Ivan Kobyzev, Abbas Ghaddar, Dingtao Hu, and Boxing Chen. Integral transformer: Denoising attention, not too much not too little. In Christos Christodoulopoulos, Tan-moy Chakraborty, Carolyn Rose, and Violet Peng, editors, Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing , pages 2337– 2354, Suzhou, China, November 2025. Association for Computational Linguistics. ISBN 979-8-89176-332-6. doi: 10.18653/v1/2025.emnlp-main.118. URL https: //aclanthology.org/2025.emnlp-main.118/ .[22] Yousef Kotp, Vincent Quoc-Huy Trinh, Christopher Pal, and Mahdi S. Hosseini. Moozy: A patient-first foundation model for computational pathology, 2026. URL 
+
+https://arxiv.org/abs/2603.27048 .[23] Bin Li, Yin Li, and Kevin W. Eliceiri. Dual-stream multiple instance learning network for whole slide image classification with self-supervised contrastive learning. In Pro-ceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) , pages 14318–14328, June 2021. [24] Honglin Li, Zhongyi Shui, Yunlong Zhang, Chenglu Zhu, and Lin Yang. Pathvq: Reforming computational pathology foundation model for whole slide image analysis via vector quantization. In D. Belgrave, C. Zhang, H. Lin, R. Pascanu, P. Koniusz, M. Ghassemi, and N. Chen, editors, Advances in Neural Information Processing Sys-tems , volume 38, pages 62348–62375. Curran Associates, Inc., 2025. URL https: //proceedings.neurips.cc/paper_files/paper/2025/file/ 59f278de1619bdb6b53fd04e8e0976e0-Paper-Conference.pdf .[25] Youwei Liang, Chongjian Ge, Zhan Tong, Yibing Song, Jue Wang, and Pengtao Xie. Not all patches are what you need: Expediting vision transformers via token reorgani-zations, 2022. URL https://arxiv.org/abs/2202.07800 .[26] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang, Stephen Lin, and Baining Guo. Swin transformer: Hierarchical vision transformer using shifted win-dows. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) , pages 10012–10022, October 2021. [27] Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In 
+
+International Conference on Learning Representations , 2019. URL https:// openreview.net/forum?id=Bkg6RiCqY7 .[28] Ming Y Lu, Drew FK Williamson, Tiffany Y Chen, Richard J Chen, Matteo Barbieri, and Faisal Mahmood. Data-efficient and weakly supervised computational pathology on whole-slide images. Nature Biomedical Engineering , 5(6):555–570, 2021. [29] Ming Y Lu, Bowen Chen, Drew FK Williamson, Richard J Chen, Ivy Liang, Tong Ding, Guillaume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, et al. A visual-language foundation model for computational pathology. Nature Medicine , 30:863—-874, 2024. YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 19 
+
+[30] Ang Lv, Ruobing Xie, Shuaipeng Li, Jiayi Liao, Xingwu Sun, Zhanhui Kang, Di Wang, and Rui Yan. More expressive attention with negative weights, 2025. URL https: //arxiv.org/abs/2411.07176 .[31] Elpiniki Maria Lygizou, Mónika Farsang, and Radu Grosu. Differential gated self-attention, 2025. URL https://arxiv.org/abs/2505.24054 .[32] Alexis Marouani, Oriane Siméoni, Hervé Jégou, Piotr Bojanowski, and Huy V. Vo. Revisiting [cls] and patch token interaction in vision transformers, 2026. URL https: //arxiv.org/abs/2602.08626 .[33] National Cancer Institute. The Cancer Genome Atlas Program (TCGA). https: //www.cancer.gov/ccg/research/genome-sequencing/tcga . Ac-cessed: 2026-04-28. [34] Yongming Rao, Wenliang Zhao, Benlin Liu, Jiwen Lu, Jie Zhou, and Cho-Jui Hsieh. Dynamicvit: Efficient vision transformers with dynamic to-ken sparsification. In M. Ranzato, A. Beygelzimer, Y. Dauphin, P.S. Liang, and J. Wortman Vaughan, editors, Advances in Neural Information Processing Systems , volume 34, pages 13937–13949. Curran Associates, Inc., 2021. URL https://proceedings.neurips.cc/paper_files/paper/ 2021/file/747d3443e319a22747fbb873e8b2f9f2-Paper.pdf .[35] Michael S. Ryoo, AJ Piergiovanni, Anurag Arnab, Mostafa Dehghani, and Anelia An-gelova. Tokenlearner: What can 8 learned tokens do for images and videos?, 2022. URL https://arxiv.org/abs/2106.11297 .[36] Andrew Sellergren, Sahar Kazemzadeh, Tiam Jaroensri, Atilla Kiraly, Madeleine Tra-verse, Timo Kohlberger, Shawn Xu, Fayaz Jamil, Cían Hughes, Charles Lau, et al. Medgemma technical report. arXiv preprint arXiv:2507.05201 , 2025. [37] Zhuchen Shao, Hao Bian, Yang Chen, Yifeng Wang, Jian Zhang, Xiangyang Ji, and yongbing zhang. Transmil: Transformer based correlated multiple instance learning for whole slide image classification. In M. Ranzato, A. Beygelzimer, Y. Dauphin, P.S. Liang, and J. Wortman Vaughan, editors, Advances in Neural In-formation Processing Systems , volume 34, pages 2136–2147. Curran Associates, Inc., 2021. URL https://proceedings.neurips.cc/paper_files/paper/ 2021/file/10c272d06794d3e5785d5e7c5356e9ff-Paper.pdf .[38] Hugo Touvron, Matthieu Cord, Alexandre Sablayrolles, Gabriel Synnaeve, and Hervé Jégou. Going deeper with image transformers. In Proceedings of the IEEE/CVF Inter-national Conference on Computer Vision (ICCV) , pages 32–42, October 2021. [39] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N Gomez, Ł ukasz Kaiser, and Illia Polosukhin. Attention is all you need. In I. Guyon, U. Von Luxburg, S. Bengio, H. Wal-lach, R. Fergus, S. Vishwanathan, and R. Garnett, editors, Advances in Neural Information Processing Systems , volume 30. Curran Associates, Inc., 2017. URL https://proceedings.neurips.cc/paper_files/paper/ 2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf .20 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+[40] Yunyang Xiong, Zhanpeng Zeng, Rudrasis Chakraborty, Mingxing Tan, Glenn Fung, Yin Li, and Vikas Singh. Nyströmformer: A nyström-based algorithm for approxi-mating self-attention. Proceedings of the AAAI Conference on Artificial Intelligence ,35(16):14138–14148, May 2021. doi: 10.1609/aaai.v35i16.17664. URL https: //ojs.aaai.org/index.php/AAAI/article/view/17664 .[41] Hanwen Xu, Naoto Usuyama, Jaspreet Bagga, Sheng Zhang, Rajesh Rao, Tristan Nau-mann, Cliff Wong, Zelalem Gero, Javier González, Yu Gu, Yanbo Xu, Mu Wei, Wen-hui Wang, Shuming Ma, Furu Wei, Jianwei Yang, Chunyuan Li, Jianfeng Gao, Jaylen Rosemon, Tucker Bower, Soohee Lee, Roshanthi Weerasinghe, Bill J. Wright, Ari Ro-bicsek, Brian Piening, Carlo Bifulco, Sheng Wang, and Hoifung Poon. A whole-slide foundation model for digital pathology from real-world data. Nature , 2024. [42] Zhiyuan Yang, Kai Li, Sophia Ghamoshi Ramandi, Patricia Brassard, Abdelhakim Khellaf, Vincent Quoc-Huy Trinh, Jennifer Zhang, Lina Chen, Corwyn Rowsell, Sonal Varma, Kostas Plataniotis, and Mahdi S. Hosseini. Adpv2: A hierarchical histological tissue type-annotated dataset for potential biomarker discovery of colorectal disease. 
+
+Journal of Pathology Informatics , 20:100537, 2026. ISSN 2153-3539. doi: https:// doi.org/10.1016/j.jpi.2025.100537. URL https://www.sciencedirect.com/ science/article/pii/S2153353925001233 .[43] Tianzhu Ye, Li Dong, Yuqing Xia, Yutao Sun, Yi Zhu, Gao Huang, and Furu Wei. Dif-ferential transformer. In Y. Yue, A. Garg, N. Peng, F. Sha, and R. Yu, editors, Interna-tional Conference on Learning Representations , volume 2025, pages 144–164, 2025. URL https://proceedings.iclr.cc/paper_files/paper/2025/ file/00b67df24009747e8bbed4c2c6f9c825-Paper-Conference. pdf .[44] Shuangfei Zhai. Exclusive self attention, 2026. URL https://arxiv.org/abs/ 2603.09078 .YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 21 
+
+# A Dataset Details 
+
+CAMELYON16. CAMELYON16 [14] is a lymph-node metastasis benchmark for breast cancer. We use it to perform binary WSI-level metastasis classification, where tumour slides are positive and normal slides are negative. The original challenge provides 270 labelled training WSIs and 129 official test WSIs. Our experiments use all 270 WSIs, consisting of 111 tumour and 159 normal slides. The 129 official test WSIs are not used because our protocol builds train, validation, and test splits from the same labelled feature inventory shared by all experiments. All splits are generated with fixed global random seeds to ensure reproducibility across methods. 
+
+CAMELYON17. CAMELYON17 [6] extends lymph-node metastasis evaluation to multi-ple lymph-node slides per patient. The tested task is a four-class slide-level metastasis stage classification, using the labels negative, isolated tumour cells (ITC), micro-metastasis, and macro-metastasis. The public challenge contains 1 , 000 WSIs, with 500 labelled training slides and 500 unlabeled test slides. We use 499 valid labelled training WSIs after prepro-cessing. The 500 unlabeled challenge test slides are not used because they do not provide slide labels for the supervised classification protocol. There are 318 negative, 36 ITC, 59 micro-metastasis, and 86 macro-metastasis slides. We split the data by patient rather than by slide to prevent information leakage, ensuring that all slides from the same patient appear in only one of the training, validation, or test sets. 
+
+ADP. ADP [19] is used only in the architecture choice ablation as a patch-level multilabel histological tissue-type classification task. The Release1 flat table contains 17 ,668 RGB patches at 272 × 272 pixels and 1 μm/pixel, with 43 hierarchical multi-hot labels. We use the official patch-level train, validation, and test split files with 14 ,134, 1 ,767, and 1 ,767 patches, respectively. Five level-3 labels with zero training positives are pruned from the model output, leaving 38 evaluated labels. The ADP experiment trains a raw-RGB ViT-S/16 patch classifier with 12 transformer layers, embedding width 384, 6 attention heads, and a 17 × 17 patch-token grid. The primary metric is macro-average precision. Because ADP is patch-level and its official split is not a slide-level WSI split, it is not used as a main WSI evaluation. 
+
+ADPv2-KGH. KGH [42] is used as a colorectal polyp WSI classification task. It is an in-house collection of 1 , 037 WSIs in the ADPv2 work for distribution analysis and potential biomarker discovery. The tested task is four-class disease-subtype classification over hyper-plastic polyp ( CP_HP ), sessile serrated lesion ( CP_SSL ), tubular adenoma ( CP_TA ), and tubulovillous adenoma ( CP_TVA ). The raw local tree contains 1 , 037 WSIs: 837 disease-subtype WSIs and 200 normal WSIs. The 200 normal slides are not included. Among the four target subtypes, all 837 slides are used, including 212 CP_HP , 201 CP_SSL , 207 
+
+CP_TA , and 217 CP_TVA slides. 
+
+PANDA. PANDA [5] is a large public prostate biopsy grading benchmark released for the Prostate cANcer graDe Assessment challenge. The tested task is a six-class WSI-level ISUP grade classification over grades 0 to 5, and the main table additionally reports quadratic-weighted Cohen’s kappa because grade ordering is clinically meaningful. The local label file contains 10 , 616 labelled H&E biopsy WSIs. We use 10 , 615 valid slides after preprocessing. 22 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+The usable label distribution is 2 , 891, 2 , 666, 1 , 343, 1 , 242, 1 , 249, and 1 , 224 slides for grades 0 − 5, respectively. 
+
+BRACS. BRACS [4] contains H&E breast pathology WSIs and ROI annotations for breast lesion subtyping. The tested task is seven-class WSI-level lesion classification using the WSI labels, not the ROI-level labels. The public dataset includes 547 WSIs and 4 , 539 ROIs. We use 546 valid WSI-level slides for training and evaluation. One WSI is excluded after preprocessing. The seven target classes are normal (N), pathological benign (PB), usual ductal hyperplasia (UDH), flat epithelial atypia (FEA), atypical ductal hyperplasia (ADH), ductal carcinoma in situ (DCIS), and invasive carcinoma (IC), which includes 44 N, 147 PB, 73 UDH, 41 FEA, 48 ADH, 61 DCIS, and 132 IC. 
+
+TCGA survival cohorts. The survival benchmark uses TCGA-KIRC, KIRP, LUAD, STAD, and UCEC [33]. The tested task is the ranking of overall survival (OS) risk. Each WSI is processed as a slide bag, but splitting and evaluation are performed at the case level. All slides from the same case stay in the same split. Multi-slide cases are aggregated into a single case risk score, and performance is measured by the case C-index. We start from the matched label table and remove rows with non-positive survival times before training. The final valid inventories are 511 KIRC cases (517 slides), 272 KIRP cases (296 slides), 465 LUAD cases (528 slides), 383 STAD cases (409 slides), and 249 UCEC cases (275 slides). Event counts are 171, 42, 163, 156, and 34 for KIRC, KIRP, LUAD, STAD, and UCEC, respectively. 
+
+# B Implementation Details 
+
+All WSI experiments use the same frozen features across datasets. Patches are extracted with AtlasPatch [1] at 20 × magnification and embedded with UNI-v2 [9]. The patch-encoder ablation uses the same protocol but replaces the UNI-v2 features with MedSigLIP-448 or ViT-B/16 features. The ADP experiment is the exception. It uses the raw RGB patch im-ages rather than WSI feature bags. The PANDA experiment uses the same UNI-v2 PANDA slide features as the WSI experiments, but routes them through a full-attention set-style ViT instead of the TransMIL-style Nyström aggregator. 
+
+Model architecture To handle exploding memory consumption issues when using dense ViT attention for WSIs, we use a TransMIL-style [37] slide aggregator with Nyström at-tention and spatial neighbourhoods constructed from patch coordinates. This architecture is also used for PANDA in the main experiments. Our aggregator follows TransMIL’s overall recipe (CLS token + Nyström attention + PPEG, square-replication padding, PPEG inserted once after the first attention block) but is not a drop-in re-implementation. We deviate in (i) embedding width (384 vs 512) and head count (6 vs 8), chosen to match the upstream ViT-S used for diagnostic continuity with our early patch-level analysis that is not included in this manuscript; (ii) depth (4 vs 2 TransLayers), for finer per-layer training trajectory di-agnostics; (iii) block topology , where each of our TransLayers is a standard pre-norm trans-former block with both an attention sub-block and an MLP sub-block (L AYER NORM → at-tention → residual → LAYER NORM → MLP → residual), whereas official TransMIL re-tains only the attention sub-block; (iv) Nyström landmarks (m=64 vs m=dim /2=256), YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 23 
+
+the lucidrains/nystrom-attention package default, chosen for memory econ-omy; (v) the value-residual depthwise convolution inside Nyström ( residual=True in the lucidrains/nystrom-attention import path used by official TransMIL) is dis-abled here, because a 1-D depthwise convolution over an unordered token sequence is not geometrically meaningful in the MIL setting; and (vi) regularization choices – we add stochastic depth (linear schedule 0 → 0.1 across depth) and use truncated-normal initial-isation (std =0.02) for all linear and convolutional weights, which are commonly used in standard transformer models but not in official TransMIL. For the architecture choice ablation, ADP uses a raw-RGB ViT-S/16 patch classifier. Each 272 × 272 patch is split into a 17 × 17 grid of 16 × 16 visual tokens and a CLS token. The model uses 12 transformer blocks with width 384, 6 attention heads, an MLP ratio of 4, learned absolute positional embeddings, and stochastic depth with a maximum drop path of 0.1. The ADP Gated SRP arm replaces dense MHSA blocks with a patch-level Gated SRP attention backend; the local reference is built on a fixed 17 × 17 token grid. For PANDA, we use the vit4 slide model rather than the main TransMIL-style PANDA model. Each WSI is represented by native-length UNI-v2 patch features of dimension 1536 and their level-0 patch coordinates. A linear projection maps each patch feature to width 384, a learned CLS token is prepended, and 4 full-attention transformer blocks with 6 heads and an MLP ratio of 4 aggregate the variable-length slide bag under an attention mask. No learned positional encoding is used in the reported vit4 setting. For Gated SRP, the model uses the coordinate-derived 3 × 3 neighbourhood graph, equivalent to a valid 8-neighbour local context, with the local reference target set to knn8 .
+
+Training objectives and model selection. For slide-level classification, we use standard unweighted cross entropy over the class labels of each dataset. The checkpoint used for final test evaluation is selected by validation macro F1 for CAMELYON16, CAMELYON17, KGH, and BRACS. PANDA is also trained with unweighted cross entropy, but its checkpoint is selected by validation quadratic weighted Cohen’s kappa to match the ordinal grading objective used by the PANDA challenge. We do not use class weighted losses, oversampling, or weighted random sampling. Instead, class imbalance is handled by stratified splitting and by reporting macro or ordinal metrics, including macro F1, macro AUC, and κq.For ADP, the architecture choice ablation task is patch-level multilabel classification over the 38 retained labels. We train with binary cross entropy with logits and select the checkpoint by validation macro mAP. Training patches use random horizontal and vertical flips, discrete 90 ◦ rotations, mild colour jitter, and ImageNet normalization; validation and test patches use deterministic tensor conversion and the same normalization. ADP F1 and accuracy are computed with the standard multilabel threshold at logit 0, and ADP AUC is the macro average over labels with both positive and negative samples in the evaluated split. For TCGA survival, we train a discrete time survival model with 4 time bins. The model outputs one logit for each time bin, and the sigmoid of each logit is interpreted as the condi-tional hazard for that bin. Bin edges are estimated from uncensored training cases for each cohort and seed. If a split has too few event times, all training survival times are used so that the bins remain well defined. The loss is the discrete time negative log likelihood. For an un-censored event in bin y, the likelihood includes survival through the bins before y and event occurrence in bin y. For a censored case in bin y, the likelihood includes survival through bin y. Thus, censored samples contribute information up to the censoring time and are not treated as observed events. During evaluation, predicted hazards are converted to a scalar 24 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+risk score by taking the negative sum of the predicted discrete survival curve. Larger risk values therefore correspond to earlier predicted events. TCGA evaluation is case-level. Each WSI is forwarded as a separate slide bag, but all slides from the same TCGA case are kept in the same split. For cases with multiple WSIs, we average slide-level risk scores to obtain one case-level risk score. Validation model selection uses a case-level C-index. If a validation split has no comparable pairs, validation loss is used as the fallback selection signal. The reported TCGA results use the test case-level C-index. 
+
+Splits and leakage control. All main WSI experiments use five global seeds from 42 to 46. For each seed, we generate an approximate 70%, 10%, and 20% split for training, vali-dation, and testing. The same split is reused by all compared methods under the same dataset and seed, which gives a paired comparison across attention modules. The split unit is chosen to avoid leakage when multiple slides may come from the same subject. TCGA survival is split by case. CAMELYON17 is split by patient and stratified by center. BRACS is split by patient using a patient-level label vector, since a single patient may contribute slides from multiple diagnostic categories. CAMELYON16, KGH, and PANDA use slide-level split units because the available experimental inventory does not provide the separate patient grouping used by the trainer. These splits are stratified by class label for CAMELYON16 and KGH, and by data provider and ISUP grade for PANDA. The architecture choice abla-tion for PANDA vit4 uses the same global-seed slide split as the corresponding PANDA classification package. ADP uses the official Release1 patch-row train, validation, and test split for every method; seeds 42 to 46 control model initialization and training stochasticity rather than ADP split membership. 
+
+WSI token handling. All WSI loaders use one WSI bag per mini-batch, and the effective batch size is obtained via gradient accumulation. We do not apply stochastic patch sampling during training or evaluation. For each WSI, all extracted tissue patch tokens are used unless a slide exceeds the deterministic memory cap for its dataset. The caps are 16 ,384 tokens for CAMELYON16, 49 ,152 tokens for CAMELYON17 and TCGA, and 32 ,768 tokens for KGH and BRACS. If a cap is triggered, tokens are deterministically selected in coordinate order with uniform spacing. This ensures that all methods and splits use the same reproducible subset for that slide. PANDA, including the dense vit4 ablation, is run at native slide length without a cap. ADP is not a WSI bag experiment: each image contributes the full 17 × 17 ViT token grid. 
+
+Optimization. We train PANDA for 20 epochs because it is the largest and most hetero-geneous classification dataset. The other slide-level classification tasks are trained for 15 epochs to avoid unnecessary overfitting on smaller cohorts. Slide-level classification runs use gradient accumulation of 16. We use AdamW [27] with β1 = 0.9, β2 = 0.999, 5% linear warmup, cosine decay, learning rate 2 × 10 −4, and weight decay 0 .05. Gate and projec-tion parameters that encode additive coefficients or biases are excluded from weight decay. The ADP experiment is trained for 20 epochs with batch size 256, AdamW, learning rate 5 × 10 −4, weight decay 0 .05, 5% warmup, cosine decay, and gradient clipping at norm 1 .0. Survival tasks are trained for 20 epochs with AdamW, learning rate 1 × 10 −4, weight decay 1 × 10 −5, gradient accumulation of 1, 5% warmup, and cosine decay. YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 25 
+
+Hyperparameter Protocol Hyperparameters are handled with fixed comparator settings. Standard NA, XSA, and Diff do not introduce specific search settings beyond the shared optimization and checkpointing protocol. Gated SRP uses one selected signed range and gate capacity for each WSI dataset or TCGA cohort, reported in Table 11; the architecture choice ablation settings are reported separately in Table 10. This keeps the comparison focused on the attention mechanisms while making settings for each method explicit. Table 11 lists the selected Gated SRP settings used in the reported WSI experiments. Here δ denotes the signed gate range, and h is the hidden dimension of the token gate MLP. The selected values are fixed before final result aggregation. Table 10: Architecture choice ablation hyperparameters. These settings apply only to the ADP/PANDA architecture choice ablation. ADP uses the raw-RGB ViT-S/16 patch classi-fier, and PANDA uses the dense slide-level vit4 set-style ViT. 
+
+Dataset δ h
+
+ADP 0.5 128 PANDA 2.0 32 Table 11: Selected Gated SRP hyperparameters. We report the selected signed gate range and gate hidden dimension for WSI classification datasets and TCGA survival cohorts. δ
+
+denotes the signed gate range [−δ , δ ], and h denotes the hidden dimension of the gate MLP. 
+
+Survival Analysis WSI Classification Cohort δ h Dataset δ h
+
+TCGA-KIRC 1.5 128 CAMELYON16 1.0 16 TCGA-KIRP 2.0 32 CAMELYON17 2.0 64 TCGA-LUAD 1.0 128 KGH 1.0 64 TCGA-STAD 0.5 128 PANDA 0.5 16 TCGA-UCEC 1.5 32 BRACS 0.5 128 For the patch-encoder ablation, we also run hyperparameter search for the Gated SRP on each dataset. For UNI-v2, we use the hyperparameters from Table 11. For ViT-B/16 and MedSigLIP encoders, the selected configurations are shown in Table 12. Table 12: Patch-encoder ablation hyperparameters. ViT-B/16 MedSigLIP-448 Dataset/cohort δ h Dataset/cohort δ h
+
+KGH 1.0 64 KGH 1.0 64 PANDA 0.5 16 PANDA 0.5 16 BRACS 2.0 128 BRACS 0.5 32 TCGA-KIRP 0.5 64 TCGA-KIRP 2.0 32 TCGA-LUAD 2.0 32 TCGA-LUAD 1.0 128 TCGA-STAD 0.5 128 TCGA-STAD 0.5 128 26 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+# C Pseudocode 
+
+We present the full per-block implementation of our proposed Gated SRP, which fits in roughly twenty lines. 
+
+Algorithm 1 Gated SRP attention block in PyTorch-style pseudocode. 
+
+Require: x; projections Wq, Wk, Wv, Wo ; neighbour graph nbr_idx, nbr_mask ; h_local ; gate param-eters g_tok, w_h, b_h, b_lh ; range delta .
+
+Ensure: out (replaces the standard attention-block output). 
+
+# Standard multi-head self-attention 
+
+1: Q, K, V = split_heads(x @ Wq, x @ Wk, x @ Wv) 
+
+2: A = softmax(Q @ K.transpose(-2,-1) / sqrt(d)) 
+
+3: Y = A @ V ▷ SA output 
+
+# === Gated SRP === 
+
+4: V_nbr = gather(V.detach(), nbr_idx) ▷ valid neighbours only define the geometric reference 5: mask = nbr_mask[:,None,:,:,None].float() 
+
+6: m = mask.sum(-2).clamp_min(1.0) 
+
+7: r = (V_nbr * mask).sum(-2) / m ▷ Eq. (6) 8: r_hat = r / (r.norm(-1, keepdim=True) + eps) 
+
+9: c = (Y * r_hat).sum(-1, keepdim=True) * r_hat ▷ Eq. (4) 10: m_tok = nbr_mask.sum(-1).float() 
+
+11: has_nbr = (m_tok > 0).float()[:,None,:,None] 
+
+12: d_tok = stack([h_local, m_tok/8, log1p(m_tok)], -1).detach() ▷ Eq. (9) 13: cos_yr = (Y * r_hat).sum(-1) 
+
+14: d_head = stack([cos_yr, cos_yr.abs(), log1p(Y.norm(-1))], -1).detach() ▷ Eq. (10) 15: logit = g_tok(d_tok)[:,None,:,None] + einsum("bhnt,ht->bhn", d_head, w_h)[...,None] + b_h.view(1,H,1,1) + b_lh.view(1,H,1,1) ▷ Eq. (8) 16: beta = delta * tanh(logit) * has_nbr ▷ Eq. (7) 17: Z = Y - beta * c ▷ replaces Y; Eq. (5) 
+
+# === end Gated SRP === 
+
+18: out = x + Wo @ merge_heads(Z) ▷ standard residual + output projection 
+
+# D Standard Deviations of Main Results 
+
+Table 13: Survival standard deviations. We report the C-index standard deviation over five seeds. Bold marks the lowest value for each cohort.                          
+
+> Method KIRC KIRP LUAD STAD UCEC
+> NA [37, 40] 0.0516 0.1244 0.0424 0.0672 0.0818 XSA [44] 0.0456 0.1191 0.0642 0.0799 0.0528
+> Diff [43] 0.0394 0.0884 0.0485 0.0638 0.0869
+> Gated SRP 0.0634 0.0805 0.0492 0.0542 0.0844
+
+The standard deviations observed in the main survival and classification experiments are reported in Tables 13 and 14. We conduct experiments using five global seeds to control data splitting, model initialization, and training stochasticity. As a result, the reported standard deviations capture the full evaluation protocol, not just variation from training on a fixed test set. In survival analysis, each seed alters the held-out case set and its event and censoring distribution, which directly impacts C-index evaluation. Table 13 shows that survival metric variation is present across all attention mechanisms, not only Gated SRP. Gated SRP achieves the lowest standard deviation on KIRP and STAD, while other methods are lower on KIRC, LUAD, and UCEC. For classification, standard deviations are typically smaller for AUC and YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 27 
+
+larger for thresholded metrics such as F1 and accuracy, particularly in smaller or imbalanced multi-class datasets. Gated SRP reduces standard deviation compared to NA in 9 out of 16 classification metrics. In conclusion, the observed mean performance improvements of Gated SRP are not associated with increased training instability. Table 14: Classification standard deviations. The standard deviations for the main classi-fication results. The lowest standard deviation for each metric is bolded .                                                                                   
+
+> Method CAM16 CAM17 KGH PANDA BRACS
+> F1 Acc AUC F1 Acc AUC F1 Acc AUC κqF1 Acc AUC F1 Acc AUC
+> NA [37, 40] 0.0218 0.0211 0.0035 0.0449 0.0205 0.0305 0.0487 0.0423 0.0080 0.0097 0.0141 0.0111 0.0154 0.0659 0.0504 0.0180
+> XSA [44] 0.0172 0.0166 0.0036 0.0572 0.0239 0.0310 0.0283 0.0284 0.0116 0.0036 0.0162 0.0143 0.0077 0.0514 0.0496 0.0208 Diff [43] 0.0106 0.0101 0.0064 0.0516 0.0260 0.0154 0.0242 0.0239 0.0089 0.0055 0.0134 0.0075 0.0038 0.0853 0.0544 0.0357
+> Gated SRP 0.0233 0.0227 0.0014 0.0549 0.0170 0.0291 0.0336 0.0331 0.0084 0.0057 0.0132 0.0101 0.0116 0.0877 0.0694 0.0265
+
+# E Additional Gate Trajectories 
+
+Figure 6: Effective gate coefficient trajectories for TCGA survival cohorts. The addi-tional TCGA survival cohorts. Curves and shaded regions follow the same five-seed mean and ±1 standard-deviation convention. It is important to distinguish the selected range parameter and the realized gate coeffi-cients in Gated SRP. The effective correction coefficient is defined as β = δ tanh (s), where 
+
+s is the gate logit. The parameter δ sets both the maximum possible value of β and the gradient scale of the gate output, as ∂ β /∂ s = δ (1 − tanh 2(s)) . Increasing δ expands the fea-sible correction range and the update scale, while decreasing δ restricts both. Despite this, the final learned β values depend on the optimized gate logits. Empirically, datasets with different δ values can yield similar ranges of realized gate coefficients. Therefore, we focus 28 YANG ET AL.: GATED SPATIAL REDUNDANCY PROJECTION 
+
+on analyzing the learned effective β trajectories, rather than relying on δ alone to interpret the magnitude of the correction. In the main text, we show TCGA-KIRC, CAMELYON16, and PANDA as representative examples. Here we present the gate trajectory analyses for the remaining datasets. Similarly, each curve is the mean of the seed-level epoch means over five global seeds, and the shaded region is ±1 standard deviation across seeds. The results for the remaining TCGA survival cohorts, shown in Figure 6, indicate that the learned gate coefficients are consistently positive and reach their highest values in the earliest active layer. In LUAD, the first two layers approach the projection regime, while the third layer is weaker and shows greater variability across seeds. KIRP and UCEC exhibit moderate positive corrections with broader variation, reflecting the influence of evaluation case composition on survival ranking. STAD, which uses a smaller selected range ( δ =
+
+0.5), has gate coefficients that approach the upper bound of this range but do not reach the projection regime. These findings suggest that reducing local common components in early layers supports more effective prognostic modeling before deeper slide-level aggregation. 
+
+Figure 7: Effective gate coefficient trajectories for WSI classification tasks. The addi-tional classification datasets. Figure 7 presents the gate coefficient trajectories for the remaining classification datasets. The learned corrections are smaller than those in the strongest survival cohorts. In CAME-LYON17, the first layer shows a moderate positive correction, while the second and third layers are lower and more variable across seeds. KGH and BRACS display modest positive gate values, with the middle layer slightly stronger than the first. This pattern aligns with classification tasks where label evidence is more directly associated with visible lesion re-gions, leading the model to apply more conservative corrections. In summary, Gated SRP adapts its correction magnitude by dataset and layer, ranging from near-identity updates to positive redundancy reduction or small signed corrections.

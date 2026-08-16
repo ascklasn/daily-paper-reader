@@ -1,0 +1,258 @@
+Title: Agentic Visual Reasoning in Whole-Slide Pathology Images via Active Perception
+
+URL Source: https://arxiv.org/pdf/2608.08648v1
+
+Published Time: Tue, 11 Aug 2026 01:36:12 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# Agentic Visual Reasoning in Whole-Slide Pathology Images via Active Perception 
+
+Jingyun Chen 1,* Fengchun Liu 1,* Linghan Cai 1 Songhan Jiang 1
+
+Shenjin Huang 1 Hongpeng Wang 1, † Lequan Yu 2, † Yongbing Zhang 1, †
+
+> 1
+
+College of Computer Science and Technology, Harbin Institute of Technology, Shenzhen 
+
+> 2
+
+School of Computing and Data Science, The University of Hong Kong 
+
+{jychen, cailh}@stu.hit.edu.cn, ybzhang08@hit.edu.cn 
+
+## Abstract 
+
+Whole-slide visual reasoning requires identifying sparse diagnostic evidence in gi-gapixel pathology slides and integrating observations across spatial scales. Existing WSI methods either compress densely sampled patches into global representa-tions or rely on pretrained vision-language models and heuristic planning to select regions. The former weakens the connection between predictions and the morpho-logical evidence, whereas the latter lacks a pathology-trained policy for deciding where and over what spatial extent to observe. We present AdaptivePath, an active-perception framework that formulates WSI evidence acquisition as a sequential decision-making process. Since question-specific evidence trajectories are costly to annotate, the Navigator learns question-agnostic, abnormality-driven navigation from pathologist-reviewed labels to select the location and spatial extent of each ob-servation. We train this policy by alternating representation learning with proximal policy optimization and subsequently fine-tune it using geometric and appearance consistency objectives to stabilize focus trajectories under visual variations. During inference, the Navigator hierarchically acquires sparse observations from low to high magnification under a limited ROI budget. A Morphology Interpreter converts these observations into question-conditioned morphological evidence, allowing the Deliberator to evaluate newly acquired evidence and revise intermediate answers across magnifications. The Arbiter then integrates the resulting deliberation his-tory to produce the final answer. AdaptivePath achieves state-of-the-art zero-shot performance on WSI-level and region-level pathology VQA benchmarks and an overall accuracy of 80.14% for cancer subtype classification across six TCGA cohorts. In a blinded diagnostic-utility study, pathologists using AdaptivePath-selected observation sequences achieve 82.9% accuracy. These results demonstrate that learned active perception provides an effective and traceable basis for agen-tic visual reasoning over gigapixel pathology slides. The code is available at https://github.com/G14nTDo4/AdaptivePath. 
+
+## 1 Introduction 
+
+Whole-slide visual reasoning is an agentic perception problem. Unlike conventional visual question answering across bounded images Antol et al. [2015], Kim et al. [2021], reasoning over a whole-slide image (WSI) requires operating on billions of pixels that depict heterogeneous tissue structures and sparse diagnostic findings Campanella et al. [2019], Lu et al. [2021], Zhao et al. [2023]. An agent cannot inspect such an image exhaustively at its native resolution. Instead, it must select the location and spatial extent of each observation, retain acquired evidence, and integrate observations 
+
+> *Equal contribution.
+> †Corresponding authors. arXiv:2608.08648v1 [cs.CV] 9 Aug 2026
+
+across magnifications to answer a question Weishaupt et al. [2026], Wang et al. [2026]. Active visual evidence acquisition is therefore fundamental to agentic reasoning over gigapixel pathology slides. Recent systems such as PathAgent, PathNavigate, and GIANT acquire visual evidence using pre-trained retrieval models, heuristic search, or language-model planning Chen et al. [2025a], Yang et al. [2026], Buckley et al. [2026], while CPathAgent learns multi-scale navigation from model-generated trajectories Sun et al. [2026]. Their navigation depends on pretrained models or generated plans, and their reasoning lacks explicit option-wise evidence auditing. Direct VQA rewards do not indicate which selected regions contain the evidence, whereas question-specific evidence trajectories are costly to annotate Shi et al. [2024], Huang et al. [2026], Liao et al. [2026]. Effective WSI reasoning therefore requires a navigation policy grounded in pathology that can be reused across questions, together with explicit evaluation of the acquired evidence for each candidate answer. To meet these requirements, we present AdaptivePath, which formulates WSI visual reasoning as a scale-progressive active perception process. At each magnification, the Navigator scores candidate regions, predicts the locations and spatial extents of observations for the Interpreter, and retains top-ranked candidates for the next search space. The Interpreter generates morphological descriptions conditioned on the question, and the Deliberator then audits how directly observed morphology supports or conflicts with each option and assesses whether the evidence is sufficient. Rather than selecting an answer by voting over magnification-specific predictions, the Arbiter evaluates the accumulated region-level morphological descriptions and evidence audits to produce the final answer. We optimize the Navigator using pathologist-reviewed abnormality labels. These components establish an explicit and traceable path from WSI exploration to final adjudication. Our main contributions are as follows: • We introduce AdaptivePath, an active-perception system for agentic WSI visual reasoning. The system integrates progressive navigation across magnifications, morphology interpre-tation conditioned on the question, evidence deliberation at each magnification, and final adjudication across magnifications into an explicit path from visual exploration to the final decision. • We construct an abnormal-region recognition dataset with pathologist-reviewed labels and use it to train a Navigator that localizes abnormalities, estimates their spatial extents, and provides observations across multiple magnifications to the downstream reasoning modules. • We comprehensively evaluate AdaptivePath on pathology VQA, cancer subtype classifi-cation, a pathologist-centered diagnostic utility test, and navigation trajectory alignment, assessing its question-answering performance, generalization, diagnostic value, and naviga-tion behavior. 
+
+## 2 Related Work 
+
+2.1 Pathology and WSI Vision-Language Models 
+
+General-purpose vision-language models Radford et al. [2021], Liu et al. [2023], Bai et al. [2023], Li et al. [2023b] have motivated pathology-specific extensions. PLIP Huang et al. [2023] and CONCH Lu et al. [2024a] learn aligned representations of pathology images and text, while Quilt-LLaVA Sey-fioglu et al. [2024], PathChat Lu et al. [2024b], PathAsst Sun et al. [2024b] and PathGen Sun et al. [2025] further connect pathology visual encoders with large language models through instruction tuning. Patho-R1 Zhang et al. [2026] and ScaleReasoner-R1 Phan et al. [2026] enhance visual reasoning through chain-of-thought supervision and reinforcement learning. However, these models primarily operate on region-level pathology images. WSI-VQA Chen et al. [2024], SlideChat Chen et al. [2025b] and WSI-LLaVA Liang et al. [2025] extend language interaction to gigapixel WSIs by connecting pre-extracted patch features to language models, but their visual reasoning relies on compressed representations rather than explicit sequences of region-level observations. 
+
+2.2 Agentic WSI Visual Reasoning 
+
+To move beyond reasoning over static patch features, recent agentic WSI systems explicitly acquire visual evidence through iterative region selection and multi-step reasoning. PathAgent Chen et al. [2025a] uses a Navigator guided by similarity scores from a pretrained vision-language model to 2Figure 1: Overview of AdaptivePath. The Navigator is trained on abnormal-region recognition data to sequentially predict focus locations and scales and estimate abnormality. During inference, AdaptivePath hierarchically acquires and integrates multi-scale morphological evidence to produce the final answer. retrieve candidate regions and employs multi-step reasoning driven by a language model to adjust the magnification and guide subsequent region retrieval. PathNavigate Yang et al. [2026] constructs a slide-specific surprise prior from frozen pathology features and uses alignment scores from PLIP to rerank regions according to their relevance to the question. GIANT Buckley et al. [2026] instead employs a general-purpose multimodal model to iteratively plan and navigate using downsampled slide observations. However, these systems have limited supervision for abnormal-region localization and lack explicit option-wise auditing of directly observed evidence across magnifications. 
+
+2.3 Active Perception for Visual Reasoning 
+
+Active perception ranges from coarse-to-fine fixation selection in AdaptiveNN Wang et al. [2025] to agentic reasoning through environmental navigation or task-relevant region selection Wang et al. [2023], Zhou et al. [2024]. Applying active perception to WSIs is challenging because diagnostically relevant morphological features varie in location and spatial extent and may become apparent at different magnifications across a gigapixel image. CPathAgent Sun et al. [2026] learns multi-scale navigation through a three-stage training pipeline using model-generated trajectories. However, its navigation supervision is derived from generated trajectories rather than dedicated pathologist-reviewed region labels. AdaptivePath addresses this limitation by using pathologist-reviewed abnor-mality labels to optimize a sequential policy that determines the location and spatial extent of each observation, thereby yielding pathology-grounded visual evidence for downstream reasoning. 
+
+## 3 Methodology 
+
+3.1 Overview 
+
+As illustrated in Figure 1, AdaptivePath is an agentic framework that integrates active perception, morphology interpretation, evidence deliberation, and final adjudication for whole-slide visual reasoning. The Navigator performs hierarchical active perception across magnifications by selecting the location and spatial extent of each observation, while the Interpreter converts these observations into morphological descriptions conditioned on the question. The Deliberator organizes the resulting evidence for candidate options, and the Arbiter directly adjudicates the evidence across magnifications to generate the final answer. 
+
+3.2 Active Perception Navigator 
+
+To enable abnormality-aware and scale-adaptive navigation, we train the Navigator using a multi-magnification abnormal-region recognition dataset as illustrated in Figure 2. Its construction details are provided in Section 4.1. The Navigator is trained in two successive phases. Phase I alternates representation learning and policy optimization, while Phase II refines the resulting policy with geometric and appearance consistency. 3Figure 2: Overview of the active-perception Navigator. FocusNet encodes the global glance and sequential focus regions to update the visual state, while ActionNet predicts region-level abnormality logits and the location and spatial extent of the next observation. The Navigator is trained with pathologist-reviewed labels for abnormality-aware navigation. 
+
+3.2.1 Sequential Focus Observation 
+
+The Navigator FN consists of a FocusNet πF and an ActionNet πθ. Given a pathology region 
+
+I ∈ R3×P ×P , FocusNet encodes its globally resized glance I0 to initialize the visual state h0. At step t, ActionNet predicts the current abnormality logits zt−1 and the next focus action: 
+
+zt−1, a t = πθ (ht−1), (1) where ht−1 summarizes the observations acquired before step t. The action at = ( ut, v t, s t) specifies the location and relative spatial extent of the next focus region. After the corresponding image region 
+
+It is acquired, FocusNet updates the visual state as 
+
+ht = πF (ht−1, I t). (2) The resulting state ht guides the next action. After the final observation, the terminal logits are 
+
+zT = πcls  
+
+> θ
+
+(hT ).
+
+3.2.2 Phase I: Representation and Perception Learning 
+
+The Navigator needs to learn both discriminative representations for abnormality recognition and an observation policy that actively acquires informative observations. Following AdaptiveNN Wang et al. [2025], we alternate between representation learning and policy optimization. The glance and all focus outputs receive cross-entropy supervision from the ground-truth navigation label ynav . The final focus prediction provides a stop-gradient teacher distribution for the glance and preceding focus predictions. Let pt = softmax( zt) and ¯pT = stopgrad( pT ). The representation objective is 
+
+Lrepr =
+
+> T
+
+X
+
+> t=0
+
+LCE (zt, y nav ) + α 
+
+> T−1
+
+X
+
+> t=0
+
+DKL (¯ pT ∥pt). (3) The stopgrad operation prevents the teacher distribution from being updated by the distillation term. To encourage informative focus observations, the immediate reward is defined by the reduction in classification loss: 
+
+gt = LCE (zt−1, y nav ) − L CE (zt, y nav ). (4) Thus, an observation receives a positive reward when it improves abnormality recognition. During policy optimization, the visual FocusNet backbone πF is frozen, and the ActionNet policy 
+
+πθ is trained using generalized advantage estimation and clipped PPO Schulman et al. [2017]. The overall policy objective is 
+
+LPPO = Lclip + LV + βstab Lstab − βent Ent( πθ ), (5) where Lclip is the standard clipped surrogate loss, LV is the value regression loss, Lstab stabilizes representations across PPO updates, and the entropy term Ent( πθ ) encourages exploration. Alter-nating representation and policy updates enable the Navigator to recognize potentially abnormal morphology and adaptively select the location and spatial extent of each observation. 43.2.3 Phase II: Consistency-Regularized Policy Fine-Tuning 
+
+Starting from the Phase I checkpoint, Phase II further stabilizes navigation by enforcing consistent localization under pathology-preserving geometric and appearance variations. For each region, we obtain deterministic focus trajectories from the original, geometrically transformed, and appearance-augmented views, with geometric predictions mapped back to the original coordinate system. Each predicted focus box is converted into a normalized Gaussian evidence heatmap. Let Ht denote the heatmap at step t and H the aggregate heatmap over all steps. The consistency objective is 
+
+Lcons = DJS (H∥Hgeo ) + 1
+
+T
+
+> T
+
+X
+
+> t=1
+
+DJS (Ht∥Hgeo  
+
+> t
+
+) + DJS (H∥Happ ), (6) where geo and app denote geometric and appearance augmentations, respectively. The geometric terms preserve both step-wise trajectory correspondence and aggregate localization, while the appearance term stabilizes the overall focus distribution under visual variations. Phase II therefore fine-tunes the policy using LPPO + Lcons .
+
+3.3 Agentic Whole-Slide VQA 3.3.1 Hierarchical Active Navigation 
+
+During inference, AdaptivePath applies the learned active perception policy hierarchically across the ordered magnifications M. Let Rm denote the candidate region set at magnification m. The initial candidates cover the entire WSI, while subsequent candidates are generated within the regions retained at the preceding magnification. For each Rm ∈ R m, the Navigator acquires T focus observations and computes an abnormality score from the final logits: 
+
+AS( Rm) = zmT [abnormal] − zmT [normal] . (7) At each magnification, all candidate regions are ranked by their abnormality scores. We retain 
+
+Sm = Top KRm∈R m
+
+AS( Rm), (8) where K is the navigation budget. The retained regions Sm define the next-magnification search space, while their predicted focus regions provide inputs to the Interpreter. 
+
+3.3.2 Morphology Interpretation and Evidence Adjudication 
+
+Given question q, let {f mi,j }Tj=1 denote the T focus observations acquired from selected region Rmi ∈Sm. The Interpreter converts these observations into question-relevant descriptions {Des( f mi,j )}Tj=1 
+
+of directly visible morphology. The Deliberator aggregates these descriptions into a region-level summary of directly observed morphology: 
+
+γmi = F aggregate 
+
+> D
+
+
+
+q, Des( f mi,j ) Tj=1 , m 
+
+
+
+. (9) Pairing each summary with the corresponding region abnormality score gives the region morphology set 
+
+Gm = {(AS( Rmi ), γ mi ) | Rmi ∈ S m} . (10) Based on the region morphology set, the Deliberator first produces an independent answer and rationale: 
+
+Om = F answer  
+
+> D
+
+(q, Gm, m ). (11) The Deliberator then reviews the evidence for every answer option and assesses overall evidence sufficiency: 
+
+(Am, U m) = F review  
+
+> D
+
+(q, Gm, O m, m ), (12) where Am records supporting findings and explicit conflicts for every option based solely on directly observed morphology, while absent or unobserved features are treated as neutral. Um records evidence sufficiency and its rationale. 5Table 1: Zero-shot VQA accuracy (%) for AdaptivePath and existing methods on SlideBench-VQA (BCNB), WSI-VQA, and the yes-or-no subset of PathVQA. The best and second-best results are shown in bold and underlined, respectively. Method (Input) SlideBench-VQA (BCNB) WSI-VQA PathVQA Overall Accuracy Tumor Type Receptor Status HER2 Expression Histological Grading Molecular Subtype Accuracy Accuracy                                                                                                                                         
+
+> General-domain VLMs
+> Qwen3-VL (Thumbnail) 30.70 41.48 50.63 19.37 25.95 11.03 21.84 -Qwen3-VL (Patch) 38.22 43.96 53.26 21.35 29.74 16.04 23.47 44.82 GPT-5.5 (Thumbnail) 37.36 40.72 52.62 20.15 26.73 19.35 25.48 -GPT-5.5 (Patch) 40.32 45.58 53.05 22.82 30.68 20.16 28.76 47.14
+> Medical-domain VLMs
+> LLaVA-Med (Thumbnail) 0.01 0.01 0.01 0.00 0.00 0.00 13.20 -LLaVA-Med (Patch) 30.10 23.95 42.52 23.72 18.99 15.05 21.55 27.78 MedDr (Thumbnail) 35.48 28.92 48.08 20.65 29.96 23.88 43.69 -MedDr (Patch) 33.67 45.46 40.44 22.73 30.28 15.49 45.42 29.35 Quilt-LLaVA (Thumbnail) 41.55 67.41 55.33 15.97 22.89 16.27 26.17 -Quilt-LLaVA (Patch) 44.43 77.14 56.46 23.18 18.23 19.82 29.23 20.76
+> Patch-aggregated Methods
+> WSI-VQA (Slide) 23.35 3.90 40.82 10.53 30.00 0.00 46.90 33.59 SlideChat (Slide) 54.14 90.17 73.09 25.05 23.11 17.49 -55.03 WSI-LLaVA (Slide) 52.68 85.32 60.89 24.75 46.28 29.20 45.71 54.97
+> Agentic Systems
+> GIANT (Slide) 44.97 57.37 42.55 14.79 48.52 26.63 46.27 55.01 PathAgent (Slide) 55.72 87.52 61.33 25.34 55.95 30.21 51.54 58.36 PathNavigate (Slide) 59.42 88.28 65.97 26.47 52.58 32.33 52.21 58.94
+> AdaptivePath (Slide) 60.81 89.58 75.22 27.92 56.95 32.68 54.92 60.73
+
+The Arbiter uses the option-wise evidence audits and sufficiency reviews from all magnifications to produce the final answer and rationale: 
+
+(ˆ y, ˆr) = FA
+
+ q, {(m, Am, U m)}m∈M 
+
+ . (13) This evidence-level adjudication integrates morphological evidence across magnifications rather than using magnification-specific answers as votes. The answers {Om}m∈M are retained to preserve independent decisions across magnifications and trace the final decision. 
+
+## 4 Experiments 
+
+4.1 Abnormal-Region Recognition Dataset 
+
+To train the Navigator’s active perception policy, we construct an abnormal-region recognition dataset comprising 6,352 pathology image patches from 880 WSIs across 30 TCGA cancer types. Patho-R1-7B Zhang et al. [2026] generates the binary labels for normal and abnormal regions. Six pathologists, each with five years of pathology experience, review and correct these labels. We split the dataset into training, validation, and test sets in an 8:1:1 ratio, with no WSI shared across the splits. The dataset does not overlap with any downstream evaluation dataset. Multi-magnification sampling exposes the Navigator to tissue architecture and cellular morphology at different resolutions, facilitating its learning of observation locations and spatial extents. 
+
+4.2 Implementation Details 
+
+We implement AdaptivePath in PyTorch 2.7.0 and run experiments on NVIDIA GeForce RTX 3090 GPUs. The Navigator is optimized with AdamW Kingma and Ba [2017], Loshchilov and Hutter [2019] using a batch size of 32, a weight decay of 0.02, and gradient clipping at 0.5. For the representation and PPO objectives in Eqs. 3 and 5, we set α = 1 , the PPO clipping threshold to 0.2,and βstab = βent = 0 .01 . Phase I runs for 300 epochs with cosine learning rate decay from 1 × 10 −4
+
+to 1 × 10 −6. The Phase I checkpoint with the highest validation accuracy initializes Phase II, which runs for 100 epochs with an initial learning rate of 5 × 10 −5 and other settings unchanged. We set the region input size to P = 512 and the glance and focus input sizes to Pf = 112 .During inference, the Navigator uses magnifications M = {2.5×, 5×, 10 ×} , and each candidate region is resized to P × P . We set the region budget to K = 5 at each magnification and the 6Table 2: Zero-shot cancer subtype classification performance of AdaptivePath and existing methods on six TCGA cohorts. Results are reported as accuracy (%). The best performance is shown in bold ,while the second-best performance is underlined. Method (Input) TCGA-BRCA TCGA-BLCA TCGA-ESCA TCGA-NSCLC TCGA-THCA TCGA-RCC Overall                                                                              
+
+> General-domain VLMs
+> Qwen3-VL (Patch) 32.84 38.71 37.50 56.47 34.13 15.96 41.00 GPT-5.5 (Patch) 35.82 43.55 43.75 55.04 26.95 21.28 40.43
+> Medical-domain VLMs
+> LLaVA-Med (Patch) 49.25 56.45 46.88 37.05 40.72 48.94 42.86 Quilt-LLaVA (Patch) 44.78 37.10 34.38 48.56 47.31 56.38 47.29
+> Patch-aggregated Methods
+> WSI-VQA (Slide) 40.30 46.77 53.13 43.53 47.90 22.34 42.14 SlideChat (Slide) 46.27 62.90 84.38 70.86 71.26 46.81 65.29 WSI-LLaVA (Slide) 52.24 56.45 68.75 73.02 68.26 30.85 62.57
+> Agentic Systems
+> GIANT (Slide) 31.34 46.77 65.63 48.92 61.08 27.66 47.86 PathAgent (Slide) 47.76 53.23 75.00 69.06 71.86 35.11 62.00 PathNavigate (Slide) 53.73 51.61 81.25 69.78 67.07 38.30 62.29
+> AdaptivePath (Slide) 70.15 66.13 96.88 84.53 82.63 73.40 80.14
+
+focus budget to T = 4 for each selected region. K and T define the observation budget for active perception. Unless otherwise specified, Patho-R1-7B Zhang et al. [2026] serves as the Interpreter, while Qwen3-8B Yang et al. [2025] is the Deliberator and Arbiter. Both models remain frozen. 
+
+4.3 Evaluation Datasets and Metrics 
+
+We evaluate AdaptivePath on WSI-level and region-level pathology VQA and zero-shot cancer sub-type classification of WSIs. SlideBench-VQA Chen et al. [2025b] and WSI-VQA Chen et al. [2024] require question answering over complete WSIs and therefore evaluate the full AdaptivePath work-flow from active perception to evidence adjudication. PathMMU Sun et al. [2024a] and PathVQA He et al. [2020] provide questions associated with pathology regions. For PathVQA, we report the subset whose answers are yes or no, while the PathMMU results are provided in the Supplementary Materials. The zero-shot cancer subtype classification evaluation comprises 700 WSIs from six TCGA cohorts. AdaptivePath uses only hematoxylin and eosin (H&E)-stained WSIs for receptor status prediction and cancer subtype classification, with no immunohistochemistry (IHC) images or molecular assay results provided as input. We report percentage accuracy for all tasks. Dataset statistics and evaluation protocols are provided in the Supplementary Materials. 
+
+4.4 Performance Comparisons 
+
+To evaluate AdaptivePath’s active perception workflow, we compare it with four baseline groups: general-domain VLMs, including Qwen3-VL Bai et al. [2025] and GPT-5.5 OpenAI [2026]; medical-domain VLMs, including LLaVA-Med Li et al. [2023a], MedDr He et al. [2024] and Quilt-LLaVA Seyfioglu et al. [2024]; patch-aggregated methods, including WSI-VQA Chen et al. [2024], SlideChat Chen et al. [2025b] and WSI-LLaVA Liang et al. [2025]; and agentic systems including GIANT Buckley et al. [2026], PathAgent Chen et al. [2025a] and PathNavigate Yang et al. [2026]. Table 1 reports the zero-shot VQA results. Since VLMs have constraints on image scale, we evaluate them using the following strategies Chen et al. [2025b]: (1) “Thumbnail” resizes the complete WSI to 1024 × 1024 . (2) “Patch” randomly samples 30 patches at 20 × and combines their predictions by majority voting. For PathVQA, we directly use the original pathology image for each question. AdaptivePath achieves accuracies of 54.92% on WSI-VQA and 60.81% on SlideBench-VQA (BCNB), surpassing PathNavigate by 2.71 and 1.39 percentage points, respectively. It also achieves the highest PathVQA accuracy of 60.73%. The gains on both WSI benchmarks indicate the effectiveness of combining active perception with evidence deliberation and final adjudication for whole-slide VQA. Table 2 reports zero-shot cancer subtype classification results across six TCGA cohorts. AdaptivePath achieves accuracy of 80.14%, exceeding the strongest baseline, SlideChat, by 14.85 percentage points. It ranks first on six cohorts, with margins over the strongest baseline ranging from 3.23 to 17.02 percentage points. These results demonstrate that the complete AdaptivePath workflow, from active 7Table 3: Ablations of ROI selection, magnification, and ROI budget under two Interpreter and Deliberator/Arbiter configurations. Bold indicates the best result in each column. Variant Patho-R1-7B + Qwen3-8B Quilt-LLaVA + Llama-3.1-8B SlideBench-VQA (BCNB) WSI-VQA SlideBench-VQA (BCNB) WSI-VQA                                                
+
+> A. ROI selection
+> Random selection 40.53 39.85 40.33 39.56 PLIP selection 44.38 45.30 43.92 45.72 CONCH selection 48.95 46.76 47.16 45.94
+> B. Magnification used
+> 2.5 ×only 52.73 52.47 52.88 51.65 5×only 55.81 50.46 55.29 50.26 10 ×only 51.64 52.75 51.48 52.05
+> C. ROI budget
+> Top-1 58.77 51.26 55.89 50.59 Top-3 59.03 52.71 57.61 51.76
+> Top-5 (Ours) 60.81 54.92 59.58 52.93
+> Top-8 59.27 52.53 59.11 52.34 Top-10 58.84 50.26 57.65 50.28
+
+perception to evidence adjudication, also transfers to cancer classification without cancer subtype annotations for training. 
+
+4.5 Ablation Study 
+
+Table 4 compares different Interpreter and Deliberator/ArbiterGuo et al. [2025], Grattafiori et al. [2024] combinations. Patho-R1-7B achieves the strongest results when paired with the Qwen3 models, and Qwen3-14B provides the highest accuracy on both datasets. Qwen3-8B closely matches this performance while reducing inference time from 212.56 to 122.26 seconds per question. We therefore use Patho-R1-7B and Qwen3-8B by default. 
+
+Figure 3: Diagnostic utility test on a subset of SlideBench-VQA (BCNB) under the same ROI budget. The left panel compares navigation sources, while the right compares individual magnifications with multi-scale evidence. Figure 4 shows ablations of Phase II consistency regularization and the learnable scale action in the Navigator. Removing Phase II consistency regularization or replacing the learnable scale action with a fixed scale reduces performance on both WSI-VQA and cancer classification. AdaptivePath significantly outperforms the variant without consistency fine-tuning ( p < 0.01 ) and without scale action ( p < 0.05 ). These results validate consistency-regularized fine-tuning and scale-adaptive focus selection. 8Table 4: Comparison of accuracy (%) and inference time across AdaptivePath configurations. Infer-ence time is reported in seconds per question. Interpreter Deliberator / Arbiter SlideBench-VQA (BCNB) WSI-VQA Time(s/question) Patho-R1-7B Qwen3-8B 60.81 54.92 122.26 Qwen3-14B 60.98 55.03 212.56 Llama-3.1-8B 58.34 53.06 131.68 DeepSeek-R1-8B 57.53 52.47 161.64 Quilt-LLaVA Qwen3-8B 59.74 53.18 119.43 Qwen3-14B 60.17 54.62 225.58 Llama-3.1-8B 59.58 52.93 128.95 DeepSeek-R1-8B 58.22 53.25 152.46 The navigation ablations in Table 3 examine aspects of active perception: how ROIs are selected, which magnifications are used, and how many ROIs are retained. Random sampling and retrieval with PLIP or CONCH reduce accuracy in both module configurations relative to the trained Navigator, supporting the benefit of abnormality-supervised navigation. The strongest magnification varies between the two datasets, whereas combining all magnifications yields the highest accuracy in every column. Region budget of K = 5 performs best across both module configurations, and larger budgets provide no improvement. We therefore use all magnifications and K = 5 as the default navigation setting. 
+
+4.6 Evaluation with Pathologists 
+
+We assess whether acquired image sequences support diagnosis and whether navigation reaches regions examined during pathologist review. The Diagnostic Utility Test and Trajectory Alignment Experiment address these two questions, respectively. Detailed protocols and reader characteristics are provided in the Supplementary Materials. 
+
+Figure 4: Navigator ablations on WSI-VQA and cancer classification. Asterisks indicate significance under paired t-tests ( ∗p < 0.05 , ∗∗ p < 0.01 ). 
+
+4.6.1 Diagnostic Utility Test 
+
+In this blinded test, pathologists receive an anonymized raw-image sequence from one of four sources: a recorded pathologist trajectory, AdaptivePath, PathAgent, or matched random tissue sampling. All conditions use the same ROI budget, and the pathologists answer solely from the provided images. 9The reader study therefore measures the diagnostic utility of H&E image sequences without ancillary testing. We compare single-magnification observations with the complete multi-scale sequence to assess the contribution of multi-scale evidence. The left panel of Figure 3 shows that sequences produced by AdaptivePath yield a mean accuracy of 82.9%, compared with 50.9% for PathAgent and 34.3% for random sampling. Among automated methods, this is closest to the 89.7% mean accuracy achieved with pathologist trajectories, supporting the diagnostic utility of actively acquired observations. 
+
+Figure 5: Qualitative navigation comparison under the same ROI budget. The blue line and black boxes show the pathologist’s viewport-center trajectory and representative viewports, with green and red circles marking its start and end. Green and red boxes indicate selected ROIs with and without overlap with pathologist-inspected regions, respectively. As shown in the right panel of Figure 3, the complete multi-scale sequence achieves a mean accuracy of 82.9%, compared with 69.7%, 62.9%, and 62.3% when evidence is restricted to 2.5×, 5×, and 10 ×,respectively. None of the individual magnifications matches the diagnostic utility of the complete sequence. This reader-study result suggests that a single magnification may omit complementary diagnostic evidence and supports integrating tissue architecture, regional organization, and cytological detail across magnifications. 
+
+4.6.2 Trajectory Alignment Experiment 
+
+The dataset contains 58 WSIs across five organs, each WSI annotated with a pathologist’s navigation trajectory recorded during diagnostic review. All methods are evaluated under the same ROI budget. Figure 5 provides a qualitative comparison. In the illustrated case, all AdaptivePath selections overlap pathologist-inspected regions, whereas the other methods exhibit partial or no overlap. Quantitative results across 58 WSIs are provided in the Supplementary Materials. 10 5 Conclusion 
+
+We presented AdaptivePath, an active-perception framework for agentic visual reasoning over gi-gapixel whole-slide images. By coupling scale-progressive evidence acquisition with explicit adjudi-cation, AdaptivePath provides a traceable basis for whole-slide reasoning. To ground this process in pathology, we constructed a pathologist-reviewed abnormal-region recognition dataset and trained a scale-adaptive Navigator to determine where and over what spatial extent to observe. Experiments on pathology VQA and zero-shot cancer subtype classification demonstrate its effectiveness across tasks, while diagnostic-utility and trajectory-alignment evaluations further show that its observation sequences provide meaningful and traceable evidence. Since AdaptivePath currently operates only on H&E-stained WSIs, findings requiring IHC or molecular testing remain outside its directly ob-servable evidence. Future work will incorporate paired IHC slides and molecular data, investigate question-aware reranking, improve navigation efficiency, and extend AdaptivePath to more diverse pathological findings. 
+
+## References 
+
+Stanislaw Antol, Aishwarya Agrawal, Jiasen Lu, Margaret Mitchell, Dhruv Batra, C Lawrence Zitnick, and Devi Parikh. Vqa: Visual question answering. In Proceedings of the IEEE international conference on computer vision , pages 2425–2433, 2015. Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou, and Jingren Zhou. Qwen-vl: A versatile vision-language model for understanding, localization, text reading, and beyond, 2023. URL https://arxiv.org/abs/2308.12966. Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report, 2025. URL https: //arxiv.org/abs/2511.21631. Thomas A. Buckley, Kian R. Weihrauch, Katherine Latham, Andrew Z. Zhou, Padmini A. Manrai, and Arjun K. Manrai. Navigating gigapixel pathology images with large multimodal models, 2026. URL https://arxiv.org/abs/2511.19652. Gabriele Campanella, Matthew G Hanna, Luke Geneslaw, Allen Miraflor, Vitor Werneck Krauss Silva, Klaus J Busam, Edi Brogi, Victor E Reuter, David S Klimstra, and Thomas J Fuchs. Clinical-grade computational pathology using weakly supervised deep learning on whole slide images. Nature medicine , 25(8):1301–1309, 2019. Jingyun Chen, Linghan Cai, Zhikang Wang, Yi Huang, Songhan Jiang, Shenjin Huang, Hongpeng Wang, and Yongbing Zhang. Pathagent: Toward interpretable analysis of whole-slide pathology images via large language model-based agentic reasoning, 2025a. URL https://arxiv.org/abs/2511. 17052. Pingyi Chen, Chenglu Zhu, Sunyi Zheng, Honglin Li, and Lin Yang. Wsi-vqa: Interpreting whole slide images by generative visual question answering. In European Conference on Computer Vision , pages 401–417. Springer, 2024. Ying Chen, Guoan Wang, Yuanfeng Ji, Yanjun Li, Jin Ye, Tianbin Li, Ming Hu, Rongshan Yu, Yu Qiao, and Junjun He. Slidechat: A large vision-language assistant for whole-slide pathology image understanding. In Proceedings of the Computer Vision and Pattern Recognition Conference ,pages 5134–5143, 2025b. Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex Vaughan, et al. The llama 3 herd of models, 2024. URL https://arxiv.org/abs/2407.21783. Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang, Shirong Ma, Xiao Bi, et al. Deepseek-r1 incentivizes reasoning in llms through reinforce-ment learning. Nature , 645(8081):633–638, 2025. 11 Sunan He, Yuxiang Nie, Hongmei Wang, Shu Yang, Yihui Wang, Zhiyuan Cai, Zhixuan Chen, Yingxue Xu, Luyang Luo, Huiling Xiang, Xi Lin, Mingxiang Wu, Yifan Peng, George Shih, Ziyang Xu, Xian Wu, Qiong Wang, Ronald Cheong Kin Chan, Varut Vardhanabhuti, Winnie Chiu Wing Chu, Yefeng Zheng, Pranav Rajpurkar, Kang Zhang, and Hao Chen. Gsco: Towards generalizable ai in medicine via generalist-specialist collaboration, 2024. URL https://arxiv.org/abs/2404.15127. Xuehai He, Yichen Zhang, Luntian Mou, Eric Xing, and Pengtao Xie. Pathvqa: 30000+ questions for medical visual question answering, 2020. URL https://arxiv.org/abs/2003.10286. Chenshen Huang, Haoyun Xia, Xi Xiao, Hong Chen, Yiqing Jiang, Yahui Lyu, Zhizhan Ni, Tianyang Wang, Ning Wang, and Qi Huang. Geometric multi-instance learning for weakly supervised gastric cancer segmentation. npj Digital Medicine , 2026. Zhi Huang, Federico Bianchi, Mert Yuksekgonul, Thomas J Montine, and James Zou. A visual– language foundation model for pathology image analysis using medical twitter. Nature Medicine ,pages 1–10, 2023. Wonjae Kim, Bokyung Son, and Ildoo Kim. Vilt: Vision-and-language transformer without convolu-tion or region supervision. In International conference on machine learning , pages 5583–5594. PMLR, 2021. Diederik P. Kingma and Jimmy Ba. Adam: A method for stochastic optimization, 2017. URL https://arxiv.org/abs/1412.6980. Chunyuan Li, Cliff Wong, Sheng Zhang, Naoto Usuyama, Haotian Liu, Jianwei Yang, Tristan Naumann, Hoifung Poon, and Jianfeng Gao. Llava-med: Training a large language-and-vision assistant for biomedicine in one day. Advances in Neural Information Processing Systems , 36: 28541–28564, 2023a. Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. Blip-2: Bootstrapping language-image pre-training with frozen image encoders and large language models. In International conference on machine learning , pages 19730–19742. PMLR, 2023b. Yuci Liang, Xinheng Lyu, Wenting Chen, Meidan Ding, Jipeng Zhang, Xiangjian He, Song Wu, Xiaohan Xing, Sen Yang, Xiyue Wang, et al. Wsi-llava: A multimodal large language model for whole slide image. In Proceedings of the IEEE/CVF International Conference on Computer Vision ,pages 22718–22727, 2025. Dankai Liao, Tianyi Zhang, Yufeng Wu, Xinyue Zhang, Qiaochu Xue, Zeyu Liu, Dachun Zhao, Linghan Cai, and Yueming Jin. Pathagentbench: Benchmarking evidence-seeking vision-language models on whole-slide pathology image, 2026. URL https://arxiv.org/abs/2607.19261. Haotian Liu, Chunyuan Li, Qingyang Wu, and Yong Jae Lee. Visual instruction tuning. Advances in neural information processing systems , 36:34892–34916, 2023. Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization, 2019. URL https: //arxiv.org/abs/1711.05101. Ming Y Lu, Drew FK Williamson, Tiffany Y Chen, Richard J Chen, Matteo Barbieri, and Faisal Mahmood. Data-efficient and weakly supervised computational pathology on whole-slide images. 
+
+Nature Biomedical Engineering , 5(6):555–570, 2021. Ming Y Lu, Bowen Chen, Drew FK Williamson, Richard J Chen, Ivy Liang, Tong Ding, Guillaume Jaume, Igor Odintsov, Long Phi Le, Georg Gerber, et al. A visual-language foundation model for computational pathology. Nature Medicine , 30:863–874, 2024a. Ming Y Lu, Bowen Chen, Drew FK Williamson, Richard J Chen, Melissa Zhao, Aaron K Chow, Kenji Ikemura, Ahrong Kim, Dimitra Pouli, Ankush Patel, et al. A multimodal generative ai copilot for human pathology. Nature , 634(8033):466–473, 2024b. OpenAI. GPT-5.5 System Card. https://openai.com/index/gpt-5-5-system-card/, 2026. Accessed: 2026-07-24. 12 Chi Phan, Tianyi Zhang, Qiaochu Xue, Yufeng Wu, Dan Hu, Zeyu Liu, Sudong Wang, and Yueming Jin. Enhancing pathological vlms with cross-scale reasoning, 2026. URL https://arxiv.org/abs/ 2606.17412. Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International conference on machine learning , pages 8748–8763. PmLR, 2021. John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov. Proximal policy optimization algorithms, 2017. URL https://arxiv.org/abs/1707.06347. Mehmet Saygin Seyfioglu, Wisdom O Ikezogwo, Fatemeh Ghezloo, Ranjay Krishna, and Linda Shapiro. Quilt-llava: Visual instruction tuning by extracting localized narratives from open-source histopathology videos. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 13183–13192, 2024. Jiangbo Shi, Chen Li, Tieliang Gong, and Huazhu Fu. E2-mil: An explainable and evidential multiple instance learning framework for whole slide image classification. Medical Image Analysis , 97: 103294, 2024. Yuxuan Sun, Hao Wu, Chenglu Zhu, Sunyi Zheng, Qizi Chen, Kai Zhang, Yunlong Zhang, Dan Wan, Xiaoxiao Lan, Mengyue Zheng, et al. Pathmmu: A massive multimodal expert-level benchmark for understanding and reasoning in pathology. In European Conference on Computer Vision , pages 56–73. Springer, 2024a. Yuxuan Sun, Chenglu Zhu, Sunyi Zheng, Kai Zhang, Lin Sun, Zhongyi Shui, Yunlong Zhang, Honglin Li, and Lin Yang. Pathasst: A generative foundation ai assistant towards artificial general intelligence of pathology. In Proceedings of the AAAI Conference on Artificial Intelligence ,volume 38, pages 5034–5042, 2024b. Yuxuan Sun, Yunlong Zhang, Yixuan Si, Chenglu Zhu, Kai Zhang, Zhongyi Shui, Jingxiong Li, Xuan Gong, Xinheng Lyu, Tao Lin, et al. Pathgen-1.6 m: 1.6 million pathology image-text pairs generation through multi-agent collaboration. In International Conference on Learning Representations , volume 2025, pages 94611–94653, 2025. Yuxuan Sun, Yixuan Si, Chenglu Zhu, Kai Zhang, Zhongyi Shui, Bowen Ding, Tao Lin, and Lin Yang. Cpathagent: An agent-based foundation model for interpretable high-resolution pathology image analysis mimicking pathologists’ diagnostic logic. Advances in Neural Information Processing Systems , 38:101673–101731, 2026. Hanqing Wang, Wenguan Wang, Wei Liang, Steven CH Hoi, Jianbing Shen, and Luc Van Gool. Active perception for visual-language navigation. International Journal of Computer Vision , 131 (3):607–625, 2023. S. Wang, R. Wu, C. Herndon, et al. Pathology-CoT: Learning visual chain-of-thought agents from expert whole-slide image diagnosis behaviour. Nature Biomedical Engineering , 2026. doi: 10.1038/s41551-026-01739-y. URL https://doi.org/10.1038/s41551-026-01739-y. Yulin Wang, Yang Yue, Yang Yue, Huanqian Wang, Haojun Jiang, Yizeng Han, Zanlin Ni, Yifan Pu, Minglei Shi, Rui Lu, et al. Emulating human-like adaptive vision for efficient and flexible machine visual perception. Nature Machine Intelligence , pages 1–19, 2025. Luca L. Weishaupt, Chengkuan Chen, Drew F. K. Williamson, Richard J. Chen, Guillaume Jaume, Tong Ding, Bowen Chen, Anurag Vaidya, Long Phi Le, Guillaume Jaume, Ming Y. Lu, and Faisal Mahmood. Evidence-based diagnostic reasoning with multi-agent copilot for human pathology, 2026. URL https://arxiv.org/abs/2506.20964. An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, et al. Qwen3 technical report, 2025. URL https://arxiv.org/abs/ 2505.09388. 13 Chunze Yang, Qidong Liu, Wenjie Zhao, Yue Tang, Jiusong Ge, Di Zhang, Jiashuai Liu, Lei Wu, Junbo Lu, Ni Zhang, Xian Wu, Zeyu Gao, and Chen Li. Pathnavigate: A training-free pathology agent with surprise-guided scan and shared slide memory for whole-slide image vqa, 2026. URL https://arxiv.org/abs/2605.23559. Wenchuan Zhang, Penghao Zhang, Jingru Guo, Tao Cheng, Jie Chen, Shuwan Zhang, Zhang Zhang, Yuhao Yi, and Hong Bu. Patho-r1: A multimodal reinforcement learning-based pathology expert reasoner. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 40, pages 28418–28426, 2026. Boxuan Zhao, Jun Zhang, Deheng Ye, Jian Cao, Xiao Han, Qiang Fu, and Wei Yang. Rlogist: fast observation strategy on whole-slide images with deep reinforcement learning. In Proceedings of the AAAI conference on artificial intelligence , volume 37, pages 3570–3578, 2023. Gengze Zhou, Yicong Hong, and Qi Wu. Navgpt: Explicit reasoning in vision-and-language navigation with large language models. In Proceedings of the AAAI Conference on Artificial Intelligence , volume 38, pages 7641–7649, 2024. 14

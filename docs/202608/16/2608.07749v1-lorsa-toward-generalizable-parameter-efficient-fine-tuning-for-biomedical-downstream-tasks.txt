@@ -1,0 +1,689 @@
+Title: LoRSA: Toward Generalizable Parameter-Efficient Fine-Tuning for Biomedical Downstream Tasks
+
+URL Source: https://arxiv.org/pdf/2608.07749v1
+
+Published Time: Tue, 11 Aug 2026 00:13:55 GMT
+
+Number of Pages: 19
+
+Markdown Content:
+# LoRSA: Toward Generalizable Parameter-Efficient Fine-Tuning for Biomedical Downstream Tasks 
+
+Saed Moradi 1,2 , Benyamin Ghojogh ∗3, M. Hadi Sepanj ∗2, Yimin Yang 4, and Ashirbani Saha 11Department of Oncology, McMaster University, Hamilton, Canada  
+
+> 2
+
+Department of Systems Design Engineering, University of Waterloo, Waterloo, Canada 
+
+> 3
+
+Department of Electrical and Computer Engineering, University of Waterloo, Waterloo, Canada. 
+
+> 4
+
+Department of Electrical and Computer Engineering, Western University, London, Canada 
+
+Abstract 
+
+Parameter-efficient fine-tuning enables the adaptation of vision foundation models to biomedical tasks under limited computational resources, but a single low-rank update can constrain all task-specific changes to one narrow parameter subspace. This restriction may prevent the model from simultaneously represent-ing globally shared task structure and localized residual directions required for generalization to unseen imaging domains. We introduce LoRSA, a global–residual adaptation framework that jointly learns a dense low-rank component and a dynamically structured-sparse low-rank component. The dense component cap-tures globally coordinated task adaptation, while the structured component provides complementary residual corrections whose support evolves during training. We characterize the representational capacity, approxima-tion properties, rank structure, and singular-subspace complementarity of this decomposition. We evaluate LoRSA for four-class breast-density classification using DINOv3-Base, with VinDr-Mammo as the source domain and MammosighTR and RSNA as unseen external domains. LoRSA remains competitive on the internal validation set and achieves the best external macro-F1 on both target datasets, improving upon the strongest competing method by 2.15 percentage points on MammosighTR and 3.09 percentage points on RSNA. Weight-matrix analysis further shows that approximately 92% of the energy of each adaptation component lies outside the bilateral singular subspace of the other, indicating that the two components learn largely complementary update directions. These results suggest that organizing adaptation capacity into distinct global and residual paths can improve the external-domain generalization of parameter-efficiently adapted biomedical vision models. 
+
+Keywords: foundation models, low-rank adaptation, structured-sparse adaptation, parameter-efficient fine-tuning, mammogram density classification, domain generation, domain adaptation 
+
+# 1 Introduction 
+
+Large pre-trained Vision Foundation Models (VFMs) [1, 2, 3] have led to great success in computer vision. However, fine-tuning these models specifically for medical image analysis is challenging because downstream datasets are often small and annotated target data is limited [4, 5]. Furthermore, external test cohorts fre-quently differ from the training distribution due to variations in scanner vendor, acquisition protocol, prepro-cessing pipelines, and patient demographics, a phenomenon known as domain shift [6, 7]. Additionally, model 
+
+> ∗
+
+These authors contributed equally to this work. 
+
+1arXiv:2608.07749v1 [cs.CV] 7 Aug 2026 evaluation and convergence can be hindered by inter-observer variability and potential subjectivity in ground truth labels [8]. In a specific downstream task, these factors create a practical domain-generalization problem: a VFM adapted on a small dataset should learn the essential task-specific representation that remains reliable on unseen external datasets while preserving the transferable knowledge of the pre-trained VFM [9]. Parameter-efficient fine-tuning (PEFT) [10, 11, 12] emerged to address the main challenge of resource lim-itation in full fine-tuning of VFMs. However, a key difficulty is that downstream PEFT can unintentionally reduce, rather than exploit, the broad representational capacity of the adapted VFMs [13, 14, 15]. Recent geometry-aware domain-generalization work observes that when VFMs are fine-tuned for specific tasks, their rich pre-trained expressive capacity is often compressed into narrow, domain-specific subspaces. This com-pression causes the adapted VFM to overfit to the statistics and decision boundaries of the downstream task’s source domain, producing domain bias (poor transfer under appearance or acquisition changes) [16]. This prohibits the learning of a generalized representation of the downstream task and limits its performance on the unseen target domain (external datasets) related to the downstream task. This observation is central to our problem setting: Biomedical image analysis, breast density classification in mammograms as a case study in this work, requires task-specific adaptation without collapsing the broad pretrained representation into a narrow, source-domain-specific subspace. Low-rank PEFT methods [17, 18, 19, 20, 21] are particularly effective when downstream adaptation can be expressed within a compact parameter subspace, especially when part of this subspace is reusable across layers or model components [22, 23]. In biomedical imaging, such shared structure may arise from recurring anatomical and morphological patterns across datasets, enabling generalist models to transfer representations across imaging domains, anatomical targets, and clinical tasks [24, 25]. However, external-domain general-ization may require more than a single low-rank adaptation. Such a purely low-rank subspace may not be global enough to capture an exhaustive set of all localized, rare, and domain-sensitive residual directions which can be induced by potential domain shifts. While adapting based on a single training dataset, the residual directions are forced into the low-rank subspace, which limits the adapted VFM to source-specific artifacts, thereby increasing the risk of training dataset bias and overfitting. This motivates the central problem considered in this work: how can we learn an adaptation that captures both the global low-dimensional structure of the downstream task and the residual variations needed for external generalization, without collapsing the VFM representation into a narrow source-specific subspace for the biomedical image analysis down-stream task? The main contributions of this work are twofold: 1. We identify a key limitation of low-rank-only adaptation for domain generalization. A single low-rank update can constrain adaptation to a limited subspace and fail to capture structured residual directions needed for transfer to unseen medical imaging domains. Our theoretical and empirical results show that neither increasing rank nor sparsifying the same low-rank update fully resolves this limitation. 2. We introduce a complementary global–residual adaptation framework. The proposed approach jointly learns a dense low-rank component for global task adaptation and a dynamically structured residual component for complementary directions outside the dominant low-rank subspace. We characterize its approximation capacity, spectral structure, and subspace complementarity, and validate these properties through matrix weight-level analysis and evaluation on two external datasets. To the best of our knowl-edge, this is the first theoretically motivated and empirically supported weight-space study of how PEFT structure affects out-of-distribution generalization in medical imaging. 
+
+# 2 Background 
+
+PEFT methods have become the dominant strategy for adapting large pre-trained models to downstream tasks without updating the full parameter set. Among them, low-rank adaptation (LoRA) and its variants 2have become prominent PEFT techniques. 
+
+2.1 LoRA 
+
+Among PEFT methods, Low-Rank Adaptation (LoRA) is one of the most influential and widely adopted approaches because it provides a simple, mergeable, and architecture-preserving mechanism for task adaptation [17]. Given a frozen pre-trained weight matrix W 0 ∈ Rdout ×din , LoRA constrains the task-specific update ∆ W
+
+to a low-rank factorization: 
+
+W = W 0 + ∆ W , ∆W = BA , (1) 
+
+B ∈ Rdout ×r, A ∈ Rr×din , r ≪ min( dout , d in ). (2) For an input representation x, the adapted forward pass becomes: 
+
+h = W 0x + αr BAx , (3) where α is a scaling factor and only the low-rank factors A and B are trained while W 0 remains frozen. This reduces the number of trainable parameters from dout din to r(dout + din ) for each adapted layer, while allowing the update to be merged into the base weight at inference time. The intuition behind LoRA is that full fine-tuning gives every entry of W 0 a degree of freedom, whereas LoRA forces the update to pass through a narrow 
+
+r-dimensional bottleneck. In this view, A first projects the input into a compact task-specific subspace, and B
+
+then lifts this low-dimensional correction back to the original feature dimension. Despite its efficiency, LoRA also introduces an important limitation. The low-rank-only assumption can be too restrictive for complex downstream adaptation. 
+
+2.2 RoseLoRA 
+
+RoseLoRA extends the LoRA family by introducing sparsity into the effective LoRA update [26]. The moti-vation is that some downstream tasks, especially knowledge editing, require precise modifications to a limited subset of model parameters rather than dense changes to the entire weight matrix. Starting from the standard LoRA parameterization in Eq. (1), RoseLoRA aims to constrain the product BA itself to be sparse: min  
+
+> A,B
+
+L(D; W 0 + BA ) s.t. ∥BA ∥0
+
+dout din 
+
+≤ τ, (4) where τ controls the allowed density of the effective update. The main challenge in RoseLoRA is that while the sparsity constraint on the weight updates might be useful for applications like knowledge editing, it is still a low-rank adaptation and is too simplistic for complex downstream tasks. 
+
+2.3 RoSA 
+
+RoSA takes a different direction by explicitly combining low-rank and sparse adaptation in parallel [27]. Its motivation comes from Robust Principal Component Analysis (RPCA) [28], where a matrix is decomposed into a low-rank component and a sparse component. RoSA applies this idea to PEFT by assuming that the full fine-tuning update can be better approximated as: ∆W ≈ ∆W L + ∆ W S , (5) where ∆ W L captures the dominant low-rank adaptation and ∆ W S captures sparse residual directions. For each adapted weight matrix, RoSA uses: ∆W L = BA , ∆W S = M ⊙ S, (6) 3where M ∈ { 0, 1}dout ×din is a binary sparsity mask, S contains the trainable sparse values, and ⊙ denotes Hadamard product. The corresponding optimization can be written as: min  
+
+> A,B,S
+
+L (D; W 0 + BA + M ⊙ S) , (7) with W 0 frozen and only the low-rank factors and sparse values trained. While RoSA has the key advantage of preserving the strengths of LoRA while addressing the low-rank bottleneck, the sparse mask M is generated using a small calibration or mask-generation subset before the main adapter training. In other words, the mask M for the location of sparse values is fixed during training. 
+
+# 3 LoRSA: Low-Rank and Structured-Sparse Adaptation 
+
+3.1 Methodology 
+
+Let W 0 ∈ Rdout ×din denote a pretrained weight matrix. Standard parameter-efficient fine-tuning constructs an adapted weight matrix as: 
+
+W = W 0 + ∆ W , (8) where ∆ W is the task-specific parameter update. Motivated by the low-rank-plus-sparse decomposition in RPCA [28], we model the task-specific update as: ∆W = L + S, (9) where L is a dense low-rank component and S is a structured sparse low-rank component. Different approaches can be used to implement the low-rank component and structured sparse component. For example, these components can be parameterized using LoRA [17] and RoseLoRA [26], respectively: 
+
+L := αl
+
+rl
+
+BlAl, (10) 
+
+S := αs
+
+rs
+
+BsAs, (11) where rl, r s ≪ min {din , d out } are the ranks of the L and S components, and the dimensionalities of the matrices are: 
+
+Al ∈ Rrl×din , Bl ∈ Rdout ×rl ,
+
+As ∈ Rrs×din , Bs ∈ Rdout ×rs .
+
+The resulting adapted layer is therefore: 
+
+W = W 0 + αl
+
+rl
+
+BlAl + αs
+
+rs
+
+BsAs. (12) Note that, in contrast to RoSA, the locations of the nonzero entries in the structured sparse component of LoRSA are not fixed during training. 
+
+3.2 Discussion on the Rank and Sparsity in LoRSA 
+
+The low-rank component satisfies: rank( L) ≤ rl, (13) 4and is generally dense. It can therefore represent globally coordinated changes across many input and output dimensions. In contrast, the structured sparse component imposes row-wise sparsity on As and column-wise sparsity on Bs. For every k ∈ { 1, . . . , r s}, we impose: 
+
+∥(As)k:∥0 ≤ qadin , (14) 
+
+∥(Bs):k∥0 ≤ qbdout , (15) where qa, q b ∈ [0 , 1] denote the fractions of entries retained in each row and column, respectively. If every row of As retains at most a fraction qa of its entries and every column of Bs retains at most a fraction qb, then each rank-one component contains at most qaqbdin dout nonzero entries. By the union bound, we have: 
+
+∥S∥0
+
+din dout 
+
+≤ min {1, r sqaqb} . (16) Equivalently, by defining the zero sparsity of a matrix X as: 
+
+s(X) := 1 − ∥X∥0
+
+#X ,
+
+where # X denotes the number of elements in matrix X, we obtain: 
+
+s(S) ≥ max {0, 1 − rsqaqb} . (17) Unlike the sparse term in RoSA [27] and classical RPCA [28], the structured sparse component is also low rank: rank( S) ≤ rs. (18) Overall, the effective rank of LoRSA is upper-bounded by: rank( L + S) ≤ rl + rs. (19) 
+
+3.3 Task-Update Hypothesis and Approximation Advantage 
+
+Let ∆ W ⋆ denote an ideal task-specific parameter update. We hypothesize that it admits the approximate decomposition: ∆W ⋆ = L⋆ + S⋆ + E⋆, (20) where L⋆ contains the dominant, globally coordinated adaptation, S⋆ contains localized residual corrections, and E⋆ represents variation that is not captured by either component. Under this interpretation, the low-rank component is intended to capture the dominant low-dimensional structure of the adaptation. However, a fixed-rank LoRA update may not efficiently represent localized or lower-energy directions in the task-specific update. The structured sparse component enlarges the adaptation space in a controlled manner and can capture structured residual directions that remain after fitting the dense low-rank component. To formalize this argument, we define the LoRA hypothesis class: 
+
+Lrl := 
+
+n
+
+L ∈ Rdout ×din : rank( L) ≤ rl
+
+o
+
+, (21) 5and we define the structured sparse low-rank class: 
+
+Srs,q a,q b := 
+
+BsAs
+
+rank( BsAs) ≤ rs,
+
+∥(As)k:∥0 ≤ qadin ,
+
+∥(Bs):k∥0 ≤ qbdout , k = 1 , . . . , r s
+
+ . (22) The combined hypothesis class is the Minkowski sum: 
+
+Hl+s = Lrl + Srs,q a,q b
+
+= {L + S : L ∈ L rl , S ∈ S rs,q a,q b } . (23) 
+
+Proposition 1 (Hypothesis-class inclusion) . Assume that the zero matrix belongs to both Lrl and Srs,q a,q b .Then: Lrl ⊆ H l+s,
+
+Srs,q a,q b ⊆ H l+s. (24) 
+
+Proof. For every L ∈ L rl , selecting S = 0 gives L = L + 0 ∈ H l+s. Similarly, for every S ∈ S rs,q a,q b , selecting 
+
+L = 0 gives S = 0 + S ∈ H l+s.The previous proposition shows that the combined adapter has at least the representational capacity of either component used alone. 
+
+Proposition 2 (Approximation advantage) . For an arbitrary target update ∆W ⋆, define: 
+
+εl := inf 
+
+> L∈L rl
+
+∥∆W ⋆ − L∥F , (25) 
+
+εs := inf 
+
+> S∈S rs,qa,q b
+
+∥∆W ⋆ − S∥F , (26) 
+
+εl+s := inf 
+
+> L∈L rl
+> S∈S rs,qa,q b
+
+∥∆W ⋆ − L − S∥F , (27) 
+
+where ∥.∥F denotes the Frobenius norm. Then: 
+
+εl+s ≤ min {εl, ε s}. (28) 
+
+Proof. The choice S = 0 is feasible for the combined class. Therefore, 
+
+εl+s ≤ inf 
+
+> L∈L rl
+
+∥∆W ⋆ − L∥F
+
+= εl.
+
+Likewise, the choice L = 0 is feasible, and hence: 
+
+εl+s ≤ inf 
+
+> S∈S rs,qa,q b
+
+∥∆W ⋆ − S∥F
+
+= εs.
+
+Combining the two inequalities proves Eq. (28). The bound in Proposition 2 concerns the best achievable approximation within each hypothesis class. It does not by itself guarantee that a nonconvex training procedure reaches the global optimum, nor does it 6guarantee lower test error. Nevertheless, it establishes that the combined parameterization can represent every solution available to LoRA alone or RoseLoRA alone, in addition to updates requiring both structures. A more detailed interpretation can be obtained by considering the residual of the best low-rank approxi-mation. Let: 
+
+L⋆rl ∈ arg min 
+
+> L∈L rl
+
+∥∆W ⋆ − L∥2 
+
+> F
+
+, (29) and define the remaining residual as: 
+
+R⋆ := ∆ W ⋆ − L⋆rl . (30) The LoRA-only approximation error is: 
+
+ε2 
+
+> l
+
+= ∥R⋆∥2 
+
+> F
+
+. (31) Now let: 
+
+S⋆ 
+
+> Rose
+
+∈ arg min 
+
+> S∈S rs,qa,q b
+
+∥R⋆ − S∥2 
+
+> F
+
+. (32) The corresponding combined approximation error is: ˜ε2 
+
+> l+s
+
+:= ∥R⋆ − S⋆
+
+> Rose
+
+∥2 
+
+> F
+
+, (33) where: 
+
+ε2 
+
+> l+s
+
+≤ ˜ε2 
+
+> l+s
+
+≤ ε2 
+
+> l
+
+. (34) The first inequality in Eq. (34) holds because the jointly optimized problem can select L = L⋆rl and S = S⋆
+
+> Rose
+
+.The second inequality in this equation holds because S = 0 is feasible in the structured-sparse class. Expanding the difference between the LoRA-only error and the sequential combined error gives: 
+
+ε2 
+
+> l
+
+− ˜ε2 
+
+> l+s
+
+= ∥R⋆∥2 
+
+> F
+
+− ∥ R⋆ − S⋆
+
+> Rose
+
+∥2
+
+> F
+
+= 2 ⟨R⋆, S⋆
+
+> Rose
+
+⟩F − ∥ S⋆
+
+> Rose
+
+∥2 
+
+> F
+
+, (35) where ⟨· , ·⟩ F denotes the inner product of the matrices under the Frobenius norm. Therefore, the sequential structured-sparse correction strictly improves upon the best low-rank-only approximation whenever: 2 ⟨R⋆, S⋆
+
+> Rose
+
+⟩F > ∥S⋆
+
+> Rose
+
+∥2 
+
+> F
+
+. (36) This condition states that the learned structured sparse update must be sufficiently aligned with the residual left by the dense low-rank update. 
+
+3.4 Singular-Subspace Expansion and Component Complementarity 
+
+The decomposition of LoRSA provides an interpretation in terms of the singular subspaces accessible to the task-specific update. Let the compact singular value decompositions of the two adaptation components be: 
+
+L = U lΣlV ⊤ 
+
+> l
+
+, (37) 
+
+S = U sΣsV ⊤ 
+
+> s
+
+, (38) where the columns of U l and U s span the output-side singular subspaces, while the columns of V l and V s
+
+span the input-side singular subspaces. 7For the LoRSA update: ∆W = L + S,
+
+its column and row spaces satisfy: col(∆ W ) ⊆ col( L) + col( S), (39) row(∆ W ) ⊆ row( L) + row( S). (40) Consequently: rank(∆ W ) ≤ rank( L) + rank( S)
+
+≤ rl + rs. (41) Equation (41) shows that LoRSA may access a larger adaptation subspace than LoRA or RoseLoRA alone. However, the increase is not automatic. If the two components have strongly overlapping singular subspaces, or if they partially cancel each other, the rank of their sum may be considerably smaller than rl + rs.The dimension of the combined output-side subspace is: dim (col( L) + col( S)) = rank( L) + rank( S) − dim (col( L) ∩ col( S)) . (42) An analogous identity holds for the row spaces. Therefore, LoRSA enlarges the accessible adaptation space when the structured-sparse component introduces directions that are not already contained in the dense low-rank component. 
+
+Proposition 3 (Rank additivity under subspace orthogonality) . Suppose that the row and column singular subspaces of L and S are mutually orthogonal: 
+
+U ⊤ 
+
+> l
+
+U s = 0, V ⊤ 
+
+> l
+
+V s = 0. (43) 
+
+Then: 
+
+rank( L + S) = rank( L) + rank( S). (44) 
+
+Moreover, the nonzero singular values of L + S are the union of the nonzero singular values of L and S.Proof. Under Eq. (43), the concatenated matrices [ U l, U s] and [ V l, V s] have orthonormal columns. Therefore: 
+
+L + S = U l U s
+
+ Σl 00 Σs
+
+ V l V s
+
+⊤ .
+
+The middle matrix is block diagonal. Its nonzero singular values are therefore the union of those of Σl and 
+
+Σs, and its rank is the sum of their ranks. This proposition describes an idealized case of complete complementarity. In practice, the two components need not be exactly orthogonal. Their degree of overlap can be quantified as explained in the following. The part of L lying in both the row and column singular spaces of S is U sU ⊤ 
+
+> s
+
+LV sV ⊤ 
+
+> s
+
+. The part of L not represented by the singular directions of S is L − U sU ⊤ 
+
+> s
+
+LV sV ⊤ 
+
+> s
+
+. According to orthogonal projection in the Frobenius inner-product space, we define: 
+
+νL|S = 1 − ∥U sU ⊤ 
+
+> s
+
+LV sV ⊤ 
+
+> s
+
+∥2
+
+> F
+
+∥L∥2
+
+> F
+
+, (45) 8as the measurement of the part of L not shared with S. Likewise, the measurement of the part of S not shared with L can be formulated as: 
+
+νS|L = 1 − ∥U lU ⊤ 
+
+> l
+
+SV lV ⊤ 
+
+> l
+
+∥2
+
+> F
+
+∥S∥2
+
+> F
+
+. (46) High values for Eqs. (45) and (46) indicate that the two components of LoRSA have captured distinct valuable information. 
+
+3.5 Theory of Domain Generalization by LoRSA 
+
+Domain generalization aims to learn from one or more observed source domains while generalizing to target domains that are unavailable during training [29, 30]. Therefore, LoRSA cannot directly optimize a discrepancy involving a particular unseen target distribution. Its potential benefit instead follows from the inductive bias imposed on the task-specific parameter update. Let ∆ W ⋆d denote an ideal task-specific update for domain d. Motivated by invariant-representation ap-proaches to domain generalization [29], we make the following structural assumption: ∆W ⋆d = L⋆ + S⋆
+
+| {z }
+
+> domain-stable task component
+
++ N d
+
+|{z} 
+
+> domain-specific nuisance
+
+. (47) Here, L⋆ represents dominant low-rank structure shared across domains, S⋆ represents structured task-relevant residual directions that are also stable across domains, and N d contains domain-dependent variation. On the one hand, to connect parameter approximation to the task objective, let Jd(∆ W ) denote the population loss in domain d. If Jd is twice differentiable and ∆ W ⋆d is a local minimizer, a second-order Taylor expansion gives: 
+
+Jd(∆ W ) = Jd(∆ W ⋆d)+ 12 vec (∆ W − ∆W ⋆d)⊤ Hd vec (∆ W − ∆W ⋆d)+ o
+
+
+
+∥∆W − ∆W ⋆d∥2
+
+> F
+
+
+
+, (48) where Hd is the Hessian evaluated at ∆ W ⋆d and o(.) denotes the small-O notation in complexity. If the Hessian eigenvalues satisfy: 
+
+μdI ⪯ Hd ⪯ βdI, (49) for some 0 < μ d ≤ βd, then Eq. (48) implies that, locally, there is: 
+
+μd
+
+2 ∥∆W − ∆W ⋆d∥2 
+
+> F
+
+≲ Jd(∆ W ) − J d(∆ W ⋆d)
+
+≲ βd
+
+2 ∥∆W − ∆W ⋆d∥2 
+
+> F
+
+. (50) Thus, within this local regime, reducing parameter-space approximation error also reduces an upper bound on the excess domain loss. On the other hand, LoRA searches only within the low-rank class Lrl , whereas LoRSA searches within: 
+
+Hl+s = Lrl + Srs,q a,q b , (51) where Lrl and Srs,q a,q b are defined in Eqs. (21) and (22), respectively. The class in Eq. (51) is the Minkowski sum introduced earlier in Eq. (23). If L⋆ ∈ L rl , S⋆ ∈ S rs,q a,q b , and S⋆ /∈ L rl , then a fixed-rank LoRA update cannot generally represent the complete domain-stable component, whereas LoRSA can represent both terms. 9Proposition 4 (Target-domain approximation advantage) . Consider an unseen target domain t satisfying Eq. 
+
+(47) . Assume that: 
+
+L⋆ ∈ L rl , S⋆ ∈ S rs,q a,q b ,
+
+and consider the idealized learned updates: 
+
+∆W LoRA = L⋆, ∆W LoRSA = L⋆ + S⋆.
+
+Then, their target-domain approximation errors satisfy: 
+
+ε2LoRA ,t := ∥∆W ⋆t − ∆W LoRA ∥2 
+
+> F
+
+= ∥S⋆ + N t∥2 
+
+> F
+
+, (52) 
+
+ε2LoRSA ,t := ∥∆W ⋆t − ∆W LoRSA ∥2 
+
+> F
+
+= ∥N t∥2 
+
+> F
+
+. (53) 
+
+Moreover, LoRSA has lower target-domain approximation error whenever the following condition is satisfied: 
+
+⟨S⋆, N t⟩F > − 12 ∥S⋆∥2 
+
+> F
+
+. (54) 
+
+Proof. Substituting Eq. (47) into the two error definitions gives Eqs. (52) and (53). Using the Frobenius inner-product identity [31]: 
+
+∥A + B∥2 
+
+> F
+
+= ∥A∥2 
+
+> F
+
++ ∥B∥2 
+
+> F
+
++ 2 ⟨A, B⟩F ,
+
+we obtain: 
+
+ε2LoRA ,t − ε2LoRSA ,t = ∥S⋆∥2 
+
+> F
+
++ 2 ⟨S⋆, N t⟩F . (55) The right-hand side is positive exactly when Eq. (54) holds. A particularly interpretable special case occurs when the stable structured component is orthogonal to the target-domain nuisance, i.e., the stable residual structure does not align with target-specific nuisance directions: 
+
+⟨S⋆, N t⟩F = 0. (56) Under this assumption, Eq. (55) in Proposition 4 reduces to: 
+
+ε2LoRA ,t − ε2LoRSA ,t = ∥S⋆∥2 
+
+> F
+
+> 0. (57) Combining Proposition 4 with the local quadratic relation in Eq. (50) shows that, under the stated smooth-ness and Hessian assumptions, a lower target-domain parameter approximation error translates into a lower local upper bound on the target-domain excess loss. Hence, LoRSA can improve domain generalization when the structured-sparse component captures domain-stable residual directions omitted by the selected LoRA rank. 
+
+3.6 Distinction from LoRA, RoseLoRA, and RoSA 
+
+LoRSA is related to LoRA [17], RoseLoRA [26], and RoSA [27], but differs from each method in its parame-terization and in the structural assumptions imposed on the task-specific update. To make these differences explicit, we state the adapted weight matrix of each method using a common notation. 10 3.6.1 Comparison with LoRA 
+
+LoRA [17] models the task-specific update using a single dense low-rank component: 
+
+W LoRA = W 0 + αl
+
+rl
+
+BlAl, (58) where Al ∈ Rrl×din and Bl ∈ Rdout ×rl . Consequently: rank ( W LoRA − W 0) ≤ rl.
+
+Although the update is low rank, it is generally dense. LoRA therefore assumes that the task-specific adaptation can be represented sufficiently well by a single globally coordinated low-dimensional component. In contrast, LoRSA augments the dense low-rank component with a second, structured-sparse component: 
+
+W LoRSA = W 0 + αl
+
+rl
+
+BlAl + αs
+
+rs
+
+BsAs. (59) Therefore, LoRA is recovered as a special case of LoRSA by setting BsAs = 0. The additional component allows LoRSA to represent structured residual corrections that may not be represented efficiently by the selected LoRA rank. 
+
+3.6.2 Comparison with RoseLoRA 
+
+RoseLoRA [26] uses a single structured-sparse low-rank update: 
+
+W RoseLoRA = W 0 + αs
+
+rs
+
+BsAs, (60) where row-wise sparsity is imposed on As and column-wise sparsity is imposed on Bs. In particular: 
+
+∥(As)k:∥0 ≤ qadin , ∥(Bs):k∥0 ≤ qbdout , k = 1 , . . . , r s. (61) Its effective update is simultaneously low rank and structured sparse: rank( BsAs) ≤ rs,
+
+supp( BsAs) ⊆
+
+> rs
+
+[
+
+> k=1
+
+Ik × J k,
+
+where Ik = supp(( Bs):k) and Jk = supp(( As)k:). RoseLoRA alone does not contain a separate dense low-rank component. Consequently, all task-specific changes must be represented through the structured-sparse factors. LoRSA retains the structured sparse component but combines it with a conventional dense low-rank component. RoseLoRA is therefore recovered as a special case of LoRSA by setting BlAl = 0. The proposed LoRSA method separates the adaptation into two complementary components: 
+
+L|{z} 
+
+> dense low-rank component
+
+and S|{z} 
+
+> structured-sparse low-rank component
+
+.
+
+11 3.6.3 Comparison with RoSA 
+
+RoSA [27] is also motivated by the low-rank-plus-sparse decomposition of RPCA and parameterizes the adapted weight matrix as: 
+
+W RoSA = W 0 + LRoSA + SΩ, (62) where LRoSA is a low-rank matrix and SΩ is a directly parameterized sparse matrix whose nonzero entries are restricted to a support set Ω. A representative parameterization is: 
+
+LRoSA = BA ,
+
+supp( SΩ) ⊆ Ω.
+
+The sparse component SΩ is not required to admit a low-rank factorization. It may therefore have rank as large as min {din , d out }, despite containing relatively few nonzero entries. LoRSA differs from RoSA in the representation of the sparse component. Instead of directly learning an unrestricted sparse matrix, LoRSA defines: 
+
+SLoRSA = αs
+
+rs
+
+BsAs, (63) where As and Bs satisfy row- and column-wise sparsity constraints. Hence: rank( SLoRSA ) ≤ rs, (64) supp( SLoRSA ) ⊆
+
+> rs
+
+[
+
+> k=1
+
+Ik × J k. (65) The sparse component of LoRSA is thus constrained in two ways: it has a bounded rank and its support is induced by unions of row-column Cartesian products. By contrast, the sparse component of RoSA is directly parameterized on an arbitrary sparse support and is not constrained to be low rank. This distinction changes the inductive bias of the two methods. RoSA seeks to approximate a full-fine-tuning update using the classical RPCA-inspired combination of a low-rank matrix and an unrestricted highly sparse matrix. LoRSA instead combines a dense low-rank update with a structured-sparse low-rank correction. Thus, LoRSA is more restrictive than RoSA in the class of sparse matrices it can represent, but it preserves a factorized low-rank parameterization for both adaptation components. Moreover, in contrast to RoSA, the locations of the nonzero entries in the structured sparse component of LoRSA are not fixed during training. The four methods can be summarized as: ∆W LoRA = L, (66) ∆W RoseLoRA = Sslr , (67) ∆W RoSA = L + Sdirect , (68) ∆W LoRSA = L + Sslr , (69) where Sdirect denotes a directly parameterized sparse matrix and Sslr denotes a structured-sparse low-rank matrix. The defining distinction of LoRSA is therefore not merely the addition of low-rank and sparse up-dates, but the combination of a dense low-rank component with a RoseLoRA-based structured-sparse low-rank component. 12 4 Experimental Results 
+
+4.1 Datasets and the Foundation Model 
+
+We utilized three distinct mammography datasets in this study: VinDr-Mammo [32] (Vietnam), RSNA [33] (USA and Australia), and MammosighTR [34] (Turkey). These cohorts were specifically selected because they offer compatible four-category breast density annotations while encompassing varied geographic populations, healthcare systems, and imaging environments. Consequently, this selection facilitated a robust evaluation of both in-domain performance and cross-domain generalization .VinDr-Mammo was used as the source-domain dataset. It contains 5,000 four-view mammography ex-aminations collected from two hospitals in Vietnam, with an official split of 4,000 training and 1,000 test examinations. The training partition was further divided at the patient level into training and validation subsets for model optimization and selection, while the official test set was kept fully held out for internal evaluation. RSNA and MammosighTR were treated as unseen target domains and were not used during training, validation, or hyperparameter selection. Although the RSNA challenge included hidden public and private test cohorts, the publicly distributed test folder contains only a small example set. Therefore, the entire labeled RSNA training release was used exclusively for external evaluation. MammosighTR provides predefined training and test partitions, and only its official test set was used for external testing. We used DINOv3-Base, corresponding to the ViT-B/16 architecture, as the common vision foundation model backbone for all experiments. DINOv3 is a self-supervised model pretrained on the large-scale LVD-1689M image corpus to learn transferable global and dense visual representations [35]. The Base variant provides a strong yet computationally practical backbone for evaluating parameter-efficient adaptation. 
+
+4.2 Internal Performance and External Generalization 
+
+For the experiments, we used the DINOv3-Base vision foundation model [35] as a frozen baseline and adapted it using LoRA, RoSE-LoRA, RoSA, and our proposed method. For the single-component methods, namely LoRA and RoSE-LoRA, in addition to rank 8, we also evaluated a rank of 16 to ensure a fair comparison with the dual-component approaches. Tables 1–3 reveal a clear distinction between source-domain performance and generalization to unseen cohorts. On the VinDr-Mammo internal evaluation set, several baselines remain competitive with the proposed method. RoseLoRA with rank 16 obtains the highest accuracy, weighted F1, and macro-AUROC, while RoSA achieves the highest macro-F1. The proposed LoRA–RoseLoRA adapter instead obtains the highest balanced accuracy and sensitivity and remains close to the best-performing baseline on the other metrics. Thus, the internal results do not indicate uniform dominance by one adaptation method. The difference becomes clearer on the external cohorts. On MammosighTR, the proposed method achieves the best result for every reported metric, including an accuracy of 0 .6656, balanced accuracy of 0 .5011, macro-F1 of 0 .5150, and QWK of 0 .6855. Similarly, on RSNA, it achieves the highest accuracy, balanced accuracy, macro-F1, weighted F1, macro-AUROC, and QWK. The external improvements are particularly evident in the class-level metrics. Relative to the strongest competing result, the proposed method improves macro-F1 from 0 .4935 to 0 .5150 on MammosighTR and from 0 .5536 to 0 .5845 on RSNA. Therefore, although the baseline methods can match or exceed the proposed method on individual internal metrics, the proposed parameterization provides the most consistent performance after transfer to the two unseen cohorts. This pattern supports the intended role of LoRSA as a generalization-oriented adapter rather than simply an adapter optimized for the source validation set. The behavior of RoSA further illustrates the importance of how the sparse adaptation component is con-structed. RoSA performs strongly on RSNA, where it is the second-best method for most metrics and achieves a specificity of 0 .8881, marginally higher than that of the proposed method. However, its advantage is less consistent on MammosighTR, where rank-16 LoRA outperforms RoSA on all reported metrics. One plausible 13 explanation is the use of a static sparse mask in RoSA, which is generated from a small calibration subset before the main adapter training. Such a mask may identify sparse coordinates that are useful for the source domain and for some external shifts, while excluding other low-amplitude or subtle task-relevant directions needed under a different external distribution. This interpretation is consistent with RoSA’s strong perfor-mance on RSNA but weaker relative performance on MammosighTR. Nevertheless, the current results do not directly identify which representation directions are omitted by the mask, and this mechanism should therefore be viewed as a plausible explanation rather than a causal conclusion. The rank ablation also shows that the effect of increasing adapter capacity depends on the structure of the adapter. Increasing the LoRA rank from 8 to 16 substantially improves its performance on both external cohorts. On MammosighTR, balanced accuracy increases from 0 .4309 to 0 .4883, while macro-F1 increases from 0 .3974 to 0 .4935. On RSNA, the corresponding metrics increase from 0 .4402 to 0 .5070 and from 0 .4340 to 0 .5211, respectively. These results suggest that rank-8 LoRA is capacity-limited for this task and that increasing its rank allows it to capture additional task-relevant directions without producing a corresponding loss of external generalization. The opposite trend is observed for RoseLoRA. Increasing its rank from 8 to 16 improves several internal met-rics, including accuracy and macro-AUROC, but degrades nearly all external metrics on both MammosighTR and RSNA. For example, its MammosighTR macro-F1 decreases from 0 .4426 to 0 .3868, and its RSNA accuracy decreases from 0 .7024 to 0 .6525. This divergence between internal and external performance suggests that the higher-rank structured-sparse adapter may overestimate the complexity required for the sparse component. Increasing the rank increases the number of sparse rank-one components available to the adapter and therefore enlarges the set of structured corrections that it can represent. While this additional capacity can improve fitting of the source-domain data, it may also allow the sparse component to capture source-specific residual structure that does not transfer to unseen cohorts. The proposed method provides a more favorable allocation of the available capacity. Its two rank-8 compo-nents have the same total nominal rank as a rank-16 single-component adapter, yet it consistently outperforms both rank-16 LoRA and rank-16 RoseLoRA on the external evaluations. This comparison indicates that the external improvements cannot be attributed only to a larger nominal rank. Rather, the results suggest that separating the adaptation into a dense low-rank component and a structured-sparse low-rank component provides a more effective balance: the dense component captures broadly shared task structure, while the structured component contributes additional corrections without requiring the entire adaptation to follow a single dense or sparse parameterization. Overall, the experiments show that strong internal performance does not necessarily translate into reliable external performance. The proposed method is not uniformly superior on the internal evaluation, but it is the only method that achieves the best performance consistently across both external cohorts. Together with the contrasting rank behavior of LoRA and RoseLoRA and the cohort-dependent performance of RoSA, these results support the central hypothesis that both the capacity and the structural organization of the adaptation update influence out-of-domain generalization. 
+
+4.3 Weight-Matrix Complementarity Analysis 
+
+To examine whether the dense low-rank and structured-sparse components learn complementary weight up-dates, we evaluated the non-shared-energy measures in Eqs. (45) and (46) for the adapted weight matrices. For every matrix, we reconstructed the effective updates L and S, computed their compact singular value decompositions, and measured the fractions of their Frobenius energies that could not be represented within the bilateral row-and-column singular subspace of the other component. The measurements are as follows: 
+
+νL|S = 0 .923407 ± 0.084794 , (70) 
+
+νS|L = 0 .926109 ± 0.076872 , (71) 14 Table 1: Internal evaluation of parameter-efficient adaptation methods for four-class breast density classifica-tion on the VinDr-Mammo dataset.                                                                             
+
+> Method rInternal Validation Performance Acc. Bal. Acc. Macro-F1 Weighted-F1 Macro-AUROC QWK Sens. Spec. DINO (frozen) –0.8105 0.5573 0.5283 0.8126 0.8994 0.6310 0.5573 0.8870 DINO-Base + LoRA 80.8460 0.5497 0.5844 0.8368 0.9317 0.6478 0.5497 0.8784 DINO-Base + LoRA 16 0.8145 0.6415 0.6020 0.8243 0.9453 0.6809 0.6415 0.9137
+> DINO-Base + RoseLoRA 80.8348 0.5950 0.5825 0.8379 0.9387 0.6811 0.5950 0.9048 DINO-Base + RoseLoRA 16 0.8520 0.5692 0.6074 0.8444 0.9471 0.6653 0.5692 0.8838 DINO-Base + RoSA 80.8485 0.5899 0.6233 0.8425 0.9428 0.6674 0.5899 0.8861
+> DINO-Base + LoRSA (Ours) 80.8168 0.6523 0.6201 0.8257 0.9433 0.6785 0.6523 0.9096
+> Acc.: accuracy; Bal. Acc.: balanced accuracy; QWK: quadratic weighted Cohen’s kappa; Sens.: sensitivity; Spec.: specificity. Macro-AUROC denotes the macro-averaged one-vs-rest area under the receiver operating characteristic curve. Sensitivity and specificity were macro-averaged across the four density categories using a one-vs-rest formulation. QWK was calculated by treating breast density categories A–D as ordered classes. Boldface and underlining indicate the best and second-best results, respectively.
+
+where the reported values are the mean and standard deviation across the adapted weight matrices. Thus, on average, approximately 92 .34% of the energy of the dense low-rank component lies outside the bilateral singular subspace of the structured-sparse component. Conversely, approximately 92 .61% of the energy of the structured-sparse component lies outside the corresponding singular subspace of the dense component. Equivalently, the fractions of energy represented within the shared bilateral singular subspaces are: 1 − νL|S = 0 .076593 , (72) 1 − νS|L = 0 .073891 , (73) for L and S, respectively. Therefore, only approximately 7 .7% of the energy of either component is represented through the row and column singular directions of the other component. The similar values of the two directional measurements also indicate that the result is not caused by one component being largely contained in the subspace of the other. Instead, both components contain substantial energy outside the singular geometry learned by their counterpart. Hence, the two components act as complementary weight-update paths rather than redundant parameterizations of the same update. 
+
+# 5 Conclusion 
+
+This work examined a central limitation of low-rank parameter-efficient fine-tuning for biomedical domain generalization. A single low-rank update is efficient, but it also confines all downstream adaptation to one bounded pair of row and column subspaces. In complex medical tasks, that subspace must simultaneously represent globally shared task structure, localized corrections, and source-sensitive residual variation. We described this restriction as the low-rank cage. Sparsifying the same low-rank component does not remove the cage because the update remains rank constrained, and it may weaken the dense global transformation that standard LoRA captures effectively. RoSA correctly recognizes the need for low-rank and sparse components, but a support mask estimated once from a calibration subset cannot adapt as the dense component and task representation evolve. LoRSA addresses this problem through a global–residual adaptation principle. Each update contains a dense low-rank component for globally coordinated specialization and a dynamically masked structured low-rank component for residual correction. These components are optimized jointly so that both the residual 15 Table 2: External evaluation of parameter-efficient adaptation methods using the DINO-Base backbone for four-class breast density classification on the MammosighTR test set.                                                                         
+
+> Method rExternal Test Performance Acc. Bal. Acc. Macro-F1 Weighted-F1 Macro-AUROC QWK Sens. Spec. DINO-Base (frozen) –0.6235 0.4390 0.4187 0.5655 0.8320 0.6215 0.4390 0.8489 DINO-Base + LoRA 80.6288 0.4309 0.3974 0.5595 0.8825 0.6221 0.4309 0.8513 DINO-Base + LoRA 16 0.6576 0.4883 0.4935 0.6142 0.9029 0.6742 0.4883 0.8633 DINO-Base + RoseLoRA 80.6485 0.4577 0.4426 0.5897 0.8849 0.6508 0.4577 0.8587 DINO-Base + RoseLoRA 16 0.5829 0.4125 0.3868 0.5194 0.8892 0.5663 0.4125 0.8344 DINO-Base + RoSA 80.6456 0.4730 0.4657 0.5926 0.8992 0.6569 0.4730 0.8590
+> DINO-Base + LoRSA (Ours) 80.6656 0.5011 0.5150 0.6267 0.9030 0.6855 0.5011 0.8663
+
+The external test set contains 8,000 images: 852, 3,208, 2,876, and 1,064 images from density categories A, B, C, and D, respectively. 
+
+Table 3: External evaluation of parameter-efficient adaptation methods using the DINO-Base backbone for four-class breast density classification on the RSNA dataset.                                                                         
+
+> Method rExternal Test Performance Acc. Bal. Acc. Macro-F1 Weighted-F1 Macro-AUROC QWK Sens. Spec. DINO-Base (frozen) –0.6782 0.4454 0.4307 0.6349 0.8315 0.6092 0.4454 0.8644 DINO-Base + LoRA 80.6903 0.4402 0.4340 0.6470 0.8887 0.6262 0.4402 0.8690 DINO-Base + LoRA 16 0.7093 0.5070 0.5211 0.6850 0.9061 0.6628 0.5070 0.8794 DINO-Base + RoseLoRA 80.7024 0.4542 0.4515 0.6627 0.8871 0.6397 0.4542 0.8745 DINO-Base + RoseLoRA 16 0.6525 0.4383 0.4449 0.6191 0.8893 0.5978 0.4383 0.8543 DINO-Base + RoSA 80.7280 0.5371 0.5536 0.7125 0.9074 0.7015 0.5371 0.8881 DINO-Base + LoRSA (Ours) 80.7301 0.5518 0.5845 0.7159 0.9113 0.7042 0.5518 0.8876
+
+The external RSNA test set contains 29,470 images: 3,105, 12,651, 12,175, and 1,539 images from density categories A, B, C, and D, respectively. 
+
+values and their structural allocation can evolve under the downstream objective. The practical use of LoRA-style and RoseLoRA-style factors is a direct realization of this principle, not the conceptual definition of the contribution. The external experiments support the proposed direction. Using VinDr-Mammo as the source domain, LoRSA achieved the best macro-F1 on both MammosighTR and RSNA, outperforming the strongest baseline by 2.15 and 3.09 percentage points, respectively. Its advantage was more pronounced externally than internally, which is consistent with the goal of preserving transferable task structure rather than maximizing source-domain fit. The weight-matrix complementarity analysis provides a more precise explanation of this behavior. Across the adapted weight matrices, the dense low-rank and structured-sparse components place approximately 92% of their respective energies outside one another’s bilateral singular subspaces, indicating that the two components learn largely complementary weight-update directions. 
+
+# References 
+
+[1] M. Caron, H. Touvron, I. Misra, H. J´ egou, J. Mairal, P. Bojanowski, and A. Joulin, “Emerging properties in self-supervised vision transformers,” in 2021 IEEE/CVF international conference on computer vision 
+
+16 (ICCV) , pp. 9630–9640, IEEE, 2021. [2] A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson, T. Xiao, S. Whitehead, A. C. Berg, W.-Y. Lo, et al. , “Segment anything,” in 2023 IEEE/CVF international conference on computer vision (ICCV) , pp. 3992–4003, IEEE, 2023. [3] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal, G. Sastry, A. Askell, P. Mishkin, J. Clark, et al. , “Learning transferable visual models from natural language supervision,” in International conference on machine learning , pp. 8748–8763, PmLR, 2021. [4] N. Tajbakhsh, J. Y. Shin, S. R. Gurudu, R. T. Hurst, C. B. Kendall, M. B. Gotway, and J. Liang, “Con-volutional neural networks for medical image analysis: Full training or fine tuning?,” IEEE transactions on medical imaging , vol. 35, no. 5, pp. 1299–1312, 2016. [5] S. K. Zhou, H. Greenspan, C. Davatzikos, J. S. Duncan, B. Van Ginneken, A. Madabhushi, J. L. Prince, D. Rueckert, and R. M. Summers, “A review of deep learning in medical imaging: Imaging traits, technol-ogy trends, case studies with progress highlights, and future promises,” Proceedings of the IEEE , vol. 109, no. 5, pp. 820–838, 2021. [6] D. C. Castro, I. Walker, and B. Glocker, “Causality matters in medical imaging,” Nature Communications ,vol. 11, no. 1, p. 3673, 2020. [7] H. Guan and M. Liu, “Domain adaptation for medical image analysis: a survey,” IEEE Transactions on Biomedical Engineering , vol. 69, no. 3, pp. 1173–1185, 2021. [8] J. Shi, K. Zhang, C. Guo, Y. Yang, Y. Xu, and J. Wu, “A survey of label-noise deep learning for medical image analysis,” Medical image analysis , vol. 95, p. 103166, 2024. [9] Z. Fu, H. Yang, A. M.-C. So, W. Lam, L. Bing, and N. Collier, “On the effectiveness of parameter-efficient fine-tuning,” in Proceedings of the AAAI conference on artificial intelligence , vol. 37, pp. 12799–12807, 2023. [10] L. Xu, H. Xie, S. J. Qin, X. Tao, and F. L. Wang, “Parameter-efficient fine-tuning methods for pretrained language models: A critical review and assessment,” IEEE Transactions on Pattern Analysis and Machine Intelligence , 2026. [11] Y. Xin, J. Yang, S. Luo, Y. Du, Q. Qin, H. Chen, K. Cen, Y. He, B. Fu, Y. Cao, et al. , “Parameter-efficient fine-tuning for pre-trained vision models: A survey and benchmark,” International Journal of Computer Vision , vol. 134, no. 6, p. 304, 2026. [12] L. Wang, S. Chen, L. Jiang, S. Pan, R. Cai, S. Yang, and F. Yang, “Parameter-efficient fine-tuning in large language models: a survey of methodologies,” Artificial Intelligence Review , vol. 58, no. 8, p. 227, 2025. [13] Y. Ni, S. Zhang, and P. Koniusz, “PACE: marrying the generalization of PArameter-efficient fine-tuning with consistency regularization,” in The Thirty-eighth Annual Conference on Neural Information Process-ing Systems , 2024. [14] B. Nguyen, S. Uhlich, F. Cardinaux, L. Mauch, M. Edraki, and A. Courville, “Saft: Towards out-of-distribution generalization in fine-tuning,” in European Conference on Computer Vision , pp. 138–154, Springer, 2024. [15] Y. Shu, X. Guo, J. Wu, X. Wang, J. Wang, and M. Long, “Clipood: Generalizing clip to out-of-distributions,” in International conference on machine learning , pp. 31716–31731, PMLR, 2023. 17 [16] Q. Zang, D. Zhao, N. Pu, W. Li, Z. Zhong, and M. Wang, “GeCo: Geometry-consistent regularization for domain generalized semantic segmentation,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pp. 871–881, 2026. [17] E. J. Hu, yelong shen, P. Wallis, Z. Allen-Zhu, Y. Li, S. Wang, L. Wang, and W. Chen, “LoRA: Low-rank adaptation of large language models,” in International Conference on Learning Representations , 2022. [18] Q. Zhang, M. Chen, A. Bukharin, N. Karampatziakis, P. He, Y. Cheng, W. Chen, and T. Zhao, “Adalora: Adaptive budget allocation for parameter-efficient fine-tuning,” arXiv preprint arXiv:2303.10512 , 2023. [19] S. Hayou, N. Ghosh, and B. Yu, “Lora+: Efficient low rank adaptation of large models,” arXiv preprint arXiv:2402.12354 , 2024. [20] S.-Y. Liu, C.-Y. Wang, H. Yin, P. Molchanov, Y.-C. F. Wang, K.-T. Cheng, and M.-H. Chen, “Dora: Weight-decomposed low-rank adaptation,” arXiv preprint arXiv:2402.09353 , 2024. [21] Y. Hu, Y. Xie, T. Wang, M. Chen, and Z. Pan, “Structure-aware low-rank adaptation for parameter-efficient fine-tuning,” Mathematics , vol. 11, no. 20, p. 4317, 2023. [22] A. Renduchintala, T. Konuk, and O. Kuchaiev, “Tied-lora: Enhancing parameter efficiency of lora with weight tying,” in Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers) , pp. 8694–8705, 2024. [23] P. Kaushik, S. Chaudhari, A. Vaidya, R. Chellappa, and A. Yuille, “The universal weight subspace hypothesis,” arXiv preprint arXiv:2512.05117 , 2025. [24] X. Ouyang, D. Gu, X. Li, W. Zhou, Q. Chen, Y. Zhan, X. S. Zhou, F. Shi, Z. Xue, and D. Shen, “To-wards a general computed tomography image segmentation model for anatomical structures and lesions,” 
+
+Communications Engineering , vol. 3, no. 1, p. 143, 2024. [25] J. Ma, Y. He, F. Li, L. Han, C. You, and B. Wang, “Segment anything in medical images,” Nature communications , vol. 15, no. 1, p. 654, 2024. [26] H. Wang, T. Liu, R. Li, M. X. Cheng, T. Zhao, and J. Gao, “RoseLoRA: Row and column-wise sparse low-rank adaptation of pre-trained language model for knowledge editing and fine-tuning,” in Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing , pp. 996–1008, 2024. [27] M. Nikdan, S. Tabesh, E. Crnˇ cevi´ c, and D. Alistarh, “RoSA: Accurate parameter-efficient fine-tuning via robust adaptation,” in International Conference on Machine Learning , pp. 38187–38206, PMLR, 2024. [28] E. J. Cand` es, X. Li, Y. Ma, and J. Wright, “Robust principal component analysis?,” Journal of the ACM (JACM) , vol. 58, no. 3, pp. 1–37, 2011. [29] K. Muandet, D. Balduzzi, and B. Sch¨ olkopf, “Domain generalization via invariant feature representation,” in International conference on machine learning , pp. 10–18, PMLR, 2013. [30] J. Wang, C. Lan, C. Liu, Y. Ouyang, T. Qin, W. Lu, Y. Chen, W. Zeng, and P. S. Yu, “Generalizing to unseen domains: A survey on domain generalization,” IEEE transactions on knowledge and data engineering , vol. 35, no. 8, pp. 8052–8072, 2022. [31] G. H. Golub and C. F. Van Loan, Matrix computations . Johns Hopkins University Press, 2013. 18 [32] H. T. Nguyen, H. Q. Nguyen, H. H. Pham, K. Lam, L. T. Le, M. Dao, and V. Vu, “VinDr-Mammo: A large-scale benchmark dataset for computer-aided diagnosis in full-field digital mammography,” Scientific Data , vol. 10, no. 1, p. 277, 2023. [33] Radiological Society of North America, “Radiological society of north america screening mammography breast cancer detection (RSNA-SMBC) dataset, november 2022,” 2024. [34] U. Ko¸ c, E. Karaka¸ s, E. A. Sezer, M. S. Be¸ sler, Y. A. ¨Ozkaya, S ¸. Evrimler, A. Yal¸ cın, H. A. Kızılo˘ glu, U. Kesimal, M. Oru¸ c, et al. , “MammosighTR: nationwide breast cancer screening mammogram dataset with bi-rads annotations for artificial intelligence applications,” Radiology: Artificial Intelligence , vol. 7, no. 6, p. e240841, 2025. [35] O. Sim´ eoni, H. V. Vo, M. Seitzer, F. Baldassarre, M. Oquab, C. Jose, V. Khalidov, M. Szafraniec, S. Yi, M. Ramamonjisoa, et al. , “Dinov3,” arXiv preprint arXiv:2508.10104 , 2025. 19
