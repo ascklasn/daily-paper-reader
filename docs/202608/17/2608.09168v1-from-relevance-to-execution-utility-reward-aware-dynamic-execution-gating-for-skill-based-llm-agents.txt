@@ -1,0 +1,598 @@
+Title: From Relevance to Execution Utility: Reward-Aware Dynamic Execution Gating for Skill-Based LLM Agents
+
+URL Source: https://arxiv.org/pdf/2608.09168v1
+
+Published Time: Tue, 11 Aug 2026 01:53:52 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+# From Relevance to Execution Utility: Reward-Aware Dynamic Execution Gating for Skill-Based LLM Agents 
+
+## Liang He 1 Jingbo Wen 2 Hongyu Gu 3 Hao Li 3
+
+## Haoyu Wang 4 Yixiong Chen 5 Kangning Cui 6 Xilu Wang 7,∗
+
+> 1
+
+## Tongji University 2The University of Sydney 3University of Science and Technology of China 
+
+> 4
+
+## Nankai University 5Johns Hopkins University 6City University of Hong Kong 7University of Surrey 
+
+## wangxilu@surrey.ac.uk 
+
+> ∗
+
+## Corresponding author 
+
+Abstract 
+
+Agent skills are increasingly used to equip large language model (LLM) agents with reusable procedural knowledge. Al-though recent work has substantially improved skill retrieval due to the increasing skill libraries, retrieving a plausible skill bundle does not guarantee that executing it is worthwhile. Since every skill-conditioned rollout is computationally ex-pensive, deciding whether a retrieved bundle should be ex-ecuted has become an increasingly important challenge. To this end, we introduce the Reward-Aware Dynamic Execu-tion Gate (RADEG) , a lightweight, retriever-agnostic deci-sion layer between skill retrieval and agent execution. RADEG learns a low-cost surrogate model that predicts the execution utility of a query–bundle pair before the expensive rollout is launched. To obtain informative supervision while con-trolling for task difficulty, we locally perturb each retrieved bundle by deleting, adding, or replacing one skill, producing matched same-query rollouts that isolate the effect of bundle composition on verifier reward. During deployment, RADEG updates only a warm-started logistic head as new verifier feed-back becomes available, enabling inexpensive adaptation of the execute/skip boundary without retraining either the re-triever or the agent. Under a query-level held-out evaluation on 288 collected rollouts, RADEG substantially reduces un-necessary agent executions while preserving a large fraction of the downstream verifier reward. It consistently outperforms relevance-based and random gating across different execution budgets, demonstrating that execution-aware surrogate mod-eling provides a practical and cost-effective complement to skill retrieval. 
+
+## 1 Introduction 
+
+Agent skills have emerged as a promising mechanism for enabling LLM-based agents to tackle complex, long-horizon tasks (Wang et al. 2024; Li et al. 2026b; Anand et al. 2026). A skill encapsulates reusable procedural knowledge in a mod-ular package of instructions, executable code, and auxiliary resources that can be loaded on demand at inference time (Xu and Yan 2026; Mi et al. 2026; Kevin et al. 2026). Since a skill library may far exceed the agent’s available context, each incoming query requires a retrieval decision: which small bundle of skills should be supplied to the agent for the task at hand? Existing skill-augmented agents commonly treat this de-cision as a retrieval or routing problem (Yang 2026; Gao et al. 2026). Early systems such as Voyager retrieve skills from a continually expanding library by embedding similar-ity (Wang et al. 2024). More recent systems operate over substantially larger repositories: SkillFlow (Li, Tagkopou-los, and Tagkopoulos 2025) progressively narrows the can-didate set through dense retrieval, two rounds of cross-encoder reranking, and LLM-based selection, while Skill-Router (Zheng et al. 2026b) pairs a compact bi-encoder re-triever with a cross-encoder reranker that reads the full skill body. A further line of work moves beyond item-level rel-evance by explicitly modelling relationships among skills, organizing them into capability trees and DAG-based exe-cution pipelines (Li et al. 2026a), dependency graphs (Liu et al. 2026), hierarchical and role-structured groups (Zeng et al. 2026), or typed directed graphs (Bai et al. 2026). These structures allow the retriever to return bounded bun-dles whose members complement one another. The retrieved skills are then compiled into the agent’s context, arranged into an executable workflow. Despite this progress, skill selection is still predominantly optimized through item-level relevance scores or predefined structural relationships. They generally ignore the end-to-end utility of the selected bundle for a specific task and agent, resulting in expensive execution cost. Evaluation practice mirrors this focus: skill retrievers and routing benchmarks are typically scored with ranking-oriented metrics such as Hit@ K, Recall@ K, MRR, and NDCG (Li, Tagkopoulos, and Tagkopoulos 2025; Zheng et al. 2026b). Such metrics measure whether annotated skills are ranked highly, but not whether executing the target agent with the retrieved bun-dle will actually produce a useful outcome. Consistent with this concern, prior work reports skill shadowing as libraries grow (Song and Wei 2026), negative transfer across agents (Huang et al. 2026), and failures to correctly incorporate even successfully retrieved gold skills (Su et al. 2026). arXiv:2608.09168v1 [cs.AI] 10 Aug 2026 We refer to this mismatch as the relevance–utility gap .Retrieval answers which skills appear relevant to a query. However, it does not necessarily answer whether the result-ing query–bundle pair is worth executing. This gap is partic-ularly consequential because agent execution is typically far more expensive than retrieval: invoking the underlying agent consumes API calls, tokens, tool interactions, and wall-clock time, even when the final verifier reward is zero. A retrieval-centric pipeline therefore risks spending a substantial fraction of its execution budget on bundles that appear relevant but do not yield downstream utility. We empirically examine this relevance–utility gap on 72 SkillsBench tasks (Li et al. 2026b). Starting from bundles retrieved by Graph-of-Skills (GoS) (Liu et al. 2026), we construct local variants by deleting, adding, or replacing one skill. We find that 22 of the 72 tasks change reward under at least one variant, while aggregate GoS relevance scores provide little signal for positive verifier reward (detailed in Motivating Study). These findings motivate a separate post-retrieval decision that predicts whether a retrieved query–bundle pair is worth executing. To address this problem, we propose the Reward-Aware Dynamic Execution Gate (RADEG) , a lightweight post-retrieval, pre-execution module that estimates whether a retrieved query–bundle pair is likely to produce non-zero verifier reward. RADEG learns from previously observed 
+
+(query , bundle , reward ) rollouts and makes its execution de-cision before the underlying agent is invoked, leaving both the retriever and the agent unchanged. Therefore, RADEG can serve as a retrieval-agnostic decision layer on top of existing skill-augmented pipelines. Moreover, when new ex-ecution feedback becomes available, the gate can update its decision boundary without retraining or modifying the agent itself. Our main contributions are as follows: 1. We provide a controlled empirical diagnosis of the relevance–utility gap in multi-skill retrieval. Our pertur-bation analysis shows that downstream reward is sensitive to bundle composition, while relevance scores provide lit-tle predictive signal for positive execution reward. 2. To improve LLM agents’ efficiency, we formulate post-retrieval execution gating for skill-based LLM agents and introduce RADEG, a lightweight retrieval-agnostic mod-ule that uses observed execution feedback to estimate a query–bundle pair’s utility before invoking the agent. 3. We evaluate RADEG on 288 logged rollouts using a query-level held-out protocol. At its default decision rule, RADEG skips 68% of agent calls while retaining 61% of the total reward. Under a fixed 20% call budget, it re-tains 40% of the reward, substantially outperforming a relevance score-based and random execution. 
+
+## 2 Related Work 
+
+Skill retrieval and bundle construction. As skill libraries grow beyond the agent’s context budget, recent work has treated skill access as a retrieval and routing problem. Sys-tems such as SkillFlow and SkillRouter combine dense re-trieval with progressively more expensive reranking or selec-tion stages (Li, Tagkopoulos, and Tagkopoulos 2025; Zheng et al. 2026b), while SkillRet provides a large-scale bench-mark for evaluating retrieval over realistic skill libraries (Cho, Kang, and Kim 2026). Other work moves beyond indepen-dent query–skill relevance by modelling compatibility and ambiguity among skills retrieved together (Wang et al. 2026; Ding 2026). A complementary line of research explicitly models multi-skill structure through capability hierarchies, dependency graphs, role-structured groups, or typed rela-tions (Li et al. 2026a; Liu et al. 2026; Zeng et al. 2026; Bai et al. 2026). These structures support the construction of compact bundles subject to dependencies and deployment constraints (Zheng et al. 2026a). RADEG is complementary to these methods: rather than constructing or reranking a bundle, it evaluates whether a retrieved query–bundle pair is likely to yield downstream execution reward. 
+
+From successful retrieval to successful execution. Re-cent work shows that retrieving an appropriate skill does not guarantee successful downstream execution. SRA-Bench separates skill augmentation into retrieval, incorporation, and application, demonstrating that agents may fail to load or correctly use even a gold skill (Su et al. 2026). Related stud-ies identify execution failures caused by planning drift, veri-fier mismatch, skill shadowing, and negative transfer across agents (Liu et al. 2026; Song and Wei 2026; Huang et al. 2026). SkillsBench further shows that the benefit of curated skills varies across tasks and skill configurations (Li et al. 2026b). These findings motivate RADEG’s post-retrieval ex-ecution gate: rather than modifying the retrieved bundle, it predicts from verifier feedback whether executing the com-plete query–bundle pair is likely to yield non-zero reward. 
+
+Cost-aware routing and selective execution. Cost-aware LLM systems avoid low-value computation by routing queries across models or selectively using retrieved support. FrugalGPT and RouteLLM allocate queries among LLMs to balance quality and cost, while recent memory- and retrieval-control methods decide whether retrieved guidance should influence an agent or whether a failed retrieval should trigger corrective skills (Chen, Zaharia, and Zou 2024; Ong et al. 2025; Iscan 2026; Wei et al. 2026). RADEG operates af-ter skill retrieval but before agent execution by predicting whether the skill bundle should be evaluated. 
+
+## 3 Motivating Study 
+
+A relevance-based retriever maps a query q to a skill bundle 
+
+b = R(q), which is then supplied to an agent and evalu-ated by a task-specific verifier with reward r(q, b ) ∈ [0 , 1] .We investigate whether retrieval relevance is also a reliable proxy for downstream execution utility. We use 72 tasks from SkillsBench (Li et al. 2026b). For each task, GoS retrieves an eight-skill bundle (Liu et al. 2026). Starting from this bundle, we construct three local variants: Delete Top , which removes the highest-PPR skill; Add Irrelevant , which ap-pends a low-similarity skill; and Replace Similar , which replaces one skill with a graph-similar alternative. Together with the original GoS bundle, this produces 72 × 4 = 288 
+
+query–bundle pairs. Each pair is executed once under the same agent and verifier configuration. Figure 1 summarizes the perturbation procedure and resulting task-level outcomes. 1. Query 2. GoS-retrieved original bundle 3. Local perturbations of retrieved bundle  
+
+> e.g.,
+> "Draft a refund email for a delayed delivery."
+> GoS Retriever GoS Original (8 skills) PPR relevance of skills (in original bundle) 0.18 0.16 0.15 0.12 0.10 0.09 0.07 0.05 Higher = more relevant (PPR)
+> Replace Similar
+> replace one skill with a graph-similar alternative (8 skills)
+> Add Irrelevant
+> append one low-similarity skill (9 skills)
+> +
+> Delete Top
+> remove the highest-PPR skill (7 skills)
+> 一
+> 4. Execute & verify reward PPR relevance does not predict reward
+> PPR relevance
+> Weak association (low correlation )
+> Agent execution (with tools)
+> Verifier reward
+> 𝐀 ∈ (0,1)
+> r = 0.67
+> (+0.17 )
+> r = 0.29
+> (-0.21)
+> r = 0.50 (-0.00) Reward(r)
+
+Figure 1: Overview of the motivating study. For each query, GoS retrieves an eight-skill bundle ranked by PPR relevance. We construct three local variants and observe that each perturbation can increase, decrease, or leave verifier reward unchanged, showing that higher retrieval relevance does not reliably imply higher execution utility.                                      
+
+> Condition Mean rSuccess ( r > 0)Reward vs. GoS Status flips
+> ↑/=/↓0→+/+→0
+> GoS Original 0.285 23 (31.9%) ––Delete Top 0.304 25 (34.7%) 8 / 57 / 7 7 / 5 Add Irrelevant 0.269 22 (30.6%) 6 / 60 / 6 4 / 5 Replace Similar 0.295 24 (33.3%) 8 / 58 / 6 6 / 5
+> Best observed 0.433 34 (47.2%) 13 / 59 / 0 11 / 0
+
+Table 1: Task-level comparison of each bundle condition with GoS Original. ↑, =, and ↓ denote numbers of tasks with higher, equal, and lower verifier reward than GoS. The last row reports the best observed reward and serves only as a post-hoc upper bound. 
+
+Bundle composition affects realized utility. Table 1shows that no perturbation is uniformly beneficial: each im-proves some tasks and degrades others. Overall, 22 of the 72 tasks exhibit a reward change under at least one pertur-bation. Across the 216 original–perturbed comparisons, we observe 17 zero-to-positive and 15 positive-to-zero transi-tions. At least one tested alternative outperforms the original GoS bundle on 13 tasks, including 11 tasks that change from zero to positive reward. Thus, a bundle selected according to retrieval relevance does not necessarily provide the highest observed execution utility. 
+
+PPR relevance provides little utility signal. GoS assigns each skill s a query-dependent Personalized PageRank (PPR) score πq (s) by propagating the initial semantic and lexical relevance of query q through the skill dependency graph (Liu et al. 2026). Thus, πq (s) measures how relevant a skill appears to the query under the GoS retrieval model. For a query–bundle pair (q, b ), let SPPR  
+
+> b
+
+denote the skills in b that receive PPR scores from GoS. We summarize the retrieval 
+
+Metric Value Spearman( Rsum , r) −0.089 
+
+Spearman( Rmax , r) −0.131 
+
+AUROC( Rsum → r > 0) 0.435 AUROC( Rmax → r > 0) 0.418 
+
+Table 2: Predictive value of aggregate GoS relevance scores for downstream execution reward over 288 rollouts. relevance of the bundle using 
+
+Rsum (q, b ) = X
+
+> s∈S PPR
+> b
+
+πq (s), Rmax (q, b ) = max 
+
+> s∈S PPR
+> b
+
+πq (s).
+
+Here, Rsum measures the total propagated relevance assigned to the GoS-scored portion of the bundle, while Rmax captures the relevance of its highest-ranked skill. We measure their association with continuous verifier reward using Spearman correlation and their ability to rank positive-reward execu-tions using AUROC. As shown in Table 2, both correlations are close to zero, while the AUROCs are 0.435 and 0.418. These results provide no evidence that higher aggregate PPR relevance reliably identifies query–bundle pairs that will ob-tain positive reward. Together, these observations reveal a relevance–utility gap: retrieval can identify a plausible bundle without determin-ing whether executing it is worth the cost. This motivates RADEG, a lightweight post-retrieval gate that predicts exe-cution utility before launching the agent. Additional analyses of PPR relevance are reported in the Technical Supplement Section 2.4 (PPR permutation test). 
+
+## 4 Reward-Aware Dynamic Execution Gate 
+
+RADEG is a post-retrieval decision module that determines whether a retrieved query–bundle pair is worth executing. As illustrated in Figure 2, it complements, rather than replaces, the upstream retriever: the retriever identifies a relevant bun-dle, whereas RADEG estimates whether invoking the down-stream agent with that bundle is likely to produce verifiable utility. Both the retriever and the agent remain unchanged. 
+
+4.1 Execution-Gating Objective 
+
+Let R be an upstream skill retriever. Given a user query q,it returns a skill bundle b = R(q). A downstream agent A
+
+executes the task using b, and a task-specific verifier V returns 
+
+r(q, b ) = V(A(q, b )) ∈ [0 , 1] .We consider an execution useful when it obtains any non-zero verifier reward y(q, b ) = I[r(q, b ) > 0] . This definition includes partial rewards. In SkillsBench, 0 < r < 1 indi-cates that the execution passes a non-empty subset of the deterministic verifier tests and therefore produces measur-able downstream value. Given historical execution records D =
+
+{(qi, b i, r i)}Ni=1 , RADEG learns a utility score 
+
+sθ (q, b ) ≈ Pr( r(q, b ) > 0 | q, b ). At inference time, it applies the decision rule 
+
+gθ (q, b ; τ ) = I[sθ (q, b ) ≥ τ ] ,
+
+where τ is an execution threshold. The agent is invoked when 
+
+gθ = 1 and skipped otherwise. Varying τ controls the trade-off between execution frequency and retained verifier reward. 
+
+4.2 Query–Bundle Encoding 
+
+RADEG estimates utility from the semantic relationship be-tween the query and the procedural information contained in the retrieved bundle. Let E : T → Rd denote a fixed text encoder. The query representation is eq = E(q).For each skill s ∈ b, let ds denote its textual specification. We use the instructions and description in SKILL.md when available and otherwise use the available skill metadata. Each skill is encoded independently, and the bundle representation is obtained by mean pooling: 
+
+eb = 1
+
+|b|
+
+X
+
+> s∈b
+
+E(ds).
+
+Mean pooling produces a fixed-dimensional summary of the procedural content supplied to the agent, independent of the number and ordering of skills in the bundle. The core query–bundle representation is 
+
+xsem (q, b ) = [ eq ∥ eb ],
+
+where ∥ denotes vector concatenation. This joint representa-tion enables the utility predictor to learn whether the retrieved procedural content is appropriate for the given query. Our evaluated implementation augments this seman-tic representation with a small set of features available from the bundle-construction process. These features are implementation-specific rather than required by the RADEG formulation and are detailed in Section 5.1. We denote the complete model input by x(q, b ).
+
+4.3 Offline Utility Learning 
+
+RADEG first learns a utility representation from the histor-ical execution records in D. A neural encoder hϕ : Rdx →
+
+Rdh maps the input representation to hi = hϕ(x(qi, b i)) .A logistic execution head then estimates the probability of obtaining non-zero verifier reward: 
+
+si = σ w⊤hi + c ,
+
+where σ(·) is the sigmoid function. Thus, 
+
+si ≈ Pr( ri > 0 | qi, b i).
+
+The encoder and execution head are jointly trained using class-weighted binary cross-entropy: 
+
+Loff = − 1
+
+N
+
+> N
+
+X
+
+> i=1
+
+[ω+yi log si + (1 − yi) log(1 − si)] ,
+
+where yi = I[ri > 0] , and the positive-class weight 
+
+ω+ = Nneg  
+
+> Npos
+
+compensates for the imbalance between zero-and positive-reward executions. This stage produces a utility encoder hϕ and an initial ex-ecution head (w, c ). The encoder captures reusable patterns in the relationship between queries, skill bundles, and execu-tion outcomes. The learned head provides the initial decision boundary for dynamic gating. 
+
+4.4 Reward-Aware Dynamic Gating 
+
+After offline training, RADEG freezes the utility encoder hϕ
+
+and updates only the lightweight logistic execution head. This separation preserves a stable query–bundle representation while allowing the execution decision boundary to adapt efficiently as new verifier feedback becomes available. For the t-th query–bundle pair (qt, b t), RADEG computes 
+
+ht = hϕ(x(qt, b t)) and predicts st = σ w⊤ 
+
+> t
+
+ht + ct
+
+. Based on the prediction, the agent is executed according to gt =
+
+I[st ≥ τ ].The dynamic head is initialized from the output layer learned during offline training. Whenever verifier feedback 
+
+rt is observed, RADEG forms the label yt = I[rt > 0] and performs one online gradient update: 
+
+(wt+1 , c t+1 ) = ( wt, c t) − η∇w,c ℓ σ(w⊤ 
+
+> t
+
+ht + ct), y t
+
+ ,
+
+where ℓ denotes binary cross-entropy and η is the online learning rate. Only the execution head is updated; the en-coder, upstream retriever, and downstream agent remain fixed. The protocol used to simulate this feedback process is described in Section 5.1. 
+
+## 5 Experiments 
+
+5.1 Experimental Setup 
+
+Benchmark, data, and execution environment. We eval-uate RADEG on SkillsBench (Li et al. 2026b). The source dataset contains 288 rollouts from 72 queries, with 194 zero-reward and 94 positive-reward executions. To avoid leakage, all bundle variants of a query are kept in the same parti-tion. We therefore partition by query, using approximately (A) Overall Pipeline          
+
+> User query
+> q
+> Retriever
+> R
+> Query Retriever R
+> Retrieved skill bundle b
+> ...
+> s1s2s3sk
+> (Kskills)
+> RADEG (ours) Score & Decision Feedback
+> (non-zero reward)
+> Verifier
+> V
+> Agent A
+> (uses tools)
+> g= 1
+> (execute)
+> No execution
+> g= 0
+> (skip)
+> Online update of execution head (Section 4.4) (B) RADEG Model: Encoding, Prediction, and Update
+> Text Text Encoder (fixed)
+
+
+
+> Text Encoder (fixed)
+
+               
+
+> Query q
+> S1(skill 1)
+> S2(skill 2)
+> SK(skill K)
+> ...
+> Skills in bundle b
+> Mean Pooling
+> Concat Optional metadata (implementation-specific)
+> Utility Encoder
+> h
+> 
+> (frozen)
+> Logistic Head (w, c)
+> 1. Offline
+> Train encoder + head on historical (q, b, r) with class-weighted BCE.
+> Training and update 2. Online
+> Freeze encoder, update only the head using verifier feedback
+> g= 1
+> (execute)
+> g= 0
+> (skip)
+> 푅푒푤   
+>   ∈ [0,1]
+> �=�[ > 0]
+> ��∈ � ��
+> ��∈ � ��
+> �(�, �) ∈ � ��
+> ℎ ∈ � �ℎ
+> �=�[ > 0]
+> � = �(� �ℎ + �)�[0,1]
+> �ℎ푟��ℎ표�� � � = �[� > �]
+> ��(�, �) ≈ �푟(푟 > 0|�, �) � ∈ [0,1]
+> �ℎ푟��ℎ표�� � � = �[� ≥ �]
+
+Figure 2: Overview of RADEG. Given a query, the upstream retriever first constructs a candidate skill bundle. RADEG encodes the query and the retrieved skills into a joint query–bundle representation and predicts the probability that executing the downstream agent will obtain non-zero verifier reward. During deployment, the encoder is frozen and only the lightweight execution head is updated using newly observed verifier feedback. 
+
+Method AUROC ↑ AUPRC ↑ Calls saved ↑ Reward retained ↑ Reward/call ↑
+
+Always-Execute – – 0 100 0.309 Random-Gate 0.500 0.345 71 30 0.313 PPR-Gate 0.447 0.335 46 51 0.292 Static Head 0.517 0.375 73 27 0.308 Memory-Corrected Head 0.608 0.440 73 28 0.321 
+
+RADEG 0.717 0.570 68 61 0.483 
+
+Oracle 1.000 1.000 65 100 0.892 
+
+Table 3: Utility prediction and execution efficiency under the same five query-level splits. Calls saved and reward retained are reported as percentages. Operational metrics use τ = 0 .5.70% of queries for training and the remainder as an unseen evaluation stream. The principal comparison uses the same five random query-level splits for every method. A separate 30-split analysis evaluates the uncertainty of RADEG itself. The source rollouts are generated in a Docker-based, Claude-Code-style environment configured with the model identifier Claude Sonnet 4.6 through a third-party API relay. Each rollout is scored by the deterministic, task-specific Skills-Bench verifier, which returns a normalized weighted test-pass reward in [0 , 1] . Additional implementation details and experimental environment are reported in Technical Supple-ment Section 1.1 (Experimental Environment) and Section 1.2 (Compared Methods and Evaluation Protocol); dataset statistics and perturbation analyses are reported in Section 4.1 (Dataset Composition and Perturbation Effects); end-to-end runtime comparisons and execution-gate overhead are reported in Section 5 (Runtime Analysis). 
+
+Representation and implementation. We use all-MiniLM-L6-v2 to obtain 384-dimensional query and skill embeddings, mean-pooled to form the bundle representation. Each query–bundle pair is represented by a 776-dimensional feature vector consisting of the query embedding, bundle em-bedding, a four-dimensional bundle-condition indicator, and four GoS PPR summary statistics. The execution predictor is a 776 → 256 → 128 → 64 MLP with ReLU, dropout 0.3, and a logistic output head, trained using class-weighted binary cross-entropy and Adam ( 10 −3). 
+
+Baselines. We compare RADEG with Always-Execute ,which invokes the agent for every query–bundle pair; 
+
+Random-Gate , which assigns random execution scores; PPR-Gate , which ranks pairs using aggregate GoS relevance; and an Oracle that executes exactly the positive-reward rollouts and serves only as an unattainable upper bound. Comparisons with a frozen execution head, a memory-corrected predictor, and a graph convolutional encoder are reported in Technical Supplement Section 1.3 (Complete Five-Split Results) and Section 1.4 (Additional Encoder Comparison). Evaluation metrics. We evaluate RADEG from both pre-dictive and operational perspectives. We report the area un-der the receiver operating characteristic curve (AUROC) and the area under the precision–recall curve (AUPRC). Both metrics are independent of a particular decision threshold. AUROC measures how frequently a positive-reward roll-out is ranked above a zero-reward rollout, whereas AUPRC emphasizes the ranking quality of the less frequent pos-itive class. Accuracy, precision, and recall at the default threshold τ = 0 .5 are reported as supplementary threshold-dependent metrics. Moreover, we define three metrics for the execution-gating setting. Let Mexec (τ ) = PMi=1 gi(τ ) de-note the number of executed rollouts. We compute Calls Saved , Reward Retained , and Reward per Call , respec-tively, Calls Saved (τ ) = 1 − (Mexec (τ )/M ) , Reward Retained (τ ) = PMi=1 gi(τ )ri
+
+ P Mi=1 ri , and Reward per Call (τ ) = PMi=1 gi(τ )ri
+
+Mexec (τ ) . Here, Calls Saved is the fraction of agent executions avoided relative to Always-Execute; Reward Retained is the fraction of the total available verifier reward preserved by the gate; and Reward per Call is the average verifier reward obtained per executed rollout. The default τ = 0 .5 is not tuned on the evaluation set; its robust-ness across a wide range of operating thresholds is verified in Technical Supplement Section 2.5 (Threshold Sensitivity). 
+
+Fixed-budget evaluation. A common threshold can lead different methods to execute different numbers of calls. Fol-lowing the cost–quality evaluation used in learned routing (Ong et al. 2025), we therefore also compare methods under matched execution budgets. For a budget β ∈ (0 , 1] , let Kβ =
+
+⌈βM ⌉ and let Iβ contain the indices of the Kβ highest-scoring query–bundle pairs. We define Reward retention at budget β as 
+
+Reward retention @β =
+
+P 
+
+> i∈I β
+
+ri
+
+PMi=1 ri
+
+,
+
+where Reward retention @β measures how much verifier re-ward a method retains when it is allowed to execute only a fraction β of the Always-Execute calls. Random-Gate results are averaged over 2,000 independent rankings. Differences in RR @ β are assessed using 3,000 paired bootstrap resamples (Koehn 2004). Bootstrap sam-pling is at the query level, preserving the four bundle variants of each query within the same resampled group. 
+
+5.2 Experimental Results 
+
+Comparison with Baselines on Unseen Queries Table 3 compares all methods under the same five leakage-free query-level splits. RADEG obtains the strongest threshold-free prediction performance among the deployable methods, with AUROC 0.717 and AUPRC 0.570. Its improvement over PPR-Gate shows that upstream retrieval relevance alone does not reliably identify executions with non-zero verifier reward. RADEG also outperforms the Static and Memory-Corrected Heads, demonstrating the value of the lightweight parametric online update. At τ = 0 .5, RADEG skips 68% of agent calls while retaining 61% of the available verifier re-ward. This raises reward per executed call from 0.309 under                      
+
+> Execution budget β
+> Method 20% 40% 60% 80% Oracle 65 100 100 100
+> RADEG 40 61 73 87
+> PPR-Gate 15 40 57 81 Random-Gate 19 41 61 77
+
+Table 4: Reward retained, RR @ β (%), under matched execu-tion budgets in the common five-split comparison. Always-Execute is the normalization reference; Oracle is an unattain-able post-hoc upper bound. Always-Execute to 0.483, a relative improvement of approxi-mately 56%. Since the methods operate at different execution rates under this threshold, the fixed-budget comparison be-low provides the cleaner cost-matched result. Complete clas-sification metrics for all methods are reported in Technical Supplement Table 1 (Section 1.3). 
+
+Robustness across query splits. To quantify sensitiv-ity to the train–evaluation partition, we repeat the com-plete RADEG procedure over 30 random query-level splits. RADEG obtains AUROC 0.747 ±0.059 and AUPRC 0.595 ±
+
+0.095 . At τ = 0 .5, it skips 68 .1% ± 6.9% of calls while re-taining 60 .4% ±9.2% of reward. The five-split headline result therefore lies within the variability observed under the larger uncertainty analysis. Full statistics and 95% confidence in-tervals are reported in the Technical Supplement Section 2.1 (Thirty-Split Uncertainty Analysis). 
+
+Reward retention under fixed execution budgets. Table 4 compares ranking policies under matched budgets. RADEG retains more reward than both PPR-Gate and Random-Gate at every budget. At 20% budget, it retains 40% of total reward, versus 15% for PPR-Gate and 19% for Random-Gate. At 40% budget, the corresponding values are 61%, 40%, and 41%. The advantage is largest in the low-budget regime, where prioritization matters most. As a complementary robustness analysis, we perform 3,000 paired bootstrap resamples at the query level, keeping all bundle variants of a query in the same resampled group (Koehn 2004). RADEG’s advantage over both baselines re-mains positive at every evaluated budget ( p < 0.001 ). Effect sizes and confidence intervals are provided in the Technical Supplement Section 2.2 (Fixed-Budget Statistical Analysis). 
+
+Cross-agent adaptation. We examine whether the repre-sentation learned from Sonnet executions can support gating for different downstream execution configurations. The gate does not receive the target-agent identity. For each target, the encoder is frozen and the execution head is initialized from the same Sonnet-trained checkpoint. The target stream is then evaluated prequentially: each pair is scored before its target reward is revealed, and only previously observed target rewards may affect subsequent predictions. The head is reset between targets, and results are averaged over five runs. Table 5 reports the primary cross-agent adaptation results. RADEG obtains AUROCs of 0.733 ± 0.024 on Qwen3.7-Max, 0.628 ± 0.018 on DeepSeek-Chat, and 0.752 ± 0.029 Target agent n Pos. AUROC Calls saved Reward retained Qwen3.7-Max 50 33 0.733 ± 0.024 34% 73% DeepSeek-Chat 62 25 0.628 ± 0.018 58% 53% GLM-5.2 41 30 0.752 ± 0.029 27% 83% 
+
+Table 5: Per-target cross-agent adaptation from the Sonnet-trained checkpoint.                                                 
+
+> Retriever Top-8 Top-7 Combined Hybrid 0.750 ±0.032 0.723 ±0.005 0.734 ±0.003
+> BM25 0.683 ±0.041 0.645 ±0.011 0.654 ±0.012
+> Embedding 0.683 ±0.057 0.662 ±0.006 0.676 ±0.008
+> Distractor 0.300 ±0.053 0.498 ±0.003 0.542 ±0.013
+> Overall 0.672 ±0.026 0.645 ±0.005 0.662 ±0.005
+
+Table 6: RADEG utility prediction across retrievers and bun-dle sizes. Results are AUROC mean ±standard deviation over five runs. on GLM-5.2. These results provide evidence that the source-trained representation can support utility prediction across multiple downstream execution configurations, although per-formance is target-dependent. Complete cross-agent transfer results under static transfer, per-target adaptation, and con-tinual adaptation, along with protocol details and limitations, are reported in Technical Supplement Section 3.1-3.3. 
+
+Generalization across retrievers and bundle sizes. We further evaluate whether RADEG depends on a particular upstream retriever or bundle size. Using DeepSeek-V4-Pro as the execution model, we construct query–bundle pairs with four retrieval strategies—hybrid retrieval, BM25, embedding similarity, and a gold-distractor construction—and evaluate both the original top-8 bundles and top-7 variants obtained by removing one skill. The gate is trained and evaluated under the same 80/20 query-level split protocol, with results averaged over five runs. As shown in Table 6, RADEG remains effective across the three standard retrievers. On top-8 bundles, AUROC is 
+
+0.750 ± 0.032 for hybrid retrieval and 0.683 ± 0.041 for both BM25 and embedding retrieval. Reducing the bundle size from eight to seven skills results in only a small overall change, from 0.672 ± 0.026 to 0.645 ± 0.005 , suggesting that the learned utility signal is not tied to the exact bundle cardinality. Performance is consistently stronger for hybrid, BM25, and embedding retrieval than for the gold-distractor construction, whose combined AUROC is 0.542 ± 0.013 .This indicates that RADEG generalizes across naturally pro-duced retrieval bundles, while deliberately constructed dis-tractor bundles induce a more substantial distribution shift. 
+
+Learning under selective feedback. Full-information re-play is more informative than deployment because it reveals labels even for simulated skips. We therefore evaluate ε-greedy exploration under selective feedback. When RADEG would skip a pair, the system executes it with probability ε
+
+and observes its reward. Thus, ε = 0 corresponds to pure                  
+
+> Input representation AUROC ↑
+> Full input 0.744 ±0.070
+> w/o query embedding 0.739 ±0.067
+> w/o bundle embedding 0.730 ±0.058
+> w/o bundle-condition feature 0.751 ±0.067
+> w/o PPR statistics 0.742 ±0.068
+
+Table 7: Feature ablation over 30 query-level splits. Results are mean ±standard deviation. selective feedback, whereas ε = 1 recovers full label avail-ability. Additional results under selective feedback and dif-ferent exploration rates are reported in the Technical Sup-plement Section 2.3 (Selective Feedback and Exploration). Performance improves as more skipped calls are explored, suggesting that missing labels are a cause of degradation under selective feedback. Exploration partially corrects this bias by revealing rewards for some calls; however, it also increases the number of agent executions. 
+
+Feature ablation. We remove each feature block and re-peat the evaluation over 30 query-level splits. As shown in Table 7, removing the bundle embedding produces the largest numerical decrease in mean AUROC, from 0.744 to 0.730, suggesting that bundle semantics provides a useful utility signal. Removing the PPR statistics has almost no ef-fect, and removing the explicitly encoded bundle condition slightly increases the mean. All differences are small relative to split-level variability, so we do not claim a statistically sig-nificant ordering among feature groups. The results reduce the likelihood that RADEG merely memorizes the pertur-bation category or reproduces the upstream relevance score. Representative successful and failure cases, including false positive and false negative gating decisions, are analyzed in the Technical Supplement section 4.2 (Case Studies and Error Analysis). 
+
+## 6 Conclusion 
+
+This paper separates two decisions often conflated in skill-based agents: retrieving a relevant bundle and deciding whether executing it is worthwhile. Controlled perturbations show that GoS-selected bundles are reward-sensitive, while aggregate PPR features provide little predictive signal for non-zero reward. We therefore introduced RADEG, a post-retrieval execution gate trained from query–bundle–reward rollouts. Under held-out evaluation, RADEG achieves an AUROC of 0.717, retaining 61% of reward while skipping 68% of calls at the default threshold, and outperforming PPR and random ranking under matched budgets. These experimental results support execution-utility pre-diction as a lightweight, retrieval-agnostic complement to skill retrieval, with applicability beyond GoS to different relevance-based retrieval pipelines. RADEG leaves both the retriever and the downstream agent unchanged, making it applicable to different skill-selection pipelines with low in-tegration cost. The current study remains limited by the scale of collected rollouts, reliance on logged verifier feedback, the scope of controlled perturbation types, and incomplete feed-back when skipped executions are not explored. Future work therefore will evaluate RADEG on larger and more diverse skill libraries, develop more effective learning strategies un-der selective feedback, and measure end-to-end monetary and latency savings in real deployment settings. 
+
+## References 
+
+Anand, T. S.; Wang, Y. Y. C.; Jiang, W.; Masson, S.; Zheng, T.; and Zhou, B. 2026. AEVAL: From Anecdotal to Deter-ministic Testing for Agentic Skill Workflows. In ICML 2026 Statistical Frameworks for Uncertainty in Agentic Systems .Bai, T.; Wan, Z.; Zhou, P.; Yu, X.; You, Y.; and Tsang, I. W. 2026. SkillDAG: Self-Evolving Typed Skill Graphs for LLM Skill Selection at Scale. arXiv preprint arXiv:2606.03056 .Chen, L.; Zaharia, M.; and Zou, J. 2024. FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance. Transactions on Machine Learning Research .Cho, H.; Kang, R.; and Kim, Y. 2026. SkillRet: A Large-Scale Benchmark for Skill Retrieval in LLM Agents. arXiv preprint arXiv:2605.05726 .Ding, J. 2026. SkillResolve-Bench: Measuring and Resolv-ing Same-Capability Ambiguity in Agent Skill Retrieval. 
+
+arXiv preprint arXiv:2606.10388 .Gao, Y.; Li, Z.; Yuan, Y.; Ji, Z.; Ma, P.; and Wang, S. 2026. Skillreducer: Optimizing llm agent skills for token efficiency. 
+
+arXiv preprint arXiv:2603.29919 .Huang, Z.; Xu, J.; Yang, Y.; Gong, Z.; Yang, Q.; Tian, M.; Wang, X.; Lv, C.; Gao, X.; Dai, Q.; Liu, B.; Qiu, K.; Yang, X.; Chen, D.; Zheng, X.; and Luo, C. 2026. From Raw Expe-rience to Skill Consumption: A Systematic Study of Model-Generated Agent Skills. arXiv preprint arXiv:2605.23899 .Iscan, M. 2026. Learning When to Remember: Risk-Sensitive Contextual Bandits for Abstention-Aware Mem-ory Retrieval in LLM-Based Coding Agents. arXiv preprint arXiv:2604.27283 .Kevin, C.; Malani, R.; Puvvadi, M.; Akkiraju, R.; Raghavan, N.; Puget, J.-F.; Gupta, M.; and Lee, S. 2026. Evaluating Skills, Not Just Agents: Agentic Continuous Evaluation of Skills (ACES). In First Workshop on Agent Skills .Koehn, P. 2004. Statistical significance tests for machine translation evaluation. In Proceedings of the 2004 conference on empirical methods in natural language processing , 388– 395. Li, F.; Tagkopoulos, P.; and Tagkopoulos, I. 2025. SkillFlow: Scalable and Efficient Agent Skill Retrieval System. arXiv preprint arXiv:2504.06188 .Li, H.; Mu, C.; Chen, J.; Ren, S.; Cui, Z.; Zhang, Y.; Bai, L.; and Hu, S. 2026a. Organizing, Orchestrating, and Bench-marking Agent Skills at Ecosystem Scale. arXiv preprint arXiv:2603.02176 .Li, X.; Liu, Y.; Chen, W.; et al. 2026b. SkillsBench: Bench-marking How Well Agent Skills Work Across Diverse Tasks. 
+
+arXiv preprint arXiv:2602.12670 .Liu, D.; Li, Z.; Du, H.; Wu, X.; Gui, S.; Kuang, Y.; and Sun, L. 2026. Graph-of-Skills: Dependency-Aware Struc-tural Retrieval for Massive Agent Skills. arXiv preprint arXiv:2604.05333 .Mi, Q.; Ma, Z.; Yang, M.; Li, H.; Wang, Y.; Zhang, H.; and Wang, J. 2026. Skill-Pro: Learning Reusable Skills from Experience via Non-Parametric PPO for LLM Agents. arXiv preprint arXiv:2602.01869 .Ong, I.; Almahairi, A.; Wu, V.; Chiang, W.-L.; Wu, T.; Gon-zalez, J. E.; Kadous, M. W.; and Stoica, I. 2025. RouteLLM: Learning to Route LLMs from Preference Data. In The Thirteenth International Conference on Learning Represen-tations .Song, H.; and Wei, S. 2026. More Skills, Worse Agents? Skill Shadowing Degrades Performance When Expanding Skill Libraries. In Workshop on Failure Modes of Agentic AI at ICML 2026 .Su, W.; Long, J.; Ai, Q.; He, Q.; Tang, Y.; Wang, C.; Tu, Y.; Wang, Y.; and Liu, Y. 2026. Skill Retrieval Augmentation for Agentic AI. arXiv preprint arXiv:2604.24594 .Wang, G.; Xie, Y.; Jiang, Y.; Mandlekar, A.; Xiao, C.; Zhu, Y.; Fan, L.; and Anandkumar, A. 2024. Voyager: An Open-Ended Embodied Agent with Large Language Models. 
+
+Transactions on Machine Learning Research .Wang, Z.; Wen, W.; Ji, Q.; Qiao, R.; and Sun, X. 2026. Skill Is Not Document: A Query-Conditional Benchmark and Two-Stage Retriever for LLM Agent Skill Routing. arXiv preprint arXiv:2606.03565 .Wei, K.; Li, R.; Zhu, X.; Xue, Z.; Han, J.; Niu, J.; and Yang, F. 2026. Skill-RAG: Failure-State-Aware Retrieval Augmen-tation via Hidden-State Probing and Skill Routing. arXiv preprint arXiv:2604.15771 .Xu, R.; and Yan, Y. 2026. Agent Skills for Large Language Models: Architecture, Acquisition, Security, and the Path Forward. arXiv preprint arXiv:2602.12430 .Yang, G. 2026. SkillSeek: Plug-and-Play Skill Retrieval for Open-Source Agentic Workflows. In First Workshop on Agent Skills .Zeng, K.; Huo, Y.; Zhang, S.; Ye, Z.; Zhuo, Y.; Liu, H.; Lu, Y.; Wen, J.; and Tang, X. 2026. Group of Skills: Group-Structured Skill Retrieval for Agent Skill Libraries. arXiv preprint arXiv:2605.06978 .Zheng, J.; Wang, D.; Zhang, X.; Huang, B.; Zhang, H.; Yu, D.; and Deng, S. 2026a. SkillSelect-Serve: Budget-Controllable and QoS-Aware Skill Service Recommenda-tion and Composition for Small LLM Agents. arXiv preprint arXiv:2607.00011 .Zheng, Y.; Zhang, Z.; Ma, C.; Yu, Y.; Zhu, J.; Wu, Y.; Xu, T.; Dong, B.; Zhu, H.; Huang, R.; et al. 2026b. Skill-router: Skill routing for llm agents at scale. arXiv preprint arXiv:2603.22455 .
+
+## Technical Supplement 
+
+This Technical Supplement provides additional experimental details, analyses, and robustness studies supporting the main paper "From Relevance to Execution Utility: Reward-Aware Dynamic Execution Gating for Skill-Based LLM Agents." Technical Supplement (Complete Evaluation Details) presents the complete evaluation protocols, including the experimental environment, compared methods, full classifi-cation and operational metrics, and additional encoder com-parisons that complement the compact experimental results reported in the main paper. Technical Supplement (Robustness and Operating-Point Analysis) provides additional robustness analyses, includ-ing uncertainty evaluation over multiple query-level splits, bootstrap significance tests under fixed execution budgets, selective-feedback evaluation, exploration studies, permuta-tion testing for PPR relevance, and execution-threshold sen-sitivity analyses. Technical Supplement (Extended Cross-Agent Evalua-tion) reports additional experiments across different down-stream agent configurations, including per-target evalua-tion results, continual adaptation settings, and discussions of protocol limitations. These experiments further examine whether RADEG’s execution-utility prediction remains ef-fective when the underlying execution agent changes. Technical Supplement (Additional Dataset Analysis) presents additional statistics of the collected execution dataset and analyzes the effects of controlled bundle per-turbations. Section 4.2 further provides representative case studies and error analyses that characterize execution patterns and false gating decisions. Technical Supplement (Runtime Analysis) reports end-to-end execution time across all evaluated agent backbones and measures the computational overhead of RADEG itself, demonstrating that the execution gate introduces negligible latency relative to downstream agent execution while remain-ing practical for online deployment. Technical Supplement (Extended Cross-Benchmark Gen-eralization) evaluates RADEG on three independent tool-agent benchmarks beyond the original SkillBench setting. This section studies whether execution-utility prediction gen-eralizes across different tool ecosystems and execution envi-ronments under controlled tool-bundle constructions. These additional experiments and analyses provide fur-ther evidence that RADEG predicts execution utility beyond retrieval relevance, while demonstrating its robustness, gen-eralization ability, and practical applicability across different evaluation settings. 
+
+## A Complete Evaluation Details 
+
+A.1 Experimental Environment 
+
+Unless otherwise specified, all offline training, execution-gating inference, and data analysis were conducted on a local workstation equipped with an Apple M2 Pro pro-cessor and 16 GB unified memory running macOS 15.6.1. The lightweight execution gate was evaluated on CPU only. The implementation uses Python 3.13.7 and PyTorch 2.10.0. Query and skill embeddings are generated using 
+
+all-MiniLM-L6-v2 and cached before online execu-tion. Agent rollouts are executed in Docker containers using the corresponding execution environments of each evaluated agent. 
+
+A.2 Compared Methods and Evaluation Protocol 
+
+The common comparison evaluates all methods under the same five leakage-free query-level splits. All available bun-dle variants associated with a query are assigned to the same partition. Unless otherwise stated, threshold-dependent op-erating metrics use τ = 0 .5.We compare RADEG with the following execution poli-cies. Always-Execute executes every retrieved bundle and provides the reward-normalization reference. Random-Gate 
+
+assigns an uninformed random ranking. PPR-Gate uses ag-gregate PPR relevance as its execution score, testing whether the upstream retriever’s relevance signal can also serve as an execution-utility policy. Static Head uses the offline-trained utility encoder and logistic head without online updates. 
+
+Memory-Corrected Head combines the static prediction with the positive-label frequency among the k = 5 cosine-nearest stored representations: 
+
+s = αs static + (1 − α)smem , α = 0 .7.
+
+For classification, Oracle uses the ground-truth execution label as its score. For fixed-budget ranking, it orders calls using their true verifier rewards. Oracle is a post-hoc upper bound and is not deployable. 
+
+A.3 Complete Five-Split Results 
+
+Table 8 reports the complete classification and operational metrics underlying the compact comparison in the main pa-per. 
+
+A.4 Additional Encoder Comparison 
+
+Table 9 summarizes the comparison between RADEG and three representative alternatives under the common five-split evaluation protocol. Because GoS exposes a skill depen-dency graph, we additionally replace the MLP utility en-coder with a two-layer graph convolutional network. The evaluated skill subgraph contains 200 nodes and 126 edges. The GCN propagates 384-dimensional node features through 
+
+384 → 128 → 64 layers before combining them with the query–bundle representation. The tested GCN performs below the MLP-based configu-rations. One plausible explanation is that the graph is sparse relative to the number of available execution labels, leaving insufficient supervision for message passing to exploit the graph structure reliably. This result applies only to the tested GCN construction and does not imply that graph information is generally unhelpful. 
+
+## B Robustness and Operating-Point Analysis 
+
+B.1 Thirty-Split Uncertainty Analysis 
+
+Table 10 summarizes RADEG over 30 independently gener-ated query-level splits. Each split satisfies the same leakage-free protocol used throughout the paper, and operational metrics are computed using the default decision thresh-old τ = 0 .5. The common baseline comparison uses five shared query-level splits so that all methods are evaluated Method Acc. AUROC AUPRC Prec. Recall Calls saved Reward retained Reward/call Always-Execute – – – – – 0% 100% 0.309 Random-Gate 0.564 0.500 0.345 0.346 0.297 71% 30% 0.313 PPR-Gate 0.447 0.447 0.335 0.305 0.482 46% 51% 0.292 Static Head 0.567 0.517 0.375 0.350 0.285 73% 27% 0.308 Memory-Corrected Head 0.574 0.608 0.440 0.363 0.291 73% 28% 0.321 
+
+RADEG 0.706 0.717 0.570 0.569 0.560 68% 61% 0.483 
+
+Oracle 1.000 1.000 1.000 1.000 1.000 65% 100% 0.892 
+
+Table 8: Complete comparison under the common five-split query-level protocol. Operational metrics use τ = 0 .5.            
+
+> Configuration AUROC ↑Reward retained ↑
+> GCN Gate 0.437 18% Static Head 0.517 27% Memory-Corrected Head 0.608 28%
+> RADEG 0.717 61%
+
+Table 9: Encoder comparison under the common five-split protocol.                        
+
+> Metric Mean Std. 95% CI AUROC 0.747 0.059 [0 .726 ,0.767]
+> AUPRC 0.595 0.095 [0 .561 ,0.628]
+> Calls saved 0.681 0.069 [0 .657 ,0.705]
+> Reward retained 0.604 0.092 [0 .570 ,0.635]
+> Reward per call 0.521 0.079 [0 .493 ,0.549]
+
+Table 10: RADEG performance over 30 leakage-free query-level splits. Operational metrics use τ = 0 .5.under the same protocol. We separately repeat the complete RADEG training and evaluation procedure over 30 random query-level splits to assess the sensitivity of the proposed method to the train–evaluation partition. This analysis evalu-ates RADEG’s stability and does not repeat the full baseline comparison. The five-split AUROC of 0.717 lies within the variability observed over the larger collection of query partitions. The 30-split results therefore indicate that RADEG’s predictive and operational performance is not driven by one favorable split. 
+
+B.2 Fixed-Budget Statistical Analysis 
+
+For the random-ranking reference, Random-Gate results are averaged over 2,000 independent random rankings. We fur-ther perform 3,000 paired bootstrap resamples of the pooled out-of-fold predictions. Resampling is conducted at the query level, keeping all available bundle variants of a query within the same resampled group. Table 11 reports the resulting differences in reward reten-tion. Because this bootstrap analysis uses pooled out-of-fold predictions, its mean differences need not equal the direct arithmetic difference between the rounded five-split means reported in the main table.                     
+
+> Budget ∆vs. Random-Gate ∆vs. PPR-Gate 20% 20 .4 [17 .1,23 .9] 26 .7 [22 .9,30 .4]
+> 40% 27 .9 [23 .7,32 .1] 31 .8 [27 .5,36 .1]
+> 60% 18 .8 [14 .9,22 .6] 25 .2 [21 .1,29 .5]
+> 80% 9.2 [6 .2,12 .2] 8.9 [5 .5,12 .2]
+
+Table 11: Paired improvement in reward retention. Values are percentage-point differences with bootstrap 95% confidence intervals. All one-sided tests have p < 0.001 .               
+
+> Exploration rate εAUROC ↑
+> 0.00 0.557 ±0.077
+> 0.20 0.608 ±0.086
+> 0.50 0.674 ±0.095
+> 1.00 0.745 ±0.065
+
+Table 12: Effect of ε-greedy exploration on online utility prediction. Results are mean ±standard deviation. 
+
+B.3 Selective Feedback and Exploration 
+
+Table 12 reports the effect of different ε-greedy exploration rates on online utility prediction. Under selective feedback, rewards are observed only for calls that are actually executed. We simulate explicit exploration by overriding an otherwise skipped decision with probability ε and revealing its verifier reward. To further characterize the effect of exploration, we addi-tionally evaluate a denser sweep of exploration rates ranging from ε = 0 to ε = 1 . Table 13 reports the complete results. The increasing mean AUROC is consistent with missing labels being an important source of degradation under selec-tive feedback. We do not claim that adjacent exploration rates differ significantly, as the split-level variability remains sub-stantial. Moreover, the table isolates predictive performance and does not account for the additional agent calls consumed by exploration. 
+
+B.4 PPR permutation test 
+
+We shuffle reward labels 10,000 times and recompute the AUROC of aggregate PPR relevance. The observed AUROC is 0.435, while the permutation distribution has mean 0.499 and 95% interval [0 .427 , 0.572] . The observed value lies in-side the null interval, providing no evidence that aggregate Exploration rate ε AUROC ↑                  
+
+> 0.00 0.557 ±0.077
+> 0.05 0.582 ±0.101
+> 0.10 0.591 ±0.091
+> 0.20 0.608 ±0.086
+> 0.50 0.674 ±0.095
+> 1.00 0.745 ±0.065
+
+Table 13: Prequential AUROC under selective feedback and 
+
+ε-greedy exploration. Results are reported as mean ±standard deviation. PPR relevance ranks reward-positive executions more effec-tively than an uninformative ordering in this dataset. The value differs slightly from the five-split PPR-Gate AUROC in Table 8 because the permutation test is com-puted once over the pooled source rollouts, whereas the table reports an average over held-out splits. 
+
+B.5 Threshold Sensitivity 
+
+Table 14 reports pooled out-of-fold operating points under different execution thresholds. Since RADEG outputs the probability of positive execution utility, the threshold τ con-trols the trade-off between execution savings and retained reward. The results show that RADEG is robust across a wide range of thresholds. Increasing τ gradually improves execu-tion savings and precision while reducing retained reward and recall, following the expected precision–recall trade-off. The default threshold τ = 0 .5 provides a balanced operating point: it achieves near-best accuracy (0.759), competitive F1 (0.622), retains 61% of available reward, and skips 68% of executions. Therefore, τ = 0 .5 is used as a fixed operating point chosen for its balanced trade-off between execution savings and retained reward, rather than optimized for the evaluation set. 
+
+## C Extended Cross-Agent Evaluation 
+
+C.1 Protocol and Target Composition 
+
+The gate consists of a utility encoder ϕ and logistic execution head h. We consider three cross-agent protocols. In static transfer , both ϕ and h remain frozen through-out the target evaluation. In per-target adaptation , used for the primary cross-agent results, ϕ remains frozen while h
+
+is reset to the same Sonnet-trained checkpoint for each tar-get agent and then updated prequentially using that target’s verifier feedback. In continual adaptation , a single head is preserved across a fixed sequence of target-agent streams without resetting. Static and prequential AUROCs answer different ques-tions. Static AUROC evaluates one fixed scoring function, whereas online AUROC aggregates predictions made by an evolving head. Every prediction is produced before its own label is revealed, but the static and online values should not be interpreted as the beginning and end of one learning curve. We treat a target as sufficiently supported for the primary AUROC analysis when it contains at least ten positive and ten zero-reward examples. 
+
+C.2 Complete Cross-Agent Results 
+
+Table 15 consolidates the static, per-target, and continual cross-agent results. Static results are reported only for targets for which protocol-matched frozen evaluations are available. The underpowered and single-class rows are reported for completeness but are not used to support the primary cross-agent conclusion. In particular, high AUROCs obtained from only one to three positive examples should not be interpreted as reliable transfer estimates. We additionally evaluate the subset of pairs for which the source Sonnet execution receives non-zero reward. The corresponding per-target AUROCs are 0.733 ± 0.024 
+
+for Qwen3.7-Max, 0.660 ± 0.028 for DeepSeek-Chat, and 
+
+0.752 ± 0.029 for GLM-5.2. Because this subset is selected using source-agent outcomes, it measures ranking among calls that were already useful to the source agent rather than performance on the complete target distribution. 
+
+C.3 Cross-Agent Limitations 
+
+The target streams contain multiple bundle variants associ-ated with the same query. Although each rollout is scored before its own label is revealed, feedback from an earlier bundle variant may influence predictions for later variants of the same query. The protocol therefore avoids direct test-label leakage but does not represent a strict single-bundle-per-query deployment. A stricter evaluation should score all variants of a query before revealing any corresponding labels, or evaluate only one retrieved bundle per query. The source rollouts use a Claude-Code-style execution harness, whereas the non-Claude target agents use a lighter-weight agent scaffold. Differences in target rewards may therefore reflect both execution-model behavior and scaffold behavior. We consequently interpret the results as adaptation across complete downstream execution configurations rather than as a controlled comparison of model weights alone. 
+
+## D Additional Dataset Analysis 
+
+D.1 Dataset Composition and Perturbation Effects 
+
+The source gate dataset contains 72 complete four-condition query groups, corresponding to 288 rollouts. Query-level splitting keeps every available rollout associated with a query in the same partition. Of the 288 rollouts, 194 receive zero reward, 24 receive partial reward ( 0 < r < 1), and 70 receive full reward (r = 1 ). Partial rewards constitute 25.5% of all positive examples, supporting the use of 
+
+y = I[r > 0] 
+
+as the binary execution-utility label rather than restricting positive utility to full-reward executions. Table 16 reports the task-level effects of the three con-trolled bundle perturbations relative to the original GoS bun-dle. No perturbation is uniformly beneficial. These interven-tions expose the sensitivity of execution outcomes to bundle τ Calls saved Reward retained Precision Recall F1 Accuracy 0.1 64% 65% 0.587 0.669 0.626 0.747 0.2 65% 64% 0.601 0.657 0.628 0.754 0.3 67% 63% 0.608 0.644 0.626 0.756 0.4 67% 62% 0.613 0.634 0.623 0.758 
+
+0.5 68% 61% 0.616 0.629 0.622 0.759 
+
+0.6 68% 61% 0.622 0.623 0.622 0.761 0.7 69% 60% 0.625 0.614 0.619 0.761 0.8 70% 59% 0.625 0.599 0.612 0.760 0.9 72% 55% 0.627 0.565 0.595 0.756 
+
+Table 14: RADEG operating points under different execution thresholds. 
+
+Target agent n Positive Frozen Per-target Continual Status 
+
+Qwen3.7-Max 50 33 0.807 0.733 ± 0.024 0.721 ± 0.029 Primary 
+
+DeepSeek-Chat 62 25 0.733 0.628 ± 0.018 0.641 ± 0.025 Primary 
+
+GLM-5.2 41 30 – 0.752 ± 0.029 0.757 ± 0.032 Primary Claude Sonnet-4 27 3 – 0.822 ± 0.024 0.869 ± 0.021 Underpowered GPT-4o 20 2 – 0.606 ± 0.099 0.606 ± 0.099 Underpowered Gemini 2.5 Pro 30 0 – N/A N/A Single class Gemini 2.5 Flash 21 0 – N/A N/A Single class GLM-4.6 17 2 – 0.533 ± 0.059 0.587 ± 0.072 Underpowered Qwen3-Max 2 1 – 1.000 ± 0.000 1.000 ± 0.000 Underpowered Kimi-K2 2 2 – N/A N/A Single class 
+
+Table 15: Complete cross-agent results. Frozen evaluation keeps the full source gate fixed; per-target adaptation resets the head for each target; continual adaptation preserves one head across target-agent streams. Frozen and online AUROCs correspond to different protocols and should not be directly subtracted.                                
+
+> Perturbation Up Down Same Changed Mean ∆0→+/+→0
+> Delete Top 8757 21% +0 .019 7 / 5 Add Irrelevant 6660 17% −0.016 4 / 5 Replace Similar 8658 19% +0 .010 6 / 5
+
+Table 16: Task-level effects of each perturbation relative to GoS Original. composition and are not proposed as fixed replacement poli-cies. 
+
+D.2 Case Studies and Error Analysis 
+
+Table 17 illustrates three representative execution patterns. For adaptive-cruise-control , the original GoS execution fails while the similar-replacement bundle succeeds, illustrating a zero-to-positive transition. For 
+
+drone-planning-control , different perturbations ei-ther reduce or improve an already partially successful ex-ecution, demonstrating that bundle changes are not uni-formly beneficial. For ada-bathroom-plan-repair ,every tested bundle fails, making the query a natural candi-date for execution skipping.                 
+
+> Query Orig. Del. Add Repl. adaptive-cruise-control 0001drone-planning-control 0.3 00.5 0.4 ada-bathroom-plan-repair 0000
+
+Table 17: Representative verifier rewards across bundle con-ditions. Across the repeated five-split evaluation, pooled decisions contain 60 false positives and 60 false negatives. These counts aggregate predictions from repeated splits and must not be interpreted as 120 distinct rollouts. Representative missed posi-tive executions include mars-clouds-clustering ,
+
+earthquake-phase-association , data-to-d3 ,and gravitational-wave-detection . The current sample is insufficient for a reliable domain-level error tax-onomy. A larger evaluation should distinguish representation error, limited historical coverage, stochastic execution varia-tion, and verifier-specific failure modes. Execution agent Runtime (s) Qwen3.7-Max 1431 DeepSeek-Chat 521 GLM-5.2 1542 Claude Sonnet-4 560 GPT-4o 274 Gemini 2.5 Pro 506 Gemini 2.5 Flash 514 GLM-4.6 485 Qwen3-Max 396 Kimi-K2 60 
+
+Table 18: Average end-to-end runtime of each execution agent, measured from agent invocation to verifier comple-tion.            
+
+> Operation Runtime Feature construction 22 μsMLP forward pass 50 μsSingle prediction 75 μsPrediction + online update 131 μsBatched prediction (per sample) 2.0 μs
+
+Table 19: Runtime of the RADEG execution gate. 
+
+## E Runtime Analysis 
+
+Because RADEG is designed to reduce unnecessary agent executions, we additionally evaluate both the end-to-end run-time of downstream agent execution and the computational overhead introduced by the execution gate. Table 18 reports the average end-to-end runtime, measured from agent invocation to verifier completion, for all evaluated execution agents. Runtime varies substantially across agents, ranging from 60 s for Kimi-K2 to over 1,500 s for GLM-5.2. We further measure the computational overhead of RADEG itself on a single-thread CPU using 5,000 repeated measurements (median over three runs). Query and skill em-beddings are pre-computed and cached; therefore, the re-ported runtime corresponds only to online execution gating. Table 19 summarizes the runtime of each component of the execution gate. The execution gate introduces negligible computational overhead compared with downstream agent execution. A complete execution-gating decision requires approximately 
+
+75 μs ( 0.075 ms), whereas the fastest evaluated execution agent requires approximately 60 s and the primary cross-agent evaluation on DeepSeek-Chat requires approximately 
+
+521 s. Consequently, the runtime of RADEG is over six orders of magnitude smaller than the execution it decides whether to invoke. Even processing all 288 rollouts in the source dataset requires only approximately 22 ms, showing that the execution gate is lightweight enough to be deployed online without becoming a practical bottleneck.               
+
+> Benchmark Gold Halfmix Distractor nτ-Bench (Retail) 13/20 2/20 2/20 60 AgentDojo (Bank/Travel/Workspace) 17/20 8/20 3/20 60 ToolSandbox (Apple) 20/20 6/20 6/20 60
+
+Table 20: Execution success under controlled tool-bundle compositions. All bundle conditions contain the same num-ber of tools; only tool relevance differs. 
+
+## F Extended Cross-Benchmark Generalization 
+
+To further evaluate whether RADEG depends on a specific skill retrieval pipeline, we conduct additional experiments on three independent tool-agent benchmarks: τ -Bench, Agent-Dojo, and ToolSandbox. These benchmarks contain different tool ecosystems, task distributions, and execution environ-ments. This analysis examines whether RADEG’s execution-utility prediction capability generalizes beyond the original SkillBench setting. 
+
+F.1 Benchmark Construction and Evaluation Protocol 
+
+Unlike the original SkillBench evaluation, where skill bun-dles are obtained through Graph-of-Skills retrieval, these benchmarks provide native tool interfaces. For each bench-mark, we construct query–tool bundles under a controlled setting. Specifically, we create three bundle conditions: Gold ,containing task-relevant tools; Halfmix , containing a mixture of relevant and irrelevant tools; and Distractor , containing irrelevant tools only. All three conditions contain the same number of tools. Therefore, the different execution outcomes are caused by tool composition rather than the number of available tools. This design eliminates bundle-size as a potential confound-ing factor and allows us to evaluate whether RADEG captures query–tool compatibility. The execution rewards are collected using DeepSeek-V4-Pro through the official API endpoint. For each benchmark, we collect 60 executions, including 20 queries under each bundle condition, resulting in 180 additional query–tool exe-cution records. The input representation follows the original RADEG design. Query and tool descriptions are encoded us-ing all-MiniLM-L6-v2 . Tool representations are mean-pooled and combined with the query representation. Since these benchmarks do not provide Graph-of-Skills metadata, graph-related features are set to zero. 
+
+F.2 Execution Outcome Analysis 
+
+We first analyze whether tool composition affects down-stream execution utility. Table 20 reports execution success under the three controlled bundle conditions. As shown in Table 20, relevant tool selection substan-tially affects execution outcomes across all three benchmarks. Gold bundles consistently achieve higher success rates than distractor bundles, while half-mixed bundles fall between the two cases in most settings. These results provide addi-tional evidence that downstream execution utility depends on Benchmark Size-only GoS-based Gate RADEG                 
+
+> τ-Bench (Retail) 0.319 0.661 0.811 ±0.013
+> AgentDojo 0.348 0.456 0.687 ±0.033
+> ToolSandbox 0.478 0.555 0.952 ±0.014
+
+Table 21: Cross-benchmark execution utility prediction per-formance. Results are AUROC; RADEG results are averaged over five task-level splits and ten random seeds. query–tool compatibility rather than only the availability of tools. 
+
+F.3 Cross-Benchmark Utility Prediction 
+
+We next evaluate whether RADEG can predict execution util-ity across these independent tool-agent environments. We compare RADEG with a size-only baseline that uses only the number of tools in the bundle. Since all conditions con-tain identical tool counts, the size-only baseline should not provide meaningful predictive information and serves as a sanity check. Table 21 reports AUROC results across the three bench-marks. The results show that RADEG consistently outper-forms the size-only baseline, indicating that the gate learns semantic relationships between queries and available tools rather than relying on superficial bundle statistics. Table 21 shows that RADEG maintains strong utility pre-diction performance across different tool-agent benchmarks. The performance variation across datasets reflects differ-ences in task structure, tool organization, and execution difficulty. In particular, ToolSandbox exhibits stronger pre-dictability, while AgentDojo contains more heterogeneous tools and domains, leading to a more challenging prediction setting. Overall, these additional experiments demonstrate that RADEG is not tied to the original SkillBench or Graph-of-Skills retrieval pipeline. Instead, the execution-utility model-ing approach remains effective across diverse tool-agent en-vironments, providing further evidence that execution-aware gating captures meaningful query–tool compatibility signals.

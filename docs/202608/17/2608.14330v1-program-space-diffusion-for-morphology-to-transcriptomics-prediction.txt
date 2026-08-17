@@ -1,0 +1,278 @@
+Title: Program-space Diffusion for Morphology-to-Transcriptomics Prediction
+
+URL Source: https://arxiv.org/pdf/2608.14330v1
+
+Published Time: Mon, 17 Aug 2026 00:52:14 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+# Program-space Diffusion for Morphology-to-Transcriptomics Prediction 
+
+Swann Ruyter 1∗, Reuben Dorent 1†, and Daniel Racoceanu 1†
+
+Sorbonne Université, CNRS, Inserm, AP-HP, Inria, Paris Brain Institute – ICM, Paris, France 
+
+swann.ruyter@icm-institute.org , reuben.dorent@inria.fr ,
+
+daniel.racoceanu@sorbonne-universite.fr 
+
+> ∗
+
+Corresponding author. †These authors contributed equally. 
+
+Abstract. Spatial transcriptomics (ST) enables genome-wide gene ex-pression profiling while preserving tissue architecture, but its cost and limited scalability remain major bottlenecks. This has motivated models that predict spatial expression directly from routine histology. Despite promising results, most existing approaches operate at the gene level without leveraging established transcriptomic modeling practices and rely on heterogeneous gene selection strategies, which complicates fair comparison across methods. We propose to reformulate morphology-to-transcriptomics prediction as conditional generation in transcriptional program space, thereby exploit-ing coordinated transcriptional variation instead of predicting genes in-dependently. Using consensus non-negative matrix factorization (cNMF), we extract a low-dimensional set of transcriptional programs capturing coordinated expression variation in the training data, and train a con-ditional diffusion model to generate program activations from histology. This formulation exploits coordinated transcriptional variation and sub-stantially lowers the dimensionality of the conditional generative task. 
+
+Keywords: Spatial Transcriptomics · Computational Pathology · Con-ditional Diffusion Models · Program-level Representation · Consensus Non-negative Matrix Factorization (cNMF) · Cross-Modal Learning. 
+
+## 1 Introduction 
+
+Spatial transcriptomics (ST) enables in situ gene expression profiling while pre-serving tissue architecture, thereby establishing a direct link between routine histology (H&E whole-slide imaging, WSI) and molecular states. This joint view allows morphological patterns observed in WSI to be interpreted in the context of spatially resolved transcriptional variation, providing a more comprehensive characterization of tissue organization than either modality alone [10]. However, in practice, ST remains costly and difficult to acquire, which motivates the de-velopment of methods that predict spatial gene expression directly from widely available H&E slides. This task is inherently challenging due to the noisy and technology-dependent nature of ST measurements (sequencing depth, technical arXiv:2608.14330v1 [cs.AI] 14 Aug 2026 2 S. Ruyter et al. 
+
+noise, dropouts, and sectioning or image–spot alignment artifacts), as well as the fundamental non-uniqueness of the morphology–expression relationship [2, 13]. Early morpho-transcriptomic models largely framed the problem as super-vised regression by pairing H&E patches centered at spot locations with spatial gene expression vectors [3]. Subsequent work changed network architectures, moving from CNN-based encoders to multi-scale Transformers and spatial rea-soning modules such as graph neural networks to better exploit tissue context [9, 14, 8, 12]. However, these methods do not account for non-uniqueness of the morphology–expression relationship, where multiple transcriptional states can be compatible with similar histology. To address this ambiguity, STEM [15] introduced a probabilistic formulation based on conditional diffusion and re-ported strong performance. Yet, two key limitations remain. First, STEM relies on log-transformed ST counts, which compress the dynamic range of expres-sion values but do not fully account for sequencing-depth effects or the intrinsic mean–variance dependency characteristic of count data [11]. Consequently, resid-ual technical variability may remain entangled with biological signal in gene space. Second, STEM’s computational cost scales poorly with the number of genes being predicted. This limitation is particularly important, as transcrip-tional variation is highly correlated across genes, and constraining inference to a small, predefined gene set may bias both model learning and downstream bi-ological interpretation. In this work, we address these two limitations of diffusion-based morpho-transcriptomic inference. First, we adopt an analytically grounded normaliza-tion strategy for spatial transcriptomics data based on Pearson residuals derived from a parsimonious count model [7]. Unlike standard log-based preprocessing, this approach explicitly accounts for sequencing depth and the mean–variance relationship of UMI counts, yielding approximately variance-stabilized represen-tations. Second, we reformulate morphology-to-transcriptomics prediction in a structured program space learned by consensus non-negative matrix factorization (cNMF), simultaneously improving computational scalability while constraining predictions to coordinated transcriptional programs. cNMF has previously been used to identify reproducible transcriptional programs in single-cell analysis [6]. Specifically, this data-driven, structured representation constrains predictions to linear combinations of transcriptional programs rather than independent genes, while significantly reducing computational cost. Third, controlled experiments on a public HER2+ cohort with patient-held-out splits demonstrate (i) the sub-stantial impact of normalization on predictive performance, (ii) improved per-slide predictive quality with larger gene panels, with moderate gains in fixed-K program space, and (iii) the scalability of our proposed program-based approach. 
+
+## 2 Method 
+
+2.1 Shifted Pearson residual normalization 
+
+To normalize spatial transcriptomics expression, we employ a variance-stabilized transformation based on Pearson residuals derived from a parsimonious count Program-space Diffusion for Morphology-to-Transcriptomics Prediction 3
+
+model [7]. This normalization explicitly accounts for spot-specific sequencing depth and the mean-variance relationship intrinsic to unique molecular identifiers (UMI) count data, leading to expression values that are less affected by technical variability and more amenable to downstream modeling. Let X ∈ RN ×G 
+
+> ≥0
+
+be a raw count matrix, where N and G are respectively the number of spots and genes. We compute Pearson residuals under a nega-tive binomial (NB) model with fixed dispersion θ. First, we define the library size ni = P 
+
+> j
+
+Xij , the gene proportion pj =   
+
+> P
+> iXij
+> P
+> i,j Xij
+
+, and the expected mean 
+
+μij = nipj . Then, Pearson residuals are computed as 
+
+Rij = Xij − μij 
+
+q
+
+μij + μ2 
+
+> ij
+
+/θ , (1) where θ denotes a fixed dispersion parameter and a numerical floor of 10 −8 is applied to the denominator for stability. This formulation leads to approximately variance-stabilized residuals across genes and expression levels. To further limit the influence of extreme values, residuals are clipped element-wise to the interval [−c, c ]. Since cNMF and non-negative least squares require non-negative inputs, we apply a global shift to the residuals: 
+
+˜X = R − min( R) + ε, (2) where ε > 0. In practice, we set θ = 100 , c = 10 , and ε = 10 −6.Because gene-wise proportions pj are estimated on the selected gene panel, this normalization is panel-dependent; the panel is therefore fixed prior to nor-malization to ensure consistency across downstream modeling steps. 
+
+2.2 Consensus Non-negative Matrix Factorization (cNMF) 
+
+To obtain a compact representation of transcriptional variation, we construct a set of transcriptional programs via consensus non-negative matrix factoriza-tion (cNMF) within each training fold. Each spot’s expression profile is then represented as a non-negative linear combination of these programs. 
+
+Multiple NMF runs. cNMF is applied to the normalized expression matrix ˜X
+
+defined in (2). To improve stability and mitigate sensitivity to initialization, we follow the consensus strategy of [6] and perform R = 20 independent NMF runs. The scikit-learn implementation was used with NNDSVDa initialization (init=nndsvda ), coordinate descent ( solver=cd ) and Frobenius reconstruction objective ( beta_loss=frobenius ). Each run r produces a factorization 
+
+˜X ≈ H(r)W(r), (3) where H(r) ∈ RN ×K 
+
+> ≥0
+
+contains spot-level activations for the K programs and 
+
+W(r) ∈ RK×G 
+
+> ≥0
+
+contains gene loadings. The number of programs K controls the 4 S. Ruyter et al. 
+
+trade-off between reconstruction fidelity and dimensionality reduction. To ex-amine sensitivity to K, we performed cNMF across K ∈ { 10 , 20 , 40 , 60 , 100 } in a patient-held-out setting. Increasing K improved oracle reconstruction quality but produced denser per-spot activations. We therefore use K = 20 as a com-pact operating point balancing reconstruction fidelity, activation sparsity, and target dimensionality; it is not interpreted as a biologically optimal or universally transferable rank. 
+
+Consensus programs. To obtain stable programs across runs, we aggregate the loading matrices {W(r)}Rr=1 by stacking them into a matrix of shape (RK ) × G
+
+and clustering rows using K-means with K clusters (default n_init=20 ). Prior to clustering, each row of W(r) is ℓ1-normalized to ensure comparability across runs. Programs assigned to the same cluster are averaged to form the consensus loading matrix W∗ ∈ RK×G 
+
+> ≥0
+
+, and each consensus program is subsequently ℓ1-normalized. The resulting basis W ∗ defines a consensus set of transcriptional programs representing coordinated expression variation. 
+
+Projection via NNLS. Given the fixed consensus basis W∗, spot-level activations are estimated via non-negative least squares: 
+
+H = arg min  
+
+> H≥0
+
+∥ ˜X − HW ∗∥2 
+
+> F
+
+. (4) Consequently, the diffusion model predicts only the low-dimensional activa-tion coefficients H, while gene expression is approximated within the subspace spanned by the fixed basis W∗.
+
+2.3 Conditional Program-Space Diffusion 
+
+Given a histology image patch Ii at spatial location i, the objective is to predict the corresponding gene expression profile ˜Xi. Using the cNMF decomposition in (4), the gene expression profile ˜Xi can be approximated as 
+
+˜Xi ≈ hiW∗, (5) with h(0)  
+
+> i
+
+= Hi ∈ R1×K denoting the spot-level program activations and W∗ the fixed consensus basis. Rather than predicting individual genes directly, we there-fore aim to predict the program decomposition h(0)  
+
+> i
+
+, from which gene expression can be approximated through the fixed consensus basis. We adopt a conditional diffusion model in program space to model the con-ditional distribution of program activations given histology. Specifically, we ap-proximate the conditional distribution pθ (h(0)  
+
+> i
+
+| Ii), which generates spot-level activations ˆhi given a histology patch Ii.Program-space Diffusion for Morphology-to-Transcriptomics Prediction 5
+
+Target space. We follow the discrete-time DDPM formulation with an ϵ-prediction objective [4]. The key modification relative to gene-space approaches is that dif-fusion operates in RK rather than RG, with K ≪ G. This reduces the dimen-sionality of the generative task and constrains predictions to coordinated tran-scriptional programs through the basis W∗. The consensus basis W∗ is treated as fixed within each training fold and is not updated during diffusion training. 
+
+Forward process. During training, the forward diffusion process gradually per-turbs program activations hi with Gaussian noise over T timesteps: 
+
+q(h(t) 
+
+> i
+
+| h(0)  
+
+> i
+
+) = N
+
+√¯αt h(0)  
+
+> i
+
+, (1 − ¯αt)I
+
+
+
+, (6) where ¯αt = Qts=1 (1 −βs) and {βt}Tt=1 is a predefined noise schedule. Equivalently, 
+
+h(t) 
+
+> i
+
+= √¯αt h(0)  
+
+> i
+
++ √1 − ¯αt ε, ε ∼ N (0, I). (7) As t increases, h(t) 
+
+> i
+
+progressively loses information about h(0)  
+
+> i
+
+and approaches isotropic Gaussian noise. 
+
+Reverse process and training. A neural network εθ is trained to predict the injected noise at each timestep, conditioned on the noisy program activations, the corresponding histology patch Ii, and the timestep t:
+
+Ldiff = Eh(0)  
+
+> i,ε,t
+
+
+
+ε − εθ (h(t) 
+
+> i
+
+, Ii, t ) 22
+
+
+
+. (8) Minimizing Ldiff enables the model to learn the reverse denoising dynamics. 
+
+Reconstruction. Here, reconstruction denotes projection back to gene space through the fixed training-fold cNMF basis and does not imply recovery of expression components outside this subspace. At inference time, program ac-tivations ˆh(0)  
+
+> i
+
+are obtained by iteratively applying the learned reverse updates, starting from an isotropic Gaussian noise initialization ˆh(T ) 
+
+> i
+
+∼ N (0, I). Gene expression is then reconstructed through the fixed consensus basis: 
+
+ˆXi = ˆh(0)  
+
+> i
+
+W∗. (9) 
+
+2.4 Implementation details 
+
+We adopt the standard DDPM diffusion parameterization as implemented in STEM [15]. For all experiments, we use the default STEM diffusion configuration (noise schedule and timestep discretization). Sampling is performed conditionally on the histology embedding on GPU (CUDA) with 1000 reverse-diffusion steps, generating 20 samples per condition in batches of 200 . Training was run on a single 80 GB NVIDIA H100 GPU. 6 S. Ruyter et al. 
+
+## 3 Experiments 
+
+Dataset We evaluate our framework on the publicly available HER2-positive breast cancer spatial transcriptomics cohort [1], generated using first-generation Spatial Transcriptomics arrays. The dataset contains 36 tissue sections from eight patients (35 sections retained after quality control), with approximately 300 to 700 spots per slide. Each section is paired with H&E WSI, spot coordi-nates, and spot-level gene expression. For every spot, we extract a fixed-size im-age patch centered at the provided coordinates and pair it with its corresponding expression vector harmonized by [5] in HEST-1K benchmark. All experiments follow a patient-held-out cross-validation scheme, ensuring that all slides from the held-out patient are excluded from training. All decompositions and projec-tions are performed within each patient-held-out fold: the cNMF basis is learned exclusively from training-patient slides, and slides from the held-out patient are projected using NNLS to prevent information leakage. Consequently, this eval-uation assesses generalization to held-out patients within the same cohort, but not transfer to independent cohorts or newer ST platforms. 
+
+Gene selection We follow the STEM gene selection procedure: Highly Variable Genes (HVGs) are first identified independently within each slide and aggregated via union across slides. The resulting pool is then globally prioritized by com-bining mean expression and dispersion computed on the concatenated dataset, retaining genes that exhibit both high abundance and high variability. This hy-brid strategy integrates local variability with global statistical constraints. From this procedure, we derive panels of G ∈ { 300 , 800 , 2000 } genes. 
+
+Evaluation protocols (normalization and splits) Normalization affects gene-level metrics and can confound method comparisons. We therefore report results under two complementary evaluation protocols. Protocol A: log normal-ization. STEM is kept under its original log-normalization, i.e. an element-wise 
+
+log 2(X + 1) transform without library-size normalization, to preserve the con-ditions under which it was designed and validated. Protocol B: pearson normal-ization. We additionally adopt the Pearson-residual normalization as described in 2.1. In this setting, our cNMF program extraction and program-space diffu-sion operate on Pearson-residual normalization. To isolate the impact of normal-ization, we keep gene panels, splits, architectures, checkpoints, and evaluation metrics fixed, and vary only the normalization. As an explicit control, we also report STEM performance under Pearson-residual normalization (gene-space, 
+
+G = 2000 ) using identical splits and evaluation settings, so that any change can be attributed to normalization rather than modeling choices. 
+
+Quantitative performance In this work, we address two practical limitations of diffusion-based morpho-transcriptomic inference: (i) sensitivity to normaliza-tion, and technical sequencing bias in the target space, and (ii) poor scalabil-ity when predicting high-dimensional gene vectors. We therefore evaluate (1) Program-space Diffusion for Morphology-to-Transcriptomics Prediction 7                           
+
+> Table 1. Top-MPCC (%) for STEM-2000. Genes are ranked by PCC and Top-
+> Mis the mean PCC over the top Mgenes; reported values are averaged across slides. Pearson Norm. indicates Pearson-residual space ( ✓) vs. STEM’s normalization ( ×). Bold indicates the best predictive result under matched Pearson-residual normalization; the cNMF Oracle is reported only as a reconstruction diagnostic.
+> Setups Pearson Norm. Top-MPCCs ↑(%) 10 20 50 100 300 600 800 1500 2000 STEM [15] ×53.2 50.4 46.2 42.7 36.7 32.5 30.5 25.1 20.9 STEM [15] ✓46.5 41.8 34.8 29.3 20.8 15.5 13.3 8.1 4.8 Ours ✓47.7 43.6 37.1 31.6 22.6 17.0 14.6 9.0 5.4
+> cNMF Oracle NNLS ✓75.1 70.2 62.2 55.3 43.1 35.0 31.5 23.4 18.4
+
+an analytically grounded normalization based on Pearson residuals, and (2) a program-based representation learned with consensus non-negative matrix fac-torization (cNMF), which constrains predictions to structured transcriptional factors and reduces the effective output dimension. 
+
+Impact of normalization. Table 1 shows the impact of normalization on predic-tion performance: for the same STEM-2000 gene-space model, log-transformed targets yield higher Top-M PCC than Pearson-residual targets. This is consistent with prior work reporting higher predictive correlations under log-normalization; these higher correlations may partly reflect sequencing-depth- and cellularity-related signals retained by log-transformed representations [11]. We therefore adopt Pearson residuals as a controlled prediction target. 
+
+Program-space vs gene-space diffusion Under a fixed normalization (Pearson), program-space diffusion yields modest but consistent improvements over the STEM gene-space baseline across the reported Top-M thresholds (Table 1). Ta-ble 1 also reports a cNMF Oracle NNLS in Pearson space, used as a reconstruc-tion upper bound rather than as a predictive model. For slides from the held-out patient, true Pearson-normalized expression is projected onto the training-fold cNMF basis using NNLS and reconstructed in gene space. This estimates the best reconstruction achievable with the fixed basis: a low oracle indicates a repre-sentation bottleneck, whereas a large model–oracle gap indicates that predicting program activations from histology remains the main bottleneck. 
+
+Performance increases with panel size. Figure 1 shows that increasing the gene panel size leads to significantly better per-slide predictive quality (Top-50 PCC), with clear shifts in the distribution as we move from G=300 to G=800 and 
+
+G=2000 . Importantly, similar results are observed for both the gene-space (STEM) and the program-space ( Ours ) diffusion methods. This trend motivates pushing toward larger panels to improve individual-level predictions. 8 S. Ruyter et al. STEM-300 STEM-800 STEM-2000   
+
+> Gene panel size
+> 20 30 40 50 60
+> Top-50 PCC (%)
+> **** **** ***** **** ****
+> Gene Prog
+
+Fig. 1. Top-50 PCC per slide. Distribution of per-slide Top-50 PCC scores under patient-held-out for gene-space (Gene) and program-space (Prog) models across gene panels G = 300, 800, 2000. Significance assessed with paired Wilcoxon signed-rank tests.       
+
+> STEM-300 STEM-800 STEM-2000
+> 050 100
+> A
+> bs=96 minutes Training (5k steps) STEM-300 STEM-800 STEM-2000
+> 0500 1,000
+> B
+> seconds Sampling time (s, 1k steps) gene-space program-space ( K= 20 )
+
+Fig. 2. A. Training time for 5,000 optimization steps as a function of the target di-mensionality (gene-space G ∈ { 300 , 800 , 2000 } vs. program-space with fixed K=20 ); gene-space at G=2000 uses a reduced batch size (96 vs. 256). B. Sampling time (sec-onds per 1,000 diffusion steps), showing the sharp increase in gene-space sampling time with increasing G and the near-constant program-space sampling time. 
+
+Computation scalability. We finally compare the computational cost of STEM 
+
+in gene-space to program-space (predicting K = 20 programs) while varying the gene panel size G ∈ { 300 , 800 , 2000 }. In the gene-space, computation cost scales poorly with G, especially at inference: sampling throughput drops from 27.3 it/s at G=300 to 7.4 it/s at G=800 (∼2 min 15 s per 1,000 diffusion steps) and 1.7 it/s at G=2000 (∼36 min per 1,000 steps). Training time also increases (5,000 steps: 
+
+∼25 min at G=300 , ∼1 h 31 min at G=800 , and ∼1 h 23 min at G=2000 , using batch size 96 instead of 256). In contrast, program-space diffusion keeps a fixed output dimensionality and is nearly constant across G: ∼8 min per 5,000 training steps and 213–227 it/s at sampling ( ≈4.3–4.4 s per 1,000 steps). The one-time cNMF extraction increases with G (2/6/22 min for G = 300 /800 /2000 ) but remains smaller than gene-space training time. Although the G = 2000 training-Program-space Diffusion for Morphology-to-Transcriptomics Prediction 9
+
+time comparison is affected by the reduced batch size, the sampling results show that program-space diffusion scales favorably to larger gene panels while main-taining competitive predictive performance. 
+
+## 4 Conclusion 
+
+Normalization is a first-order determinant of reported accuracy: replacing STEM’s log normalization with Pearson residuals shifts Top-M PCC by changing the pre-diction target representation. Beyond preprocessing, larger gene panels improve per-slide predictive quality, but gene-space diffusion becomes prohibitively ex-pensive at inference. By contrast, diffusion in a cNMF program space yields comparable or better Top-M performance under controlled normalization while making diffusion sampling nearly independent of the number of predicted genes. The current study remains limited to a single HER2+ cohort and does not es-tablish cross-cohort generalization or biological utility beyond predictive agree-ment. Future work should evaluate broader cohorts, panel-specific K selection, and downstream tasks assessing biological utility beyond PCC-based metrics. Within this HER2+ cohort, our findings suggest that transcriptional program space provides a more structured and computationally scalable generative target than individual genes for morphology-to-transcriptomics prediction. 
+
+Acknowledgments The research leading to these results has received fund-ing from Agence Nationale de la Recherche as part of the “France 2030” pro-gram (reference ANR-23-IACL-0008, PRAIRIE-PSAI) and as part of the "In-vestissements d’avenir" program (reference ANR-19-P3IA-0001, PRAIRIE 3IA Institute; and reference ANR-10-IAIHU-0006). The ARAMIS Lab is affiliated with DIM C-BRAINS, funded by the Conseil Régional d’Ile-de-France. This work was performed using HPC resources from GENCI–IDRIS (Grant 2025-AD011016416). R.D. received a Marie Skłodowska-Curie grant No 101154248 (project: SafeREG). 
+
+Disclosure of Interests The authors have no competing interests in the paper 
+
+## References     
+
+> 1. Andersson, A., Larsson, L., Stenbeck, L., Salmén, F., Ehinger, A., Wu, S.Z., Al-Eryani, G., Roden, D., Swarbrick, A., Borg, A., Frisén, J., Engblom, C., Lunde-berg, J.: Spatial deconvolution of HER2-positive breast cancer delineates tumor-associated cell type interactions. Nature communications 12 (1), 6012 (Oct 2021). https://doi.org/10.1038/s41467-021-26271-2 2. Du, J., Yang, Y.C., An, Z.J., Zhang, M.H., Fu, X.H., Huang, Z.F., Yuan, Y., Hou, J.: Advances in spatial transcriptomics and related data analysis strategies. Journal of Translational Medicine 21 ,330 (May 2023). https://doi.org/10.1186/s12967-023-04150-2
+
+10 S. Ruyter et al. 3. He, B., Bergenstråhle, L., Stenbeck, L., Abid, A., Andersson, A., Borg, A., Maaskola, J., Lundeberg, J., Zou, J.: Integrating spatial gene expression and breast tumour morphology via deep learning. Nature Biomedical Engineering 4(8), 827– 834 (Aug 2020). https://doi.org/10.1038/s41551-020-0578-x 4. Ho, J., Jain, A., Abbeel, P.: Denoising Diffusion Probabilistic Models (Dec 2020). https://doi.org/10.48550/arXiv.2006.11239, arXiv:2006.11239 [cs.LG] 5. Jaume, G., Doucet, P., Song, A.H., Lu, M.Y., Almagro-Pérez, C., Wagner, S.J., Vaidya, A.J., Chen, R.J., Williamson, D.F.K., Kim, A., Mahmood, F.: HEST-1k: A Dataset for Spatial Transcriptomics and Histology Image Analysis (Nov 2024). https://doi.org/10.48550/arXiv.2406.16192, arXiv:2406.16192 [cs] 6. Kotliar, D., Veres, A., Nagy, M.A., Tabrizi, S., Hodis, E., Melton, D.A., Sabeti, P.C.: Identifying gene expression programs of cell-type identity and cellular activity with single-cell RNA-Seq. eLife 8, e43803 (Jul 2019). https://doi.org/10.7554/eLife.43803 7. Lause, J., Berens, P., Kobak, D.: Analytic Pearson residuals for normaliza-tion of single-cell RNA-seq UMI data. Genome biology 22 (1), 258 (Sep 2021). https://doi.org/10.1186/s13059-021-02451-7 8. Monjo, T., Koido, M., Nagasawa, S., Suzuki, Y., Kamatani, Y.: Efficient predic-tion of a spatial transcriptomics profile better characterizes breast cancer tissue sections without costly experimentation. Scientific Reports 12 , 4133 (Mar 2022). https://doi.org/10.1038/s41598-022-07685-4 9. Pang, M., Su, K., Li, M.: Leveraging information in spatial transcriptomics to pre-dict super-resolution gene expression from histology images in tumors (Nov 2021). https://doi.org/10.1101/2021.11.28.470212, pages: 2021.11.28.470212 Section: New Results 10. Rao, A., Barkley, D., França, G.S., Yanai, I.: Exploring tissue architec-ture using spatial transcriptomics. Nature 596 (7871), 211–220 (Aug 2021). https://doi.org/10.1038/s41586-021-03634-9 11. Ruyter, S., Dorent, R., Racoceanu, D.: Normalization Bias in Morpho-Transcriptomic Prediction (2026) 12. Yang, Y., Hossain, M.Z., Stone, E., Rahman, S.: Spatial Transcriptomics Analysis of Gene Expression Prediction using Exemplar Guided Graph Neural Network (2023). https://doi.org/10.1101/2023.03.30.534914 13. You, Y., Fu, Y., Li, L., Zhang, Z., Jia, S., Lu, S., Ren, W., Liu, Y., Xu, Y., Liu, X., Jiang, F., Peng, G., Sampath Kumar, A., Ritchie, M.E., Liu, X., Tian, L.: Sys-tematic comparison of sequencing-based spatial transcriptomic methods. Nature Methods 21 (9), 1743–1754 (Sep 2024). https://doi.org/10.1038/s41592-024-02325-314. Zeng, Y., Wei, Z., Yu, W., Yin, R., Yuan, Y., Li, B., Tang, Z., Lu, Y., Yang, Y.: Spatial transcriptomics prediction from histology jointly through Transformer and graph neural networks. Briefings in Bioinformatics 23 (5), bbac297 (Sep 2022). https://doi.org/10.1093/bib/bbac297 15. Zhu, S., Zhu, Y., Tao, M., Qiu, P.: Diffusion Generative Modeling for Spa-tially Resolved Gene Expression Inference from Histology Images (Jan 2025). https://doi.org/10.48550/arXiv.2501.15598, arXiv:2501.15598 [cs]

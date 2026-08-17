@@ -1,0 +1,833 @@
+Title: MedPlex: Deep Vision-Language Co-Adaptation for Clinically Grounded Medical Segmentation
+
+URL Source: https://arxiv.org/pdf/2608.13690v1
+
+Published Time: Mon, 17 Aug 2026 00:05:50 GMT
+
+Number of Pages: 27
+
+Markdown Content:
+> arXiv:2608.13690v1 [cs.CV] 13 Aug 2026
+
+SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 1
+
+# MedPlex: Deep Vision-Language Co-Adaptation for Clinically Grounded Medical Segmentation 
+
+Rafi Ibn Sultan 1
+
+rafis@wayne.edu 
+
+Hui Zhu 1
+
+hui@wayne.edu 
+
+Chengyin Li 2
+
+cli6@hfhs.org 
+
+Dongxiao Zhu 1,3 
+
+dzhu@wayne.edu  
+
+> 1
+
+Department of Computer Science Wayne State University  
+
+> 2
+
+Department of Radiation Oncology Henry Ford Health  
+
+> 3
+
+Institute for AI and Data Science Wayne State University 
+
+Abstract 
+
+Medical image segmentation is still largely trained as a vision-only problem, even though clinical interpretation often relies on textual knowledge about anatomy, loca-tion, appearance, and surrounding context. Text-guided segmentation methods within the Vision-Language Model (VLM) paradigm seek to bring this complementary knowledge into dense prediction, but language is often used only as a late conditioning signal: en-coded once, introduced after substantial visual abstraction, and weakly connected to how visual representations are formed. We argue that text can meaningfully support segmen-tation only when it remains active throughout visual representation learning and is orga-nized around the clinical concepts that distinguish anatomical structures. We introduce 
+
+MedPlex (Med ical Plex us of Vision and Language), an end-to-end VLM framework that turns text guidance into a continuous, clinically grounded learning process. Through Bi-Fusion (Bi directional Fusion ), visual and textual representations evolve together across the encoding hierarchy, while class-level concept alignment and region-level concept alignment structure the shared representation at two complementary granularities. Class-level concept alignment anchors each anatomical target to its aggregated clinical concept profile, while region-level concept alignment preserves the contribution of individual clinical concepts (e.g., shape, location, appearance, and texture) through class-specific vi-sual evidence. In this way, MedPlex uses language as structured supervision for learning segmentation representations throughout the encoder. MedPlex achieves state-of-the-art performance across CT and MR benchmarks covering multi-organ, cardiac substructure, and tumor segmentation, including settings with real free-text clinical supervision. The source code is available in our GitHub repository. 
+
+© 2026. The copyright of this document resides with its authors. It may be distributed unchanged freely in print or electronic forms. 2 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+# 1 Introduction 
+
+Medical image segmentation has advanced rapidly through architectures trained directly on image-mask supervision, with purely visual models achieving strong performance across diverse anatomical targets and imaging modalities [16, 34, 35, 36, 45, 53, 57]. Yet this dominant formulation treats segmentation as a visual recognition problem alone. In clini-cal practice, scans are interpreted together with anatomical knowledge, structured reports, clinical notes, and textual descriptions that specify what a structure is, where it is expected to appear, how it relates to surrounding tissue, and how its appearance may vary across pa-tients and imaging protocols [48, 70, 71]. Such textual cues provide compact semantic and relational knowledge that image-mask supervision does not explicitly encode. This has motivated text-guided segmentation methods within the Vision-Language Model (VLM) paradigm, which use textual descriptions to guide dense visual prediction [22, 43, 44, 51]. The premise is compelling: language should help disambiguate visually similar regions, inject anatomical context, and support generalization beyond fixed label vocabularies. How-ever, existing text-guided methods often struggle to make language a meaningful part of representation learning. This suggests that the bottleneck lies not in whether language is useful, but in how it is represented and integrated with vision. (i) They meet only at the end               
+
+> S1 S1 S3 S4 FS4 S2 S3 S2 Vision Dec.
+> (ii)
+> FFFVision Enc. Text Enc. Vision Enc. Text Enc. Fusion
+> (ii) They meet too late
+> Vision Dec.
+> (iv) (Ours) They grow together
+> continuously
+> Vision Enc. Text Enc. Fusion
+> When Do Text and Vision Actually Talk to Each Other?
+> S1 S2 S3 S4 Text Enc. Vision Dec. Vision Enc. FFFF
+> (iii) Vision listens, text never does
+> Vision Dec.
+
+Figure 1: How and when text and vision interact determines whether textual knowledge can meaningfully guide segmen-tation. Our approach (iv) lets both modalities continuously inform each other throughout processing, while prior ap-proaches (i–iii) either meet too late or only listen in one di-rection. 
+
+We argue that a central lim-itation of existing medical VLM segmentation models is represen-tation staleness . As illustrated in Figure 1, most approaches first build a visual hierarchy and then inject text after substantial visual abstraction has already occurred, either at the end of the visual pipeline [14, 68, 69, 72], near the top of the visual hierarchy [27, 43, 61, 71], or by broadcasting a fixed text representation across vi-sual stages [11, 39, 48, 64]. These designs let language modulate vi-sual features, but the interaction is delayed or asymmetric: visual fea-tures are formed for many layers without linguistic context, while textual representations are usually computed once and remain blind to the image they are meant to guide. As a result, text can act as a late conditioning signal, but it cannot continuously shape how anatomical evidence is built from local appearance to higher-level semantics. This is especially limiting because vision and language do not be-come useful only at their endpoints. Visual encoders progressively transform local intensity patterns into semantic anatomical representations [9, 16], while language encoders move from lexical and syntactic cues toward global meaning [49, 58]. Existing designs there-fore miss the opportunity to align the two modalities throughout their parallel abstraction processes. A second bottleneck is that the textual signal itself is often too coarse for dense medical SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 3
+
+prediction. Medical language is structured, compositional, and domain-specific: clinically meaningful descriptions often depend on subtle qualifiers of shape, position, appearance, texture, and anatomical context. General-purpose text encoders are not optimized to preserve these distinctions in a form that is directly useful for segmentation [22, 48]. Consequently, the text embedding supplied to a segmentation model may fail to distinguish closely related anatomical classes or collapse descriptions that differ in clinically important ways. Even a strong fusion module cannot extract reliable guidance from a representation that does not preserve the concepts needed for localization and boundary delineation. Thus, text-guided segmentation faces two coupled problems: language must interact with vision while both representations are being constructed, and textual representations must be organized around clinically meaningful concepts instead of being treated as a late conditioning signal. We introduce MedPlex (Med ical Plex us of Vision and Language), an end-to-end VLM framework that turns text guidance into a continuous, clinically grounded learning process. MedPlex realizes this through BiFusion (Bi directional Fusion ), which progressively updates both visual and textual encoder streams across the encoding hierarchy. At each stage, visual features query language for semantic guidance, while textual representations are grounded using image-specific visual evidence. This keeps both modalities adaptive, allowing lan-guage to shape how visual evidence is organized and allowing textual representations to evolve with the current image. To structure this interaction around clinically meaningful knowledge, MedPlex further introduces class-level concept alignment and region-level con-cept alignment . MedPlex organizes supervision around clinical concepts such as shape, lo-cation, appearance, and texture. Class-level concept alignment anchors anatomical classes to aggregated clinical concept descriptions, while region-level concept alignment preserves the contribution of individual clinical concepts through class-specific visual evidence. Together, these alignments connect language to both the semantic identity of each anatomical target and the fine-grained clinical concepts that support its segmentation. Our contributions are summarized as follows: • We introduce MedPlex , a unified end-to-end framework for text-guided medical im-age segmentation within the VLM paradigm, compatible with standard encoder-decoder segmentation backbones and applicable to both structured textual descriptions and real free-text clinical supervision. • We develop three reusable components for clinically grounded vision-language seg-mentation: BiFusion (Bi directional Fusion ), class-level concept alignment , and region-level concept alignment .• We validate MedPlex across diverse CT and MR benchmarks spanning multi-organ, cardiac substructure, and tumor segmentation, where it achieves state-of-the-art per-formance and demonstrates robust performance across modalities, anatomical targets, and textual supervision regimes. 
+
+# 2 Related Work 
+
+2.1 Vision-Language Fusion Architectures 
+
+Language integration has been widely studied for segmentation, where textual descriptions help specify what should be segmented, disambiguate visually similar regions, and support 4 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+open-vocabulary or referring segmentation [21, 38, 40, 44, 63]. In 3D medical image seg-mentation, however, vision-language interaction remains less developed. Existing methods differ mainly in how textual descriptions enter the segmentation pipeline, which visual rep-resentations they influence, and whether textual representations can adapt to image-specific visual evidence. 
+
+Fusion at Vision Decoder. A common strategy is to process image and text independently, then fuse them near the decoder or final prediction stage [10, 24, 33, 55, 66, 68]. This design is simple and compatible with existing encoder-decoder segmentation models, but it makes language primarily a late conditioning signal. Since the visual hierarchy has already been formed, textual descriptions can influence decoding but have limited ability to shape the visual representations that feed it. 
+
+Late Fusion at Vision Encoder. Other approaches move interaction earlier by injecting language near the top of the visual encoder. These methods use either short text phrases [37, 43] or detailed class prompts [22, 27, 52, 56, 65, 67, 71, 74] to modulate high-level visual features. Although this gives language access to encoder representations before decoding, the two modalities still develop largely in isolation through most of the visual hierarchy. As a result, language can refine high-level visual abstraction, but it remains weakly involved in how visual evidence is progressively constructed. 
+
+Unidirectional Fusion at Vision Encoder. A broader line of work distributes textual signals across multiple visual processing stages [4, 14, 19, 30, 39, 48, 72]. These approaches im-prove coverage of the visual hierarchy, but most interactions remain unidirectional: textual representations guide visual features, while visual evidence does not update the textual repre-sentations in return. This leaves language image-agnostic even when it is repeatedly injected into the visual stream. MedPlex differs through BiFusion, which directly updates both visual and textual encoder streams through bidirectional interaction across the hierarchy, allowing their representations to co-adapt as they evolve. 
+
+2.2 Vision-Language Embedding Alignment 
+
+Effective fusion depends on textual representations that preserve the clinical concepts needed for dense prediction. Biomedical and clinical text encoders [1, 13, 32] provide useful do-main priors, while global contrastive learning has been used to align image and text repre-sentations [5, 8, 15, 27, 71]. However, anatomical targets often share overlapping clinical concepts, such as shape, location, appearance, and texture, making a single global text em-bedding insufficient for precise segmentation guidance. More structured alignment has been explored in 2D chest X-ray pretraining by aligning image patches with report tokens [20, 46, 60] or predefined phrase groups [41, 42, 50]. In 3D medical imaging, alignment is often inferred post hoc from segmentation masks [56] or applied mainly to decoder-level features [28], leaving encoder representations less directly organized around fine-grained clinical concepts. MedPlex instead applies class-level con-cept alignment and region-level concept alignment immediately after bidirectional encoder fusion, connecting clinical concepts to anatomical classes and class-specific visual evidence. 
+
+# 3 Method 
+
+MedPlex integrates textual descriptions directly into the formation of segmentation represen-tations throughout the encoder. As shown in Figure 2a, MedPlex jointly processes a 3D med-SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 5[Class]:[Modality] [Feature 1] [Feature 2] ........ 
+
+> [Feature N] [Class]:[Modality] [Feature 1] [Feature 2] ........
+> [Feature N]
+
+Text Encoder 
+
+> [Class]:[Modality] [Concept 1] [Concept 2] ........
+> [Concept K]
+> Textual Input Visual Input
+> Ground Truth Seg. Map
+> Encoder Visual Embed. Encoder Visual Embed. Encoder Visual Embed.
+
+Vision Encoder 
+
+> N class
+
+Visual Embed. Space (N Classes) Text Embed. Space (N Classes) 
+
+> BiF
+
+Vision Encoder 
+
+Text Encoder     
+
+> BiF
+> Stage 1 Stage 2 Stage n Stage 1 Stage n
+> BiF
+> Self-Attn Self-Attn Cross-Attn
+
+BiFusion (BiF) Block 
+
+(a) MedPlex, Training Framework (b) Bidirectional Fusion 
+
+Vision Decoder 
+
+> Stage 2 Cross-Attn
+
+Bidirectional Fusion 
+
+> (c) (d)
+> MLP
+
+(b) 
+
+Vision Decoder 
+
+> Multi-Class Logits
+> (H, W, D, N)
+
+Vision Encoder  
+
+> Encoder Visual Embed.
+> Class-Specific Embed. MLP Flatten Flatten
+
+(c) Separating to Class-Specific Embeddings 
+
+> Down. Downsampled
+> Multi-Class Logits
+> StopGrad
+
+(d)  Concept-Grounded Contrastive Alignment     
+
+> Visual Embed. Text Embed. Concepts Embed. Positive Pair
+> Class i Class j Class i Class j
+> Negative Pair Class-Level Embed.
+> Class-Level Concept Alignment (Visual Text) Region-Level Concept Alignment (Visual Concept) Text Embeddings Text Embeddings (Vision-Updated) Vision Embed. (Text-Updated)
+> Vision Embeddings
+
+Figure 2: (a) MedPlex , an end-to-end training pipeline that integrates vision and language for medi-cal image segmentation. (b) Bidirectional fusion between visual and text encoders through BiFusion blocks at each stage. (c) LClassEmbed : mapping vision encoder embeddings to class-specific embed-dings with decoder supervision. (d) Lalignment : concept-grounded contrastive alignment operating at two granularities. Class-level concept alignment aggregates concept embeddings into a single textual representation matched to class-wise visual features, while region-level concept alignment aligns indi-vidual concept embeddings with class-specific visual evidence. 
+
+ical image and class-specific textual descriptions in an end-to-end framework. The model first progressively updates hierarchical visual and textual encoder representations through BiFusion (Figure 2b), then converts encoder visual representations into class-structured re-sponses for alignment-ready supervision (Figure 2c), and finally applies concept-grounded alignment at both class and region levels (Figure 2d). The full framework is optimized with segmentation, class-response, and alignment objectives. 
+
+3.1 Problem Setup 
+
+Let X ∈ RH×W ×D denote a 3D medical image and G ∈ { 0, 1}H×W ×D×N its corresponding segmentation mask over N anatomical classes. MedPlex receives textual supervision in two forms: real free-text clinical reports when report-level supervision is available, and struc-tured class-specific textual descriptions when reports are unavailable. The model predicts a segmentation map P and jointly learns visual and textual representations through encoder-level fusion and concept-grounded alignment. 6 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+3.2 Input Design and Modality Encoding 
+
+MedPlex integrates a standard 3D encoder-decoder segmentation backbone with a transformer-based text encoder. The visual stream processes 3D medical images and produces multi-stage visual representations, while the language stream processes textual descriptions and produces hierarchical textual representations. The two streams are matched stage by stage so BiFusion can update visual and textual representations at corresponding levels of abstrac-tion. 
+
+Textual Input. MedPlex supports two textual supervision formats: free-text clinical reports and structured class-specific textual descriptions. For datasets without reports, we construct class-specific textual descriptions using clinically observable concepts: shape, location, ap-pearance/density, contour/symmetry, and internal texture in the target modality. Each con-cept provides a separate textual anchor for concept-grounded alignment, allowing MedPlex to preserve concept-level information instead of compressing the class description into a single text embedding. The descriptions are generated once using an LLM (Figure 3), man-ually reviewed, and fixed during training. Dataset-specific details and prompt templates are provided in the Appendix. 
+
+Text Encoder. MedPlex uses a transformer text encoder to produce stage-wise textual rep-resentations for BiFusion. Standard transformer encoders [7, 59] process text as a sequence, whereas visual encoders form a hierarchy through progressive resolution changes. To make the two streams compatible across stages, we partition a BERT encoder [7] into four groups following [6]: layers [1–6], [7–8], [9–10], and [11–12]. These groups [Title] Left Ventricle in a CT Image             
+
+> [Shape] Oval-like shape with thick walls tapering slightly towards the apex
+> [Location] Positioned on the left side of the heart, below the left atrium, and anterior to the descending aorta
+> [Appearance/Density] High-density muscular wall visible due to contrast enhancement; the lumen appears lower in density when filled with blood or contrast agent
+> [Contour/Symmetry] Smooth and well-defined contour with symmetrical walls on both sides of the cavity
+> [Internal Texture] Relatively homogeneous muscular structure with striations sometimes visible in the myocardium Please list 5 key visual features of Left Ventricle :[Shape], [Location], [Appearance/Density],
+> [Contour/Symmetry], [Internal Texture] focusing on characteristics observable in CT images.
+> User Prompt LLM
+
+Figure 3: A simplified demo of curating structured concept de-scriptions of each class in our datasets using an LLM. 
+
+provide textual representa-tions at progressively higher levels of abstraction [58]. Early BiFusion stages there-fore interact with lower-level textual representations, while later stages interact with more semantic textual representa-tions. This stage-wise design avoids forcing every visual stage to use the same final-layer text encoder output. The text encoder uses a fea-ture dimension of 768 and can be initialized from domain-specific BERT checkpoints [1, 13, 32]. 
+
+Vision Model. The visual stream uses a standard encoder-decoder 3D segmentation archi-tecture. The encoder progressively extracts visual representations at multiple resolutions, and the decoder predicts the final segmentation map using the encoded features and skip connections. The segmentation objective combines Dice and Cross-Entropy losses: 
+
+Lseg = Ldice (P, G) + Lce (P, G), (1) where P denotes the predicted segmentation map and G denotes the ground truth mask. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 7
+
+3.3 BiFusion: Continuous Vision-Language Co-adaptation 
+
+BiFusion keeps visual and textual representations connected while both streams evolve through the encoder. At stage n, the visual stream provides image-specific visual evidence, while the language stream provides semantic context from the textual descriptions. BiFusion updates both streams at each stage: textual representations first absorb image-specific visual evi-dence, and visual features are then updated using the resulting image-conditioned textual context. Let Tn ∈ RNt ×Ct denote the textual representations at encoder stage n, where Nt is the number of text tokens and Ct = 768 for BERT. Let Vn ∈ RHn×Wn×Dn×Cn denote the visual feature map at the same stage. We flatten Vn into spatial tokens before attention and apply stage-specific projections so that visual and textual representations share a common attention dimension. BiFusion can then be viewed as a stage-wise co-adaptation operator, 
+
+( ˆTn, ˆVn) = BiF n(Tn, Vn), (2) which first builds modality-specific contextual representations and then performs two cou-pled cross-modal updates: 
+
+T′ 
+
+> n
+
+= SA (LN (Tn)) , V′ 
+
+> n
+
+= SA (LN (Vn)) ,
+
+∆Tn = MLP T
+
+ CA (T′
+
+> n
+
+, V′
+
+> n
+
+) , ˆTn = T′ 
+
+> n
+
++ ∆Tn,
+
+∆Vn = MLP V
+
+ CA (V′
+
+> n
+
+, ˆTn) , ˆVn = V′ 
+
+> n
+
++ ∆Vn.
+
+(3) Here, ∆Tn denotes the image-conditioned update to the textual representations, and ∆Vn de-notes the text-conditioned update to the visual representations. The first cross-attention step grounds textual representations in image-specific visual evidence, while the second returns the updated textual context to the visual stream. The resulting pair ( ˆTn, ˆVn) is passed to the next encoder stage, enabling co-adaptation to accumulate across the hierarchy. 
+
+3.4 Class-Structured Encoder Representations 
+
+The BiFusion-updated encoder feature map ˆ Vn contains visual embeddings from all anatom-ical classes. In a standard segmentation model, these embeddings are separated into class-specific predictions only later by the decoder head. However, MedPlex applies concept-grounded alignment before the final decoder output is produced. We therefore need an inter-mediate representation that separates encoder features by anatomical class, allowing visual evidence to be compared with class-level and concept-level textual representations. To ob-tain this representation, MedPlex introduces a lightweight projection MLP emb that maps each spatial location in ˆ Vn into an N-dimensional class-response vector: 
+
+Vcls = φcls ( ˆVn) = MLP emb ( ˆVn) ∈ RHn×Wn×Dn×N , (4) where N is the number of anatomical classes and φcls denotes the encoder-level class-response projection. Each channel of Vcls corresponds to one anatomical class and provides the class-specific encoder representation used for concept alignment. The remaining question is how to supervise this projection, since no separate class labels are available at the encoder stage. We therefore use the model’s own decoder prediction P
+
+as a supervision signal. The decoder remains responsible for producing the final segmenta-tion map, while the class-response projection learns to expose a class-structured view of the 8 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+encoder representation. Specifically, we use trilinear interpolation to downsample P to the encoder resolution and obtain a soft target for Vcls :˜Pn = Down (P) ∈ RHn×Wn×Dn×N . (5) Before computing the class-response loss, we detach the decoder-derived target ˜ Pn from the computation graph, ensuring that this auxiliary objective does not propagate gradients into the decoder. The projected class-response map is then trained to match the detached target (where sg (·) denotes the stop-gradient operation): 
+
+LClassEmbed = CE  Vcls , sg   ˜Pn
+
+ . (6) This objective encourages encoder features to expose class-discriminative responses before the decoder stage, giving class-level and region-level concept alignment the class-specific visual evidence needed to compare with textual concepts. For subsequent concept alignment, the class-wise visual embedding v(i) is obtained by average-pooling the i-th class channel of 
+
+Vcls over the spatial dimensions. 
+
+3.5 Concept-Grounded Alignment 
+
+After BiFusion and class-structured projection, MedPlex applies concept-grounded align-ment at two levels: class-level concept alignment for anatomical-class semantics and region-level concept alignment for concept-wise visual evidence. 
+
+3.5.1 Class-Level Concept Alignment 
+
+For each anatomical class i, the textual description is decomposed into K clinical concepts, such as shape, location, appearance, and texture. Let {t(i) 
+
+> k
+
+}Kk=1 denote the corresponding concept embeddings for class i. Given the class-structured encoder representation Vcls , we obtain a class-wise visual embedding v(i) for each anatomical class. MedPlex first aggregates the concept embeddings into an image-conditioned textual representation for each anatomi-cal class. Both visual and textual concept embeddings are projected into a shared normalized space, and concept relevance is computed from their cosine similarity: 
+
+t′(i) 
+
+> k
+
+= norm 
+
+
+
+Proj t (t(i) 
+
+> k
+
+)
+
+
+
+, v′(i) = norm 
+
+
+
+Proj v(v(i))
+
+
+
+,
+
+w(i) 
+
+> k
+
+=
+
+exp 
+
+
+
+cos (t′(i) 
+
+> k
+
+, v′(i))
+
+
+
+∑K 
+
+> ℓ=1
+
+exp 
+
+
+
+cos (t′(i) 
+
+> ℓ
+
+, v′(i))
+
+ , T(i) =
+
+> K
+
+# ∑
+
+> k=1
+
+w(i) 
+
+> k
+
+t(i) 
+
+> k
+
+.
+
+(7) The weights w(i) 
+
+> k
+
+allow each class representation to emphasize the clinical concepts most relevant to the input image, producing an image-conditioned textual representation T(i) while preserving the concept structure of the original textual description. We then align class-wise visual embeddings and aggregated textual representations across the N anatomical classes using bidirectional InfoNCE. To prevent premature convergence and reduce overconfident early alignment, small Gaussian noise N (0, σ 2) is added to both SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 9
+
+modalities during contrastive learning. For the visual-to-textual direction, the similarity ma-trix and contrastive loss are: 
+
+SV→T 
+
+> i j
+
+= v(i) · T( j)
+
+∥v(i)∥2∥T( j)∥2
+
+,
+
+LV→T 
+
+> InfoNCE
+
+= − 1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+log exp  SV→T 
+
+> ii
+
+/τ
+
+∑Nj=1 exp 
+
+
+
+SV→T 
+
+> i j
+
+/τ
+
+ .
+
+(8) The textual-to-visual direction LT→V 
+
+> InfoNCE
+
+is defined symmetrically. The resulting bidirec-tional objective aligns each anatomical class with its clinical concept profile while separating it from other anatomical classes: 
+
+LclassNCE = 12
+
+ LV→T 
+
+> InfoNCE
+
++ LT→V
+
+> InfoNCE
+
+ . (9) 
+
+3.5.2 Region-Level Concept Alignment 
+
+Class-level concept alignment aggregates the clinical concepts of each anatomical class into a single textual representation. Region-level concept alignment provides finer supervision by aligning each individual clinical concept with the corresponding class-specific visual em-bedding. For class i and concept k, MedPlex compares the concept embedding t(i) 
+
+> k
+
+with the class-wise visual embedding v(i) derived from the class-structured encoder representa-tion. This preserves the contribution of individual clinical concepts, such as shape, location, appearance, and texture, while keeping the alignment tied to the corresponding anatomical class. Because different anatomical classes can share similar clinical concepts, using all mis-matched classes as negatives can introduce weak or noisy supervision. MedPlex therefore restricts the contrastive objective to a hard-negative set. For each concept k, we compute concept-to-visual similarities across anatomical classes, select the top K mismatched class embeddings as negatives, and optimize the concept-to-visual direction as follows: 
+
+Stk→V 
+
+> i j
+
+= t(i) 
+
+> k
+
+· v( j)
+
+∥t(i) 
+
+> k
+
+∥2∥v( j)∥2
+
+, NK(i, k) = TopK K 
+
+> j̸=i
+
+
+
+Stk→V
+
+> i j
+
+
+
+,
+
+Ltk→V 
+
+> InfoNCE
+
+= − 1
+
+N
+
+> N
+
+# ∑
+
+> i=1
+
+log exp 
+
+
+
+Stk→V 
+
+> ii
+
+/τ
+
+
+
+exp 
+
+
+
+Stk→V 
+
+> ii
+
+/τ
+
+
+
++ ∑ j∈NK(i,k) exp 
+
+
+
+Stk→V 
+
+> i j
+
+/τ
+
+ .
+
+(10) The visual-to-concept direction LV→tk 
+
+> InfoNCE
+
+is defined symmetrically. Averaging over all 
+
+K clinical concepts gives the region-level concept alignment loss, and the full concept-grounded alignment objective combines the class-level and region-level terms using α1 and 
+
+α2 to control their relative contributions: 
+
+LregionNCE = 12K
+
+> K
+
+# ∑
+
+> k=1
+
+
+
+LV→tk 
+
+> InfoNCE
+
++ Ltk→V
+
+> InfoNCE
+
+
+
+,
+
+Lalignment = α1LclassNCE + α2LregionNCE .
+
+(11) 10 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION                                                                                                                                                                                                   
+
+> Method AMOS22 (CT) MM-WHS (CT) MM-WHS (MR) MSD-Brain (MR) DSC ↑HD95 ↓NSD ↑DSC ↑HD95 ↓NSD ↑DSC ↑HD95 ↓NSD ↑DSC ↑HD95 ↓NSD ↑
+> U-Net [53] 80.64 8.88 87.99 89.19 3.94 93.62 76.33 28.44 76.61 68.73 15.70 73.33 UNet++ [75] 84.30 11.46 91.14 90.29 4.14 93.91 79.37 42.85 78.42 74.10 12.05 76.98 nnU-Net [25] 86.33 9.05 92.01 90.05 4.03 93.72 80.71 46.37 79.21 75.10 12.38 78.29 STU-Net [23] 84.21 8.88 91.42 90.85 3.88 94.22 77.11 37.51 77.25 72.05 11.95 77.97 MedNeXt [54] 84.88 8.32 91.92 90.39 3.62 94.11 77.54 36.51 77.11 71.84 14.59 76.90 UNETR [17] 77.67 12.20 83.22 88.96 4.09 91.84 74.72 30.46 75.44 70.78 14.25 75.11 Swin UNETR [16] 84.71 10.84 90.74 90.48 3.83 93.83 80.46 37.37 80.40 75.82 12.31 78.76 SwinUNETR-V2 [18] 85.53 9.28 91.75 90.51 3.85 94.34 80.04 35.52 81.08 75.02 12.70 77.63 nnFormer [73] 76.98 10.98 84.57 91.43 3.52 95.11 74.54 36.75 77.03 72.44 12.83 77.55 MedFormer [12] 85.84 8.83 92.03 90.68 3.79 93.83 78.18 37.88 78.64 74.64 10.32 78.20 Universal-CLIP [43] 82.59 11.25 88.02 90.14 4.23 93.27 77.07 44.30 76.71 72.31 12.65 75.85 MulModSeg [37] 83.79 8.28 89.56 89.95 4.08 93.41 80.23 34.54 80.46 72.65 12.24 76.54 ZePT [27] 81.12 13.02 85.35 89.96 4.94 93.17 77.56 33.01 78.25 73.47 14.88 79.28 CAT [22] 83.35 9.56 88.55 90.22 3.98 93.11 77.01 38.17 79.25 71.14 15.64 77.19 MedPlex (Ours) 88.21 6.52 93.97 92.60 3.09 96.86 82.94 27.01 83.14 75.42 9.82 79.87
+
+Table 1: Comparison of MedPlex with benchmark vision-only models and VLMs for medical image segmentation. Vision-only models appear first, followed by VLMs (separated by a double horizontal line). The best results are bolded and the second-best results are underlined. 
+
+3.6 Training Objective 
+
+MedPlex is trained end-to-end with a joint objective over segmentation, class-response super-vision, and concept-grounded alignment. The segmentation loss trains the decoder to predict the final mask, the class-response loss makes encoder representations alignment-ready, and the alignment loss organizes the shared vision-language space around clinical concepts. The full training objective is: 
+
+L = β1Lseg + β2LClassEmbed + β3Lalignment . (12) Following homoscedastic uncertainty weighting [29], β1, β2, and β3 are learnable task-balancing parameters. All losses are optimized jointly, so the segmentation decoder, class-response projection, BiFusion updates, and concept-aligned encoder representations are trained under the same segmentation supervision. 
+
+# 4 Experiments 
+
+4.1 Implementation Details 
+
+Datasets. We evaluate MedPlex on 3D CT and MR datasets covering diverse anatomi-cal targets: AMOS22 (CT) [26] and BTCV (CT) [31] for abdominal organs, MM-WHS (CT/MR) [76] for cardiac substructures, and MSD-Brain (MR) [2] for brain tumors. To evaluate real grounded clinical text, we use the focal abnormalities subset of ReXGround-ingCT [3], derived from CT-RATE [15], which pairs 3D CT images with free-text clinical reports grounded to voxel-level annotations. For datasets without report-level supervision, we pair each anatomical class with structured clinical descriptions generated from clinically observable concepts. Additional dataset details, preprocessing steps, and hyperparameter settings are provided in the Appendix. 
+
+Experiment Setup. We initialize the text encoder with ClinicalBERT [1] using Hugging Face Transformers [62] and use Swin UNETR [16] as the vision model. Models are trained for 300 epochs with validation every 5 epochs using AdamW with learning rate 10 −4, weight SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 11 Universal CLIP nnU-Net MedNeXt Swin UNETR Ground Truth Image MedPlex (Ours) MedFormer AMOS22 (CT) MM-WHS (CT) MM-WHS (MR) 
+
+> MSD -Brain (MR)
+
+Figure 4: Qualitative visualizations of randomly selected image slices from AMOS22, MM-WHS (CT), MM-WHS (MR), and MSD-Brain (MR). Comparison of MedPlex against other benchmark mod-els, with red boxes indicating areas where MedPlex outperforms. 
+
+decay 10 −5, and a cosine annealing scheduler decaying to 10 −7. All experiments are con-ducted on an NVIDIA GeForce RTX 4090 (24 GB) using Python 3 .9.18. Further hyperpa-rameter details are provided in the Appendix. 
+
+Baselines. We compare MedPlex against representative CNN-based, transformer-based, and vision-language segmentation models. All models are trained using the same data splits and optimization schedule. For a controlled comparison, all vision-language baselines receive the same underlying textual information, adapted to each method’s required input format, and follow the same training schedule as MedPlex. 
+
+Evaluation Metrics. Performance is measured using Dice Similarity Coefficient (DSC, %), 95% Hausdorff Distance (HD95, mm), and Normalized Surface Distance (NSD, %), which measures boundary agreement within a predefined tolerance. Higher DSC and NSD indicate better segmentation, while lower HD95 indicates smaller boundary error. 
+
+4.2 Results and Discussion 
+
+The experiments evaluate the central claims of MedPlex: whether continuous vision-language co-adaptation improves segmentation across CT and MR benchmarks, whether concept-grounded alignment makes textual supervision more effective, and whether the learned rep-resentations generalize across datasets, backbones, and language encoders. 
+
+Main Segmentation Performance. Figure 4 presents qualitative comparisons between MedPlex, top-performing vision-only models, and vision-language baselines. Each row shows a randomly selected test slice with its ground truth and corresponding segmentation outputs across AMOS22 (CT), MM-WHS (CT/MR), and MSD-Brain (MR). MedPlex pro-12 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+Figure 5: t-SNE visualization shows improved concept separation in MedPlex’s text encoder (right) compared to ClinicalBERT (left), demonstrating the benefit of concept-grounded contrastive align-ment. 
+
+duces predictions closer to the ground truth, with red boxes highlighting low-contrast regions and ambiguous boundaries where it improves over competing models.                 
+
+> Method ReXGroundingCT DSC ↑NSD ↑
+> Universal-CLIP [43] 18.99 19.98 MulModSeg [37] 19.05 23.45 ZePT [27] 17.45 22.05 CAT [22] 18.78 28.64 MedPlex w/o BiFusion 19.55 25.06 MedPlex w/o Alignment 20.50 29.59 MedPlex (full) 21.78 31.32
+
+Table 2: Comparison under real clinical-text supervision on ReXGroundingCT. 
+
+Quantitative results in Table 1 further show that MedPlex improves over strong vision-only baselines, including CNN-based models, transformer-based models, and hybrid architec-tures such as MedFormer. On AMOS22, Med-Plex surpasses the best vision-only result on each metric, improving DSC by nearly 2%, re-ducing HD95 from 8.32 mm to 6.52 mm, and improving NSD from 92.03% to 93.97%. On MM-WHS (CT), it improves over the strongest vision-only baseline across all metrics, increas-ing DSC from 91.43% to 92.60%, reducing HD95 from 3.52 mm to 3.09 mm, and improv-ing NSD from 95.11% to 96.86%. On MM-WHS (MR), MedPlex also achieves the best results across all metrics, improving DSC from 80.71% to 82.94%, HD95 from 28.44 mm to 27.01 mm, and NSD from 81.08% to 83.14%. On MSD-Brain, MedPlex achieves the best HD95 and NSD while remaining competitive in DSC. These results suggest that integrating textual descriptions into representation learning improves both region overlap and boundary quality across diverse anatomical targets and imaging modalities. 
+
+Comparison with Text-Guided VLM Segmentation Methods. MedPlex outperforms prior                
+
+> Textual Information Format Alignment AMOS22 (CT) DSC ↑NSD ↑
+> Fixed, consistent concepts Class & Region 88.21 93.97
+> Non-fixed, ambiguous concepts Class & Region 87.24 93.22 Single aggregated definition Class-level 87.01 92.91 Class names, no concepts Class-level 86.45 91.34
+
+Table 3: Effects of textual information format on MedPlex. 
+
+VLM-based segmentation methods across datasets and modalities in Ta-ble 1, including approx-imately 4% gains in both DSC and NSD on AMOS22. Qualitative results in Fig-ure 4 also show im-proved segmentation of visually ambiguous re-gions compared with Universal-CLIP [43]. These results indicate that encoder-level vision-language co-adaptation turns clinical concepts into class-specific evidence, improving the separation of structures with similar intensities, weak boundaries, and modality-dependent appearance. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 13 
+
+On ReXGroundingCT (Table 2), supervision is closer to real clinical use: free-text re-ports describe focal abnormalities, and the corresponding masks are sparse rather than ex-haustive. This setting is challenging because the text does not provide clean class-level de-scriptions, and the visual targets may be incomplete or weakly localized. MedPlex achieves the best DSC and NSD among all compared methods, showing that its advantage extends be-yond controlled structured descriptions. The variants without BiFusion or alignment further clarify where this robustness comes from: removing concept-grounded organization lowers DSC to 20.50, while removing continuous grounding of textual representations in image-specific visual evidence lowers it further to 19.55, indicating that co-adaptation matters most when the language itself is noisy. These results suggest that MedPlex is better suited to real-istic clinical-text supervision because it combines adaptive vision-language interaction with structured alignment, allowing noisy report-derived language to contribute to dense predic-tion more effectively. 
+
+Effects of Textual Information. To analyze how the structure of textual supervision affects multimodal alignment, we evaluate MedPlex on the AMOS22 (CT) dataset in Table 3. We compare multiple textual input formats: fixed, consistent concepts (default), non-fixed or am-biguous concepts without manual refinement, a single detailed sentence aggregating all con-cepts, and class names only.                  
+
+> Method AMOS22 (CT) →BTCV (CT) DSC ↑HD95 ↓NSD ↑
+> nnU-Net [25] 73.54 19.00 81.04 MedFormer [12] 72.84 17.06 80.06 Universal-CLIP [43] 70.04 23.28 78.05 MedPlex (Ours) 79.65 9.74 88.02
+
+Table 4: Cross-benchmark transfer results on BTCV using models trained on AMOS22. Eval-uation is performed without fine-tuning on BTCV. 
+
+Consistent concept descriptions achieve the best performance, while ambiguous con-cepts reduce accuracy. Aggregating all concepts into a single description lowers DSC by 1.2 points, and using only class names produces a 1.8-point drop, showing that MedPlex benefits from explicit concept structure, not textual content alone. Re-moving all textual input (Table 5) decreases DSC by 3.5 points, further confirming the value of structured semantic supervision. 
+
+Cross-Benchmark Transfer. Models trained on AMOS22 are evaluated directly on BTCV without adaptation. As shown in Table 4, MedPlex achieves the best results, improving DSC from 73.54% to 79.65%, reducing HD95 from 17.06 mm to 9.74 mm, and increasing NSD from 81.04% to 88.02%. The substantial HD95 reduction indicates stronger boundary trans-fer, showing that MedPlex learns anatomical evidence that generalizes beyond the source benchmark.                                                
+
+> MedPlex Components AMOS22 (CT) Backbone Fusion Class-Level Region-Level DSC ↑NSD ↑
+> Alignment Alignment UNet++ BiFusion ✓✓86.47 92.52 Swin UNETR BiFusion ✓✓88.21 93.97
+> Swin UNETR BiFusion ✓×87.54 92.89 Swin UNETR BiFusion ××86.71 92.07 Swin UNETR BiFusion ×✓86.87 92.24 Swin UNETR Unidirectional ✓✓85.98 92.27 Swin UNETR Late Fusion ✓✓85.56 91.66 Swin UNETR None ××84.71 90.74
+
+Table 5: Ablation of MedPlex components and fusion designs. 
+
+Component Analysis. Ta-ble 5 evaluates the con-tribution of each Med-Plex component. With all components enabled, both backbones improve over their vision-only coun-terparts in Table 1, show-ing that the framework is not tied to a single back-bone. Removing region-level concept alignment, both alignment objectives, or class-level concept alignment consistently reduces perfor-14 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+mance. Region-level concept alignment is most effective when supported by class-level anatomical anchors. The matched unidirectional fusion strategy updates the vision encoder with text across the same stages but does not update textual representations using visual evi-dence. It reaches 85.98 DSC and 92.27 NSD, compared with 88.21 DSC and 93.97 NSD for BiFusion, while late fusion obtains 85.56 DSC and 91.66 NSD. These comparisons isolate the benefit of bidirectional co-adaptation from multi-stage text injection. Removing fusion and alignment produces the lowest overall performance. 
+
+Representation Analysis. Beyond segmentation accuracy, we examine whether concept-                   
+
+> MedPlex AMOS22 (CT) Vision Language DSC ↑NSD ↑
+> Swin UNETR ClinicalBERT 88.21 93.97 Swin UNETR BioBERT 87.91 93.19 Swin UNETR PubMedBERT 88.01 93.82 U-Net ClinicalBERT 83.79 90.36 UNETR ClinicalBERT 79.88 87.45
+
+Table 6: Ablation on vision and language backbone choices. 
+
+grounded alignment changes the structure of the textual representation space. The t-SNE plots in Figure 5 compare ClinicalBERT with the Med-Plex text encoder after training. ClinicalBERT separates coarse concepts but shows weaker or-ganization for domain-specific anatomical se-mantics, whereas MedPlex produces clearer sep-aration of fine-grained and anatomically mean-ingful concepts. This supports the role of concept-grounded contrastive alignment in pre-serving clinical concept structure, which is central to using textual descriptions as segmen-tation supervision.                         
+
+> Method Params FLOPs Infer. Train Iter (M) (GMac) Mem (GB) Mem (GB) Time (s) Vision-Only 62.19 328.94 1.54 3.15 8.53 ZePT 189.77 360.50 2.43 7.54 14.47 MedPlex 183.46 357.26 2.36 7.33 13.89
+
+Table 7: Computational profiles of MedPlex, ZePT, and vision-only baseline. 
+
+Effect of Language Backbone. Table 6 shows that replacing ClinicalBERT with BioBERT or PubMedBERT leads to only minor performance changes, suggesting that MedPlex is not highly sensitive to the initial language encoder. This indicates that the hierarchical fusion and concept-grounded alignment objectives help adapt differ-ent biomedical text encoders into a shared vision-language representation space. Replacing the vision backbone (Table 6) with U-Net or UNETR also yields consistent gains over their vision-only counterparts from Table 1, showing that the benefits of BiFusion and concept-grounded contrastive alignment are not tied to a specific segmentation architecture. 
+
+Computational Analysis. As shown in Table 7, MedPlex introduces modest overhead rel-ative to a vision-only baseline due to multimodal integration. Compared with ZePT [27], MedPlex uses fewer parameters (183M vs. 190M), lower GPU memory during both training and inference, and slightly faster per-iteration training time (13.89s vs. 14.47s). These re-sults indicate that the BiFusion and alignment modules add limited computational cost while improving segmentation performance, giving MedPlex a favorable efficiency-performance tradeoff. 
+
+# 5 Conclusion 
+
+We present MedPlex, a vision-language framework that turns textual guidance into contin-uous, clinically grounded representation learning through BiFusion and concept-grounded alignment. Across CT and MR benchmarks, including free-text report supervision, MedPlex consistently improves segmentation across diverse anatomical targets and textual settings. 
+
+Limitations. MedPlex uses volume- or anatomical-class-level textual supervision without explicitly modeling 2D slice-wise cues. Future work will explore slice-aware supervision for localized clinical descriptions and more lightweight model variants. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 15 
+
+# References 
+
+[1] Emily Alsentzer, John Murphy, William Boag, Wei-Hung Weng, Di Jindi, Tristan Nau-mann, and Matthew McDermott. Publicly available clinical bert embeddings. In Pro-ceedings of the 2nd clinical natural language processing workshop , pages 72–78, 2019. [2] Michela Antonelli, Annika Reinke, Spyridon Bakas, Keyvan Farahani, Annette Kopp-Schneider, Bennett A Landman, Geert Litjens, Bjoern Menze, Olaf Ronneberger, Ronald M Summers, et al. The medical segmentation decathlon. Nature communi-cations , 13(1):4128, 2022. [3] Mohammed Baharoon, Luyang Luo, Michael Moritz, Abhinav Kumar, Sung Eun Kim, Xiaoman Zhang, Miao Zhu, Mahmoud H Alabbad, Maha S Alhazmi, Neel P Mistry, et al. Rexgroundingct: A 3d chest ct dataset for segmentation of findings from free-text reports. NEJM AI , 3(7):AIdbp2501220, 2026. [4] Phuoc-Nguyen Bui, Duc-Tai Le, and Hyunseung Choo. Visual-textual matching atten-tion for lesion segmentation in chest images. In International Conference on Medi-cal Image Computing and Computer-Assisted Intervention , pages 702–711. Springer, 2024. [5] Yinda Chen, Che Liu, Wei Huang, Xiaoyu Liu, Haoyuan Shi, Sibo Cheng, Rossella Arcucci, and Zhiwei Xiong. Gtgm: Generative text-guided 3d vision-language pre-training for medical image segmentation. In 2025 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW) , pages 6774–6783. IEEE, 2025. [6] Yubin Cho, Hyunwoo Yu, and Suk-Ju Kang. Cross-aware early fusion with stage-divided vision and language transformer encoders for referring image segmentation. 
+
+IEEE Transactions on Multimedia , 26:5823–5833, 2023. [7] Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. Bert: Pre-training of deep bidirectional transformers for language understanding. In Proceedings of the 2019 conference of the North American chapter of the association for compu-tational linguistics: human language technologies, volume 1 (long and short papers) ,pages 4171–4186, 2019. [8] Zhiquan Ding, Yuejin Zhang, Chenxin Zhu, Guolong Zhang, Xiong Li, Nan Jiang, Yue Que, Yuanyuan Peng, and Xiaohui Guan. Cat-unet: An enhanced u-net architecture with coordinate attention and skip-neighborhood attention transformer for medical im-age segmentation. Information Sciences , 670:120578, 2024. [9] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiao-hua Zhai, Thomas Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit, and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In International Conference on Learning Representations , 2021. [10] Yuxin Du, Fan Bai, Tiejun Huang, and Bo Zhao. Segvol: Universal and interactive volumetric medical image segmentation. Advances in Neural Information Processing Systems , 37:110746–110783, 2024. 16 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+[11] Guang Feng, Zhiwei Hu, Lihe Zhang, and Huchuan Lu. Encoder fusion network with co-attention embedding for referring image segmentation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 15506– 15515, 2021. [12] Yunhe Gao, Mu Zhou, Di Liu, Zhennan Yan, Shaoting Zhang, and Dimitris N Metaxas. A data-scalable transformer for medical image segmentation: architecture, model effi-ciency, and benchmark. arXiv preprint arXiv:2203.00131 , 2022. [13] Yu Gu, Robert Tinn, Hao Cheng, Michael Lucas, Naoto Usuyama, Xiaodong Liu, Tris-tan Naumann, Jianfeng Gao, and Hoifung Poon. Domain-specific language model pre-training for biomedical natural language processing. ACM Transactions on Computing for Healthcare (HEALTH) , 3(1):1–23, 2021. [14] Yunpeng Guo, Xinyi Zeng, Pinxian Zeng, Yuchen Fei, Lu Wen, Jiliu Zhou, and Yan Wang. Common vision-language attention for text-guided medical image segmenta-tion of pneumonia. In International Conference on Medical Image Computing and Computer-Assisted Intervention , pages 192–201. Springer, 2024. [15] Ibrahim Ethem Hamamci, Sezgin Er, Chenyu Wang, Furkan Almas, Ayse Gulnihan Simsek, Sevval Nil Esirgun, Irem Doga, Omer Faruk Durugol, Weicheng Dai, Murong Xu, et al. Developing generalist foundation models from a multimodal dataset for 3d computed tomography. arXiv preprint arXiv:2403.17834 , 2024. [16] Ali Hatamizadeh, Vishwesh Nath, Yucheng Tang, Dong Yang, Roth, and Daguang Xu. Swin unetr: Swin transformers for semantic segmentation of brain tumors in mri images. In International MICCAI Brainlesion Workshop . Springer, 2021. [17] Ali Hatamizadeh, Yucheng Tang, Vishwesh Nath, Dong Yang, Andriy Myronenko, Bennett Landman, Holger R Roth, and Daguang Xu. Unetr: Transformers for 3d med-ical image segmentation. In Proceedings of the IEEE/CVF winter conference on appli-cations of computer vision , pages 574–584, 2022. [18] Yufan He, Vishwesh Nath, Dong Yang, Yucheng Tang, Andriy Myronenko, and Daguang Xu. Swinunetr-v2: Stronger swin transformers with stagewise convolutions for 3d medical image segmentation. In International Conference on Medical Image Computing and Computer-Assisted Intervention . Springer, 2023. [19] Jihong Hu, Yinhao Li, Hao Sun, Yu Song, Chujie Zhang, Lanfen Lin, and Yen-Wei Chen. Lga: A language guide adapter for advancing the sam model’s capabilities in medical image segmentation. In International Conference on Medical Image Comput-ing and Computer-Assisted Intervention , pages 610–620. Springer, 2024. [20] Shih-Cheng Huang, Liyue Shen, Matthew P Lungren, and Serena Yeung. Gloria: A multimodal global-local representation learning framework for label-efficient medical image recognition. In Proceedings of the IEEE/CVF international conference on com-puter vision , pages 3942–3951, 2021. [21] Xiaoshuang Huang, Hongxiang Li, Meng Cao, Long Chen, Chenyu You, and Dong An. Cross-modal conditioned reconstruction for language-guided medical image seg-mentation. IEEE Transactions on Medical Imaging , 2024. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 17 
+
+[22] Zhongzhen Huang, Yankai Jiang, Rongzhao Zhang, Shaoting Zhang, and Xiaofan Zhang. Cat: Coordinating anatomical-textual prompts for multi-organ and tumor seg-mentation. Advances in Neural Information Processing Systems , 37:3588–3610, 2024. [23] Ziyan Huang, Haoyu Wang, Zhongying Deng, Jin Ye, Yanzhou Su, Hui Sun, Junjun He, Gu, et al. Stu-net: Scalable and transferable medical image segmentation models empowered by large-scale supervised pre-training. arXiv preprint arXiv:2304.06716 ,2023. [24] Zachary Huemann, Xin Tie, Junjie Hu, and Tyler J Bradshaw. Contextual net: a multi-modal vision-language model for segmentation of pneumothorax. Journal of Imaging Informatics in Medicine , 2024. [25] Fabian Isensee, Paul F Jaeger, Simon AA Kohl, Jens Petersen, and Klaus H Maier-Hein. nnu-net: a self-configuring method for deep learning-based biomedical image segmentation. Nature methods , 18(2):203–211, 2021. [26] Yuanfeng Ji, Haotian Bai, Chongjian Ge, Jie Yang, Ye Zhu, Ruimao Zhang, Zhen Li, Lingyan Zhanng, Wanling Ma, Xiang Wan, et al. Amos: A large-scale abdominal multi-organ benchmark for versatile medical image segmentation. Advances in neural information processing systems , 35:36722–36732, 2022. [27] Yankai Jiang, Zhongzhen Huang, Rongzhao Zhang, Xiaofan Zhang, and Shaoting Zhang. Zept: Zero-shot pan-tumor segmentation via query-disentangling and self-prompting. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pat-tern Recognition , pages 11386–11397, 2024. [28] Yankai Jiang, Wenhui Lei, Xiaofan Zhang, and Shaoting Zhang. Unleashing the po-tential of vision-language pre-training for 3d zero-shot lesion segmentation via mask-attribute alignment. In International Conference on Learning Representations , volume 2025, pages 38926–38951, 2025. [29] Alex Kendall, Yarin Gal, and Roberto Cipolla. Multi-task learning using uncertainty to weigh losses for scene geometry and semantics. In Proceedings of the IEEE conference on computer vision and pattern recognition , pages 7482–7491, 2018. [30] Kwanyoung Kim, Yujin Oh, Sangjoon Park, Hwa Kyung Byun, Jin Sung Kim, Yong Bae Kim, and Jong Chul Ye. Ro-llama: Generalist llm for radiation oncology via noise augmentation and consistency regularization. arXiv preprint arXiv:2311.15876 ,2023. [31] Bennett Landman, Zhoubing Xu, J Igelsias, Martin Styner, Thomas Langerak, and Arno Klein. Miccai multi-atlas labeling beyond the cranial vault–workshop and chal-lenge. In Proc. MICCAI Multi-Atlas Labeling Beyond Cranial Vault , 2015. [32] Jinhyuk Lee, Wonjin Yoon, Sungdong Kim, Donghyeon Kim, Sunkyu Kim, et al. Biobert: a pre-trained biomedical language representation model for biomedical text mining. Bioinformatics , 2020. [33] Aibing Li, Xinyi Zeng, Pinxian Zeng, Sixian Ding, Peng Wang, Chengdi Wang, and Yan Wang. Textmatch: Using text prompts to improve semi-supervised medical im-age segmentation. In International Conference on Medical Image Computing and Computer-Assisted Intervention , pages 699–709. Springer, 2024. 18 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+[34] Chengyin Li, Hassan Bagher-Ebadian, Rafi Ibn Sultan, Mohamed Elshaikh, Benjamin Movsas, Dongxiao Zhu, and Indrin J Chetty. A new architecture combining convolu-tional and transformer-based networks for automatic 3d multi-organ segmentation on ct images. Medical physics , 50(11):6990–7002, 2023. [35] Chengyin Li, Yao Qiang, Rafi Ibn Sultan, Hassan Bagher-Ebadian, Prashant Khanduri, Indrin J Chetty, and Dongxiao Zhu. Focalunetr: A focal transformer for boundary-aware prostate segmentation using ct images. In International Conference on Medi-cal Image Computing and Computer-Assisted Intervention , pages 592–602. Springer, 2023. [36] Chengyin Li, Rafi Ibn Sultan, Prashant Khanduri, Yao Qiang, Chetty Indrin, and Dongxiao Zhu. Autoprosam: Automated prompting sam for 3d multi-organ segmen-tation. In Proceedings of the Winter Conference on Applications of Computer Vision (WACV) , pages 3570–3580, February 2025. [37] Chengyin Li, Hui Zhu, Rafi Ibn Sultan, Hassan Bagher Ebadian, Prashant Khanduri, Chetty Indrin, Kundan Thind, and Dongxiao Zhu. Mulmodseg: Enhancing unpaired multi-modal medical image segmentation with modality-conditioned text embedding and alternating training. In Proceedings of the Winter Conference on Applications of Computer Vision (WACV) , 2025. [38] Tang Li, Mengmeng Ma, and Xi Peng. Deal: Disentangle and localize concept-level explanations for vlms. In European Conference on Computer Vision , pages 383–401. Springer, 2024. [39] Zihan Li, Yunxiang Li, Qingde Li, Puyang Wang, Dazhou Guo, Le Lu, Dakai Jin, You Zhang, and Qingqi Hong. Lvit: language meets vision transformer in medical image segmentation. IEEE transactions on medical imaging , 2023. [40] Feng Liang, Bichen Wu, Xiaoliang Dai, Kunpeng Li, Yinan Zhao, Hang Zhang, Peizhao Zhang, Peter Vajda, and Diana Marculescu. Open-vocabulary semantic seg-mentation with mask-adapted clip. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 7061–7070, 2023. [41] Xinjie Liang, Xiangyu Li, Fanding Li, Jie Jiang, Qing Dong, Wei Wang, Kuanquan Wang, Suyu Dong, Gongning Luo, and Shuo Li. Medfilip: Medical fine-grained language-image pre-training. IEEE Journal of Biomedical and Health Informatics ,2025. [42] Bo Liu, Donghuan Lu, Dong Wei, Xian Wu, Yan Wang, Yu Zhang, and Yefeng Zheng. Improving medical vision-language contrastive pretraining with semantics-aware triage. IEEE Transactions on Medical Imaging , 2023. [43] Jie Liu, Yixiao Zhang, Jie-Neng Chen, Junfei Xiao, Yongyi Lu, Bennett A Landman, Yixuan Yuan, Alan Yuille, Yucheng Tang, and Zongwei Zhou. Clip-driven universal model for organ segmentation and tumor detection. In Proceedings of the IEEE/CVF International Conference on Computer Vision , 2023. [44] Timo Lüddecke and Alexander Ecker. Image segmentation using text and image prompts. In Proceedings of the IEEE/CVF conference on computer vision and pat-tern recognition , pages 7086–7096, 2022. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 19 
+
+[45] Ujunwa Mgboh, Rafi Ibn Sultan, Joshua Kim, Kundan Thind, and Dongxiao Zhu. Flu-enceformer: transformer-driven multi-beam fluence map regression for radiotherapy planning. arXiv preprint arXiv:2512.22425 , 2025. [46] Philip Müller, Georgios Kaissis, Congyu Zou, and Daniel Rueckert. Joint learning of localized representations from medical images and reports. In European conference on computer vision , pages 685–701. Springer, 2022. [47] Stanislav Nikolov, Sam Blackwell, Alexei Zverovitch, Ruheena Mendes, Michelle Livne, Jeffrey De Fauw, Yojan Patel, Clemens Meyer, Harry Askham, Bernardino Romera-Paredes, et al. Deep learning to achieve clinically applicable segmentation of head and neck anatomy for radiotherapy. arXiv preprint arXiv:1809.04430 , 2018. [48] Yujin Oh, Sangjoon Park, Hwa Kyung Byun, Yeona Cho, Lee, et al. Llm-driven multi-modal target volume contouring in radiation oncology. Nature Communications , 2024. [49] Matthew E Peters, Mark Neumann, Luke Zettlemoyer, and Wen-tau Yih. Dissecting contextual word embeddings: Architecture and representation. In Proceedings of the 2018 conference on empirical methods in natural language processing , pages 1499– 1509, 2018. [50] Vu Minh Hieu Phan, Yutong Xie, Yuankai Qi, Lingqiao Liu, Liyang Liu, Bowen Zhang, Zhibin Liao, Qi Wu, Minh-Son To, and Johan W Verjans. Decomposing disease descriptions for enhanced pathology detection: A multi-aspect vision-language pre-training framework. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , pages 11492–11501, 2024. [51] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from natural language supervision. In International confer-ence on machine learning , pages 8748–8763. PMLR, 2021. [52] Maximilian Rokuss, Moritz Langenberg, Yannick Kirchhoff, Fabian Isensee, Benjamin Hamm, Constantin Ulrich, Sebastian Regnery, Lukas Bauer, Efthimios Katsigiannopu-los, Tobias Norajitra, et al. Voxtell: Free-text promptable universal 3d medical image segmentation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition , pages 37538–37557, 2026. [53] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks for biomedical image segmentation. In Medical Image Computing and Computer-Assisted Intervention–MICCAI 2015 , pages 234–241. Springer, 2015. [54] Saikat Roy, Gregor Koehler, Constantin Ulrich, Baumgartner, et al. Mednext: transformer-driven scaling of convnets for medical image segmentation. In Interna-tional Conference on Medical Image Computing and Computer-Assisted Intervention ,2023. [55] Samruddhi Shastri, Naren Akash RJ, Lokesh Gautham, and Jayanthi Sivaswamy. Locate-then-delineate: A free-text report guided approach for pneumothorax segmen-tation in chest radiographs. In 2024 IEEE International Symposium on Biomedical Imaging (ISBI) , pages 1–4. IEEE, 2024. 20 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+[56] Zhongyi Shui, Jianpeng Zhang, Weiwei Cao, Sinuo Wang, et al. Large-scale and fine-grained vision-language pre-training for enhanced CT image understanding. In 
+
+The Thirteenth International Conference on Learning Representations , 2025. URL 
+
+https://openreview.net/forum?id=nYpPAT4L3D .[57] Rafi Ibn Sultan, Chengyin Li, Yiannos Demetriou, Ahmed I. Ghanem, Joshua P. Kim, Justine Cunningham, Hassan Bagher-Ebadian, Dongxiao Zhu, and Kundan S. Thind. A neighborhood attention transformer network for enhanced 3d segmentation of the left anterior descending artery, 2026. URL https://arxiv.org/abs/2608. 12274 .[58] I Tenney. Bert rediscovers the classical nlp pipeline. arXiv preprint arXiv:1905.05950 ,2019. [59] A Vaswani. Attention is all you need. Advances in Neural Information Processing Systems , 2017. [60] Fuying Wang, Yuyin Zhou, Shujun Wang, Varut Vardhanabhuti, and Lequan Yu. Multi-granularity cross-modal alignment for generalized medical visual representation learn-ing. Advances in neural information processing systems , 35:33536–33549, 2022. [61] Zhaoqing Wang, Yu Lu, Qiang Li, Xunqiang Tao, Yandong Guo, Mingming Gong, and Tongliang Liu. Cris: Clip-driven referring image segmentation. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition , 2022. [62] T Wolf. Huggingface’s transformers: State-of-the-art natural language processing. 
+
+arXiv preprint arXiv:1910.03771 , 2019. [63] Mengde Xu, Zheng Zhang, Fangyun Wei, Yutong Lin, Yue Cao, Han Hu, and Xiang Bai. A simple baseline for open-vocabulary semantic segmentation with pre-trained vision-language model. In European Conference on Computer Vision , pages 736–753. Springer, 2022. [64] Zhao Yang, Jiaqi Wang, Yansong Tang, Kai Chen, Hengshuang Zhao, and Philip HS Torr. Lavt: Language-aware vision transformer for referring image segmentation. In 
+
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recogni-tion , 2022. [65] Runtian Yuan, Ling Zhou, Jilan Xu, Qingqiu Li, Mohan Chen, Yuejie Zhang, Rui Feng, Tao Zhang, and Shang Gao. Tgsam-2: Text-guided medical image segmentation using segment anything model 2. In International Conference on Medical Image Computing and Computer-Assisted Intervention , pages 565–574. Springer, 2025. [66] Qingjie Zeng, Huan Luo, Zilin Lu, Yutong Xie, Zhiyong Wang, Yanning Zhang, and Yong Xia. Harnessing text insights with visual alignment for medical image segmen-tation. IEEE transactions on medical imaging , 2025. [67] Qingjie Zeng, Huan Luo, Xinke Ma, Zilin Lu, Yang Hu, Mengkang Lu, Yanning Zhang, and Yong Xia. Decoupling target semantics via text-anchored visual contrast for semi-supervised medical image segmentation. IEEE Transactions on Image Processing ,2026. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 21 
+
+[68] Xinyi Zeng, Pinxian Zeng, Jiaqi Cui, Aibing Li, Bo Liu, Chengdi Wang, and Yan Wang. Abp: Asymmetric bilateral prompting for text-guided medical image segmentation. In 
+
+International Conference on Medical Image Computing and Computer-Assisted Inter-vention , 2024. [69] Xu Zhang, Bo Ni, Yang Yang, and Lefei Zhang. Madapter: A better interaction between image and language for medical image segmentation. In International Conference on Medical Image Computing and Computer-Assisted Intervention . Springer, 2024. [70] Theodore Zhao, Yu Gu, Jianwei Yang, Naoto Usuyama, Ho Hin Lee, Sid Kiblawi, Tristan Naumann, Jianfeng Gao, Angela Crabtree, Jacob Abel, et al. A foundation model for joint segmentation, detection and recognition of biomedical objects across nine modalities. Nature methods , 22(1):166–176, 2025. [71] Ziheng Zhao, Yao Zhang, Chaoyi Wu, Xiaoman Zhang, Xiao Zhou, Ya Zhang, Yanfeng Wang, and Weidi Xie. Large-vocabulary segmentation for medical images with text prompts. NPJ Digital Medicine , 8(1):566, 2025. [72] Yi Zhong, Mengqiu Xu, Kongming Liang, Kaixin Chen, and Ming Wu. Ariadne’s thread: Using text prompts to improve segmentation of infected areas from chest x-ray images. In International Conference on Medical Image Computing and Computer-Assisted Intervention , pages 724–733. Springer, 2023. [73] Hong-Yu Zhou, Jiansen Guo, Yinghao Zhang, Xiaoguang Han, Lequan Yu, Liansheng Wang, and Yizhou Yu. nnformer: Volumetric medical image segmentation via a 3d transformer. IEEE Transactions on Image Processing , 32:4036–4045, 2023. doi: 10. 1109/TIP.2023.3293771. [74] Xichuan Zhou, Lingfeng Yan, Rui Ding, Chukwuemeka Clinton Atabansi, Jing Nie, Lihui Chen, Yujie Feng, and Haijun Liu. Mit-sam: Medical image-text sam with mu-tually enhanced heterogeneous features fusion for medical image segmentation. IEEE Journal of Biomedical and Health Informatics , 2025. [75] Zongwei Zhou, Md Mahfuzur Rahman Siddiquee, Nima Tajbakhsh, and Jianming Liang. Unet++: A nested u-net architecture for medical image segmentation. In Deep Learning in Medical Image Analysis and Multimodal Learning for Clinical Decision Support . Springer, 2018. [76] Xiahai Zhuang, Lei Li, Christian Payer, Darko Štern, Martin Urschler, Mattias P Hein-rich, Julien Oster, Chunliang Wang, Örjan Smedby, Cheng Bian, et al. Evaluation of algorithms for multi-modality whole heart segmentation: an open-access grand chal-lenge. Medical image analysis , 58:101537, 2019. 
+
+# A Appendix: Additional Technical Details and Benchmarks 
+
+A.1 Additional Method Details 
+
+Vision Model. MedPlex can be integrated with standard encoder-decoder 3D segmentation backbones. In our main experiments, we use Swin UNETR [16] as the vision model. Given 22 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+a 3D medical image X ∈ RH×W ×D×1, the vision encoder produces multi-stage visual repre-sentations that are used for stage-wise fusion with textual representations. The encoder is organized into four stages, each composed of Swin Transformer blocks [16] with MLP lay-ers, layer normalization, residual connections, and downsampling between stages. At stage 
+
+n, the visual feature map has spatial resolution approximately (H/2n,W /2n, D/2n).The decoder receives the BiFusion-updated encoder representations through skip connec-tions at the corresponding resolutions. These skip connections combine fine-grained spatial detail from earlier stages with higher-level semantic representations from deeper stages. The final prediction layer maps the decoder output to an N-class segmentation map, where N
+
+denotes the number of anatomical classes. 
+
+Text Encoder. We evaluate MedPlex with three domain-specific BERT encoders: BioBERT [32], ClinicalBERT [1], and PubMedBERT [13]. BioBERT is pretrained on biomedical corpora such as PubMed abstracts and PMC full-text articles, ClinicalBERT is adapted to clinical notes and electronic health records, and PubMedBERT is trained from scratch on PubMed abstracts. These models provide biomedical or clinical textual representations that can be in-corporated into MedPlex through the stage-wise language stream. In the main experiments, we use ClinicalBERT as the default text encoder and report backbone sensitivity results in the main paper. 
+
+Segmentation Loss. The segmentation objective combines Dice loss and cross-entropy loss: 
+
+Lseg = Ldice (P, G) + Lce (P, G), (13) where P denotes the predicted segmentation map and G denotes the ground-truth mask. The Dice loss is defined as 
+
+Ldice (P, G) = 1 − 2 ∑ j P jG j
+
+∑ j P2 
+
+> j
+
++ ∑ j G2 
+
+> j
+
++ ε , (14) where j indexes voxels and ε is a small constant for numerical stability. The cross-entropy term provides voxel-wise class supervision and complements the overlap-based Dice objec-tive. 
+
+Balancing Multiple Loss Functions. MedPlex jointly optimizes segmentation, class-response supervision, and concept-grounded alignment: 
+
+L = β1Lseg + β2LClassEmbed + β3Lalignment . (15) Following homoscedastic uncertainty weighting [29], we parameterize each learnable task weight as βi = 1/(2σ 2 
+
+> i
+
+). Including the corresponding regularization terms, the complete training objective is 
+
+L = 12σ 21
+
+Lseg + 12σ 22
+
+LClassEmbed + 12σ 23
+
+Lalignment 
+
++ log σ1 + log σ2 + log σ3, (16) where each σi is learned during training and represents the uncertainty associated with one objective. Objectives with higher learned uncertainty receive lower weights, while the logarithmic terms prevent degenerate solutions. This formulation adaptively balances the three objectives without manually tuned static weights. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 23 
+
+A.2 Controlled Textual Information 
+
+Prompt for Structured Clinical Descriptions. For datasets without report-level supervi-sion, we generate structured class-specific textual descriptions using an LLM. Each anatomi-cal class is described through clinically observable concepts: shape, location, appearance/density, contour/symmetry, and internal texture. The following prompt template is used: 
+
+> “[organ name] in a [modality] image.” “Shape: visual description of the shape of [organ name] in [modality] image.” “Location: visual description of the location of [organ name] in [modality] image.” “Appearance/Density: visual description of the appearance or density of [organ name] in [modal-ity] image.” “Contour/Symmetry: visual description of the contour or symmetry of [organ name] in [modal-ity] image.” “Internal Texture: visual description of the internal texture of [organ name] in [modality] image.” Can you provide six total descriptions for each class in this format? Do this for the following organs, and the modality is CT: left ventricle, right ventricle, left atrium, right atrium, myocardium of left ventricle, ascending aorta, and pulmonary artery. We need visual descriptions only, not functional descriptions.
+
+Concept Description Review Protocol. All generated concept descriptions were manu-ally reviewed by the authors and cross-checked through a secondary LLM-based quality pass. The review verified that each description followed its requested concept category and contained only observable anatomical characteristics, without functional claims or clinical interpretation. The reviewed descriptions were then fixed and used consistently throughout training. Table 8 shows representative examples of the class-specific structured descriptions used in our experiments. 
+
+A.3 Datasets and Preprocessing 
+
+A.3.1 Dataset Description 
+
+We evaluate MedPlex on diverse 3D medical imaging datasets covering abdominal organs, cardiac substructures, brain tumors, and thoracic abnormalities. 
+
+AMOS22. AMOS22 [26] provides abdominal CT images with annotations for 15 organs: spleen, right kidney, left kidney, gallbladder, esophagus, liver, stomach, aorta, inferior vena cava, pancreas, right adrenal gland, left adrenal gland, duodenum, bladder, and prostate/uterus. The dataset contains 200 training-validation images and 100 test images. 
+
+BTCV. BTCV [31] contains contrast-enhanced abdominal CT images annotated for 13 ab-dominal organs: spleen, right kidney, left kidney, gallbladder, esophagus, liver, stomach, aorta, inferior vena cava, portal vein and splenic vein, pancreas, right adrenal gland, and left adrenal gland. 
+
+MM-WHS. MM-WHS [76] includes whole-heart segmentation from CT and MR images. It provides labels for seven cardiac structures: left ventricle blood cavity, myocardium of the left ventricle, right ventricle blood cavity, left atrium blood cavity, right atrium blood cavity, ascending aorta, and pulmonary artery. The dataset contains 20 CT and 20 MR images, which we evaluate separately as MM-WHS (CT) and MM-WHS (MR). 
+
+MSD-Brain. MSD-Brain [2] is part of the Medical Segmentation Decathlon and focuses on brain tumor segmentation. Following common brain tumor segmentation protocols, we 24 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+Title Shape Location Appearance/Density Contour/Symmetry Internal Texture 
+
+Spleen in a CT Image Ovoid or crescent-shaped with a smooth outer sur-face. Located in the left up-per quadrant, lateral to the stomach and superior to the left kidney. Soft-tissue density with ho-mogeneous enhancement af-ter contrast administration. Well-defined smooth con-tour, slightly convex later-ally and concave medially. Homogeneous fine-grained internal texture under nor-mal conditions. Right Kidney in a CT Im-age Bean-shaped with aslightly concave medial border at the hilum. Positioned in the right retroperitoneum, inferior to the liver and lateral to the inferior vena cava. Intermediate soft-tissue den-sity with a hypodense central collecting system. Smooth and well-defined outer contour with subtle lobulations in some cases. Cortex appears homoge-neous, while the medulla may show striated texture due to renal pyramids. Left Kidney in a CT Im-age Bean-shaped with aslightly concave medial border at the hilum. Positioned in the left retroperitoneum, inferior to the spleen and lateral to the aorta. Intermediate soft-tissue den-sity with a hypodense central collecting system. Smooth and well-defined outer contour with subtle lobulations in some cases. Cortex appears homoge-neous, while the medulla may show striated texture due to renal pyramids. Left Ventricle in a CT Image Oval-like shape with thick walls tapering slightly to-ward the apex. Positioned on the left side of the heart, below the left atrium and anterior to the descending aorta. High-density muscular wall visible with contrast enhancement; the lumen appears lower in density when filled with blood or contrast agent. Smooth and well-defined contour with relatively symmetric walls around the cavity. Relatively homogeneous muscular structure, with myocardial striations some-times visible. Right Ventricle in a CT Image Crescent-like shape with thinner walls compared with the left ventricle. Positioned on the right side of the heart, anterior and slightly medial to the left ventricle. Lower-density walls com-pared with the left ventricle, with the lumen often appear-ing darker due to blood or contrast agent. Less symmetric contour than the left ventricle, with variable wall thickness. Slightly heterogeneous texture due to trabeculae carneae along the inner surface. Left Atrium in a CT Im-age Elliptical or spherical chamber with relatively thin walls. Superior to the left ventri-cle and posterior to the right atrium. Thin, low-density walls sur-rounding a central lumen that appears darker due to blood or contrast. Smooth rounded contour with relatively uniform wall thickness. Homogeneous texture without prominent internal structures under normal conditions. 
+
+Table 8: Examples of structured clinical concept descriptions used as textual inputs for concept-grounded alignment. 
+
+derive three tumor subregions: tumor core (TC), whole tumor (WT), and enhancing tumor (ET). Labels 2 and 3 are merged to form TC, labels 1, 2, and 3 are combined to form WT, and label 3 is used for ET. We use 484 publicly available cases, split into 349 training, 39 validation, and 96 test cases. 
+
+ReXGroundingCT. ReXGroundingCT [3] is a 3D chest CT dataset that grounds free-text radiology findings to voxel-level segmentation masks. It is derived from CT-RATE [15], which pairs non-contrast chest CT volumes with clinical reports. We use the Focal Abnor-malities subset, containing localized pathological findings such as nodules, consolidations, and focal opacities. Our experimental split contains 1,680 training volumes and 264 test vol-umes. Unlike fixed-anatomy segmentation, each target must be identified from its free-text description. The reports were originally written in Turkish, machine-translated into English, and subsequently standardized using an LLM-based rewriting pipeline. Moreover, the train-ing annotations contain at most three representative instances per finding, leaving additional visible instances unlabeled. These linguistic and annotation challenges make ReXGround-ingCT a difficult benchmark for free-text medical image segmentation. 
+
+A.3.2 Dataset Preprocessing 
+
+We apply a standardized preprocessing pipeline to all 3D datasets. Images are reoriented to a consistent RAS coordinate system, resampled to dataset-specific voxel spacing, intensity-clipped when applicable, and normalized according to the modality. During training, we sample fixed-size 3D patches of size 96 × 96 × 96, guided by foreground labels to balance anatomical regions. Data augmentation includes random flipping along the three spatial axes, random rotations, and probabilistic intensity shifts to improve robustness to spatial and scanner variability. Dataset-specific preprocessing details are summarized in Table 9. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 25 Dataset Voxel Spacing (mm) Intensity Range Normalization                                                       
+
+> AMOS22 (CT) 1.5×1.5×2.0[−175 ,250 ]HU [0,1]
+> BTCV (CT) 1.5×1.5×2.0[−175 ,250 ]HU [0,1]
+> MM-WHS (CT) 1.5×1.5×2.0[0,400 ]HU [0,1]
+> MM-WHS (MR) 1.5×1.5×2.0Not applicable Non-zero voxel normalization MSD-Brain (MR) 1.0×1.0×1.0Not applicable Non-zero voxel normalization ReXGroundingCT (CT) 1.0×1.0×1.0[−1000 ,1000 ]HU [−1,1]
+
+Table 9: Dataset-specific preprocessing settings. 
+
+Parameter Value 
+
+α1, α2 1, 1 
+
+β1, β2, β3 Learnable during training Temperature τ 0.2 Swin UNETR base feature dimension 48 ClinicalBERT feature dimension 768 Patch size 96 × 96 × 96 Optimizer AdamW Learning rate 10 −4
+
+Weight decay 10 −5
+
+Scheduler minimum learning rate 10 −7
+
+Table 10: Key hyperparameters and model dimensions used in MedPlex. 
+
+A.4 Hyperparameters 
+
+Table 10 summarizes the key hyperparameters used in our experiments. 
+
+A.5 Evaluation Metrics 
+
+We evaluate segmentation performance using Dice Similarity Coefficient (DSC, %), 95% Hausdorff Distance (HD95, mm), and Normalized Surface Distance (NSD, %) [47]. 
+
+Dice Similarity Coefficient. DSC measures overlap between the predicted segmentation map P and ground-truth mask G:DSC = 2 ∑ j P jG j
+
+∑ j P2 
+
+> j
+
++ ∑ j G2 
+
+> j
+
++ ε × 100 , (17) where j indexes voxels and ε is a small constant for numerical stability. Higher DSC indi-cates better region overlap. 
+
+95% Hausdorff Distance. HD95 measures boundary discrepancy between the predicted and ground-truth surfaces while reducing sensitivity to extreme outliers. Let ∂ P and ∂ G
+
+denote the predicted and ground-truth surfaces. We define the bidirectional surface distance set as 
+
+D =
+
+
+
+min   
+
+> y∈∂G
+
+∥x − y∥2 : x ∈ ∂ P
+
+
+
+∪
+
+
+
+min   
+
+> x∈∂P
+
+∥y − x∥2 : y ∈ ∂ G
+
+
+
+. (18) HD95 is then computed as HD95 = percentile 95 (D). (19) 26 SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 
+
+Lower HD95 indicates better boundary alignment. 
+
+Normalized Surface Distance. NSD measures the fraction of predicted and ground-truth surface points that lie within a predefined tolerance τ of the opposite surface. Let d(x, ∂ G) = 
+
+min y∈∂ G ∥x − y∥2 and d(y, ∂ P) = min x∈∂ P ∥y − x∥2. NSD is defined as NSD = |{ x ∈ ∂ P : d(x, ∂ G) ≤ τ}| + |{ y ∈ ∂ G : d(y, ∂ P) ≤ τ}| |∂ P| + |∂ G| × 100 . (20) Higher NSD indicates better surface agreement within the tolerance threshold. 
+
+A.6 Benchmark Models 
+
+Vision-Only Baselines. We compare MedPlex with representative CNN-based, transformer-based, and hybrid 3D segmentation models. • U-Net [53]: a CNN-based encoder-decoder architecture with skip connections for pre-serving spatial detail during upsampling. • UNet++ [75]: an extension of U-Net with nested dense skip pathways for improved feature propagation. • nnU-Net [25]: a self-configuring segmentation framework that adapts preprocessing, architecture, and training settings to each dataset. • STU-Net [23]: a scalable supervised pretraining framework for medical image seg-mentation with strong transferability across datasets. • MedNeXt [54]: a ConvNeXt-inspired medical segmentation model designed to com-bine convolutional inductive bias with scalable architecture design. • UNETR [17]: a transformer-based 3D segmentation model that uses a Vision Trans-former encoder with a CNN-style decoder. • Swin UNETR [16]: a hierarchical transformer-based encoder-decoder architecture using shifted-window self-attention. • SwinUNETR-V2 [18]: an enhanced Swin UNETR variant with stage-wise convolu-tional improvements for stronger 3D segmentation. • nnFormer [73]: a 3D transformer segmentation architecture designed to model long-range dependencies while preserving local structure. • MedFormer [12]: a data-efficient transformer-based segmentation model using locality-sensitive attention to balance global context and efficiency. 
+
+Text-Guided VLM Segmentation Baselines. We compare MedPlex with representative text-guided segmentation methods within the VLM paradigm. • Universal-CLIP [43]: a CLIP-based text-guided segmentation approach that incor-porates text embeddings for multi-organ and tumor segmentation. We use Swin UN-ETR [16] as the vision backbone and follow the original text-input format. SULTAN ET AL.: MEDPLEX: VISION-LANGUAGE CO-ADAPTATION 27 
+
+• MulModSeg [37]: a multimodal medical image segmentation framework that uses modality-conditioned text embeddings and alternating CT/MR training. We follow a setting comparable to Universal-CLIP due to their similar text-guided formulation. • ZePT [27]: a zero-shot pan-tumor segmentation framework based on query disentan-glement and self-prompting. For textual input, we aggregate our structured concept descriptions into a single description per class to match its prompt format. • CAT [22]: a dual-prompt segmentation framework that coordinates anatomical and textual prompts through a query-based design. We follow the same text-input setting used for ZePT because the two approaches use related prompt-based formulations.

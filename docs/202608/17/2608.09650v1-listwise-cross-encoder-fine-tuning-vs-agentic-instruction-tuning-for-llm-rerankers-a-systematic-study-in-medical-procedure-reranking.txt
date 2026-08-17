@@ -1,0 +1,371 @@
+Title: Listwise Cross-Encoder Fine-Tuning vs. Agentic Instruction Tuning for LLM Rerankers: A Systematic Study in Medical Procedure Reranking
+
+URL Source: https://arxiv.org/pdf/2608.09650v1
+
+Published Time: Tue, 11 Aug 2026 02:24:54 GMT
+
+Number of Pages: 10
+
+Markdown Content:
+## Listwise Cross-Encoder Fine-Tuning vs. Agentic Instruction Tuning for LLM Rerankers: A Systematic Study in Medical Procedure Reranking 
+
+Matan Fainzilber, Shlomit Plavner 
+
+Healthee 
+
+{matan.fainzilber, shlomit.plavner}@healthee.co 
+
+Abstract 
+
+Reranking medical procedures against patient queries is a critical component of health-insurance information retrieval, complicated by a substantial lexical gap between patient lan-guage and clinical nomenclature. We present a systematic comparison of two reranking paradigms for this production task: (1) small cross-encoders (MedCPT, MiniLM-L12) fine-tuned with listwise learning-to-rank objec-tives across layer-freezing configurations, and (2) Qwen3-Reranker-4B, a 4B-parameter in-struction reranker whose prompt is iteratively refined via an agentic optimization loop driven by GPT-4.1. On a purpose-built dataset of 2,647 queries across 708 insurance services, we find that a 109M-parameter cross-encoder fine-tuned with ListNet outperforms the 4B-parameter model by 2.6 percentage points on NDCG@3 and 13.3 points on Spearman cor-relation - at 37 × fewer parameters. We re-port practical findings, a scalable LLM-based dataset construction pipeline, and deployment trade-offs relevant to production reranking sys-tems. We release our code and a sample dataset to support reproducibility and adaptation to other domains. 1
+
+1 Introduction 
+
+When a patient asks whether a particular medi-cal service is covered by their insurance plan, the system must identify which billable procedures correspond to their query. In a typical production pipeline, a first-stage retriever returns a set of can-didate procedures, and a reranker then scores and orders them by clinical relevance. This alignment task is complicated by a significant lexical gap :patients describe needs using layman terms and symptom descriptions (e.g., “my knee hurts when I walk”), while procedures are catalogued in clini-cal nomenclature (e.g., “arthrocentesis of the knee joint”). Bridging this gap accurately is critical, 
+
+> 1Code repository
+
+misalignment leads to incorrect coverage determi-nations, claim denials, and downstream administra-tive burden (Jin et al., 2023; Alsentzer et al., 2019). Recent work has demonstrated that large lan-guage models (LLMs) can serve as effective zero-shot rerankers (Sun et al., 2023; Ma et al., 2023). However, deploying billion-parameter models for real-time medical information retrieval raises prac-tical concerns: inference latency, hosting cost, and the absence of domain-specific calibration. An alternative paradigm is to fine-tune smaller cross-encoder models on domain data, but prior work has largely relied on pointwise or pairwise objectives that do not directly optimize ranking quality across the full candidate list. In this work, we investigate whether listwise learning-to-rank objectives can close the gap be-tween small specialized models and large generalist rerankers in the medical insurance domain. Our contributions are as follows: 1. We construct a purpose-built evaluation dataset for medical procedure reranking us-ing a two-phase LLM synthesis pipeline with quality filtering, yielding 2,647 graded query-procedure lists across 708 insurance services. 2. We conduct a systematic comparison of three listwise loss functions: LambdaLoss, ListNet, and PListMLE across two cross-encoder back-bones and three layer-freezing strategies, com-prising 18 experimental configurations. 3. We propose an agentic prompt optimization framework for instruction-tuned rerankers that uses GPT-4.1 to iteratively refine the task in-struction for Qwen3-Reranker-4B, providing a strong LLM baseline. 4. Practical findings : evidence that domain-specialized cross-encoders fine-tuned with listwise objectives can achieve competitive or 1arXiv:2608.09650v1 [cs.IR] 10 Aug 2026 superior ranking quality to instruction-tuned models 37 × their size, with deployment ad-vantages in cost and latency (§6). 
+
+2 Related Work 
+
+Cross-encoders jointly encode query-document pairs to produce relevance scores (Devlin et al., 2019), outperforming bi-encoders on reranking benchmarks. Domain-adapted variants such as MedCPT (Jin et al., 2023) and Clinical BERT (Alsentzer et al., 2019) have demonstrated the value of in-domain pre-training for biomedical retrieval. Recently, instruction-tuned LLMs have emerged as zero-shot rerankers (Sun et al., 2023; Ma et al., 2023), but face challenges in latency, cost, and do-main specificity. On the training objective side, list-wise losses like LambdaLoss (Wang et al., 2018), ListNet (Cao et al., 2007), and PListMLE (Lan et al., 2014) operate on entire candidate lists, with theoretical analysis connecting these losses to rank-ing measures such as NDCG (Chen et al., 2009). Recent work has further explored cross-encoder fine-tuning strategies for reranking (Pezzuti et al., 2025). Our work bridges these threads: we system-atically compare listwise-trained small encoders against an agentically optimized LLM reranker on a real production task, reporting practical findings relevant to deployment. 
+
+3 Task and Dataset 
+
+3.1 Task Definition 
+
+Given a user query q describing a medical need and a set of n candidate procedures P = {p1, . . . , p n},the task is to learn a scoring function f (q, p i) → R
+
+that induces a ranking π over P such that proce-dures most clinically relevant to q are ranked high-est. Formally, the goal is to maximize NDCG@ k
+
+with respect to a ground-truth relevance assignment 
+
+yi ∈ R≥0 for each pi:DCG@ k =
+
+> k
+
+X
+
+> i=1
+
+2yπ(i) − 1log 2(i + 1) (1) NDCG@ k = DCG@ k
+
+IDCG@ k (2) where IDCG@ k is the DCG of the ideal (ground-truth) ranking, normalizing scores to [0 , 1] . Queries span three intent types: direct procedure requests (“I need an MRI”), symptom descriptions (“my knee hurts when I walk”), and coverage inquiries (“does my plan cover physical therapy?”). 
+
+3.2 Dataset Construction 
+
+We construct a purpose-built dataset using a two-phase LLM synthesis pipeline. The source data consists of 708 insurance services, each mapped to a subset of 1,517 unique medical procedures by domain experts. 
+
+Phase 1: Query Generation. For each service, we generate 2n queries (where n is the number of associated procedures) using GPT-4o with tempera-ture 0.7. Each query is assigned a target procedure via round-robin allocation over a shuffled proce-dure index, ensuring every procedure serves as the primary target at least twice. Queries are diversi-fied along three independently sampled dimensions: intent type (coverage / symptom / direct request), formality (rephrased keyword-style at 70% / con-versational at 30%), and synonym usage. The gen-eration prompt explicitly prohibits copying proce-dure names verbatim, forcing the model to produce realistic layman or clinical paraphrases. 
+
+Phase 2: Relevance Ranking. A separate GPT-4o call (temperature 0.0) ranks all candidate proce-dures for each generated query. For services with more than 20 procedures, we subsample to the tar-get procedure plus 19 random distractors to keep the ranking prompt tractable. 
+
+Quality Filtering. We retain only rows where the teacher model places the target procedure within the top 3 positions, discarding queries where Phase 2 could not tie the generated query back to its intended target. This yields a final dataset of 2,647 query-procedure lists. The full pipeline is formalized as pseudocode in Appendix E. 
+
+Human Validation. The underlying service-to-procedure mappings were constructed by domain experts with knowledge of US health-insurance billing. To validate the LLM-generated rankings, two domain experts independently evaluated a random sample of 100 query–procedure rankings from the final dataset, judging whether the teacher model’s top-1 and top-3 placements were clinically appropriate. Expert A accepted the top-1 place-ment in 92% of cases, Expert B in 97%. Top-3 acceptance rates were 92% and 97% respectively. Raw inter-annotator agreement was 95% (Cohen’s 
+
+κ = 0 .52 ; the moderate kappa reflects the well-documented prevalence bias in highly skewed dis-tributions). These results confirm that the GPT-4o rankings align well with expert clinical judgment, 2supporting the quality of the synthetic labels for training and evaluation. 
+
+3.3 Data Splits 
+
+We partition the dataset at the query level to prevent data leakage: 75% train, 15% validation, and 10% test. The same candidate procedure may appear under different queries across splits, but no query appears in more than one split. 
+
+4 Methodology 
+
+4.1 Cross-Encoder Fine-Tuning 
+
+We fine-tune two cross-encoder backbones: 
+
+MedCPT-Cross-Encoder (Jin et al., 2023), a biomedical model pre-trained on PubMed search logs providing strong domain initialization, and MiniLM-L-12-v2 , a general-purpose cross-encoder distilled from MS MARCO. Both models encode a (query, procedure) pair jointly and out-put a single relevance logit. During training, each batch element is a full ranked list of candidates for one query, and the loss operates over the entire list. 
+
+4.2 Listwise Loss Functions 
+
+We evaluate three listwise objectives over raw model logits si = f (q, p i) with ground-truth rele-vance labels yi:
+
+LambdaLoss (Wang et al., 2018) weights pair-wise gradients by NDCG gain differences: 
+
+LLambda = X
+
+> i
+
+X
+
+> j:yi>y j
+
+|∆NDCG ij |· log  1+ e−(si−sj )
+
+(3) 
+
+ListNet (Cao et al., 2007) minimizes cross-entropy between ground-truth and predicted soft-max ranking distributions: 
+
+LListNet = − X
+
+> i
+
+Py(pi) log Ps(pi) (4) 
+
+PListMLE (Lan et al., 2014) models the ranking as a position-weighted Plackett–Luce process: 
+
+LPListMLE = − X
+
+> i
+
+wi
+
+
+
+sπ(i) −log X
+
+> j≥i
+
+exp( sπ(j))
+
+
+
+(5) 
+
+4.3 Layer-Freezing Configurations 
+
+We explore three strategies: no freeze (all pa-rameters trainable), freeze embeddings (freeze to-ken/position/type embeddings; ∼78% trainable), and freeze 6 layers (freeze embeddings + first 6 transformer layers; ∼40% trainable). Combined with 2 models and 3 losses, this yields an 18-cell experiment grid. 
+
+4.4 Agentic Prompt Optimization 
+
+To establish a strong LLM baseline, we opti-mize the task instruction for Qwen3-Reranker-4B (Zhang et al., 2025), a 4-billion-parameter instruction-tuned reranker that accepts an explicit natural-language instruction at inference time. We design an iterative optimization loop driven by GPT-4.1: 1. Evaluate the current instruction on a fixed validation subset (200 queries, seed 42) and compute per-query NDCG@3. 2. Select examples : identify the 10 highest- and 10 lowest-scoring queries as good and bad exemplars. 3. Generate candidates : construct a meta-prompt containing the current best instruction, a history of prior iterations, and the selected examples. GPT-4.1 proposes k = 5 candidate instructions with rationales. 4. Evaluate candidates concurrently against the validation subset. 5. Update : if the best candidate improves over the current best, adopt it and reset patience, otherwise increment patience. Stop after 5 consecutive non-improving iterations or 30 total iterations. The final instruction is evaluated on the full val-idation and test sets. This procedure ensures the LLM baseline is not disadvantaged by a suboptimal prompt. To avoid leaking domain knowledge into the baseline, we start from a deliberately domain-agnostic instruction and let the optimizer discover any helpful framing from the in-domain examples alone. 
+
+Initial instruction: “Rank the candidates by rel-evance to the query.” 
+
+Optimized instruction (after 9 iterations): “Or-der the procedures from most to least relevant based on how thoroughly each aligns with the stated symptoms, diagnostic needs, or procedural requests in the query.” Notably, the optimizer re-discovered the medical-domain framing (“proce-dures”, “symptoms”, “diagnostic needs”) purely 3Figure 1: Convergence of agentic prompt optimiza-tion for Qwen3-Reranker-4B. Blue dots: all GPT-4.1-proposed candidate instructions per iteration; red line: best-so-far NDCG@3 on the 200-query validation sub-sample. The optimizer converged within 3 iterations and terminated at iteration 9 via early stopping (patience 5). See Appendix D for a schematic of the greedy search procedure. 
+
+from the iterative signal, starting from a prompt with no domain vocabulary. 
+
+5 Experimental Setup 
+
+Metrics. We report NDCG@ k for k ∈ { 1, 3, 5},Mean Reciprocal Rank (MRR), and Spearman rank correlation. The primary metric for model selection and early stopping is NDCG@3. 
+
+Baselines. Each fine-tuned model is compared against its base model checkpoint to measure the absolute gain from listwise training. All models are additionally compared against Qwen3-Reranker-4B with its agentically optimized instruction. 
+
+Training details. The initial grid search across all 18 configurations uses a uniform hyperparame-ter set: learning rate 2 × 10 −5 with cosine schedul-ing, warmup ratio 0.1, weight decay 0.01, gradient clipping 1.0, batch size 32 ranked lists, and FP16 mixed precision. Training runs for a maximum of 50 epochs with early stopping (patience 5, mini-mum 15 epochs). Relevance labels follow a linear scheme: for n candidates, scores are assigned as 
+
+[n, n −1, . . . , 1] .
+
+Evaluation protocol. All model selection and hy-perparameter decisions are made on the validation set (400 queries). The test set (263 queries) is held out and evaluated exactly once for final reported results. 
+
+Hyperparameter tuning. Based on validation NDCG@3, we select the top 4 configurations and run Optuna (TPE sampler, 50 trials per con-fig) over the search space in Table 1, with vali-                  
+
+> Hyperparameter Range
+> Learning rate log-uniform [5 ×10 −6,10 −4]
+> Weight decay log-uniform [10 −4,10 −1]
+> Warmup ratio uniform [0 .01 ,0.3]
+> Batch size {16 ,32 ,64 }
+> ES patience {5,10 ,15 }
+> LR scheduler {cosine ,linear }
+> Table 1: Optuna search space (TPE sampler, 50 trials per config, seed 42). Best values per config in Appendix B.
+
+dation NDCG@3 as the objective. The search revealed that LR scheduler choice had negligi-ble importance, consistent with early stopping firing well before the schedule diverges. We therefore standardize the final training recipe on 
+
+constant_with_warmup , patience 15, weight de-cay 0.01, 100-epoch ceiling, and tune per-config the three HPs whose optima differed: learning rate, batch size, and warmup ratio. Each final config-uration is trained with 5 random seeds (42, 123, 456, 789, 1024), then we report mean ± std on the held-out test set. 
+
+6 Results and Analysis 
+
+6.1 Grid Search Results 
+
+We first conduct a systematic grid search across all 18 configurations (2 models × 3 losses ×
+
+3 freeze strategies) using uniform hyperparame-ters. Full validation-set results are reported in Ap-pendix A. All 18 fine-tuned configurations improve over their respective base models across every met-ric. MedCPT outperforms MiniLM in absolute terms across all configurations: all 9 MedCPT cells exceed all 9 MiniLM cells on validation NDCG@3. Ranked by validation NDCG@3, the top 4 con-figurations form a 2 ×2 ablation: MedCPT with {LambdaLoss, ListNet} ×{no_freeze, freeze_emb}, with validation NDCG@3 ranging from .9611 to .9636. PListMLE and freeze_6_layers are elimi-nated based on consistently lower validation per-formance. These 4 configurations are selected for targeted hyperparameter optimization. 
+
+6.2 Hyperparameter Tuning 
+
+For each of the top 4 chosen configurations, we run 50 Optuna trials (TPE sampler) over the search space in Table 1, optimizing validation NDCG@3. 
+
+6.3 Final Results 
+
+Table 2 presents the test-set performance of the top 4 configurations after hyperparameter tuning, 4No freeze Freeze emb Freeze 6 LambdaLoss ListNet PListMLE                  
+
+> +4.6 +4.3 +3.2 +4.6 +4.4 +3.0 +4.1 +4.1 +3.1 MedCPT (109M)
+> No freeze Freeze emb Freeze 6
+> +5.1 +4.8 +3.2 +4.6 +4.3 +2.4 +4.9 +4.7 +3.0 MiniLM (33M)
+> 2.5 3.0 3.5 4.0 4.5 5.0
+> NDCG@3 (pp)
+> NDCG@3 Improvement over Base Model (validation set, pp)
+
+Figure 2: NDCG@3 improvement (pp) over base model on the validation set across the full 18-cell grid. MiniLM shows larger relative gains but is more sensitive to ag-gressive freezing. 
+
+alongside base models and Qwen3-Reranker-4B. Fine-tuned results are mean ± std across 5 random seeds. The best configuration, MedCPT with List-Net and no freezing, achieves 0.961 NDCG@3 (±0.002), a +4.6pp improvement over the base model MedCPT baseline. ListNet slightly out-performs LambdaLoss on the test set across both freeze settings, while the freeze axis shows min-imal effect ( <0.1pp within each loss family). The largest gains appear on Spearman correla-tion (+19.4pp), indicating that listwise training particularly improves full-list ordering beyond the top position. Seed standard deviations are tight (ˆσ < 0.003 on NDCG@3). 
+
+6.4 Effect of Loss Functions and Layer Freezing 
+
+Figure 2 summarizes the NDCG@3 improvements on the validation set across the full grid (see Ap-pendix A for all 18 configurations). Averaging across all models and freeze configurations, Lamb-daLoss leads on validation NDCG@1 (.9585) and NDCG@3 (.9491), followed by PListMLE (.9549, .9470) and ListNet (.9534, .9460). However, the margins between losses are small compared to the effect of freezing strategy. For freezing, no freeze and freeze embeddings perform similarly, with no freeze holding a slight edge on NDCG@3 (.9534 vs. .9515) and Spearman (.7392 vs. .7296). Freezing 6 layers incurs a sub-stantial drop: −1.6pp on NDCG@3 and −5.6pp on Spearman relative to no freeze. MedCPT tolerates aggressive freezing better than MiniLM, consistent with its biomedical pre-training providing more robust lower-layer representations. All three losses yield large Spearman improve-ments over base models (+12-18pp for MedCPT, NDCG@1 NDCG@3 NDCG@5 MRR Spearman       
+
+> 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95 1.00
+> Score
+> 0.957 0.961 0.963 0.924 0.779 0.941 0.936 0.940 0.898 0.646 0.913 0.915 0.920 0.857 0.585
+> Best Configuration per Model Class (Test Set)
+> MedCPT + ListNet (109M) Qwen3-Reranker (4B) MedCPT base (109M)
+
+Figure 3: Best fine-tuned cross-encoder (MedCPT + ListNet, 109M) vs. prompt-optimized Qwen3-Reranker (4B) vs. unfine-tuned MedCPT baseline on the held-out test set. CE error bars show ±1 std across 5 seeds. 
+
++10-19pp for MiniLM), confirming that listwise training substantially improves full-list rank corre-lation regardless of the specific objective. 
+
+6.5 Cross-Encoder vs. LLM Reranker 
+
+Table 2 and Figure 3 present the complete com-parison. The best fine-tuned MedCPT (ListNet, no_freeze) outperforms the prompt-optimized 4B-parameter Qwen3-Reranker on all metrics: +1.6pp on NDCG@1, +2.6pp on NDCG@3, and +13.3pp on Spearman - while using 37 × fewer parameters. These gaps substantially exceed the cross-encoder seed variance ( σ ≈ 0.002 ). Even the weakest of the four fine-tuned configurations (LambdaLoss, freeze_emb) leads Qwen3 by +2.1pp on NDCG@3. Qwen3’s Spearman correlation (0.646) is notably closer to the MedCPT baseline (0.585) than to any fine-tuned model ( ≥0.748), suggesting that prompt optimization alone cannot match the full-list order-ing calibration that listwise training provides. 
+
+7 Discussion and Practical Takeaways 
+
+Fine-tuned cross-encoders as production rerankers. Our best 109M-parameter cross-encoder (MedCPT + ListNet, no_freeze) achieves 0.961 test NDCG@3 ( ±0.002 across 5 seeds), a +4.6pp absolute improvement over the unfine-tuned MedCPT baseline and a +19.4pp lift on Spearman correlation. Cross-encoders of this scale can be served on commodity CPU hardware, whereas 4B-parameter models require dedicated GPUs. For production systems processing thousands of queries per hour, this difference in serving cost is significant. 
+
+Scalable dataset construction via LLM synthe-sis. Our two-phase pipeline for query generation followed by independent ranking with quality fil-5Model Loss Freeze Params NDCG@1 NDCG@3 NDCG@5 MRR Spearman                                                         
+
+> MedCPT (base) ––109M .9135 .9153 .9202 .8569 .5845 MiniLM (base) ––33M .9144 .8804 .8854 .8466 .4774 MedCPT ListNet no_freeze 109M .957 ±.003 .961 ±.002 .963 ±.002 .924 ±.006 .779 ±.011
+> MedCPT ListNet freeze_emb 109M .956 ±.004 .960 ±.002 .962 ±.003 .924 ±.008 .770 ±.013
+> MedCPT LambdaLoss no_freeze 109M .951 ±.003 .958 ±.003 .958 ±.001 .921 ±.008 .754 ±.017
+> MedCPT LambdaLoss freeze_emb 109M .951 ±.004 .957 ±.003 .958 ±.003 .920 ±.008 .748 ±.018
+> Qwen3-4B ––4B .941 .936 .940 .898 .646
+
+Table 2: Test-set results (263 queries). Fine-tuned configs: mean ±std across 5 seeds. Qwen3-Reranker-4B with agentically optimized prompt. Sorted by NDCG@3. Best per metric in bold .
+
+tering provides a practical path for constructing domain-specific reranking datasets when manual annotation is prohibitively expensive. The round-robin target assignment ensures broad procedure coverage, and the top-3 quality filter effectively removes noisy examples. 
+
+Agentic prompt optimization. The iterative op-timization loop improved Qwen3-Reranker’s val-idation NDCG@3 from 0.936 (domain-agnostic seed) to 0.948 within 3 iterations, demonstrating that instruction-tuned rerankers benefit substan-tially from task-specific prompts. The optimizer au-tonomously rediscovered medical-domain framing from in-domain exemplars alone. Despite this, the prompt-optimized 4B-parameter model still trails the best 109M-parameter fine-tuned cross-encoder by 2.6pp on test NDCG@3, suggesting that prompt-only adaptation cannot substitute for listwise fine-tuning on domain data. 
+
+8 Conclusion 
+
+We presented a systematic comparison of listwise-trained cross-encoders and an agentically opti-mized instruction reranker for medical procedure alignment in a production health-insurance sys-tem. Through an 18-cell experiment grid span-ning two backbones, three listwise losses, and three layer-freezing strategies, we found that 109M-parameter MedCPT models fine-tuned with list-wise objectives outperform a prompt-optimized 4B-parameter Qwen3-Reranker by 2.6pp on NDCG@3 and 13.3pp on Spearman correlation, with tight seed variance ( ˆσ < 0.003 ), despite using 37 ×
+
+fewer parameters. Our key practical takeaways: LLM-based dataset synthesis provides a scalable al-ternative to manual annotation for domain-specific reranking, agentic prompt optimization offers a principled way to establish strong LLM baselines, and domain-specialized small models offer a com-pelling production alternative to large generalist rerankers when serving cost and latency are con-strained. 
+
+Limitations 
+
+Our study has several limitations. First, the dataset is constructed from a single organization’s service-to-procedure mappings and may not generalize to other insurance taxonomies or international health-care systems. Second, the relevance rankings used for training are produced by GPT-4o acting as a teacher model: any systematic biases of this teacher are inherited by the training labels, al-though our top-3 quality filter and human validation (§3) partially mitigate this. Third, we evaluate only two cross-encoder backbones and one instruction reranker. A broader comparison including models such as GTE, BGE, or larger instruction rerankers would strengthen the conclusions. Our freezing strategies also did not explore the reverse config-uration, freezing upper layers while keeping em-beddings trainable, which may be particularly rele-vant for lexical-gap tasks where adapting the token representations could matter more than modifying higher-level reasoning layers. 
+
+Ethics Statement 
+
+This research uses de-identified internal metadata consisting of service names, procedure descrip-tions, and synthetically generated queries. No patient data, protected health information, or per-sonally identifiable information was used at any stage. The models described in this work are intended exclusively for administrative decision support, aligning procedure codes with insurance coverage queries, and are not designed or vali-dated for clinical diagnosis, treatment recommen-dation, or any direct patient-facing medical deci-sion. The domain experts involved in dataset con-struction and validation were salaried professionals 6with standard compensation. Our data synthesis pipeline relies on GPT-4o, and we acknowledge that synthetic data may inherit linguistic or demo-graphic biases from the teacher model, potentially affecting performance across diverse patient phras-ings. Finally, while our offline experiments in-curred usage of GPU compute, our core finding, that 109M-parameter cross-encoders outperform 4B-parameter models, directly supports reduced inference cost and energy consumption in deploy-ment. 
+
+References 
+
+Emily Alsentzer, John Murphy, William Boag, Wei-Hung Weng, Di Jin, Tristan Naumann, and Matthew McDermott. 2019. Publicly available clinical BERT embeddings. In Proceedings of the 2nd Clinical Nat-ural Language Processing Workshop , pages 72–78. Association for Computational Linguistics. Zhe Cao, Tao Qin, Tie-Yan Liu, Ming-Feng Tsai, and Hang Li. 2007. Learning to rank: From pairwise approach to listwise approach. In Proceedings of the 24th International Conference on Machine Learning (ICML) , pages 129–136. ACM. Wei Chen, Tie-Yan Liu, Yanyan Lan, Zhi-Ming Ma, and Hang Li. 2009. Ranking measures and loss func-tions in learning to rank. In Advances in Neural Information Processing Systems 22 (NeurIPS) , pages 315–323. Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. 2019. BERT: Pre-training of deep bidirectional transformers for language under-standing. In Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies (NAACL-HLT) , pages 4171–4186. As-sociation for Computational Linguistics. Qiao Jin, Won Kim, Qingyu Chen, Donald C. Comeau, Lana Yeganova, W. John Wilbur, and Zhiyong Lu. 2023. MedCPT: Contrastive pre-trained transformers with large-scale PubMed search logs for zero-shot biomedical information retrieval. Bioinformatics ,39(11):btad651. Yanyan Lan, Yadong Zhu, Jiafeng Guo, Shuzi Niu, and Xueqi Cheng. 2014. Position-aware ListMLE: A se-quential learning process for ranking. In Proceedings of the 30th Conference on Uncertainty in Artificial Intelligence (UAI) , pages 449–458. Xueguang Ma, Xinyu Zhang, Ronak Pradeep, and Jimmy Lin. 2023. Zero-shot listwise document reranking with a large language model. arXiv preprint arXiv:2305.02156 .Francesca Pezzuti, Sean MacAvaney, and Nicola Tonel-lotto. 2025. Exploring the effectiveness of multi-stage fine-tuning for cross-encoder re-rankers. In 
+
+Proceedings of the 47th European Conference on Information Retrieval (ECIR) , pages 455–462. Weiwei Sun, Lingyong Yan, Xinyu Ma, Shuaiqiang Wang, Pengjie Ren, Zhumin Chen, Dawei Yin, and Zhaochun Ren. 2023. Is ChatGPT good at search? investigating large language models as re-ranking agents. In Proceedings of the 2023 Conference on Empirical Methods in Natural Language Processing (EMNLP) . Association for Computational Linguis-tics. Xuanhui Wang, Cheng Li, Nadav Golbandi, Michael Bendersky, and Marc Najork. 2018. The Lamb-daLoss framework for ranking metric optimization. In Proceedings of the 27th ACM International Con-ference on Information and Knowledge Management (CIKM) , pages 1313–1322. ACM. Yanzhao Zhang, Mingxin Li, Dingkun Long, Xin Zhang, Huan Lin, Baosong Yang, Pengjun Xie, An Yang, Dayiheng Liu, Junyang Lin, Fei Huang, and Jingren Zhou. 2025. Qwen3 embedding: Advancing text embedding and reranking through foundation models. 
+
+arXiv preprint arXiv:2506.05176 .
+
+7A Full Grid Search Results 
+
+Table 3 presents the complete 18-cell grid search results on the validation set (400 queries) using uniform hyperparameters. These results informed the selection of the top 4 configurations for targeted hyperparameter tuning. 
+
+Model Loss Freeze Params NDCG@1 NDCG@3 NDCG@5 MRR Spearman 
+
+MedCPT (base) – – 109M .9265 .9179 .9222 .8732 .5995 MedCPT LambdaLoss no_freeze 109M .9702 .9636 .9622 .9427 .7785 
+
+MedCPT LambdaLoss freeze_emb 109M .9662 .9611 .9606 .9360 .7721 MedCPT LambdaLoss freeze_6 109M .9601 .9497 .9523 .9193 .7364 MedCPT ListNet no_freeze 109M .9697 .9635 .9612 .9418 .7695 MedCPT ListNet freeze_emb 109M .9694 .9621 .9607 .9373 .7624 MedCPT ListNet freeze_6 109M .9583 .9479 .9491 .9222 .7145 MedCPT PListMLE no_freeze 109M .9635 .9589 .9573 .9257 .7657 MedCPT PListMLE freeze_emb 109M .9626 .9594 .9572 .9274 .7648 MedCPT PListMLE freeze_6 109M .9605 .9492 .9501 .9210 .7167 MiniLM (base) – – 33M .9308 .8963 .8964 .8691 .5314 MiniLM LambdaLoss no_freeze 33M .9570 .9471 .9476 .9099 .7190 MiniLM LambdaLoss freeze_emb 33M .9552 .9440 .9452 .9094 .7031 MiniLM LambdaLoss freeze_6 33M .9424 .9288 .9301 .8835 .6549 MiniLM ListNet no_freeze 33M .9462 .9423 .9412 .9016 .6964 MiniLM ListNet freeze_emb 33M .9428 .9397 .9392 .9021 .6904 MiniLM ListNet freeze_6 33M .9340 .9203 .9225 .8838 .6270 MiniLM PListMLE no_freeze 33M .9529 .9452 .9442 .9013 .7061 MiniLM PListMLE freeze_emb 33M .9484 .9429 .9410 .8943 .6847 MiniLM PListMLE freeze_6 33M .9417 .9266 .9271 .8876 .6489 
+
+Table 3: Full grid search results on the validation set (400 queries, uniform hyperparameters). Sorted by model, then loss, then freeze config. Best per metric in bold . The top 4 configs (all MedCPT, NDCG@3 ≥ .9611) were selected for Optuna hyperparameter tuning. 
+
+B Hyperparameter Details 
+
+Table 4 reports the per-config hyperparameters selected by Optuna and used for the final multi-seed training. Standardized settings across all configs: constant_with_warmup scheduler, weight decay 0.01, patience 15, 100-epoch ceiling, FP16. 
+
+Config LR BS Warmup 
+
+λLoss + no_freeze 6.08e-5 16 0.099 
+
+λLoss + freeze_emb 7.25e-5 32 0.066 ListNet + no_freeze 1.71e-5 16 0.204 ListNet + freeze_emb 5.53e-5 32 0.173 
+
+Table 4: Per-config hyperparameters from Optuna (50 trials each, TPE sampler). All configs use MedCPT backbone. 
+
+C Additional Results 
+
+Figure 4 visualizes the full experiment grid as a parallel coordinates plot on the validation set, tracing each of the 18 fine-tuned configurations from base model through freeze strategy and loss function to final NDCG@1. Line color encodes the NDCG@1 improvement over the base model. 8Figure 4: Parallel coordinates plot of all 18 fine-tuning configurations on the validation set. Each line traces a configuration from base model to final NDCG@1, colored by improvement magnitude. Stars mark the top 3 configurations. 
+
+D Agentic Search Procedure 
+
+Figure 5 illustrates the greedy tree search procedure used for agentic prompt optimization. At each iteration, the optimizer generates k candidate instructions from the current best; only the highest-scoring candidate is retained and expanded in the next iteration. When no candidate improves over the current best (e.g., Iter 2), the next iteration’s arrows trace back to the last improving node. N@3: .936   
+
+> Iter 1 Iter 2 no impr.
+> Iter 3
+> Iters 4 9
+> (early stop) Test: .936
+> Agentic Prompt Optimization Tree
+> P
+> initial
+> P .1
+> .939
+> P .2
+> .945
+> P .3
+> .935
+> P .4
+> .939
+> P .5
+> .939
+> P .1
+> .943
+> P .2
+> .941
+> P .3
+> .936
+> P .4
+> .932
+> P .5
+> .941
+> P .1
+> .948
+> P .2
+> .940
+> P .3
+> .940
+> P .4
+> .934
+> P .5
+> .940
+> P*
+> N@3: .948
+> Best prompt (selected) Candidate (pruned)
+
+Figure 5: Schematic of the agentic prompt optimization procedure as a greedy tree search. Blue nodes: selected best prompt per iteration; grey nodes: pruned candidates. Scores are NDCG@3 on the validation subsample. 
+
+E Dataset Construction Algorithm 
+
+Figure 6 formalizes the two-phase LLM synthesis pipeline described in §3. For each service, combinations are constructed via round-robin target assignment with independent scenario sampling, then processed through query generation (Phase 1), relevance ranking (Phase 2), and a quality gate. 9Dataset Construction Pipeline Input: Service catalogue S; each s ∈ S maps to procedures Ps
+
+Output: Dataset D = {(qi, π i)} of query–ranking pairs for cross-encoder training 
+
+D ← ∅ 
+
+for each service s ∈ S do if |P s| < 2 then skip 
+
+nq ← 2 × |P s| // query budget targets ← round-robin (shuffle (Ps), n q )
+
+for i = 1 , . . . , n q do 
+
+Sample intent ∈ { coverage, symptom, direct }
+
+Sample formality ∈ { keyword 70% , conversational 30% }
+
+Sample synonym usage ∈ { true 30% , false 70% }
+
+// Candidate list (subsample if large) 
+
+if |P s| > 20 then Ci ← { targets [i]} ∪ sample (Ps \ { targets [i]}, 19) else Ci ← P s
+
+// Phase 1: Query generation 
+
+qi ← GPT-4o (s, C i, targets [i], intent , formality , synonym flag ) temperature = 0 .7; no verbatim procedure names 
+
+// Phase 2: Relevance ranking 
+
+πi ← GPT-4o (qi, C i) temperature = 0 .0
+
+ri ← rank (targets [i], π i)
+
+// Quality gate: retain only if target procedure ranked in top 3 
+
+if ri ≤ 3 then D ← D ∪ { (qi, π i)}
+
+return D |D| = 2 ,647 after filtering 
+
+Figure 6: Dataset construction pipeline pseudocode. Each entry (qi, π i) pairs a generated query with a full relevance-ranked procedure list. 
+
+10

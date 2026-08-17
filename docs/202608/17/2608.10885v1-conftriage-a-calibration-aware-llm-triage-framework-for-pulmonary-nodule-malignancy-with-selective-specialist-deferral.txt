@@ -1,0 +1,732 @@
+Title: ConfTriage: A Calibration-Aware LLM Triage Framework for Pulmonary Nodule Malignancy with Selective Specialist Deferral
+
+URL Source: https://arxiv.org/pdf/2608.10885v1
+
+Published Time: Wed, 12 Aug 2026 01:06:03 GMT
+
+Number of Pages: 14
+
+Markdown Content:
+> 1
+
+# ConfTriage: A Calibration-Aware LLM Triage Framework for Pulmonary Nodule Malignancy with Selective Specialist Deferral 
+
+Md Rabiul Islam ∗, Samir Abdaljalil ∗, Erchin Serpedin, Fellow, IEEE , and Hasan Kurban 
+
+Abstract —Pulmonary nodule malignancy prediction typically depends on image-trained specialist deep learning (DL) models that require substantial annotated imaging data and task-specific training. We investigate whether a generalist large language model (LLM), reading only a faithful natural–language rendering of standard nodule attributes, can serve as a calibrated triage layer. To address this question, we proceed in three steps. (1) Framework: We propose ConfTriage, a confidence–calibrated method built on three pillars: language as the modality (the LLM consumes structured–to–language input rather than raw pixels), calibration as the safety mechanism (verbalized confidences are transformed in logit space and Platt–scaled), and a selective specialist DL backstop for low–confidence cases. (2) Theory: We prove two guarantees: a finite–sample combined–error bound that yields an explicit per–threshold operational certificate (Theorem 1); an oracle inequality showing that excess risk over the Bayes–optimal deferral classifier is controlled by the L1 calibration error of the LLM probability, formally tying calibration to triage optimality (Theorem 2). (3) Evidence: A controlled seven–way input ablation across five frontier LLMs (Gemini–3.1–Flash–Lite, Mistral–Large, Qwen–2.5–72B, Claude–3.5–Haiku, GPT–4o–mini) on LIDC–IDRI shows that natural–language descriptions dominate the diagnostic signal, that low–level image statistics are essentially diagnostically vacuous. The proposed ConfTriage achieved an F1 score of 88.22% and an AUC of 0.92, while resolving 76.5% of cases using zero-shot LLM inference alone and referring only the remaining uncertain cases to the specialist DL backstop. These results demonstrate that clinically meaningful diagnostic information can be effectively captured through structured radiological descriptions and leveraged by calibrated LLMs for selective referral. More broadly, the proposed framework suggests a practical pathway for combining generalist LLM prediction with specialist artificial intelligence (AI) models in medical decision-support systems. The source code of ConfTriage is publicly available at github.com/rabiul-ai/ConfTriage. 
+
+Index Terms —confidence calibration, clinical decision support, lung nodule classification, Platt scaling, triage, zero–shot diagnosis. 
+
+I. I NTRODUCTION 
+
+Low–dose computed tomography (CT) screening for lung cancer detects vast numbers of pulmonary nodules, the majority of which are benign [1]. Triaging these nodules into those that require specialist follow–up and those that do not is a high–volume, time–sensitive task that creates substantial workload for thoracic radiologists. Specialized DL models 
+
+> ∗
+
+M.R. Islam and S. Abdaljalil contributed equally to this work. M.R. Islam, S. Abdaljalil, and E. Serpedin are with the Department of Electrical and Computer Engineering, Texas A&M University, College Station, TX, USA. E–mail: {rabiul_islam, sabdaljalil, eserpedin}@tamu.edu. H. Kurban is with the College of Science and Engineering, Hamad Bin Khalifa University, Doha, Qatar. E–mail: hkurban@hbku.edu.qa. 
+
+trained end–to–end on nodule volumes have reached accuracies of 91% and above on the standard LIDC–IDRI benchmark [2]– [4], but these systems require image–level training, are opaque to clinicians, and ship with no native interface for explanation in clinical language. Generalist LLMs offer a complementary capability: they consume structured and free–text descriptions of a finding and return both a diagnosis and a rationale in language. A recent work [5] has shown that GPT–4o can reach an average accuracy of 0.88 on longitudinal lung–nodule malignancy prediction, hinting that the linguistic affordances of LLMs may be useful for triage. Whether such systems are reliable enough to deploy, what input modality actually drives their predictions, and whether their confidences can be calibrated for safe operational use remain open questions. 
+
+The gap: For pulmonary nodule malignancy classification, specialized supervised convolutional neural network (CNN) [2]– [4] and vision transformer (ViT) [6] pipelines have achieved high accuracy but require task-specific training and offer limited linguistic interpretability. Vision–language pipelines built on contrastive language–image pretraining (CLIP) and segment anything model (SAM) variants [7], [8] reach an area under the receiver operating characteristic curve (AUC) of approximately 0.90 on the National Lung Screening Trial cohort but degrade under distribution shift to LUNGx and provide no controlled disentanglement of input–modality contributions. Generalist LLM evaluations in radiology [5], [9]–[11] report headline accuracy figures from single models on heterogeneous tasks, without isolating which information channel carries the signal, without producing a calibrated triage policy, and without comparing across vendors on a single benchmark with rigorous statistical machinery. Practitioners deciding whether to use an LLM as a triage layer therefore have neither (i) a controlled measurement of how much of the signal is linguistic versus visual, nor (ii) a deployable method that turns LLM confidence into a defensible deferral policy with formal guarantees. 
+
+The insight: The proposed ConfTriage is a methodolog-ical framework rather than a single model. Two empirical observations and one theoretical observation, taken together, motivate a structured framework for how clinical AI for triage might be organized in the LLM era. First (empirical), standard radiology workflow already produces a small set of structured nodule descriptors (subtlety, internal structure, calcification, sphericity, margin, lobulation, spiculation, texture). If those descriptors carry most of the diagnostic signal, then a generalist LLM that operates on a faithful language rendering of them does not need to consume the CT volume directly. Second arXiv:2608.10885v1 [cs.CV] 11 Aug 2026 2
+
+(empirical), this property is not specific to a single vendor: if it holds for one frontier LLM, it appears to hold across multiple frontier LLMs from independent providers, which is operationally important because deployments cannot lock to a single closed model. Third (theoretical), a calibrated LLM probability is not just a presentation aid; it is the formal object that makes a deferral policy near–optimal in a precise sense (Theorem 2). Together, these observations support a framework with three pillars: (P1) language as the modality (the LLM consumes a structured–to–language rendering rather than raw pixels); (P2) calibration as the safety mechanism (verbalized confidences are transformed in logit space and Platt–scaled); and (P3) a selective specialist backstop as the formal certificate (low–confidence cases route to a specialist DL classifier, with provable bounds on combined error). All three pillars are empirically falsifiable. In this paper, we test P1 directly through the controlled input ablation. We develop the theoretical scaffolding for P2 and P3 (Theorems 1, 2). The resulting combined operating curve, obtained through Platt scaling on Dcal and a deferral–threshold sweep, extends the uncertain–case rejection framework of Certain-Net [12] into a calibrated selective–prediction setting. 
+
+Approach: To support the framework empirically and theoretically, we (i) construct a deterministic input–construction function ϕ that produces seven input regimes spanning ‘ra-diology attributes only,’ ‘language description only,’ ‘image statistics only,’ and four combinations, and evaluate five frontier LLMs from independent vendors on the LIDC–IDRI benchmark under each regime; (ii) introduce ConfTriage, a confidence– calibrated triage framework whose two theorems supply, respectively, an operational error budget and a calibration– to–optimality bridge; and (iii) perform attribute–redaction and synthetic–corruption controls together with an evaluation against leave–one–out (LOO) consensus labels derived from the available LIDC–IDRI reader annotations, thereby quanti-fying model performance relative to expert-reader variability (Section VI-F). All analyses use only publicly available de– identified data; statistical testing uses paired bootstrap with Benjamini–Hochberg false–discovery–rate (FDR) control across all reported comparisons. Overall, the major contributions of our research are as follows. 1) Method: We articulate a three–pillar methodological frame-work for clinical triage with generalist LLMs (language as modality, calibration as safety mechanism, selective backstop as certificate) and instantiate it as ConfTriage, a confidence–calibrated method using logit–space of ver-balized confidences, Platt scaling on a held–out fold, and threshold–based deferral to a specialist DL backstop (Section III, Algorithm 2). 2) Formal guarantees: We prove two theoretical results supporting the proposed framework. Theorem 1 pro-vides a finite–sample combined–error bound that yields a per–threshold operational certificate. Theorem 2 establishes an oracle inequality showing that the excess risk of ConfTriage relative to the Bayes–optimal deferral classifier is controlled by the L1 calibration error of the LLM probability, formally connecting probability calibration to triage optimality. 3) Empirical findings: A controlled seven–way input abla-tion across five frontier LLMs on LIDC–IDRI demon-strates that natural–language descriptions dominate the LLM diagnostic signal, that image–statistics inputs are essentially diagnostically vacuous, and that a small subset of standard LIDC–IDRI attributes localizes most of the gap. Significance is assessed using paired bootstrap with Benjamini–Hochberg FDR correction (Section VI). 4) Reliability and robustness evaluation: Comprehensive evalu-ations are performed to assess the reliability of ConfTriage through LOO reader-consensus evaluation and calibration analysis, while robustness of the language-based diagnostic signal is examined through synthetic corruption controls, description-source ablation, and prompt-temperature sensi-tivity studies. 
+
+Key Distinctions: The closest prior work [5] evaluates GPT–4o on longitudinal CT for nodule assessment and reports 0.88 average accuracy. Our contribution differs along three specific axes: (i) we propose a named, deployable triage method with calibration, deferral, and finite–sample guarantees, rather than reporting raw model accuracy; (ii) we perform a controlled seven–way input ablation that disentangles which input channel drives the LLM signal, which Mao et al. did not attempt; and (iii) we evaluate five vendors rather than one, which is operationally relevant because deployments cannot lock to a single closed model.  
+
+> Key Findings at a Glance
+> 1
+
+Linguistic sufficiency. 
+
+Language-based descriptions provide sufficient diag-nostic information for LLM-based pulmonary nodule classification and consistently outperform image-statistics inputs across all evaluated frontier LLMs (see Table III).  
+
+> 2
+
+Image statistics are diagnostically vacuous. 
+
+Across all five LLMs, image–statistics input col-lapses to AUC in [0 .443 , 0.576] , with several models defaulting to a single class (F1 = 0 ). The mean text–to–image AUC gap is ∆ = 0 .358 . 
+
+> 3
+
+Formal guarantees turn confidence into a contract. 
+
+ConfTriage packages the LLM into a calibrated triage layer with a specialist DL backstop. Theorem 1 supplies a finite–sample combined–error certificate; Theorem 2 an oracle inequality tying L1 calibration error to excess risk over the Bayes–optimal deferral classifier. 3
+
+II. R ELATED WORK 
+
+A. Specialized DL for Nodule Classification 
+
+MV–KBC [2] decomposes a 3D nodule into nine fixed views and integrates appearance, voxel, and shape submodels through ResNet50 backbones; on LIDC–IDRI it reaches 91.60% accu-racy and AUC of 0.957. SDTL [3] couples nodule–vs–tissue pretraining with iterative feature–matching pseudo–labeling. Vi-sual–attention–driven self–supervised transfer learning [4] and LoRA adaptation of pretrained large vision models [6] continue this line and report further accuracy gains. More recently, Gu-nawan et al. [13] proposed a multistage preprocessing pipeline combining 3D filtering with a modified segmentation network, reporting high classification accuracy through extensive image preprocessing and supervised CNN training. These methods are accurate but each requires nontrivial image–level training and does not produce native linguistic interfaces for clinician auditing. Our approach is operationally distinct: we test how far a generalist LLM operating on structured–to–language input can go and use specialized DL only as a backstop for low–confidence cases. 
+
+B. Vision–Language Pipelines and LLM Evaluation 
+
+Lung–CADex [7] couples MedSAM zero–shot segmentation with CLIP prefix tuning and reports detection sensitivity of 0.86 on LIDC–IDRI compared with 0.76 for fully supervised baselines, with external evaluation on LUNGx. The seman-tic–guided vision–language model (VLM) of [8] aligns CT image features with sentence–level radiologist semantic features generated via Gemini and reaches AUC 0.901 on the NLST test split. Both methods integrate vision and language but do not isolate the contribution of language alone, do not emit calibrated confidences, and do not implement a deferral policy. Few studies [14], [15] evaluate the LLMs in Radiology. For instances, Brin et al. [9] evaluate GPT–4V on 230 emer-gency–room images and report pathology–recognition accuracy of 35.2%. Sonoda et al. [10] compare GPT–4o, Claude 3 Opus, and Gemini 1.5 Pro on 324 ‘Diagnosis Please’ cases. Hu et al. [11] benchmark GPT–5 against GPT–4o on VQA–RAD, SLAKE, and a curated medical–physics multiple–choice set. Mao et al. [5] provide the most directly relevant prior result: GPT–4o reaches 0.88 average accuracy on longitudinal nodule malignancy assessment over 647 patients. None of these papers performs a controlled multi-modality ablation, packages the results as a calibrated triage method with formal guarantees, or provides multi-vendor comparisons under FDR-corrected statistical testing on a single nodule benchmark. 
+
+C. Selective Classification and Learning to Defer 
+
+ConfTriage is, mathematically, a selective classifier with an external backstop. The selective classification framework of Geifman and El–Yaniv [16] formalizes coverage–risk trade–offs for classifiers that abstain; the learning–to–defer framework of Madras et al. [17] extends this to systems that route to a downstream expert. We are not aware of a prior instantiation of either framework for an LLM–plus–specialist hybrid in clinical triage. Our contribution within this line is the combination of a 
+
+Figure 1: (a) CT preprocessing for generating nine 2D views from each 3D nodule. (b) Structured nodule description generation from radiological attributes, nodule diameter, and anatomical location. calibrated probability, formal guarantees for selective referral, and a public release suited for prospective external validation. III. M ETHOD : C ONF TRIAGE 
+
+A. Problem Formulation 
+
+Let a single lung nodule case be the tuple x = ( v, a, s ) ∈ X ,where v ∈ RH×W ×D is the cropped 3D CT volume centered at the nodule, a ∈ Rk is a vector of k structured radiology attributes, and s is a deterministic natural–language description of the nodule. We use the eight standard LIDC–IDRI nod-ule–characteristic attributes ( k = 8 ): subtlety, internal structure, calcification, sphericity, margin, lobulation, spiculation, and texture. In addition, nodule diameter ( d) and estimated anatom-ical position derived from the nodule centroid are included. Let 
+
+y ∈ { 0, 1} denote the binary benign–versus–malignant target, and let P denote the joint distribution over (x, y ) induced by the source population. We seek a function that, given x,outputs either a calibrated probability estimate ˆp ∈ [0 , 1] of the Bayes posterior η(x) = Pr P [y = 1 | x] or a deferral signal handing the case to a specialist DL classifier fDL .
+
+B. Preprocessing 
+
+From each lung nodule, we extracted nine 2D views. We also generated a structured textual description from the radiological attributes, nodule diameter, and anatomical location estimated from the nodule centroid ( x, y, z ), as shown in Fig. 1. 
+
+1) CT: CT volumes undergo standard preprocessing (HU correction, 1×1×1 mm 3 resampling, 32 ×32 ×32 mm 3 centered crop, intensity windowing at level −200 and width 1200 ,normalization to [0 , 1] ); from each crop, three orthogonal anatomical and six diagonal slices are extracted. 
+
+2) Text: The natural–language description s = T (a) is generated deterministically from a using a fixed template T
+
+defined in Algorithm 1. The generator is reproducible, blind to the label, and released under the public GitHub repository. 
+
+C. Seven Input Regimes 
+
+We define seven deterministic input–construction functions 
+
+ϕ, each producing a different prompt to the LLM: 4
+
+Algorithm 1 Deterministic description generator T (a)
+
+Require: Structured nodule descriptors a = ( d, p, a 1, . . . , a 8),where d denotes nodule diameter (mm), p denotes the anatomical position estimated from the nodule centroid, and (a1, . . . , a 8) are the standard LIDC–IDRI radiological attributes.  
+
+> 1:
+
+Map the anatomical position code p ∈ { 1, . . . , 10 } to its canonical anatomical descriptor λp using the predefined location dictionary (e.g., p = 1 → “posterior left lower lobe”).  
+
+> 2:
+
+Map each radiological attribute aj to its canonical lexical token λj using the LIDC–IDRI dictionary; for example, 
+
+a5 ∈ 1, . . . , 5 for margin maps to a five–point scale from ‘poorly defined” (1) to ‘sharp” (5).  
+
+> 3:
+
+Concatenate into the fixed sentence: “A lung nodule with a diameter of d mm, located in the λp, λ1 (subtlety), with λ2 (internal structure), showing λ3 (calcification), 
+
+λ4 (sphericity) shape, λ5 margins, λ6 (lobulation), λ7
+
+(spiculation), and λ8 (texture).”  
+
+> 4:
+
+return resulting string s.1) ϕrad (x) = a (numeric attributes only, JSON–serialized). 2) ϕtext (x) = s (natural–language description only). 3) ϕimg (x) = g(v), where g returns intensity histogram summaries (mean, standard deviation, skew, kurtosis, per-centiles) and gray–level co–occurrence matrix features (contrast, homogeneity, energy, correlation). 4) ϕrad+text (x) = ( a, s ).5) ϕrad+img (x) = ( a, g(v)) .6) ϕtext+img (x) = ( s, g(v)) .7) ϕall (x) = ( a, s, g(v)) .
+
+D. Overview: ConfTriage 
+
+The ConfTriage framework takes a test case x as input and produces either a calibrated LLM probability ˆp or a deferral to the specialist DL classifier fDL (v), as outlined in Algorithm 2. Fig. 2(a) summarizes the overall pipeline of ConfTriage. The framework consists of three components. (1) Input construction: Build ϕtext (x) = T (a) using the deterministic template (Algorithm 1). The empirical results in Section VI show that ϕtext is the highest–performing input regime; ConfTriage therefore uses it as the LLM input. (The choice is principled: the comparison is reproducible and the input is small, so the LLM’s API cost stays modest.) (2) Confidence transformation in logit space: Query the LLM under a locked prompt template and collect the verbalized confidence cv ∈ (0 , 1) . The verbalized confidence is converted into logit space as 
+
+ℓv = logit( cv ), (1) where logit( z) = log( z/ (1 − z)) for z ∈ (0 , 1) . Transform-ing confidence into logit space yields an unbounded score representation that is well suited for subsequent probabilistic calibration. (3) Calibration and routing: Platt scaling [18] and tem-perature scaling, the single–parameter variant analyzed in 
+
+Algorithm 2 ConfTriage: confidence–calibrated LLM triage with specialist backstop 
+
+Require: Test case x; LLM M; specialist DL classifier fDL ;and Platt parameters (A, B ) fitted on Dcal ; threshold τ . 
+
+> 1:
+
+Build the language input ϕtext (x) = T (a) via Algorithm 1.  
+
+> 2:
+
+Query M with the locked prompt; collect cv (verbalized confidence in (0 , 1) ).  
+
+> 3:
+
+Compute logits ℓv = logit( cv ). 
+
+> 4:
+
+Calibrate: ˆp ← σ(Aℓ v + B). 
+
+> 5:
+
+if |ˆp − 1/2| ≥ τ then  
+
+> 6:
+
+return LLM prediction ⊮{ˆp ≥ 1/2} with calibrated probability ˆp and D ← 0. 
+
+> 7:
+
+else  
+
+> 8:
+
+return fDL (v) (defer to specialist) and D ← 1. 
+
+> 9:
+
+end if 
+
+[19], are standard tools for converting raw model scores into well–calibrated probabilities. We follow this line and adapt it to the situation of generalist LLMs that consider the verbalized confidence generated by LLMs. A Platt–scaling map gPlatt : R → [0 , 1] is fitted on Dcal to convert ℓv into a calibrated probability ˆp:
+
+ˆp = gPlatt (ℓv) = σ A ℓ v + B, (2) with (A, B ) optimized using the Limited-memory Broyden– Fletcher–Goldfarb–Shanno (L–BFGS) algorithm on the cal-ibration–fold cross–entropy. A threshold τ ∈ [0 , 1/2] is selected on Dcal by sweeping candidate threshold values and evaluating the resulting trade-off between coverage and predictive performance. Cases with |ˆp − 1/2| < τ are deferred to fDL . The deferral indicator is D = ⊮{| ˆp − 1/2| < τ }.
+
+E. LLMs and Spealist Backstop 1) Multi–vendor LLM Pool: We evaluate five frontier LLMs from distinct providers, balanced between closed and open–source families: OpenAI GPT–4o–mini, Anthropic Claude–3.5–Haiku, and Google Gemini–3.1–Flash–Lite (closed, accessed via vendor APIs); Mistral–Large and Alibaba Qwen–2.5–72B (open–weights, served through hosted end-points). The intent of this pool is twofold: to test whether the structured textual input based performance is vendor–specific or general, and to enable a closed–versus–open–source comparison along the lines reported in Section VI-A. Each model is queried with temperature 0 (deterministic) under a locked prompt template; verbalized confidence is captured for the calibration analysis. 
+
+2) Specialist Backstop: Certain-Net: When the LLM-based prediction is not sufficiently confident (i.e., |ˆp − 12 | < τ ), we defer the case to the specialist DL classifier fDL (v). The specialist backstop fDL is our recently proposed Certain-Net [12] model, an uncertainty-aware ensemble of Monte Carlo (MC) dropout convolutional neural networks built upon the EfficientNetV2B0 backbone and trained using a nine-view 2D representation of each pulmonary nodule. Certain-Net achieved an accuracy of 95.63% when making predictions on only the most certain 55.08% of cases. However, 5Yes No                         
+
+> CT volume  specialist only
+> a8 radiological
+> attributes, nodule diameter, and estimated location
+> Deterministic template
+> s=T(a)
+> Generalist LLM verbalized confidence cv
+> Platt calibration
+> p=(Av+B)
+> |p12|
+> = 0.28
+> Accept LLM decision
+> y=1{p12}
+> vCT volume
+> Defer to specialist
+> fDL (v)Certain-Net
+> 00.5 1
+> Mean predicted confidence
+> 00.5 1
+> Empirical accuracy
+> Calibrated Uncalibrated Perfect
+> Resolved by LLM
+> 76.5% 23.5%
+> Resolved by LLM zero-shot inference
+> Deferred to specialist fDL (Certain-Net)
+> LLM coverage (fewer cases reach the specialist)
+
+a Method schematic b Reliability (held-out set) 
+
+c Case routing at = 0.28   
+
+> ECE ( 50%)
+> 0.085 0.042
+
+Figure 2: The ConfTriage triage pipeline and its operating behavior. (a) Pipeline of the confidence-aware triage system integrating a generalist LLM with a specialist DL classifier. (b) Reliability diagram showing that uncalibrated confidences are overconfident, whereas Platt scaling reduces the expected calibration error (ECE) from 0.085 to 0.042 . (c) At the operating threshold τ = 0 .28 ,the LLM resolves 76 .5% of cases, while 23 .5% are deferred to the specialist. Lowering τ increases LLM coverage. achieving this performance requires task-specific image-based model training. Motivated by the desire to reduce this training burden, we investigate whether an LLM can accurately resolve a substantial fraction of cases through zero-shot prediction, reserving only uncertain cases for a specialist backstop. This motivation led to the development of the proposed ConfTriage framework. 
+
+F. Leave–One–Out Consensus Protocol 
+
+Consider a nodule annotated by readers {r1, r 2, . . . , r m}
+
+with malignancy ratings {yi1, y i2, . . . , y im }. When reader rj
+
+is selected as the test reader, the remaining readers form the consensus: 
+
+Cij = Median ( {yik : k̸ = j}) . (3) Following standard LIDC–IDRI practice, ratings below 3 were mapped to the benign class, ratings above 3 were mapped to the malignant class, and ambiguous ratings equal to 3 were excluded. The binary LOO consensus label is therefore 
+
+˜yij =
+
+(
+
+1, Cij > 3,
+
+0, Cij < 3. (4) Thus, each reader is evaluated against the collective opinion of the remaining readers. For example, 
+
+R1 ↔ Consensus( R2, R 3, R 4), (5) with analogous comparisons for all available readers. This protocol provides a principled estimate of individual-reader agreement with multi-reader consensus while avoiding assump-tions regarding globally consistent reader identities. IV. T HEORETICAL ANALYSIS 
+
+The theoretical analysis makes two claims, each supporting an operational property of the proposed paradigm. Theorem 1 bounds the combined error of ConfTriage (Algorithm 2) and is the formal object underlying the triage operating curve. Theorem 2 is an oracle inequality that bounds ConfTriage’s excess risk over the Bayes–optimal deferral classifier in its class by the L1 calibration error of the LLM probability, formally connecting Pillar P2 (calibration as the safety mechanism) to Pillar P3 (selective backstop as the certificate). 
+
+A. Coverage–Risk Decomposition for ConfTriage 
+
+Assumption 1 (i.i.d. held-out test fold) . In each cross-validation iteration, the held-out test fold Dtest = {(xi, y i)}ni=1 consists of independent samples drawn from the underlying data distribution P .Under Assumption 1, define the empirical retained–case error ˆRM(τ ) and the empirical deferred–case error ˆRfDL (τ ):
+
+ˆRM(τ ) = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+(1 − Di) ⊮{ˆyM
+
+> i
+
+̸ = yi}, (6) 
+
+ˆRfDL (τ ) = 1
+
+n
+
+> n
+
+X
+
+> i=1
+
+Di ⊮{ˆyfDL 
+
+> i
+
+̸ = yi}, (7) where ˆyM 
+
+> i
+
+= ⊮{ˆpi ≥ 1/2} and ˆyfDL  
+
+> i
+
+= fDL (vi). The combined ConfTriage prediction is ˆyi = (1 −Di)ˆ yM 
+
+> i
+
++Di ˆyfDL  
+
+> i
+
+,and the combined population risk is R(ˆ y) = Pr P [ˆ y̸ = y].Intuitively, the next theorem says that the combined error of ConfTriage on the population is, with high probability, bounded 6
+
+by the sum of its empirical retained and deferred errors plus a Hoeffding correction. This is the formal object on which the operating–curve analysis in Section VI-C rests. 
+
+Theorem 1 (Finite–sample combined risk bound) . Under Assumption 1, for any threshold τ ∈ [0 , 1/2] and any δ ∈ (0 , 1) ,with probability at least 1 − δ over the draw of the held-out test fold Dtest ,
+
+R(ˆ y) ≤ ˆRM(τ ) + ˆRfDL (τ ) + 
+
+r log(1 /δ )2n . (8) 
+
+Remark 1. The bound is operational: for any fixed threshold 
+
+τ , the right–hand side is computable from the held–out test fold and therefore provides a finite–sample certificate of the combined error. Because ConfTriage is evaluated using five– fold cross–validation, the certificate is computed independently on each held–out fold using the common operating threshold selected from the pooled out–of–fold predictions. This preserves the assumptions of Theorem 1 while providing a deployment– relevant certificate for each cross–validation split. 
+
+Proof sketch of Theorem 1. Set Zi = (1 −Di) ⊮{ˆyM
+
+> i
+
+̸ = yi}+
+
+Di ⊮{ˆyfDL 
+
+> i
+
+̸ = yi}. Each Zi ∈ { 0, 1} and, for the current held-out cross-validation fold, the Zi are i.i.d. under Assumption 1. By linearity of expectation and the disjoint decomposition 
+
+1 = (1 − Di) + Di,
+
+EP [Z1] = Pr  
+
+> P
+
+[ˆ y̸ = y] = R(ˆ y).
+
+Hoeffding’s inequality applied to bounded i.i.d. variables yields, for any t > 0, Pr  E[Z1] − ¯Z > t  ≤ exp( −2nt 2), where 
+
+¯Z = n−1 P 
+
+> i
+
+Zi = ˆRM(τ ) + ˆRfDL (τ ). Setting the right–hand side equal to δ and solving gives t = plog(1 /δ )/(2 n), which yields the one–sided upper bound on R(ˆ y) in (8). (A symmetric two–sided bound on |E[Z1] − ¯Z| would replace log(1 /δ ) by 
+
+log(2 /δ ) via union bound; we use the one–sided form because we only need an upper bound on the risk.) 
+
+Remark 2 (Tightness) . Theorem 1 uses no structural in-formation about the joint distribution of (ˆ p, y, f DL (v)) and is therefore the tightest distribution–free bound that can be obtained from the empirical risk. Tighter bounds are available under additional assumptions: under bounded vari-ance of Zi, Bernstein’s inequality replaces the slack with 
+
+O(pVn log(1 /δ )/n + log(1 /δ )/n ) where Vn is the empirical variance; under realizability or bounded VC dimension on the deferral rule, uniform convergence over τ replaces the slack with O(p(log K + log(1 /δ )) /n ) for K candidate thresholds. We report the simpler bound here for transparency. 
+
+B. Oracle Inequality: Calibration Controls Excess Risk 
+
+Theorem 1 certifies the combined error rate but says nothing about whether ConfTriage is using the available signal well 
+
+relative to a Bayes–optimal benchmark. We now show that the gap between ConfTriage’s combined risk and the risk of the Bayes–optimal deferral classifier in its class is controlled by the L1 calibration error of the LLM probability. This is the formal bridge between calibration (a measurable diagnostic) and triage optimality (a target property). 
+
+Bayes baseline. Let η(x) = Pr P [y = 1 | x] be the Bayes posterior. For a fixed deferral threshold τ and a fixed specialist backstop fDL , define the Bayes–optimal deferral classifier with backstop fDL by 
+
+ˆy∗ 
+
+> τ
+
+(x) = 
+
+(
+
+⊮{η(x) ≥ 1/2} if |η(x) − 1/2| ≥ τ, fDL (v) otherwise , (9) with risk R(ˆ y∗ 
+
+> τ
+
+) = Pr P [ˆ y∗
+
+> τ
+
+̸ = y]. The classifier ˆy∗ 
+
+> τ
+
+has perfect knowledge of the posterior on retained cases and uses the same backstop on deferred cases as ConfTriage; it is the strongest baseline that respects the same operating constraint. Define the 
+
+L1 calibration error 
+
+∆(ˆ p) = EP ˆp(x) − η(x) , (10) the expected pointwise distance from the Bayes posterior, and the deferral discrepancy probability π∆(τ ) = Pr P [ ˆD(x)̸ =
+
+D∗(x)] where ˆD(x) = ⊮{| ˆp − 1/2| < τ } and D∗(x) = 
+
+⊮{| η − 1/2| < τ }.Intuitively, the next theorem says that any ConfTriage–style policy whose probability is close to the Bayes posterior in 
+
+L1 also has near–Bayes–optimal risk, with two interpretable sources of slack: L1 calibration error and deferral–boundary disagreement. 
+
+Theorem 2 (Excess risk of ConfTriage versus Bayes–optimal deferral) . Let ˆyτ denote the population–level ConfTriage classifier (Algorithm 2) at threshold τ ∈ [0 , 1/2] . For any predictor ˆp : X → [0 , 1] , any specialist backstop fDL , and any 
+
+τ ,
+
+R(ˆ yτ ) − R(ˆ y∗ 
+
+> τ
+
+) ≤ 2 ∆(ˆ p) + π∆(τ ). (11) 
+
+Remark 3 (Tsybakov–margin corollary) . Under the standard Tsybakov–margin condition with parameter α ∈ [0 , ∞] and constant C near each deferral boundary, namely Pr P
+
+ η(x) −
+
+1/2 − τ ≤ t or η(x) − 1/2 + τ ≤ t ≤ 2Ct α for all t ≥ 0,the deferral discrepancy is controlled by the calibration error: 
+
+π∆(τ ) ≤ 2CEP |ˆp − η|α. Specializing to α = 1 ,
+
+R(ˆ yτ ) − R(ˆ y∗ 
+
+> τ
+
+) ≤ 2(1 + C) ∆(ˆ p),
+
+i.e., the excess risk is first–order in the L1 calibration error. 
+
+Remark 4 (Why this is the right comparison) . The Bayes–optimal benchmark in (9) uses the same backstop 
+
+fDL that ConfTriage uses. We therefore measure how well ConfTriage exploits the LLM’s predictive content, separating it from the question of how good the backstop is. A weaker baseline (the Bayes classifier with no deferral) would conflate the two. A stronger baseline (the Bayes classifier with the Bayes–optimal backstop) would not give actionable guidance because that backstop is not implementable. 
+
+Remark 5 (Connection to ECE) . The unobservable quantity 
+
+∆(ˆ p) is bounded above, under mild regularity on η, by the ECE of ˆp plus a binning approximation term that vanishes as the bin width → 0. Theorem 2 therefore translates directly into a bound expressed in terms of the ECE, which we measure empirically. The Platt–scaling step in Algorithm 2 is the operational lever that drives ECE down on Dcal and, through Theorem 2, drives the excess risk of ConfTriage down on Dtest .7
+
+Proof sketch of Theorem 2. We decompose pointwise excess risk by the four cases of ( ˆD, D ∗) ∈ { 0, 1}2. When both predict ( ˆD = D∗ = 0 ), the pointwise excess risk is at most |2η −
+
+1|⊮{ˆg̸ = g∗}, which is bounded by 2|ˆp − η| by the classical plug–in identity (when the two classifiers disagree, |η − 1/2| ≤ |ˆp−η|). When both defer, the excess is zero. When the deferral choices disagree, the pointwise excess is at most one. Taking expectations and noting that the disagreement set has measure 
+
+π∆(τ ) yields (11). 
+
+C. Summary of Theoretical Guarantees 
+
+Theorems 1 and 2 together provide a self–contained statistical foundation for the proposed framework. Table I summarizes the theoretical guarantees, together with their assumptions and operational implications. Theorem 1 converts the empirical retained and deferred errors into a finite–sample certificate of the combined risk. Theorem 2 formally connects calibration to triage optimality: a well–calibrated LLM probability suffices for near–Bayes–optimal deferral. V. D ATASETS AND EVALUATION PROTOCOL 
+
+A. Dataset 
+
+The LIDC–IDRI [1] is the primary benchmark that was utilized for conducting the research. The full database contains 1018 thoracic CT scans with lesions marked as a nodule by at least one thoracic radiologist. Following standard practice [2]–[4], we exclude nodules with diameter ≤ 3 mm, and we exclude nodules with median malignancy rating equal to 3 because of irreducible diagnostic ambiguity. After these inclusion criteria, 955 nodules are retained (427 benign, 528 malignant), partitioned into five patient–wise cross–validation folds. We partitioned the labeled dataset D = {(xi, y i)}Ni=1 using patient-level five-fold cross-validation to prevent patient-level leakage. For each iteration, fold i was used as the held-out test set Dtest , while fold (i + 1) mod 5 served as the calibration set 
+
+Dcal for fitting the Platt-scaling parameters and determining the operating threshold. The learned calibration model was then applied only to the corresponding test fold, ensuring that each sample received exactly one out-of-fold calibrated probability. 
+
+B. Reporting Protocol 
+
+For all models and ablation experiments, we report accuracy (Acc.), F1 score, and AUC. In addition, the expected calibration error (ECE), Brier score, sensitivity (Sen.), specificity (Spe.), and Cohen’s kappa ( κ) are reported where relevant. All point estimates are accompanied by 95% percentile bootstrap confidence intervals computed from 300 patient-level bootstrap resamples of Dtest , where resampling with replacement at the patient level preserves the dependence structure introduced by multiple nodules per patient. Pairwise testing under FDR control: Pairwise model com-parisons under a fixed ablation use the paired bootstrap on AUC at the patient level; the resulting p–values are subjected to Benjamini–Hochberg false–discovery–rate correction [20] across all reported comparisons. Tables IV use 300 bootstrap resamples for these pairwise tests. Because this bootstrap budget implies a minimum attainable raw p-value of approximately 
+
+1/(300+1) ≈ 0.0033 , we report significance as ∗∗ for q < 0.01 
+
+and ∗ for q < 0.05 .VI. R ESULTS AND ANALYSIS 
+
+This section is organized to match the contributions: Sec-tion VI-A reports the main triage table comparing ConfTriage against specialized DL; Section VI-B establishes the empirical discovery that linguistic descriptions dominate the LLM signal; Section VI-C reports calibration and triage operating curves and instantiates the bounds of Theorems 1; Section VI-F places ConfTriage’s combined performance in the context of the LIDC–IDRI reference–reader annotations using public data only. 
+
+A. Main Comparison and ConfTriage Performance 
+
+Table II presents the performance comparison among the evaluated LLMs, the DL backstop, and the proposed Conf-Triage. The best-performing LLM results are underlined, while the overall best results across the entire table are highlighted in bold. 
+
+1) LLM vs ConfTriage and Backstop Performance: For the LLMs, Table II reveals two key observations. First, two of the five evaluated LLMs—Gemini–3.1–Flash–Lite (AUC = 0.907 )and Mistral–Large (AUC = 0.901 )—achieved an AUC above 0.9 without any image–level training. This finding supports the operational hypothesis that, given a faithful language representation of structured radiological attributes, an LLM can attain discriminative performance comparable to specialist DL models without direct image-based training. Second, two high-performing models based on AUC (Mistral–Large and Qwen–2.5–72B) are open-weight models, reducing vendor lock-in concerns that often limit hospital deployment. The proposed ConfTriage achieved the highest F1 score (0.882 ), while the DL backstop (Certain-Net) attained the highest AUC ( 0.933 ). Notably, a recent longitudinal LLM-based study reported an accuracy of 0.88 , which is comparable to the accuracy achieved by ConfTriage. The primary motivation behind ConfTriage is that 76.5% of cases can be handled without requiring any image-trained model, while still achieving the best overall F1 score. 
+
+2) Closed versus Open–Source Aggregate: Aggregating by family (closed: GPT–4o–mini, Claude–3.5–Haiku, Gemini–3.1–Flash–Lite; open–source: Mistral–Large, Qwen–2.5–72B), the family–level aggregates on the language–only regime are similar (mean AUC 0.851 for closed, 0.880 for open–source; Fig. 3). The single best configuration is Gemini–3.1–Flash–Lite (closed, AUC 0.907), and the second–best is Mistral–Large (open–source, AUC 0.901); the spread within each family exceeds the across–family aggregate gap. The operational implication is that Pillar P1 (language as the modality) does not require closed–vendor models, which supports the multi–vendor portability claim of Section III-E1. 8
+
+Table I: Summary of the theoretical guarantees. Each theorem links an observable quantity to a deployment-relevant property.                               
+
+> Theorem What it bounds Assumption Typical slack Operational implication
+> Thm. 1 (Combined risk) Population error R(ˆ y)≤empir-ical retained + deferred error + slack i.i.d. held–out test fold plog(1 /δ )/(2 n);
+> ≈0.0886 at n=191 ,
+> δ= 0 .05
+> Per-fold finite-sample certifi-cate of combined error for any threshold τ.Thm. 2 (Oracle inequality)
+> R(ˆ y)−R∗≤2∆ + π∆, with
+> ∆ = E|ˆp−η|
+> None beyond integrabil-ity (Tsybakov margin tightens to O(∆) )Margin-dependent; first-order in ∆under linear margin Calibration (measurable via ECE) directly controls the gap to Bayes-optimal deferral.
+
+Table II: Performance comparison among the LLM, DL backstop, and the proposed ConfTriage. The language-only LLM achieved performance comparable to that of the specialist DL backstop.                                     
+
+> System Acc. F1 AUC AP
+> LLM (zero–shot, language–only)
+> Gemini–3.1–Flash 0.830 0.844 0.907 0.894 Mistral–Large 0.822 0.829 0.901 0.892 Qwen–2.5–72B 0.827 0.857 0.880 0.849 Claude–3.5–Haiku 0.736 0.775 0.798 0.790 GPT–4o–mini 0.731 0.719 0.796 0.798
+> Specialist DL backstop
+> Certain–Net (EffNetV2B0) 0.851 0.864 0.933 –
+> LLM with DL backstop (Calibrated)
+> ConfTriage 0.869 0.882 0.920 –
+> Reference (different task a; orientation only)
+> Mao et al. [5] (longitudinal) 0.880 –––
+> aMao et al. [5] is on a different (longitudinal CT) task and included for orientation only.
+
+B. Empirical Discovery 1) Language Dominates the Signal in LLMs: Across all five LLMs applied, language–only input ( ϕtext ) achieves either the top or second–best AUC as shown in Table III. Fig. 4 indicates that the best overall configuration is Gemini–3.1–Flash–Lite + ϕtext at AUC = 0.907, followed by Mistral–Large + ϕtext 
+
+at AUC = 0.901 and Qwen–2.5–72B + ϕtext at AUC = 0.880. The image–statistics regime, in contrast, collapses to AUC in 
+
+[0 .499 , 0.580] , with several models defaulting to a single class (F1 = 0.000) when the input contains no diagnostic signal: a clean negative–control outcome. The mean text-vs-image AUC gap remains large ( ∆ ≈
+
+0.327 ; per-model gaps: Gemini +0 .327 , Mistral +0 .369 ,Qwen +0 .348 , Claude +0 .292 , GPT-4o-mini +0 .297 ). Pair-wise paired-bootstrap tests further show that stronger models significantly outperform weaker ones under matched ablations: under ϕall , Mistral, Qwen, and Gemini each exceed GPT-4o-mini by ∆AUC in [0 .132 , 0.144] with q < 0.01 (Table IV). In contrast, pairwise differences among the top three models under ϕall remain within the bootstrap noise band and are not significant after FDR correction. 
+
+2) Gemini’s Anomaly on Numeric Input: Under the radiology-numeric regime ( ϕrad , structured attributes without language rendering), Gemini-3.1-Flash-Lite still exhibits a clear separation from the other models (Table IV). A plausible interpretation is that Gemini is comparatively better at ex-
+
+Figure 3: Performance comparison between closed- and open-source LLMs across seven input regimes. Accuracy (top) and AUC (bottom) exhibit similar qualitative trends for both model families. Open-source models match or slightly outperform closed-source models in language-only and language-inclusive settings. 
+
+Figure 4: Gemini-3.1-Flash-Lite achieved the highest AUC among all LLMs across all seven input regimes. The text-only regime yielded the best performance, and language–inclusive regimes consistently outperformed the remaining regimes. tracting signal directly from serialized numeric fields. While the mechanism cannot be verified externally, the empirical gap is robust in the updated full-cohort analysis. Substantively, this suggests that Pillar P1 (language as modality) remains highly effective overall, but is not strictly necessary for all vendor/model families. 9
+
+Table III: Per-model performance on LIDC–IDRI ( n=955 
+
+nodules) across seven input regimes. Bold = best per model; underline = second-best. Best overall: Gemini-3.1-Flash-Lite + 
+
+ϕtext (AUC 0.907).                                                                                                                                                  
+
+> Model Regime Acc. F1 AUC AP
+> Gemini-3.1 Flash-Lite
+> ϕrad .644 .551 .804 .817
+> ϕtext .830 .844 .907 .894
+> ϕimg .447 .000 .580 .622
+> ϕrad+text .703 .656 .880 .872
+> ϕrad+img .644 .551 .786 .806
+> ϕtext+img .819 .831 .903 .893
+> ϕall .679 .615 .867 .858 Mistral-Large
+> ϕrad .518 .589 .564 .614
+> ϕtext .822 .829 .901 .892
+> ϕimg .444 .007 .532 .567
+> ϕrad+text .755 .756 .812 .805
+> ϕrad+img .521 .604 .553 .594
+> ϕtext+img .839 .854 .887 .874
+> ϕall .754 .752 .807 .796 Qwen-2.5-72B
+> ϕrad .614 .499 .702 .742
+> ϕtext .827 .857 .880 .849
+> ϕimg .447 .000 .532 .570
+> ϕrad+text .784 .783 .859 .844
+> ϕrad+img .600 .466 .702 .725
+> ϕtext+img .792 .838 .803 .762
+> ϕall .765 .755 .845 .835 Claude-3.5 Haiku
+> ϕrad .573 .719 .577 .596
+> ϕtext .736 .775 .798 .790
+> ϕimg .503 .531 .506 .554
+> ϕrad+text .648 .753 .684 .677
+> ϕrad+img .562 .713 .589 .610
+> ϕtext+img .630 .718 .699 .720
+> ϕall .669 .756 .726 .718 GPT-4o-mini
+> ϕrad .639 .740 .691 .682
+> ϕtext .731 .719 .796 .798
+> ϕimg .447 .000 .499 .556
+> ϕrad+text .667 .674 .721 .721
+> ϕrad+img .655 .718 .705 .706
+> ϕtext+img .715 .709 .757 .757
+> ϕall .664 .665 .744 .749
+
+Figure 5: Elbow-point selection of the operating threshold ( τ =0.28 ), balancing predictive performance and LLM decision coverage. 
+
+C. Operating Threshold Selection and Empirical Insights 
+
+The deferral threshold τ controls the operating tradeoff of ConfTriage. Lower values of τ result in reduced performance, whereas higher values of τ reduce coverage and increase reliance on the image-based DL specialist backstop. To identify Table IV: Strong–versus–weak-model gaps after FDR correc-tion. Representative pairwise AUC comparisons on LIDC–IDRI using paired bootstrap with Benjamini–Hochberg FDR cor-rection. ∆ denotes AUC difference (Model A − Model B). Significance markers: ∗∗ q < 0.01 , ∗ q < 0.05 .
+
+A vs. B ∆AUC 95% CI q
+
+All modalities (ϕall )Mistral vs. GPT +0 .062 [0 .038 , 0.090] ∗∗ 
+
+Qwen vs. GPT +0 .101 [0 .075 , 0.132] ∗∗ 
+
+Gemini vs. GPT +0 .123 [0 .096 , 0.148] ∗∗ 
+
+Mistral vs. Qwen −0.039 [−0.055 , −0.024] ∗∗ 
+
+Numeric attributes only (ϕrad )Gemini vs. Mistral +0 .240 [0 .210 , 0.268] ∗∗ 
+
+Gemini vs. GPT +0 .113 [0 .079 , 0.148] ∗∗ 
+
+Gemini vs. Qwen +0 .102 [0 .078 , 0.129] ∗∗ 
+
+Image statistics only (ϕimg )Gemini vs. GPT +0 .080 [0 .042 , 0.114] ∗∗ 
+
+Mistral vs. GPT +0 .033 [−0.011 , 0.069] 0.22 
+
+a practically useful operating point, we aim to determine the minimum τ that provides high coverage while ensuring that performance gains obtained from additional referrals become marginal beyond that point. Therefore, we evaluated ConfTriage over threshold values ranging from 0 to 0.5 with a step size of 0.01. Fig. 5 presents the relationship between LLM decision coverage and F1 score. Using the elbow method, the operating threshold was determined as τ = 0 .28 . At τ = 0 .28 ,ConfTriage retained 76.5% of cases at the LLM stage while referring only the remaining 23.5% of uncertain cases to the specialist DL backstop. Consequently, more than three quarters of all diagnostic decisions were completed using zero-shot LLM inference alone, without requiring invocation of a task-specific image model. Fig. 5 also highlights that relying exclusively on the LLM (τ = 0 .0) or exclusively on the DL backstop ( τ = 0 .5) is suboptimal, as both configurations result in lower F1 scores. In contrast, ConfTriage achieves superior performance through selective referral, leveraging the complementary strengths of the LLM and the DL backstop while maintaining high LLM coverage. 
+
+D. Empirical Verification of Theorem 1 
+
+Theorem 1 was evaluated independently on each held–out cross–validation fold using the common operating threshold 
+
+τ = 0 .28 . Each fold contained n = 191 test samples, yielding a Hoeffding slack of 
+
+r log(20) 2 × 191 = 0 .0886 .
+
+Across the five folds, the empirical combined error was 13 .1% ±
+
+2.3% , while the resulting certified upper bound was 21 .9% ±
+
+2.3% . The worst fold attained an empirical error of 16 .8% ,corresponding to a certified upper bound of 25 .6% . Thus, with probability at least 95% , the population error of ConfTriage on every held–out fold is bounded by its corresponding certificate, with the worst–case deployment certificate equal to 25 .6% .10 
+
+Table V: Empirical verification of Theorem 2 through calibration-aware routing. Calibration substantially reduces ECE while increasing LLM decision coverage and slightly improving overall ConfTriage performance.                       
+
+> Probability source ECE ↓Brier ↓Cov. ↑F1 ↑
+> Raw verbalized confidence 0.0845 0.1239 65.45% 0.8781 Platt-scaled confidence 0.0421 0.1230 76.54% 0.8822 Improvement −50 .2% −0.7% +11 .1pp +0 .46%
+> Note: ECE, Brier, and F1 improvements are relative changes; the coverage (Cov.) improvement is an absolute change in percentage points (pp).
+
+E. Empirical Verification of Theorem 2 
+
+To empirically assess the implications of Theorem 2, we compared ConfTriage using raw verbalized confidence scores against the proposed Platt-calibrated probabilities. The results are summarized in Table V. Calibration reduced the expected calibration error (ECE) from 0.0845 to 0.0421, corresponding to an approximately 50% relative reduction, while slightly improving the Brier score from 0.1239 to 0.1230. At the selected operating threshold ( τ = 0.28 ), calibration also increased LLM decision coverage from 65.45% to 76.54% and improved the overall F1 score from 0.8781 to 0.8822. These results are consistent with Theorem 2, demonstrating that improved probability calibration leads to more effective routing decisions, allowing ConfTriage to defer fewer cases to the specialist backstop while maintaining slightly higher predictive performance. 
+
+F. Comparison Against Reader Variability Using LOO Con-sensus 
+
+To assess whether ConfTriage operates within the range of expert-reader variability, we compared its predictions against the distribution of reader annotations available in LIDC–IDRI. The LIDC–IDRI dataset contains multiple independent radiol-ogist assessments for each nodule; however, reader identities are not globally consistent across the dataset. In particular, the radiologist indexed as reader 1 for one nodule is not necessarily the same individual as reader 1 for another nodule. Consequently, reader-specific performance cannot be estimated across the entire dataset, and conventional inter-radiologist analyses assuming fixed reader identities are not applicable. To address this limitation, we adopted a LOO consensus protocol (described in Section III-F), in which each reader annotation was compared against a consensus label derived from the remaining readers associated with the same nodule. Table VI summarizes the resulting comparison. Individual readers are evaluated against the LOO consensus using sensi-tivity, specificity, accuracy, AUC, and Cohen’s κ. ConfTriage is evaluated at three operating thresholds ( t = 0 .3, 0.5, and 0.7)to illustrate the sensitivity–specificity trade-off. Unlike AUC, which summarizes performance across all possible thresholds, varying t allows direct comparison between model operating points and reader operating points. Fig. 6 visualizes the same comparison in ROC space. Continuous curves correspond to ConfTriage, LLM, and Certain-Net, while points R1–R4 denote the operating points obtained by comparing each reader against Table VI: Comparison of individual readers, Certain-Net, LLM, and ConfTriage under the LOO consensus protocol.                                                                        
+
+> System tnSen. Spe. Acc. AUC Cohen’s κ
+> R1 –611 0.820 0.891 0.851 0.910 0.701 R2 –587 0.879 0.883 0.881 0.922 0.759 R3 –494 0.908 0.853 0.885 0.918 0.764 R4 –357 0.608 0.896 0.709 0.874 0.440 ConfTriage 0.3 2049 0.967 0.801 0.898 0.952 0.785 ConfTriage 0.5 2049 0.942 0.878 0.915 0.952 0.825 ConfTriage 0.7 2049 0.884 0.914 0.897 0.952 0.790 Certain-Net –2049 –––0.949 –LLM –2049 –––0.946 –
+
+Figure 6: ROC analysis using LOO consensus labels shows that ConfTriage achieves agreement with consensus that lies at the upper end of the range observed among individual reader operating points while slightly outperforming the specialist DL backstop (Certain-Net) and the standalone LLM prediction. the consensus of the remaining readers. Each reader therefore contributes a single sensitivity–specificity pair rather than a full ROC curve. Because the LOO protocol generates one comparison instance per reader annotation, model performance is evaluated on reader–nodule instances rather than unique nodules. Consequently, the reader-specific analyses involve 611, 587, 494, and 357 valid comparison instances for R1–R4, respectively, whereas ConfTriage, the LLM, and Certain-Net are evaluated across all 2049 valid reader–nodule instances generated by the LOO procedure. Several observations emerge from this analysis. First, sub-stantial variability exists among the reader operating points. Readers R1–R3 exhibit relatively similar performance, achiev-ing AUC values between 0.910 and 0.922 with Cohen’s κ
+
+values ranging from 0.701 to 0.764. In contrast, reader R4 shows noticeably lower agreement with the remaining readers (AUC = 0.874, κ = 0 .440 ), highlighting the degree of observer variability present in the dataset. Second, ConfTriage achieves an AUC of 0.952, which is higher than the AUC values observed for the individual reader operating points under the LOO-consensus framework and 11 
+
+slightly outperforms both LLM (AUC = 0.946) and Certain-Net (AUC = 0.949). At the default threshold t = 0 .5, ConfTriage attains a sensitivity of 0.942, specificity of 0.878, accuracy of 0.915, and Cohen’s κ of 0.825, which are higher than the corresponding values observed for the individual reader operating points under the LOO-consensus framework. Third, the ROC curves of ConfTriage, LLM, and Certain-Net occupy a performance region above the individual reader operating points, indicating that the proposed framework preserves the discriminative information available in both the specialist model and the underlying LLM while occupying a region of ROC space that is above the operating points observed for the individual readers. Overall, this analysis quantifies the performance of Con-fTriage relative to the variability inherent in the available expert-reader annotations. Under this framework, ConfTriage demonstrates agreement with consensus that is comparable to that observed for the individual reader operating points in the dataset while providing calibrated probabilistic outputs suitable for downstream triage and selective deferral. 
+
+G. Ablation Studies 1) Synthetic Corruption Controls: Three controls test the hypothesis that the LLM is exploiting genuine semantic content of the description rather than superficial language priors. (a) At-tributes negated by mapping each rating to its semantic opposite (“smooth” → “spiculated,” etc.). (b) Attributes paraphrased with neutral language while preserving meaning (“rounded” instead of “spherical”). (c) Attributes shuffled across nodules within the malignant class, preserving the marginal distribution of words while breaking the input-to-label relationship. The results we found accross 5 LLMs are presented in Table VII. Across models, performance under corruption generally decreases relative to the text-only condition, though the magnitude of degradation varies by corruption type and model. Results in Table VII show that the paraphrased descriptions typically preserve most of the original performance, indicating that models are not overly sensitive to surface-level lexical variation when semantic content is retained. In contrast, negated attributes lead to more substantial drops in AUC for several models (Claude, Gemini, GPT, and Qwen), suggesting that models are responsive to semantic polarity and that label-relevant features are being used. The shuffled control produces mixed effects. Overall, these results support the hypothesis that LLMs leverage meaningful semantic information contained in the radiological descriptions rather than relying solely on superficial lexical cues. 
+
+2) Description–Source Ablation: To investigate whether the LLM’s predictive performance depends on the specific lexical realization of the input description or on the underlying radiological information itself, we compared the deterministic template (textual description in the dataset) against a paraphrase generated by Llama 3.1 8B Instruct and an adversarial para-phrase that preserves all attribute information while replacing potentially salient trigger terms. As shown in Table VIII, the deterministic template achieved the highest performance (AUC = 0.907), while both the adversarial and Llama-generated Table VII: Text corruption ablation across models. AUC is reported with bootstrap 95% confidence intervals. The text-only condition serves as the reference.                            
+
+> Model Ablation AUC [95% CI]
+> Claude Negated attrs 0.701 [0.631, 0.768] Paraphrase 0.772 [0.711, 0.829] Shuffle malignant 0.711 [0.635, 0.787] Text only 0.772 [0.700, 0.841] Gemini Negated attrs 0.820 [0.760, 0.876] Paraphrase 0.911 [0.867, 0.945] Shuffle malignant 0.863 [0.809, 0.909] Text only 0.909 [0.865, 0.942] Mistral Negated attrs 0.870 [0.817, 0.914] Paraphrase 0.897 [0.844, 0.938] Shuffle malignant 0.891 [0.841, 0.932] Text only 0.907 [0.861, 0.943] GPT Negated attrs 0.615 [0.538, 0.688] Paraphrase 0.762 [0.701, 0.827] Shuffle malignant 0.758 [0.704, 0.817] Text only 0.790 [0.730, 0.851] Qwen Negated attrs 0.756 [0.685, 0.813] Paraphrase 0.828 [0.767, 0.878] Shuffle malignant 0.624 [0.580, 0.670] Text only 0.870 [0.815, 0.918]
+
+Table VIII: Description-source robustness analysis. All rows use the same target model and inference setting (single fixed run, temperature = 0 ); only lexical realization of identical structured radiological attributes is varied (deterministic template, Llama paraphrase, adversarial paraphrase).     
+
+> Description source AUC [95% CI]
+> Deterministic template 0.907 [0.861, 0.943] Adversarial paraphrase 0.867 [0.845, 0.888] Llama paraphrase 0.874 [0.851, 0.894]
+
+paraphrase resulted in a modest AUC decrease. These findings suggest that the framework is relatively robust to changes in wording and does not rely heavily on specific trigger terms, while also indicating that the quality and structure of the generated descriptions influence predictive performance. 
+
+H. Prompt and Temperature Sensitivity 
+
+Five prompt templates are tested, with results reported in Fig. 7: (T1) zero–shot direct (“Is this nodule benign or malignant?”); (T2) thoracic–radiologist persona; (T3) chain–of–thought [21]; (T4) three–shot in–context with class–balanced examples drawn from Dcal ; (T5) Fleischner Society 2017 guidelines preamble. Five temperatures T ∈ { 0.0, 0.3, 0.5, 0.7, 1.0} are run with five replicates each on the best (model, ϕtext ) configuration. Overall performance was strong and stable (AUC range ≈ 0.884 –
+
+0.916 ), with low replicate variability (typical ±0.001 –±0.004 ). The thoracic-radiologist persona template (T2) performed best overall, peaking at T = 0 .5 (AUC ≈ 0.916 ). Temperature had a secondary effect relative to template choice, with mild degradation at higher temperature for some templates. Prompts are shared in Appendix A. 12 
+
+Figure 7: ConfTriage LLM prompt and temperature sensitivity analysis using text-only prompt ablation. Cell values report mean AUC ( ±SD) over five replicates, while darker cell shading indicates higher replicate variability. Table IX: Near-leak attribute-removal ablation on deterministic attribute-based descriptions.            
+
+> Setting AUC (95% CI) ∆vs baseline
+> baseline_template 0.907 (0.861, 0.943) –remove_spic. 0.912 (0.893, 0.932) +0.005 remove_margin 0.900 (0.880, 0.920) -0.007 remove_spic._margin 0.902 (0.882, 0.919) -0.005
+
+I. Near–Leak Attribute Removal 
+
+To investigate whether the LLM’s predictive performance is primarily driven by a small number of highly malignancy-correlated attributes or by broader radiological information, we conducted an attribute-removal ablation study by excluding the LIDC–IDRI spiculation and margin attributes individually and jointly from the input descriptions. As shown in Table IX, removing spiculation did not reduce performance; instead, AUC increased from 0.907 (baseline) to 0.912 ( ∆AUC = +0 .005 ). Removing margin produced a near-null change (AUC 0.900; 
+
+∆AUC = −0.007 ), and joint removal of both cues also yielded only a minimal shift (AUC 0.902; ∆AUC = +0 .005 ). Overall, these results do not support a dominant dependence on either spiculation or margin tokens alone; performance appears to be sustained by broader information in the description rather than a single near-leak attribute. VII. D ISCUSSION 
+
+A. Operational Implication 
+
+The headline finding is not that LLMs “beat” specialist DL; the finding is that, when a structured radiology workflow already produces nodule attributes, an LLM operating on a faithful language rendering of those attributes produces predictions of clinically meaningful quality at zero training cost and modest API cost. ConfTriage extends this from a measurement to a methodological framework: the calibrated probability and the deferral threshold turn LLM confidence into a defensible routing decision, and Theorem 1 provides a finite–sample guarantee on the resulting combined error. The 
+
+Figure 8: Uncertainty distribution of the specialist DL back-stop. Incorrect predictions are concentrated at higher entropy (ET) values, providing empirical justification for routing low-confidence cases through the backstop’s deferral mechanism. specialist DL backstop’s operating curve, together with the uncertainty distributions in Fig. 8, establishes that the backstop component does emit a calibrated rejection signal, which is the empirical precondition that the combined ConfTriage operating curve relies on. We position the present paper as a methodological contribution validated on public benchmarks; prospective clinical validation is the natural follow–on study and is enabled by the public release. 
+
+B. Language vs Image Information 1) Why Language Dominates: Two non–exclusive explana-tions for the empirical discovery in Section VI-B are consistent with our results. First, generalist LLMs are trained on enormous corpora of medical text in which malignancy correlates with specific terms ( spiculated , lobulated , ground–glass ); a faithful language rendering of attributes therefore recovers a strong prior. Second, the structured attributes themselves carry most of the diagnostic signal in LIDC–IDRI, and language is simply the most efficient packaging the LLM can consume. The synthetic–corruption controls in Section VI-B are designed to disambiguate these two: if (a) negation collapses AUC and (b) paraphrase preserves it, the LLM is genuinely consuming semantic content, not just exploiting trigger terms. 
+
+2) Why Image–Statistics Inputs Fail: Low–level histogram and GLCM statistics are not a representation that generalist LLMs were trained to interpret in a clinical sense. The result is consistent with a broader theme in the literature: GPT–4V and similar models do well on modality and anatomy recognition but poorly on lesion–level pathology identification [9]. Our paper does not contradict the value of vision–language pipelines that align CT features to language [7], [8]; it shows instead that, when structured language input is available, generalist LLMs achieve much of the benefit without the alignment training. 
+
+C. What the Theory Adds 
+
+The two theorems in Section IV are not deep mathematical contributions; they are honest applications of classical tools to the specific framework. Their value is operational. Theorem 1 converts vague claims (“ConfTriage seems to work”) into auditable statements (“the combined error is at most 25 .6% 
+
+with probability 0.95 ”) that a clinical safety officer can read 13 
+
+and verify. Theorem 2 is the more conceptually interesting result: it shows that calibration (which is observable through ECE) controls the gap to the Bayes–optimal deferral classifier. The empirical results support this prediction: Platt calibration reduced ECE by approximately 50%, increased LLM decision coverage from 65.5% to 76.5%. Without Theorem 2, the calibration step in ConfTriage would be a heuristic aimed at producing more reliable confidence estimates; with it, calibration becomes a directly measurable mechanism for improving routing decisions and reducing triage suboptimality. 
+
+D. Limitations 
+
+1) LIDC–IDRI label subjectivity: The malignancy labels in LIDC–IDRI are based on radiologist assessments rather than pathology–confirmed diagnoses. Future work should validate the proposed framework on pathology–proven datasets to assess its performance against definitive clinical ground truth. 2) No prospective clinical validation: This study presents a methodological framework evaluated on public benchmarks. We do not claim prospective deployment performance and did not conduct a recruited reader study. While the LIDC–IDRI radiologist annotations provide a bench-mark human reference, prospective external validation, multi–institution reader studies, workflow–integrated evalu-ation, and local calibration audits remain necessary before clinical deployment. 3) Limited multimodal public datasets: Public datasets provid-ing both CT images and expert textual descriptions for lung nodule malignancy assessment are scarce. Consequently, this study is limited to LIDC–IDRI, where structured textual descriptions were generated. 
+
+E. Design Recommendations for AI Developers 
+
+Three concrete recommendations follow from the present results, each tied to a specific finding rather than to the framework as a whole. 
+
+Design Recommendations for AI Developers  
+
+> R1
+
+Use language input, not raw–image statistics, when invoking a generalist LLM as a triage classifier. 
+
+Our seven–way ablation (Table III) shows that across five vendors, low–level image statistics deliver near–chance discrimination, while a deterministic natural–language rendering of standard radiology attributes routinely yields AUC ≥ 0.79 and reaches AUC = 0.907 for the strongest model. The evidence does not support feeding raw histogram or GLCM statistics as a substitute for a language description.  
+
+> R2
+
+When deploying, calibrate first, then threshold. 
+
+Theorem 2 ties ConfTriage’s excess risk to the L1
+
+calibration error of the LLM probability. In practice this means: hold out a calibration fold, fit Platt scaling on the verbalized logit, then sweep the deferral threshold under a sensitivity–floor constraint (we use 
+
+Sens ≥ 0.95 ). Skipping the calibration step turns the deferral threshold into a heuristic with no formal guarantee.  
+
+> R3
+
+Pair the LLM with a backstop that itself emits a calibrated rejection signal. 
+
+The Certain–Net backstop’s MC–dropout uncertainty separates correct from incorrect predictions; this is the empirical precondition that Theorem 1’s certificate relies on. A backstop without an internal calibration audit (e.g., a single deterministic CNN with no uncertainty estimate) does not provide the same operational guarantee. 
+
+F. Broader Impact 
+
+A triage system that defers hard cases to a specialist DL backstop is operationally appealing because it makes the failure mode explicit (low confidence → deferral) rather than hidden. This contrasts with a single–model classifier whose miscalibration is invisible at use time. We caution that linguistic outputs from LLMs can be persuasive even when wrong, and any clinical deployment must include a verbalized–confidence audit and a deferral path back to a human reader. VIII. C ONCLUSION 
+
+We introduced ConfTriage, a confidence-calibrated triage framework that combines a generalist LLM with a selective specialist DL backstop for pulmonary nodule malignancy prediction. ConfTriage achieved an F1 score of 0.882 while resolving 76.5% of cases through zero-shot LLM inference alone. These findings suggest that structured radiological information expressed in natural language can effectively support LLM-based clinical triage. Ultimately, ConfTriage demonstrates that confidence-aware selective referral provides an effective mechanism for leveraging the complementary strengths of generalist LLMs and specialist AI models in clinical decision support. REFERENCES [1] S. G. Armato III et al. , “The lung image database consortium (LIDC) and image database resource initiative (IDRI): A completed reference database of lung nodules on CT scans,” Medical Physics , vol. 38, no. 2, pp. 915–931, 2011. [2] Y. Xie, Y. Xia, J. Zhang, Y. Song, D. Feng, M. Fulham, and W. Cai, “Knowledge-based collaborative deep learning for benign-malignant lung nodule classification on chest CT,” IEEE Transactions on Medical Imaging , vol. 38, no. 4, pp. 991–1004, 2018. [3] F. Shi, B. Chen, Q. Cao, Y. Wei, Q. Zhou, R. Zhang, Y. Zhou, W. Yang, X. Wang, R. Fan et al. , “Semi-supervised deep transfer learning for benign-malignant diagnosis of pulmonary nodules in chest CT images,”   
+
+> IEEE Transactions on Medical Imaging , vol. 41, no. 4, pp. 771–781, 2021. [4] R. Wu, C. Liang, Y. Li, X. Shi, J. Zhang, and H. Huang, “Self-supervised transfer learning framework driven by visual attention for benign–malignant lung nodule classification on chest CT,” Expert Systems with Applications , vol. 215, p. 119339, 2023. 14
+
+[5] Y. Mao, N. Xu, Y. Wu, L. Wang, H. Wang, Q. He, T. Zhao, S. Ma, M. Zhou, H. Jin et al. , “Assessments of lung nodules by an artificial in-telligence chatbot using longitudinal CT images,” Cell Reports Medicine ,vol. 6, no. 3, 2025. [6] B. P. Veasey and A. A. Amini, “Low-rank adaptation of pre-trained large vision models for improved lung nodule malignancy classification,” IEEE Open Journal of Engineering in Medicine and Biology , 2025. [7] F. Shaukat, S. M. Anwar, A. Parida, V. K. Lam, M. G. Linguraru, and M. Shah, “Lung-CADex: Fully automatic zero-shot detection and classification of lung nodules in thoracic CT images,” in International Workshop on Machine Learning in Medical Imaging . Springer, 2024, pp. 73–82. [8] L. Zhuang, S. M. H. Tabatabaei, R. Salehi-Rad, L. M. Tran, D. R. Aberle, A. E. Prosper, and W. Hsu, “Vision-language model-based semantic-guided imaging biomarker for lung nodule malignancy prediction,” 
+
+Journal of Biomedical Informatics , p. 104947, 2025. [9] D. Brin, V. Sorin, Y. Barash, E. Konen, B. S. Glicksberg, G. N. Nadkarni, and E. Klang, “Assessing GPT-4 multimodal performance in radiological image analysis,” European Radiology , vol. 35, no. 4, pp. 1959–1965, 2025. [10] Y. Sonoda, R. Kurokawa, Y. Nakamura, J. Kanzawa, M. Kurokawa, Y. Ohizumi, W. Gonoi, and O. Abe, “Diagnostic performances of GPT-4o, Claude 3 Opus, and Gemini 1.5 pro in “Diagnosis Please” cases,” 
+
+Japanese Journal of Radiology , vol. 42, no. 11, pp. 1231–1235, 2024. [11] M. Hu, Z. Eidex, S. Wang, M. Safari, Q. Li, and X. Yang, “Benchmarking GPT-5 for zero-shot multimodal medical reasoning in radiology and radiation oncology,” in Medical Imaging 2026: Image Perception, Observer Performance, and Technology Assessment , vol. 13928. SPIE, 2026, pp. 45–51. [12] M. R. Islam, C. Mondal, M. Y. Ansari, H. Kurban, and E. Serpedin, “Monte Carlo dropout for robust and uncertainty-aware lung nodule classification,” in European Signal Processing Conference (EUSIPCO) .IEEE, 2026. [13] R. Gunawan, Y. Tran, J. Zheng, H. Nguyen, A. Carrigan, M. K. Mills, and R. Chai, “Combining multistaged filters and modified segmentation network for improving lung nodules classification,” IEEE Journal of Biomedical and Health Informatics , vol. 28, no. 9, pp. 5519–5527, 2024. [14] M. Ghorbian and M. Ghobaei-Arani, “A comprehensive review of LLM applications for lung cancer diagnosis and treatment: classification, challenges, and future directions,” Journal of Big Data , vol. 12, no. 1, p. 249, 2025. [15] S.-H. Wu, W.-J. Tong, M.-D. Li, H.-T. Hu, X.-Z. Lu, Z.-R. Huang, X.-X. Lin, R.-F. Lu, M.-D. Lu, L.-D. Chen et al. , “Collaborative enhancement of consistency and accuracy in US diagnosis of thyroid nodules using large language models,” Radiology , vol. 310, no. 3, p. e232255, 2024. [16] Y. Geifman and R. El-Yaniv, “Selective classification for deep neural networks,” Advances in Neural Information Processing Systems , vol. 30, 2017. [17] D. Madras, T. Pitassi, and R. Zemel, “Predict responsibly: improving fairness and accuracy by learning to defer,” Advances in Neural Information Processing Systems , vol. 31, 2018. [18] J. Platt et al. , “Probabilistic outputs for support vector machines and comparisons to regularized likelihood methods,” Advances in Large Margin Classifiers , vol. 10, no. 3, pp. 61–74, 1999. [19] C. Guo, G. Pleiss, Y. Sun, and K. Q. Weinberger, “On calibration of modern neural networks,” in International Conference on Machine Learning . PMLR, 2017, pp. 1321–1330. [20] Y. Benjamini and Y. Hochberg, “Controlling the false discovery rate: a practical and powerful approach to multiple testing,” Journal of the Royal Statistical Society: Series B (Methodological) , vol. 57, no. 1, pp. 289–300, 1995. [21] J. Wei, X. Wang, D. Schuurmans, M. Bosma, F. Xia, E. Chi, Q. V. Le, D. Zhou et al. , “Chain-of-Thought prompting elicits reasoning in large language models,” Advances in Neural Information Processing Systems ,vol. 35, pp. 24 824–24 837, 2022. 
+
+APPENDIX AEXAMPLE PROMPTS USED IN PROMPT ABLATION 
+
+We provide the prompt for each of the five prompt-template types (T1–T5) used in the prompt-ablation study. In all cases, the same input description placeholder 
+
+[NODULE_DESCRIPTION] was used. 
+
+Shared suffix appended in all templates (T1–T5) 
+
+Nodule description: [NODULE_DESCRIPTION] Question: Is this nodule benign or malignant? Return strict JSON only with keys: label, 
+
+,→ probability. label must be 'Y' for malignant or 'N' for 
+
+,→ benign. probability must be a float in [0, 1] for 
+
+,→ malignant probability. 
+
+T1: (zero_shot_direct) prefix 
+
+You are evaluating a pulmonary nodule. Give a direct binary malignancy decision. 
+
+T2: (thoracic_radiologist_persona) prefix 
+
+You are a board-certified thoracic radiologist 
+
+,→ with expertise in lung nodule risk assessment. Use a clinically grounded interpretation of the 
+
+,→ nodule description. 
+
+T3: (chain_of_thought) prefix 
+
+Reason through the malignancy evidence step by 
+
+,→ step internally. Do not reveal chain-of-thought. Output only the 
+
+,→ final JSON answer. 
+
+T4: (three_shot_dcalib) prefix (default n_shots=3 )
+
+Use these class-balanced in-context examples 
+
+,→ from Dcalib before answering. Calibration examples (Dcalib): Example 1: Description: [DCALIB_EXAMPLE_1_TEXT] Answer: {"label": "N", "probability": 0.10} Example 2: Description: [DCALIB_EXAMPLE_2_TEXT] Answer: {"label": "Y", "probability": 0.90} Example 3: Description: [DCALIB_EXAMPLE_3_TEXT] Answer: {"label": "N", "probability": 0.10} 
+
+T5: (fleischner_2017_preamble) prefix 
+
+Fleischner Society 2017 style preamble: - Consider suspicious morphology and contextual 
+
+,→ risk from the reported descriptors. - Prioritize features suggestive of malignancy 
+
+,→ such as irregular or spiculated patterns. - Use conservative probabilistic judgment when 
+
+,→ descriptors are mixed.
