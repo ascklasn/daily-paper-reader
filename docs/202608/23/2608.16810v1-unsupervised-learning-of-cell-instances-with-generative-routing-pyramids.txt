@@ -1,0 +1,434 @@
+Title: Unsupervised Learning of Cell Instances with Generative Routing Pyramids
+
+URL Source: https://arxiv.org/pdf/2608.16810v1
+
+Published Time: Tue, 18 Aug 2026 02:26:04 GMT
+
+Number of Pages: 15
+
+Markdown Content:
+## Unsupervised Learning of Cell Instances with Generative Routing Pyramids 
+
+Ziwen Liu 1 and Martin Weigert 1
+
+Center for Scalable Data Analytics and Artificial Intelligence (ScaDS.AI), Technische Universität Dresden, Germany 
+
+{ziwen.liu,martin.weigert}@tu-dresden.de 
+
+Abstract. Identifying and representing object instances such as cells or nuclei is a common task in microscopy image analysis. Established machine learning workflows typically use supervised detection or seg-mentation followed by feature extraction or classification, which requires manual annotations and treats instance segmentation and cell repre-sentation as separate stages. We describe a new unsupervised method for cell instance segmentation and phenotypic classification from unla-beled microscopy images. Our method is based on reconstructing each image using a coarse-to-fine routing pyramid that associates pixels with spatially sparse latent sources. The resulting pixel-to-latent associations yield instance masks, while the source latents encode cell morphology. We demonstrate competitive performance in instance segmentation across diverse cell morphologies and imaging modalities, as well as generative modeling of cellular phenotypes under perturbations. Source code and checkpoints are available at https://github.com/weigertlab/routing-pyramids .
+
+Keywords: Cell segmentation · Unsupervised learning · Object-Centric Learning · Microscopy 
+
+1 Introduction 
+
+Identifying individual objects, such as cells or nuclei, in microscopy images is a fundamental task in quantitative bioimage analysis [18] with applications in-cluding cell counting, morphological profiling, and tracking [2, 4, 27]. Currently, supervised deep learning-based approaches are the most successful cell segmenta-tion methods [19, 22, 23, 25]. Training these models, however, requires laborious manual annotations of large sets of training images, making dataset creation a recurring cost when specimens, imaging modalities, or acquisition conditions change. Although object appearances can vary substantially across imaging modali-ties and sample types, they often exhibit a more stereotypic visual appearance within a single experimental setting, particularly in cell culture experiments such as those considered here. Such settings provide many unlabeled examples from which a model could learn shared structure while retaining object-specific varia-tion. Yet a shared appearance model alone does not establish instance identity, as arXiv:2608.16810v1 [cs.CV] 17 Aug 2026 2 Z. Liu and M. Weigert Flow Reconstruction Probability Input 
+
+Layer 1 Layer 2 Layer 3 Layer 4 Layer 5 Layer 6 Layer 7 Layer 8 
+
+> Flow Features
+
+Encoder Decoder Latents {a) b) 
+
+Fig. 1: Overview of Generative Routing Pyramids. a) From an input image, the encoder predicts a latent field, which is then used to generate pyramidal (coarse-to-fine) flows to reconstruct the image. b) Per-layer flow and routed feature maps. The flows are shown as HSV encoding, where hue is the flow direction, saturation is the flow magnitude, and value is the routed probability mass. The features are shown as RGB values representing the first three principle components. 
+
+adjacent cells can look similar but must remain associated with distinct spatial sources. Label-free cell instance learning therefore requires a shared appearance model together with a spatial assignment that keeps individual objects separate. Object-centric learning provides a framework for this idea: reconstruction-based approaches explain an image as a collection of objects and background and learn an object-level latent representation for each component [5, 9, 13, 15]. Existing formulations commonly separate components through global slots, iterative infer-ence, or independently rendered object glimpses, but scale poorly to microscopy images with many small objects (Sec. 2.2). In this work, we introduce Generative Routing Pyramids , an object-centric generative model trained directly on unlabeled microscopy images. The model predicts where objects are present and runs a single decoder pass across all candidate objects to reconstruct the image from their latent representations. Because foreground presence is penalized, the model activates a source only when the shared decoder can use it to reconstruct a recurring object appearance. To reconstruct extended objects while preserving their spatial identity, the decoder expands each source through a coarse-to-fine pyramid. At each level, every finer-scale location softly chooses among nearby parent locations, so the resulting chain of local choices traces image pixels back to the sources that explain them. Unsupervised Learning of Cell Instances with Generative Routing Pyramids 3
+
+These pixel-to-source ancestries yield instance masks, while the corresponding source latents provide object representations for single-cell phenotype analysis. 
+
+2 Related Work 
+
+2.1 Cell Segmentation and Representation Learning 
+
+Supervised cell instance segmentation models often predict geometric targets derived from instance masks. StarDist [23] regresses radial distances along a fixed set of directions to form star-convex polygon proposals, followed by non-maximum suppression. Cellpose [25] instead predicts dense pixel-space flows to-ward object centers and groups pixels by following these flows over multiple steps. Our method instead trains without flow targets or instance annotations. Unsupervised methods replace mask-derived targets with surrogate objec-tives. Cellulus [28] predicts relative offsets between image patches to learn dense spatial embeddings, estimates foreground by comparing embeddings of corrupted input images, and obtains instances through mean-shift clustering and morpho-logical filtering. CellSeg3D [1] adapts W-Net [29] to learn semantic foreground without labels and separates instances with Voronoi-Otsu post-processing. Both Cellulus and CellSeg3D separate instances via non-learned post-processing. Motion-based pseudo-labels provide another alternative [21], but require time-lapse data with smooth foreground motion and static background. Our method works with static images, and directly learns instance assignment as part of the image gen-eration process. Microscopy representation learning either produces dense pixel or patch fea-tures [8, 12], which still require instance extraction for single-cell analysis, or learns from single-cell crops [10, 26], which assume prior detections or masks. In both cases, segmentation and representation learning are treated as distinct stages, requiring separate data curation and training efforts. Our method in-stead jointly learns instance segmentation and object representation from the same datasets without labels. 
+
+2.2 Object-Centric Generative Learning 
+
+Object-centric generative models learn component representations through image reconstruction, but differ in how they infer and render components [5,9,13,15,24]. Their computational scaling matters for microscopy images containing many small instances (Tab. 1). Global-component methods couple full-image cost (with 
+
+N pixels) to the component count K, and iterative variants add the factor T . For example, SPACE [13] performs parallel candidate inference spatially, but renders every proposal in full image space. Our method predicts all candidate sources in one O(N ) forward pass, and reconstructs a shared spatial feature field instead of rendering each candidate separately. Reading out the K inferred instance masks costs O(KN ).4 Z. Liu and M. Weigert                                                            
+
+> Table 1: Inference scaling of related methods. Nis the number of pixels, with feature-token count linear in N;Kis the object, slot, or seed component count; Tis the number of iterative inference steps; Ris the number of noisy inference passes; and I
+> is the number of mean-shift iterations. Fixed network-depth and local-neighborhood factors are omitted. †Cellulus does not reconstruct the image, its instance-segmentation cost is shown instead. Detection Reconstruction Method
+> O(KN ), sequential O(KN )MONet [5]
+> O(T KN )O(T KN )IODINE [9]
+> O(T KN )O(KN )Slot Attention [15]
+> O(N2+T KN )O(N2+KN )DINOSAUR [24]
+> O(N)Up to O(N2)SPACE [13]
+> O(RN )O(IN log N+KN )Cellulus †[28]
+> O(N)O(N)CellSeg3D [1] (W-Net [29])
+> O(N)O(N)Generative Routing Pyramids (ours)
+
+2.3 Hierarchical Flow Fields 
+
+Coarse-to-fine pyramids are established tools for approximating displacement fields [3, 6] efficiently, and learned pyramids have been used to predict optical flow between video frames [20]. In our setting, a coarse-to-fine hierarchy defines the spatial information flow of a single-image generative model, which induces instance segmentation. Intuitively, this spatial flow field is similar to the object center-to-boundary flows found in StarDist and Cellpose, but is implicitly de-fined by the image generation process. Using a hierarchical approximation avoids non-differentiable assignment like StarDist, or running many Cellpose-style flow simulation steps during training, allowing for end-to-end unsupervised learning. 
+
+3 Method 
+
+3.1 Overview 
+
+Our method learns object instances from unlabeled microscopy images. As shown in Fig. 1, an encoder infers foreground and background latents given an in-put image, while a sparsity-regularized presence map marks object candidates. A coarse-to-fine pyramidal decoder reconstructs the image using local routing weights. The same weights associate pixels with latent sources, yielding instance masks and one latent representation per inferred object. For timelapse data, the model processes each frame independently. 
+
+3.2 Spatial Latents and Learned Object Seeds 
+
+Given an input image x ∈ RH×W ×C , the encoder Eϕ produces features f =
+
+Eϕ(x) ∈ Rh×w×dE on a grid Ω0 with spatial stride δ. The stride is a model Unsupervised Learning of Cell Instances with Generative Routing Pyramids 5
+
+hyperparameter, with h = H/δ and w = W/δ for divisible input sizes. We use 
+
+δ = 8 in all experiments. Pointwise heads predict a diagonal Gaussian posterior for each of the two latent grids, 
+
+qrϕ(zr | x) = Y
+
+> u∈Ω0
+
+N  zru; μru, diag(( σru)2) , r ∈ { fg , bg } (1) Here zru ∈ Rd, where d is the shared latent dimension. The foreground and back-ground candidates are sampled independently given x, and both use standard-normal priors. Before the background head, encoder features are average-pooled with stride δbg and bilinearly restored to Ω0. This stride is a separate model hyperparameter; we use δbg = 8 in all experiments. This operation restricts the image-dependent background posterior parameters to vary smoothly across space. A pointwise prediction from the foreground candidate defines a deterministic soft presence gate 
+
+su = sigmoid( wT 
+
+> s
+
+zfg  
+
+> u
+
++ bs), u ∈ Ω0 (2) The decoder starts from the gated blend 
+
+h0 
+
+> u
+
+= suzfg  
+
+> u
+
++ (1 − su)zbg  
+
+> u
+
+(3) Values of su near one expose the foreground candidate, whereas values near zero select the spatially smoothed background candidate. The posterior can-didates are sampled independently, but this deterministic gate couples them before decoding. During training, the Gaussian fields are sampled via reparame-terization [11], and inference uses their posterior means. Reconstruction pressure determines where foreground capacity is needed, and sparse active regions of s
+
+are interpreted as learned object seeds. 
+
+3.3 Routing Pyramid Decoder 
+
+Let Ωℓ denote the destination grid at decoder layer ℓ. Each site j ∈ Ωℓ selects among a valid 3 × 3 neighborhood Nℓ(j) around its anchor on the preceding parent grid, which is either at the same resolution or coarser by a factor of two. A convolutional residual predictor produces logits aℓji from the presence-gated decoder features, and a masked softmax gives 
+
+T ℓji = exp( aℓji )
+
+P 
+
+> i′∈N ℓ(j)
+
+exp( aℓji ′ ) , i ∈ N ℓ(j), X
+
+> i
+
+T ℓji = 1  (4) Invalid boundary edges have zero probability. Thus T ℓji is the conditional prob-ability that destination j selects site i as its parent. Under a uniform measure over Ωℓ, T ℓ can therefore be viewed as a locally supported, one-sided transport coupling. 6 Z. Liu and M. Weigert 
+
+The layer-indexed pyramid sites and their local parent links form a directed acyclic graph (DAG) G: an edge connects (ℓ, j ) to (ℓ − 1, i ) whenever i ∈ N ℓ(j).Every edge therefore points from output pixels toward the latent seed grid and decreases the layer index. Conditioned on the inferred image representation, the locally normalized routing distributions define a finite, layer-inhomogeneous Markov chain over G. If assignment mass reaches a site j, the weights T ℓji dis-tribute all of it among valid parents; flows can split at fine sites and merge at parent sites. Composing the chain’s layer-wise transition kernels gives 
+
+Anu = X 
+
+> γ∈Γ(n,u )
+
+Y
+
+> ℓ
+
+T ℓγℓγℓ−1 (5) where n indexes output pixels and Γ (n, u ) is the set of valid paths from pixel 
+
+n to coarse seed site u. Hence Anu is the probability that unit assignment mass originating at n reaches u, and P 
+
+> u
+
+Anu = 1 . Thus A ∈ [0 , 1] HW ×hw is the pixel-to-seed association matrix induced by the pyramid DAG, with output pixels as rows and latent seed sites as columns. Each row is the full transition distribution from one pixel to the seed grid. Equivalently, it describes the unit flow induced from each pixel through the learned probabilistic flow network. This Markov-chain interpretation applies to the ancestry process after the image-dependent routing kernels have been predicted; feature propagation additionally includes the neural updates described below. The propagated foreground probability is 
+
+pfg  
+
+> n
+
+= X
+
+> u∈Ω0
+
+Anu su (6) During generation, the same routing weights pull seed presence and decoder values from each destination’s parents, 
+
+sℓj = X
+
+> i
+
+T ℓji sℓ−1 
+
+> i
+
+, rℓj = X
+
+> i
+
+T ℓji Vℓ(hℓ−1 
+
+> i
+
+) (7) The transported update rℓj is normalized, activated, gated by sℓj , and added to a nearest-neighbor residual path. A pointwise feed-forward residual block com-pletes the layer. Layers either remain at the current resolution or upsample by two; a final pointwise network maps the full-resolution features to the re-constructed image ˆx. Thus the coarse-to-fine generative computation and the fine-to-coarse ancestry interpretation use the same learned graph. Let cu be the image-space center coordinate of seed site u and cn the coor-dinate of pixel n. The expected pixel-to-seed flow is 
+
+vn = X
+
+> u∈Ω0
+
+Anu cu − cn (8) This expected displacement gives a Cellpose-like flow readout from the learned association matrix [25]. Hard local support at every layer bounds individual transport steps, while their composition permits larger object extents through the pyramid. Unsupervised Learning of Cell Instances with Generative Routing Pyramids 7
+
+3.4 Unsupervised Learning Objective 
+
+Let z = ( zfg , z bg ) be the sampled latent fields and ˆxθ (z) be the corresponding decoder output. The expected reconstruction term is 
+
+Lrec (x) = Eqϕ(z|x)
+
+ 1
+
+HW C ∥ˆxθ (z) − x∥1
+
+
+
+(9) Separate mean KL terms regularize the foreground and background posteriors toward their standard-normal priors: 
+
+Lr 
+
+> KL
+
+= 1
+
+|Ω0|d
+
+X
+
+> u,k
+
+12
+
+ (μruk )2 + ( σruk )2 − 1 − log( σruk )2 , r ∈ { fg , bg } (10) A smooth concave penalty encourages foreground capacity to concentrate into fewer seed regions, 
+
+Lsparsity = 1
+
+|Ω0|
+
+X
+
+> u∈Ω0
+
+(( su + ϵ)α − ϵα) , α ∈ (0 , 1)  (11) The exponent α is a hyperparameter controlling the concavity of the penalty; we use α = 0 .5 in all experiments. Here ϵ is a small offset that keeps the derivative finite near su = 0 .With cℓ−1 
+
+> i
+
+and cℓj denoting parent- and destination-site centers in image pix-els, each local edge has quadratic geometric cost ∥cℓ−1 
+
+> i
+
+− cℓj ∥22. We regularize its expectation under the learned routing distributions, 
+
+Lflow = 1
+
+PLℓ=1 |Ωℓ|
+
+> L
+
+X
+
+> ℓ=1
+
+X
+
+> j∈Ωℓ
+
+X
+
+> i∈N ℓ(j)
+
+T ℓji ∥cℓ−1 
+
+> i
+
+− cℓj ∥22 (12) Thus Lflow averages the expected squared local step length across layers and destination sites. It is generally different from the squared norm of the composed expected flow vn.The complete per-image objective is 
+
+L = λrec Lrec + λfg Lfg KL + λbg Lbg KL + λflow Lflow + λsparsity Lsparsity  (13) We use λrec = 1 .0, λfg = 0 .01 , λbg = 0 .05 , λflow = 0 .005 for all experiments, and choose λsparsity ∈ { 0.2, 0.5} for different datasets (Sec. 4). We use linear warmup for the weight of regularization loss terms over the first 10 epochs. 
+
+3.5 Instance Segmentation and Object Representations 
+
+At inference, the model replaces the sampled latent fields with their posterior means. It thresholds the coarse presence map at τs and groups neighboring active source sites using 8-connectivity: 
+
+{Ck} = CC 8({u : su ≥ τs}) (14) 8 Z. Liu and M. Weigert            
+
+> Table 2: Biological and imaging properties of the instance-segmentation datasets. Dataset Cell type Visible structure Modality Allen Human induced pluripotent stem cells (hiPSCs) Nuclear envelope (Lamin B1-mEGFP) Fluorescence Fluo-HeLa HeLa cells Nuclei (H2B-GFP) Fluorescence PhC-PSC Rat pancreatic stem cells Cell body Phase contrast
+
+Each component serves as an object seed. We use τs = 0 .5 in all experiments. The routing ancestry expands these coarse seeds into image-space instances. The presence-weighted mass of component Ck at pixel n is 
+
+mk(n) = X
+
+> u∈Ck
+
+Anu su. (15) A pixel is assigned to the component with the largest mass if that mass reaches the threshold τm:
+
+ˆyn =
+
+(
+
+arg max k mk(n), max k mk(n) ≥ τm,
+
+0, otherwise  (16) We use τm = 0 .1 in all experiments. Instances are filtered by minimum area on the model-resolution grid. We use a minimum area of 100 pixels for all exper-iments. The masks are then rescaled by nearest-neighbor (for upsampling) or mode pooling (for downsampling) to the raw image resolution if the model and raw image resolutions differ. The same seed components define object-level representations used for phe-notype analysis. For each component, its embedding ek is the presence-weighted average of the foreground posterior means: 
+
+ek =
+
+P 
+
+> u∈Ck
+
+suμfg 
+
+> u
+
+P 
+
+> u∈Ck
+
+su
+
+(17) 
+
+4 Experiments 
+
+4.1 Unsupervised Cell Instance Segmentation 
+
+We test whether the generative objective and inductive biases of our method are sufficient for cell detection and instance segmentation without annotations. 
+
+Datasets. We evaluate on three cell culture datasets (Tab. 2): the Allen Institute nuclear morphology dataset [7], and the Fluo-N2DL-HeLa and PhC-C2DL-PSC datasets from the Cell Tracking Challenge [16]. They span nuclear and whole-cell targets, fluorescence and phase-contrast imaging, and vary in morphology and density. For the Allen dataset, we use the three analysis timelapses from the Unsupervised Learning of Cell Instances with Generative Routing Pyramids 9
+
+Table 3: Instance segmentation on Allen, Fluo-HeLa, and PhC-PSC datasets. We compare the unsupervised methods Routing Pyramids, Cellulus, and Otsu with the supervised Cellpose-SAM reference. We report instance-level F1 scores at IoU thresh-olds of 0.5, 0.7, and 0.9, and panoptic quality (PQ). Higher values are better. Bold and underlined values indicate the best and second-best result for each dataset and metric, respectively. Dataset Method Type F [0 .5] 1 F [0 .7] 1 F [0 .9] 1 PQ Allen Cellpose-SAM supervised 0.977 0.964 0.256 0.859 Otsu (size 42) non-parametric 0.906 0.861 0.149 0.773 Cellulus (size 52) unsupervised 0.908 0.854 0.325 0.787 Routing Pyramids (ours) unsupervised 0.960 0.943 0.649 0.867 
+
+Fluo-HeLa Cellpose-SAM supervised 0.915 0.892 0.752 0.843 
+
+Otsu (size 26) non-parametric 0.768 0.642 0.190 0.623 Cellulus (size 26) unsupervised 0.875 0.824 0.297 0.756 Routing Pyramids (ours) unsupervised 0.893 0.846 0.646 0.800 PhC-PSC Cellpose-SAM supervised 0.881 0.812 0.094 0.721 
+
+Otsu (size 19) non-parametric 0.524 0.196 0.005 0.351 Cellulus (size 16) unsupervised 0.628 0.035 0.000 0.370 Routing Pyramids (ours) unsupervised 0.771 0.298 0.001 0.518 
+
+FOV-nuclei timelapse dataset. From these we use the large and small timelapses for training, and the medium timelapse for testing. For the CTC datasets, we use the two test videos (without annotations) for training, and the train videos (with annotations) for testing. As the CTC datasets only have sparse manually annotated segmentation masks, we use their Silver Truth annotations [16] as the target. 
+
+Training. We train our method from scratch using only single channel images. All datasets use the same model architecture with latent dimension d = 64 .Models are trained on 256 × 256 crops for 200 epochs with batch size 64. We bi-linearly upsample the PhC-PSC images by a scale factor of 2. The Allen images are maximum-intensity projections of 3D acquisitions, and are two-fold down-sampled with average pooling. We use λsparsity = 0 .5 for Allen and PhC-PSC, and λsparsity = 0 .2 for Fluo-HeLa. 
+
+Baselines. We compare with Cellpose-SAM [19] (with frozen weights) as a strong supervised reference, Cellulus as an unsupervised baseline, and Otsu thresholding followed by connected components as a non-parametric baseline. Cellulus and Otsu use dataset-specific post-processing parameters ( e.g . object size, see Tab. 3) selected on the test set, which gives them an advantage in the comparison. Our method uses the same post-processing across all datasets (Sec. 3.5). 10 Z. Liu and M. Weigert Allen Input GT Cellpose-SAM Otsu Cellulus Routing Pyramid (ours) Fluo-HeLa Input GT Cellpose-SAM Otsu Cellulus Routing Pyramids (ours) PhC-PSC Input GT Cellpose-SAM Otsu Cellulus Routing Pyramids (ours) 
+
+Fig. 2: Instance segmentation on Allen (top), Fluo-HeLa (middle), and PhC-PSC (bot-tom). From left to right, columns show the input image, ground-truth instances (GT), the supervised Cellpose-SAM reference, the unsupervised Otsu and Cellulus baselines, and our method. Instances are indicated by distinct colors. The lower row per dataset shows two inset regions marked by white boxes in the input image. 
+
+Metrics. Predicted and annotated instances are matched by intersection over union (IoU). We report object-level F1 scores at IoU thresholds 0.5, 0.7, and 
+
+0.9, and panoptic quality (PQ). 
+
+Results. Tab. 3 reports the quantitative comparison and Fig. 2 shows repre-sentative predictions. Among the unsupervised methods, Generative Routing Pyramids obtains the best score on nearly every dataset and metric, improving panoptic quality over the strongest unsupervised baseline on all three datasets (PQ 0.867 , 0.800 , 0.518 vs . 0.787 , 0.756 , 0.370 for Cellulus). Generative Routing Pyramids is second only to the supervised Cellpose-SAM reference in most set-tings. On the Allen dataset it exceeds this supervised reference in both panop-tic quality ( 0.867 vs . 0.859 ) and F1 at a strict IoU 0.9 threshold ( 0.649 vs .
+
+0.256 ), indicating tighter agreement with the ground-truth nuclear boundaries. The main exception is F1 at IoU 0.9 on PhC-PSC, where every method scores Unsupervised Learning of Cell Instances with Generative Routing Pyramids 11 10 0 10 1 10 2
+
+> Concentration (μM)
+> 0.0 0.2 0.4 0.6 0.8 1.0
+> p(k = 2  ∣ z)
+
+C LY294002   
+
+> 10 010 110 2
+> Concentration (nM)
+
+Wortmannin    
+
+> 2.5 5.0 7.5 10.0
+> UMAP 1
+> 2468
+> UMAP 2
+
+A  
+
+> −505
+> PC1 (13.6\%)
+> −4
+> −20246
+> PC2 (13.1\%)
+
+B    
+
+> k= 1 (0.39)
+> k= 2 (0.61)
+> 00.31 1.25 520 80
+> LY294002 (μM)
+> 01.95 7.81 31.25 125 250
+> Wortmannin (nM)
+
+Fig. 3: Object latents encode perturbation-induced phenotypes. a) UMAP of the object latent codes on the series dilution images. b) PCA and GMM fit of the training split applied to the control object latents. Stars denote the means, and elliptical contours show the 95% confidence intervals (CI) for the GMM. Legend shows the ratios for each component. c) Positive (GMM k=2) probability of objects in the series dilution images. Lines indicate mean over objects, and the bands indicate 95% CI. 
+
+below 0.1, reflecting the difficulty of pixel-accurate boundaries in low-resolution phase-contrast images. 
+
+4.2 Generative Object Representation Learning 
+
+We test whether the learned object latent codes capture single-cell phenotypic variation using two-channel fluorescence images of U2OS cells treated with a dilution series of LY294002 or wortmannin from BBBC013 [14]. Plate columns 2– 11 form the series-dilution training split, while columns 1 and 12 contain positive and negative controls held out for validation. After unsupervised training, we extract one embedding per predicted cell (Sec. 3.2). To qualitatively assess latent space clustering by phenotype, principal com-ponent analysis (PCA) and UMAP [17] are fit to the series-dilution (training) 12 Z. Liu and M. Weigert A B     
+
+> Fig. 4: Generated (a) and retrieved (b) 32 ×32 crops from the series dilution images. Top two rows show GFP (green) and DNA (magenta) channels corresponding to the "negative control" GMM component, while the bottom two rows correspond to the "positive control" component. a) Generated crops by sampling from the two Gaussian distributions. b) Retrieved crops by nearest neighbor search with component means in the observed object latent set.
+
+embeddings, and overlaid with perturbation strength (dose) for series dilution (Fig. 3a) and control images (Fig. 3b). For both splits, the object latents form distinct clusters by dose. To quantitatively model the binary phenotype, a two-component Gaussian mixture model (GMM) is fit to the object latents from the training split, where it shows the dose-response of cells under perturbations (Fig. 3c). Identities are assigned to the components by comparing their means to the held-out controls (Fig. 3b). Thresholding at 0.5 on the average GMM responsibilities recovers the positive/negative classes with 100% accuracy for the 16 control replicates. The GMM can be further used as the approximate posterior for instance generation and the clusters for instance retrieval (Fig. 4), by either sampling from the Gaussian components or retrieving nearest neighbors (by Euclidean distance) to the component means. The generated samples show that the generative model is consistent with the phenotypic variation induced by the perturbations, while the retrieved samples illustrate the distinct morphologies corresponding to the learned latent clusters. 
+
+5 Conclusion 
+
+We present Generative Routing Pyramids, an unsupervised object-centric model that learns cell instances and morphological representations from unlabeled 2D microscopy images. Its routing-pyramid decoder reconstructs each image while Unsupervised Learning of Cell Instances with Generative Routing Pyramids 13 
+
+tracing pixels to spatially sparse latent sources, so instance masks and object embeddings arise from the same decomposition. Across fluorescence and phase-contrast datasets, our method outperforms the evaluated unsupervised baselines at an IoU threshold of 0.5, while requiring minimal post-processing. In a two-channel fluorescence drug perturbation assay, mixture responsibilities computed from the learned object representations are consistent with treatment dose, while generated and retrieved cells recover the corresponding phenotypes. We currently train a separate model for each dataset, leaving generalization across diverse samples a question for future work. Our method also assumes compact objects of similar appearance against a smoother background, and ap-plication to more complex scenes such as tissue imaging remains unexplored. Despite these limitations, we show that recurring visual structure within an experiment can support learning cell instances and their morphology without manual annotations. 
+
+Acknowledgements 
+
+We thank Albert Dominguez Mantes, École Polytechnique Fédérale de Lausanne (EPFL), for critically reading the manuscript. 
+
+References 
+
+1. Achard, C., Kousi, T., Frey, M., Vidal, M., Paychere, Y., Hofmann, C., Iqbal, A., Hausmann, S.B., Pagès, S., Mathis, M.W.: CellSeg3D, Self-supervised 3D cell segmentation for fluorescence microscopy. eLife 13 , RP99848 (Jun 2025). https: //doi.org/10.7554/eLife.99848 
+
+2. Amat, F., Lemon, W., Mossing, D.P., McDole, K., Wan, Y., Branson, K., Myers, E.W., Keller, P.J.: Fast, accurate reconstruction of cell lineages from large-scale fluorescence microscopy data. Nature methods 11 (9), 951 (2014) 3. Bergen, J.R., Anandan, P., Hanna, K.J., Hingorani, R.: Hierarchical model-based motion estimation. In: Sandini, G. (ed.) Computer Vision — ECCV’92. pp. 237– 252. Springer, Berlin, Heidelberg (1992). https://doi.org/10.1007/3- 540-55426-2_27 
+
+4. Boutros, M., Heigwer, F., Laufer, C.: Microscopy-based high-content screening. Cell 163 (6), 1314–1325 (2015) 5. Burgess, C.P., Matthey, L., Watters, N., Kabra, R., Higgins, I., Botvinick, M., Lerchner, A.: MONet: Unsupervised Scene Decomposition and Representation (Jan 2019). https://doi.org/10.48550/arXiv.1901.11390 
+
+6. Burt, P., Adelson, E.: The Laplacian Pyramid as a Compact Image Code. IEEE Transactions on Communications 31 (4), 532–540 (Apr 1983). https://doi.org/ 10.1109/TCOM.1983.1095851 
+
+7. Dixon, J.C., Frick, C.L., Leveille, C.L., Garrison, P., Lee, P.A., Mogre, S.S., Morris, B., Nivedita, N., Vasan, R., Chen, J., Fraser, C.L., Gamlin, C.R., Harris, L.K., Hendershott, M.C., Johnson, G.T., Klein, K.N., Oluoch, S.A., Thirstrup, D.J., Sluzewski, M.F., Wilhelm, L., Yang, R., Toloudis, D.M., Viana, M.P., Theriot, J.A., Rafelski, S.M.: Colony context and size-dependent compensation mechanisms 14 Z. Liu and M. Weigert give rise to variations in nuclear growth trajectories (Jun 2024). https://doi.org/ 10.1101/2024.06.28.601071 
+
+8. Gallusser, B., Stieber, M., Weigert, M.: Self-supervised dense representation learn-ing for live-cell microscopy with time arrow prediction (Jul 2023) 9. Greff, K., Kaufman, R.L., Kabra, R., Watters, N., Burgess, C., Zoran, D., Matthey, L., Botvinick, M., Lerchner, A.: Multi-Object Representation Learning with Iter-ative Variational Inference (Jul 2020). https://doi.org/10.48550/arXiv.1903. 00450 
+
+10. Hirata-Miyasaki, E., Pradeep, S., Liu, Z., Imran, A., Theodoro, T.M., Ivanov, I.E., Khadka, S., Lee, S.C., Grunberg, M., Woosley, H., Bhave, M., Arias, C., Mehta, S.B.: DynaCLR: Contrastive Learning of Cellular Dynamics with Temporal Regularization (Jul 2025). https://doi.org/10.48550/arXiv.2410.11281 
+
+11. Kingma, D.P., Welling, M.: Auto-encoding variational bayes. In: Bengio, Y., Le-Cun, Y. (eds.) 2nd International Conference on Learning Representations, ICLR 2014, Banff, AB, Canada, April 14-16, 2014, Conference Track Proceedings (2014) 12. Kraus, O., Kenyon-Dean, K., Saberian, S., Fallah, M., McLean, P., Leung, J., Sharma, V., Khan, A., Balakrishnan, J., Celik, S., Beaini, D., Sypetkowski, M., Cheng, C.V., Morse, K., Makes, M., Mabey, B., Earnshaw, B.: Masked Au-toencoders for Microscopy are Scalable Learners of Cellular Biology. In: 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR). pp. 11757–11768. IEEE, Seattle, WA, USA (Jun 2024). https://doi.org/10. 1109/CVPR52733.2024.01117 
+
+13. Lin, Z., Wu, Y.F., Peri, S.V., Sun, W., Singh, G., Deng, F., Jiang, J., Ahn, S.: SPACE: Unsupervised Object-Oriented Scene Representation via Spatial Attention and Decomposition (Mar 2020). https://doi.org/10.48550/arXiv.2001.02407 
+
+14. Ljosa, V., Sokolnicki, K.L., Carpenter, A.E.: Annotated high-throughput mi-croscopy image sets for validation. Nature Methods 9(7), 637–637 (Jul 2012). 
+
+https://doi.org/10.1038/nmeth.2083 
+
+15. Locatello, F., Weissenborn, D., Unterthiner, T., Mahendran, A., Heigold, G., Uszkoreit, J., Dosovitskiy, A., Kipf, T.: Object-Centric Learning with Slot Atten-tion. In: Advances in Neural Information Processing Systems. vol. 33, pp. 11525– 11538. Curran Associates, Inc. (2020) 16. Maška, M., Ulman, V., Delgado-Rodriguez, P., Gómez-de-Mariscal, E., Nečasová, T., Guerrero Peña, F.A., Ren, T.I., Meyerowitz, E.M., Scherr, T., Löffler, K., Mikut, R., Guo, T., Wang, Y., Allebach, J.P., Bao, R., Al-Shakarji, N.M., Rahmon, G., Toubal, I.E., Palaniappan, K., Lux, F., Matula, P., Sugawara, K., Magnusson, K.E.G., Aho, L., Cohen, A.R., Arbelle, A., Ben-Haim, T., Raviv, T.R., Isensee, F., Jäger, P.F., Maier-Hein, K.H., Zhu, Y., Ederra, C., Urbiola, A., Meijering, E., Cunha, A., Muñoz-Barrutia, A., Kozubek, M., Ortiz-de-Solórzano, C.: The Cell Tracking Challenge: 10 years of objective benchmarking. Nature Methods 20 (7), 1010–1020 (Jul 2023). https://doi.org/10.1038/s41592-023-01879-y 
+
+17. McInnes, L., Healy, J., Saul, N., Großberger, L.: UMAP: Uniform Manifold Ap-proximation and Projection. Journal of Open Source Software 3(29), 861 (Sep 2018). https://doi.org/10.21105/joss.00861 
+
+18. Meijering, E.: Cell segmentation: 50 years down the road. IEEE Signal Processing Magazine 29 (5), 140–145 (2012) 19. Pachitariu, M., Rariden, M., Stringer, C.: Cellpose-SAM: Superhuman generaliza-tion for cellular segmentation (May 2025). https://doi.org/10.1101/2025.04. 28.651001 
+
+20. Ranjan, A., Black, M.J.: Optical Flow Estimation using a Spatial Pyramid Network (Nov 2016). https://doi.org/10.48550/arXiv.1611.00850 Unsupervised Learning of Cell Instances with Generative Routing Pyramids 15 21. Robitaille, M.C., Byers, J.M., Christodoulides, J.A., Raphael, M.P.: Self-supervised machine learning for live cell imagery segmentation. Communications Biology 5(1), 1162 (Nov 2022). https://doi.org/10.1038/s42003-022-04117-x 
+
+22. Ronneberger, O., Fischer, P., Brox, T.: U-Net: Convolutional Networks for Biomed-ical Image Segmentation. In: Navab, N., Hornegger, J., Wells, W.M., Frangi, A.F. (eds.) Medical Image Computing and Computer-Assisted Intervention – MICCAI 2015. pp. 234–241. Springer International Publishing, Cham (2015). 
+
+https://doi.org/10.1007/978-3-319-24574-4_28 
+
+23. Schmidt, U., Weigert, M., Broaddus, C., Myers, G.: Cell Detection with Star-Convex Polygons. In: Frangi, A.F., Schnabel, J.A., Davatzikos, C., Alberola-López, C., Fichtinger, G. (eds.) Medical Image Computing and Computer Assisted Inter-vention – MICCAI 2018. pp. 265–273. Springer International Publishing, Cham (2018). https://doi.org/10.1007/978-3-030-00934-2_30 
+
+24. Seitzer, M., Horn, M., Zadaianchuk, A., Zietlow, D., Xiao, T., Simon-Gabriel, C.J., He, T., Zhang, Z., Schölkopf, B., Brox, T., Locatello, F.: Bridging the Gap to Real-World Object-Centric Learning (Mar 2023). https://doi.org/10.48550/arXiv. 2209.14860 
+
+25. Stringer, C., Wang, T., Michaelos, M., Pachitariu, M.: Cellpose: A generalist al-gorithm for cellular segmentation. Nature Methods 18 (1), 100–106 (Jan 2021). 
+
+https://doi.org/10.1038/s41592-020-01018-x 
+
+26. Ulicna, K., Kelkar, M., Soelistyo, C.J., Charras, G.T., Lowe, A.R.: Learning dy-namic image representations for self-supervised cell cycle annotation (May 2023). 
+
+https://doi.org/10.1101/2023.05.30.542796 
+
+27. Ulman, V., Maška, M., Magnusson, K.E., Ronneberger, O., Haubold, C., Harder, N., Matula, P., Matula, P., Svoboda, D., Radojevic, M., et al.: An objective com-parison of cell-tracking algorithms. Nature methods 14 (12), 1141 (2017) 28. Wolf, S., Lalit, M., McDole, K., Funke, J.: Unsupervised Learning of Object-Centric Embeddings for Cell Instance Segmentation in Microscopy Images. In: 2023 IEEE/CVF International Conference on Computer Vision (ICCV). pp. 21206– 21215. IEEE, Paris, France (Oct 2023). https://doi.org/10.1109/ICCV51070. 2023.01944 
+
+29. Xia, X., Kulis, B.: W-Net: A Deep Model for Fully Unsupervised Image Segmen-tation (Nov 2017). https://doi.org/10.48550/arXiv.1711.08506

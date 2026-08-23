@@ -1,0 +1,999 @@
+Title: CytoFormer: A Molecularly Supervised Cell Foundation Model for Histopathology Cell Classification
+
+URL Source: https://arxiv.org/pdf/2608.16718v1
+
+Published Time: Tue, 18 Aug 2026 02:17:09 GMT
+
+Number of Pages: 20
+
+Markdown Content:
+## CytoFormer: A Molecularly Supervised Cell Foundation Model for Histopathology Cell Classification 
+
+Jialu Yao 1,2, ∗, Songhao Li 1,2, ∗, Alina Yu 3, Zhi Huang 1,4, # 
+
+> 1
+
+Department of Pathology and Laboratory Medicine, University of Pennsylvania, Philadelphia, PA, USA  
+
+> 2
+
+Department of Electrical and Systems Engineering, University of Pennsylvania, Philadelphia, PA, USA  
+
+> 3
+
+Germantown Friends School, Philadelphia, PA, USA  
+
+> 4
+
+Department of Biostatistics, Epidemiology & Informatics, University of Pennsylvania, Philadelphia, PA, USA * Equal contribution  
+
+> #
+
+Correspondence: Zhi Huang (zhi.huang@pennmedicine.upenn.edu) 
+
+Abstract 
+
+Identifying cell types directly from routine haematoxylin and eosin (H&E) histology would enable single-cell analysis at scale, but training such models has relied on manual pathologist annotations, which are slow, expensive and unreliable for many cell types. We instead supervise morphology with molecules. Imaging-based spatial transcriptomics profiles individual cells in situ on a section that can afterwards be stained with H&E, so that molecular identity and mor-phology are observed for the same physical cell. We assembled 81 such paired Xenium sections spanning 16 organs, derived per-cell labels by clustering, marker-gene annotation, organ-wise human review and quality control, and mapped them onto the cell types commonly reported in each organ. This yielded 15.4 million cells, each with a paired H&E image patch and one of 23 cell types, on which we trained CytoFormer, a cell foundation model with a multi-task, per-organ classification head. On spatially held-out tissue CytoFormer reached an accuracy of 0.85 and a macro-F1 of 0.78 across all 16 organs, and its predictions reproduced the tissue archi-tecture of an entire held-out section. The representation also transfers: with the encoder frozen, a linear head on CytoFormer features performed better than six pathology foundation models on four expert-annotated benchmarks, including on organs and cell types that were not part of pretraining. Finally, in an interactive active-learning setting, CytoFormer’s embeddings are markedly more label-efficient than existing pathology foundation models, detecting normal ep-ithelium amid look-alike tumour with an F1 of 0.82 from only a few annotations and leading the strongest baseline by 0.13 in F1. CytoFormer turns paired H&E and spatial transcriptomics into a reusable, label-efficient representation for cell-level analysis of routine histology. Code and model checkpoints are available at https://github.com/zhihuanglab/CytoFormer. 
+
+## 1 Introduction 
+
+Haematoxylin and eosin (H&E) staining is the basis of routine pathology diagnosis. Much of what a pathol-ogist reads from an H&E section is cellular: which cell types are present, in what proportion, and how they are arranged. Tumour cellularity, the density of tumour-infiltrating lymphocytes, the abundance of macrophages and plasma cells, and the state of the surrounding stroma and vasculature all carry diagnos-tic and prognostic weight. All of them can be read from the slide. In practice they are estimated by eye and reported semi-quantitatively, which is subjective and varies between observers. Typing every nucleus turns these judgements into counts, which are reproducible and can be compared across slides and cohorts. Progress on this task has been limited by supervision rather than by architecture. In the past, public cell-classification resources were built from manual annotation by pathologists. Such annotation is slow 1arXiv:2608.16718v1 [cs.CV] 17 Aug 2026 and expensive, and for many cell types it is also unreliable: a macrophage, a fibroblast and a poorly differ-entiated tumour cell can be difficult to tell apart within a single H&E nucleus. The largest expert-annotated datasets therefore contain on the order of 10 5 nuclei and only a handful of coarse categories, as in Pan-Nuke [1], CoNSeP [2] and MoNuSAC [3], and their class definitions are not mutually consistent. Recently, pathology foundation models have advanced rapidly [4–10], and are widely used for downstream diag-nostic tasks [11], but they are pretrained and evaluated on patches and whole slides. Their supervision and representations can overlook cell-level features, so repurposing them for cell classification leaves the labelling bottleneck untouched. Spatial transcriptomics offers a way around this bottleneck. Imaging-based platforms such as Xenium measure hundreds to thousands of transcripts in situ at subcellular resolution and segment individual cells. The same section can then be stained with H&E and imaged [12]. Molecular identity and morphology are therefore available for the same physical cell, and the molecular channel can supervise the morphological one. Labels for H&E can therefore be obtained without a pathologist drawing them, as long as the two images are registered and the molecular calls are checked. It also scales: a single Xenium section yields 10 5
+
+to 10 6 typed cells, far more than a manually annotated cohort. These labels are derived through a relatively comprehensive pipeline. Cell identity must be inferred from unsupervised clustering and marker interpretation, which is panel-dependent and error-prone. Seg-mentation errors and transcript spill-over generate doublets and ambient contamination [13]. Artefact clus-ters are often tight and internally consistent, so they survive naive quality filters. Only a subset of cells can be confidently mapped onto a morphology after registration. A label set also has to be chosen, since the clusters found in one section do not by themselves define a taxonomy that holds across organs. His-tology and spatial transcriptomics have been linked before, but existing models work at the level of spots or patches and predict or align gene expression [14, 15], rather than using the transcriptome as supervision for the identity of individual cells. Here we present CytoFormer, a cell foundation model learned from paired H&E and spatial transcrip-tomics. We curated 81 Xenium sections spanning 16 organs. Per-cell reference labels were derived by clustering, marker-based cluster annotation, cluster-level human quality control and a per-cell confidence gate, and were then mapped onto the cell types commonly reported in each organ, giving 23 classes. Reg-istering each section to its own H&E image gave 15.4 million cells with a paired 56 μm H&E patch. On these we trained a cell encoder with a multi-task, per-organ classification head. CytoFormer classifies cell types on held-out sections across all 16 organs, and its representation transfers. With the encoder frozen, a linear head on CytoFormer features performs better than six pathology foundation models on four expert-annotated benchmarks. The advantage is largest where supervision is scarce, and in an interactive active-learning setting CytoFormer detects normal epithelium amid look-alike tumour from only a few hundred annotations. 
+
+## 2 Results 
+
+2.1 Curate a pan-tissue single-cell H&E dataset from paired spatial transcriptomics 
+
+To train a cell-level model without manual annotation, we built a single-cell H&E dataset in which every cell is typed by its own transcriptome. Imaging-based spatial transcriptomics profiles single cells in situ ,and the same section can afterwards be stained with H&E and imaged. Each physical cell is therefore observed twice: as morphology on the H&E image ( Figure 1a ), and as an expression profile in the Xenium cell map ( Figure 1b ). We assembled public human Xenium experiments that carry a paired H&E image of the same section, drawn from the 10x Genomics data portal and from HEST-1k [16]. We then assigned a cell type to every cell in three steps: unsupervised clustering of the expression profiles, annotation of each cluster from its marker genes, and organ-wise human review of every cluster ( Figure 1c ). Each type was then transferred to the matched H&E morphology. After quality control, per-cell confidence filtering and registration, the dataset contains 15,422,352 cells from 81 sections and 16 organs. Every cell carries a 56 μmH&E patch, a cell type and an organ label. Of the sections, 54 come from the 10x Genomics portal and 2Cell type A Cell type B Cell type C Clustering 1
+
+Marker gene 2
+
+Cell type 3
+
+Nuclei with gene expression CytoFormer H&E 56x56 μm 
+
+Cell types in organ A Cell types in organ B Cell types in organ N ... 
+
+a b cd efgh iTraining Inference 
+
+CytoFormer Cell types in organ A *organ is specified 
+
+> Tumour Stroma Epithelium Lymphocyte Endothelium Macrophage Plasma cell Hepatocyte Acinar Squamous epithelium Microglia Renal tubule Chondrocyte Ductal Islet Cardiomyocyte Erythroid Neutrophil Myeloid progenitor Bone cell Cholangiocyte Nerve Melanocytic
+
+Breast (16+7) Lung (21+7) Ovary (4) Lymph node (3) Colon (3) Tonsil (1) Cervix (1) Brain (1) Kidney (3) Pancreas (3) Liver (2) Skin (5) Prostate (1) Bone marrow (1) Heart (1) Bone (1) 2.7M 1.0M 263k 529k 456k 581k 16k 97k 1.1M 1.1M 172k 833k 227k 56k 25k 299k 340k 483k 50k 67k 145k 21k 112k 83k 661k 57k 72k 84k 53k 376k 104k 95k 47k 26k 47k 101k 25k 81k 418k 36k 61k 14k 144k 229k 59k 38k 26k 18k 3.8k 348k 38k 47k 54k 64k 105k 50k 72k 16k 42k 105k 64k 13k 20k 21k 15k 58k 16k 7.4k 54k 30k 22k 18k 17k 115k 2.3k 89k 44k 55k 20k 16k 14k 3.2k 945 50k 36k 13k 2.1k 11k 3.8k 1.0k 1.8k 522 4.8k 4.0k 2.6k 3.2k 2.5k 458 7.3k 2.5k 556 1.5k 2.4k 1.0k 10k 100k 1.0M 10.0M Cells per organ 4.40M 1.14M 5.55M 2.80M 790k 3.59M 1.11M 235k 1.41M 872k 173k 1.12M 622k 123k 797k 499k 103k 635k 413k 87k 518k 343k 72k 433k 316k 64k 404k 241k 45k 318k 202k 41k 258k 177k 34k 241k 89k 28k 117k 10k 1.7k 14k 10k 1.9k 13k 5.4k 1.0k 6.9k Tumour Stroma Epithelium Lymphocyte Endothelium Macrophage Plasma cell Hepatocyte Acinar Squamous epithelium Microglia Renal tubule Chondrocyte Ductal Islet Cardiomyocyte Erythroid Neutrophil Myeloid progenitor Bone cell Cholangiocyte Nerve Melanocytic 100 1.0k 10k 100k 1.0M 10.0M Cells per cell type 3.46M  839k 4.41M 2.51M  581k  3.14M 1.65M  458k  2.14M 1.63M  359k  2.08M 1.27M  364k  1.66M 1.02M  229k  1.28M 266k  50k  330k 90k  19k  115k 48k  5.5k  58k 41k  9.9k  53k 39k  7.1k  47k 33k  5.1k  42k 12k  13k  25k 13k  1.9k  16k 6.1k  863  7.4k 5.6k  1.0k  7.3k 3.3k  705  4.8k 2.9k  477  4.0k 2.0k  303  2.6k 2.0k  211  2.4k 1.7k  406  2.3k 694  348  1.0k 869  61  945 
+
+1 100 10k 1.00M Cells per organ × cell type Train 79% Test 19% + guard band 366k (2.4%) Organ (a+b): WSIs used whole, a train + b test Organ (n) underlined: test region split from the same n WSIs 
+
+12.1M 2.94M Common Rare/Specific 3Figure 1: A pan-tissue single-cell H&E dataset built from paired spatial transcriptomics. (a) H&E image of a tissue section that was also profiled with Xenium. (b) Xenium cell map of the same section. (c) Cell types are derived by clustering, marker-gene annotation and human review, and transferred to the paired H&E morphology. (d) Cell types recovered in each organ, coloured and labelled by the number of cells. (e) 
+
+Cells per organ, split into training (dark) and test (light) cells. (f) Cells per cell type, split into training and test cells; both axes are logarithmic. (g) Overall training and test split. (h) During training, a 56 × 56 μmcrop around each nucleus is encoded by CytoFormer and classified by a per-organ head. (i) At inference the encoder is frozen and the prediction is made by the head of the specified organ. contribute 12,078,610 cells (78.3%); the other 27 come from HEST-1k and contribute 3,343,742 cells (21.7%). The cell types split into common classes and organ-specific classes ( Figure 1d ). Seven common classes are shared by most organs: Tumour, Stroma, Epithelium, Lymphocyte, Endothelium, Macrophage and Plasma cell. Together they cover 97.5% of the dataset. Endothelium is the only class found in all 16 organs. Stroma appears in 15 organs, and Lymphocyte and Macrophage in 13 each. The other 16 classes are rare, and each appears in a single tissue: Hepatocyte and Cholangiocyte in liver, Acinar, Ductal and Islet in pancreas, Renal tubule in kidney, Microglia in brain, Squamous epithelium in lymph node, Chondrocyte in lung, Cardiomyocyte in heart, Erythroid, Neutrophil and Myeloid progenitor in bone marrow, Bone cell in bone, Nerve in prostate, and melanocytic in skin. The cell types were chosen per organ rather than globally: for each tissue we used the types that are commonly reported in it. Each organ therefore has its own list, with a median of seven cell types and up to nine in pancreas. The dataset covers 16 organs: breast, lung, ovary, lymph node, colon, tonsil, cervix, brain, kidney, pan-creas, liver, skin, prostate, bone marrow, heart and bone ( Figure 1e ). Breast is the largest, with 5,546,376 cells (36.0%) from 23 sections. Lung is the second largest, with 3,592,765 cells (23.3%) from 28 sections. Together they hold 59.3% of all cells, and they are the only two organs with many comparable sections. The other 14 organs are each represented by one to five sections, and range from 1,405,609 cells in ovary to 6,928 cells in bone. The cell counts are long-tailed and span more than three orders of magnitude ( Figure 1f ). Tumour is the largest class, with 4,408,081 cells (28.6%). Stroma is the second largest, with 3,139,069 cells (20.4%). The two together make up almost half of the dataset. The remaining common classes hold between 329,965 cells (Plasma cell) and 2,141,342 cells (Epithelium). The organ-specific classes are much smaller, from 114,733 Hepatocytes down to 1,042 Nerve cells and 945 melanocytic cells. This imbalance comes from sampling whole tissue sections. We handle it during training rather than by resampling the dataset. Neighbouring cells share tissue context, so we split training and test cells by space rather than at random (Figure 1g ). For breast and lung we held out whole sections, 7 of 23 and 7 of 28. The other 14 organs have only one to five sections each. For these we cut every section into spatial blocks and held out dispersed blocks. We then discarded a 112 μm guard band along each train–test boundary, so that no test cell shares a field of view with a training cell. This gives 12,111,769 training cells (79%), 2,944,356 test cells (19%) and 366,227 guard-band cells (2.4%). Every cell type is present in both splits. 
+
+2.2 Train a cell foundation model across 16 organs 
+
+CytoFormer classifies one cell at a time. For every nucleus we crop a 56 × 56 μm field of view centred on its centroid and resize it to 224 × 224 pixels ( Figure 1h ). The crop keeps the nucleus at diagnostic resolution and still shows its immediate neighbours, which is the trade-off examined in Section 2.4 . The image encoder is a ViT-giant transformer that outputs a 1536-dimensional embedding per cell. It is initialised from UNI2-h [4] and fine-tuned end-to-end, and its output is layer-normalised before classification. A cell type does not look the same in every organ. A macrophage in lung alveoli, a Kupffer cell in liver sinusoids and a tumour-associated macrophage in breast stroma share a lineage but differ in shape and in the tissue around them. Many cell types are also organ-specific, such as hepatocytes in liver or islet cells in pancreas. One classifier shared by all organs would have to cover every appearance at once and rule out 4the types that cannot occur. We therefore learn one linear classifier per organ on top of a single shared encoder ( Figure 1h ). Head sizes range from three to nine classes, and the organ identifier selects which head is applied. In a clinical setting the organ is usually known, so it is available at inference ( Figure 1i ). The heads are organ-specific, but the encoder is not. It is trained jointly on all 16 organs, so the 16 classifiers are not independent models but share one representation. Features that recur in every tissue, such as the small round nucleus of a lymphocyte or the flat profile of a vessel lining, are therefore learned from all organs together, and each head only has to separate the cell types of its own organ. The encoder and all 16 heads were trained jointly on the 12,111,769 training cells, and we kept the check-point with the best macro-F1 on the held-out split. Training settings and hyperparameters are described in 
+
+Methods .
+
+2.3 CytoFormer recovers cell types and tissue architecture on held-out sections 
+
+We first evaluated CytoFormer on the spatially held-out split, which contains 2,944,356 cells from all 16 organs. The model reached an accuracy of 0.846 and a macro-F1 of 0.779. Per-class F1 varied widely (Figure 2a ). Cell types with a distinctive morphology were recognised almost perfectly: Hepatocyte reached 98.1, Renal tubule 97.8, Squamous epithelium 95.7, Islet 94.8, Cholangiocyte 93.7, tumour 92.8 and Acinar 90.3. The five most abundant classes were also recovered reliably, with tumour at 92.8, Lymphocyte at 85.3, Epithelium at 83.9, Endothelium at 82.6 and Stroma at 83.0. The weakest classes were Chondrocyte (37.6), Nerve (46.4), Myeloid progenitor (46.7), Bone cell (56.8), Microglia (60.1) and Macrophage (62.4). Accuracy was driven by morphological distinctiveness rather than by how many cells a class con-tributes. Several very rare classes were classified well, including melanocytic at 85.0 from only 61 test cells, Cholangiocyte at 93.7 from 406, Erythroid at 86.1 from 705 and Islet at 94.8 from 863. Conversely, two of the weakest classes are not rare at all: Macrophage has 228,718 test cells and reaches 62.4, and Chondro-cyte has 12,508 and reaches 37.6. The classes that fail are those whose nuclei resemble another class in the same tissue, in particular the mononuclear cells, where macrophages and plasma cells are drawn towards lymphocytes. Performance by organ followed the same pattern ( Figure 2b ). Macro-F1 was highest in organs built from a few visually distinct compartments, reaching 88.1 in pancreas, 87.9 in liver, 85.3 in kidney, 83.6 in brain and 82.9 in colon. It was lowest in the organs with the fewest cells or the most confusable stromal and immune mixtures, at 59.0 in bone, 60.8 in lung, 66.2 in cervix and 66.7 in heart. Accuracy was considerably higher than macro-F1 wherever one class dominates the organ, for example 86.0 against 67.7 in breast, 91.5 against 74.6 in prostate and 77.0 against 60.8 in lung. Per-organ and per-class accuracy, precision and recall are reported in Extended Data Figure 1 .To show what the predictions look like in practice, we applied the model to a complete breast section that was held out from training. Figure 2c shows the raw H&E, Figure 2d the spatial-transcriptomic ref-erence and Figure 2e the CytoFormer prediction for the same region. All 124,682 cells of the section were classified, with an accuracy of 79.3%. Comparing the two maps in Figure 2d,e shows that the predicted tissue architecture matches the reference. The same ducts, the same stromal bands and the same immune aggregates appear in the same places, and the visible disagreements are at the level of individual cells rather than of structures. Figure 2f gives the confusion matrix for this same section, and shows where the model is reliable and where it is not. Tumour, Lymphocyte, Stroma and Endothelium were recovered at 94.8%, 86.4%, 80.7% and 80.2% of their true cells. Most of the error mass sits in the mononuclear compartment, with 44.6% of macrophages and 63.5% of plasma cells predicted as lymphocytes, and a further 25.8% of epithelial cells predicted as tumour. These are the distinctions that motivated merging cell types in the first place, and they remain the limiting factor rather than a diffuse loss of accuracy. 5abc d e fg h i
+
+> Acinar Bone cell Cardiomyocyte Cholangiocyte Chondrocyte Ductal Endothelium Epithelium Erythroid Hepatocyte Islet Lymphocyte Macrophage Microglia Myeloid progenitor Nerve Neutrophil Plasma cell Renal tubule Squamous epithelium Stroma melanocytic tumor
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%)          
+
+> 90.3 56.8 87.0 93.7 37.6 85.6 82.6 83.9 86.1 98.1 94.8 85.3 62.4 60.1 46.7 46.4 71.5 69.0 97.8 95.7 83.0 85.0 92.8
+
+28 56 112 224 Crop FOV (μm) 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 macro-F1 (%) 
+
+79.1 83.3 82.5 77.1 
+
+*** *** 
+
+*
+
+> p=0.010
+
+28 56 112 224 Crop FOV (μm) 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 Accuracy (%)  86.1 87.2 86.6 83.6 
+
+*** *** 
+
+*** 
+
+> p<0.001
+
+Raw H&E (NCBI785; Breast) Spatial Transcriptomics ground truth Prediction bone bone marrow brain breast cervix colon heart kidney liver lung lymph node ovary pancreas prostate skin tonsil 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 macro-F1 (%) 
+
+59.0 68.3 83.6 67.7 66.2 82.9 66.7 85.3 87.9 60.8 82.5 79.8 88.1 74.6 77.3 73.7 
+
+> Tumor Epithelium Stroma Endothelium Lymphocyte Plasma cell Macrophage
+> Endothelium Epithelium Lymphocyte Macrophage Plasma cell Stroma Tumor
+
+Predicted Endothelium Epithelium Lymphocyte Macrophage Plasma cell Stroma Tumor True 
+
+80.2 1.1 4.1 2.0 9.5 3.0 0.4 71.1 0.8 0.4 1.5 25.8 2.1 0.9 86.4 3.4 5.5 1.9 3.7 1.8 44.6 23.4 20.0 6.4 2.6 0.4 63.5 12.4 1.6 18.0 1.5 4.9 0.6 9.0 3.6 80.7 1.1 0.3 3.2 0.6 0.3 0.8 94.8 
+
+Breast NCBI785 n=124,682 acc=79.3% 
+
+0.0 0.2 0.4 0.6 0.8 1.0 row fraction 56x56 μm 28x28 μm 224x224 μm 112x112 μm Cytoformer 224x224 pixels Image patch Figure 2: CytoFormer classifies cell types on held-out H&E tissue across 16 organs. (a) F1 per cell type and 
+
+(b) macro-F1 per organ on the spatially held-out test split. (c–e) A breast section held out in its entirety: (c) 
+
+raw H&E, (d) the cell-type reference derived from the paired spatial transcriptomics and (e) the CytoFormer prediction. (f) Confusion matrix for that section. (g) Crop field-of-view ablation: one fixed set of cells is cropped at each field of view and resized to 224 × 224 pixels. (h) Macro-F1 and (i) accuracy at each crop field of view. Error bars represent 95% confidence intervals from bootstrap resampling over test cells. Statistical significance against the 56 μm setting was assessed using a paired two-sided bootstrap test: ∗ p < 0.05, 
+
+∗∗ p < 0.01, ∗∗∗ p < 0.001. A bracket is drawn only between the 56 μm setting and the second-best setting and gives their exact p-value; the other settings are marked with asterisks only. 62.4 Ablation study on the crop field of view 
+
+Cell classification on H&E requires both the nucleus itself and enough of its neighbourhood to place it in context, and at a fixed model input size these two demands are in direct conflict: a larger crop adds context but lowers the effective resolution. We tested this trade-off directly by fixing one set of cells (500k training and 100k test cells stratified over 10 organs and 17 cell types) and cropping the same cells at 28, 56, 112 and 224 μm, always resized to 224 pixels, so that the crop window is the only variable ( Figure 2g ). A 56 μm crop was the best setting (macro-F1 79.1, 83.3, 82.5 and 77.1 and accuracy 86.1, 87.2, 86.6 and 83.6 for 28, 56, 112 and 224 μm; Figure 2h,i ). Both metrics dropped at the two extremes. Under a paired bootstrap over the 100k shared test cells, 56 μm was better than 28 and 224 μm ( p < 0.001) and better than 112 μm ( p = 0.010). A 28 μm crop is close to the nucleus alone and loses the tissue context that separates, for example, stroma from endothelium; a 224 μm crop contains a whole neighbourhood but at 1 μm per pixel the target nucleus is no longer resolved. A 56 μm window, corresponding to 0.25 μm per pixel at 224 pixels, keeps the nucleus at diagnostic resolution while still including its immediate neighbours, and we adopt it throughout. 
+
+2.5 Linear fine-tuning on public cell-classification benchmarks 
+
+We next tested how well CytoFormer performs under linear fine-tuning. The encoder was frozen and only a linear head on top of it was trained ( Figure 3a ). We compared it with six pathology foundation models used in the same way: UNI2-h [4], Virchow2 [10], MUSK [7], CONCH [5], PathGen [17] and PLIP [6]. The evaluation used four datasets annotated by pathologists and independent of our training data: PanNuke [1] (186,836 cells, 19 organs, 4 classes), CoNSeP [2] (23,400 cells, colon, 6 classes), MoNuSAC [3] (46,901 cells, 4 organs, 4 classes) and PUMA [18] (95,389 cells, melanoma skin, 9 classes). All backbones were evaluated on the same cells, with the same 56 μm crops and the same class-balanced linear head. Each dataset was evaluated organ by organ, giving 25 settings in total: 19 organs in PanNuke, four in MoNuSAC, and one each in CoNSeP and PUMA. CytoFormer gave the best representation in 24 of these 25 settings, and led on every dataset. On CoNSeP, which has six classes in colon, CytoFormer had the highest F1 on all six ( Figure 3b ). Against the second-best method of each class, it reached 97.0 against 94.8 for UNI2-h on dysplastic malignant epithelium, 87.4 against 76.1 for Virchow2 on healthy epithelium, 81.5 against 63.3 for PathGen on fibroblasts, 79.2 against 57.6 for MUSK on inflammatory cells, 77.4 against 68.2 for PathGen on muscle and 65.9 against 32.7 for PLIP on endothelial cells, in every case with p < 0.001. At the organ level it reached a macro-F1 of 81.4 against 59.9 for MUSK ( p < 0.001). On PUMA, which has nine classes in melanoma skin, CytoFormer was highest on eight of them ( Figure 3c ). Against the second-best method of each class, it reached 87.0 against 80.0 for Virchow2 on tumour, 78.6 against 54.0 for MUSK on lymphocytes, 68.8 against 37.5 for MUSK on neutrophils, 48.6 against 26.3 for Virchow2 on endothelium, 47.6 against 28.2 for MUSK on histiocytes, 47.6 against 31.9 for Virchow2 on plasma cells, 41.3 against 24.8 for MUSK on melanophages and 38.4 against 19.5 for MUSK on stroma, again all with p < 0.001. The one class on which CytoFormer did not lead is epithelium, where it still ranked among the top methods. At the organ level CytoFormer reached 58.7 against 39.7 for Virchow2 ( p < 0.001). On MoNuSAC, CytoFormer led in three of the four organs, with 75.4 against 65.9 for UNI2-h in breast, 87.4 against 82.1 for MUSK in kidney and 90.9 against 79.4 for UNI2-h in lung, all with p < 0.001 ( Figure 3d ). The one organ in which CytoFormer did not lead is prostate, where it still ranked among the top methods. Averaged over the four organs it reached 83.5 against 78.6 for UNI2-h ( p < 0.001). On PanNuke, averaged over its 19 organs, it was highest on all four classes, with 89.7 against 85.1 for Virchow2 on neoplastic cells, 87.1 against 81.5 for Virchow2 on epithelial cells, 76.7 against 68.6 for MUSK on connective cells and 64.8 against 52.8 for MUSK on inflammatory cells, and averaged 79.3 against 70.3 for MUSK, all with p < 0.001 (Figure 3e ). Across all 25 settings CytoFormer averaged 79.2 macro-F1, against 71.4 for the second-best method of each setting. CytoFormer therefore performed well on all four datasets, at both the class and the organ level. The advantage was not restricted to the organs and cell types it had been trained on, and CytoFormer performed just as well on those it had never seen. Nine of PanNuke’s 19 organs are not among the organs seen during 7CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP 0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%) 
+
+97.0 94.8 93.9 92.5 90.8 88.5 87.2 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+dysplastic malignant epithelial 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+65.9 19.9 9.9 15.7 19.3 23.3 32.7 *** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+endothelial 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+81.5 57.8 59.0 61.7 58.6 63.3 57.7 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+fibroblast 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%)  87.4 72.7 76.1 65.4 57.8 51.6 47.1 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+healthy epithelial 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+79.2 45.0 46.7 57.6 49.9 46.5 48.2 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+inflammatory 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+77.4 50.5 65.6 66.4 64.5 68.2 64.8 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+muscle CoNSeP / colon 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%) 
+
+48.6 24.6 26.3 18.6 23.7 16.9 13.3 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+endothelium 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+70.2 74.2 76.5 63.1 48.1 43.2 39.7 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 epithelium 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+47.6 27.0 25.3 28.2 25.9 22.7 20.9 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+histiocyte 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%)  78.6 40.8 45.0 54.0 46.8 46.5 46.3 *** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+lymphocyte 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+41.3 21.7 24.7 24.8 18.6 20.3 17.4 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+melanophage 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+68.8 31.9 30.7 37.5 22.0 28.9 15.5 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+neutrophil 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%) 
+
+47.6 24.0 31.9 8.9 22.3 5.7 5.9 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+plasma cell 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+38.4 17.5 16.8 19.5 17.3 15.7 14.4 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+stroma 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+87.0 76.9 80.0 77.3 68.6 71.1 63.1 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 tumor PUMA / skin MoNuSAC 
+
+0
+
+50 
+
+100 *** *** *** *** *** 
+
+*** 
+
+p<0.001 75.4 65.9 62.5 58.0 41.3 47.7 48.2 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 87.4 79.0 77.2 82.1 64.3 61.3 71.7 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 90.9 79.4 69.0 67.1 74.3 78.0 73.7 
+
+Breast Kidney Lung 
+
+050 100 
+
+> ** *** *** *** ***
+
+*** 
+
+p<0.001 80.2 90.2 85.7 62.6 62.6 66.4 58.0 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 83.5 78.6 73.6 67.5 60.6 63.3 62.9 
+
+Prostate Average 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 89.7 84.5 85.1 84.8 83.4 82.8 81.7 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 87.1 76.5 81.5 75.6 72.2 71.8 71.4 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 64.8 46.7 48.2 52.8 50.8 50.0 48.4 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 76.7 65.4 67.0 68.6 64.7 63.8 63.0 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 79.3 68.0 70.1 70.3 67.7 66.9 66.0 
+
+Neoplastic Epithelial Inflammatory Connective Average 
+
+CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP 
+
+PanNuke - 19 organs b dc e
+
+H&E 56x56 μm CytoFormer Cell types 
+
+a8Figure 3: Linear fine-tuning of CytoFormer and six pathology foundation models on four public bench-marks. (a) Linear fine-tuning setup. A 56 μm crop around each nucleus is encoded by the frozen backbone (snowflake) and classified by a linear head, which is the only trainable part (flame). (b) F1 per cell type on CoNSeP (colon). (c) F1 per cell type on PUMA (melanoma skin). (d) Macro-F1 per organ on MoNuSAC and their average. (e) F1 per cell type on PanNuke and the overall average, each averaged over the 19 organs. Error bars represent 95% confidence intervals from bootstrap resampling over test cells. Statistical significance was assessed using a paired two-sided bootstrap test: ∗ p < 0.05, ∗∗ p < 0.01, ∗∗∗ p < 0.001. A bracket is drawn only between CytoFormer and the second-best method and gives their exact p-value; the remaining methods are marked with asterisks only. pretraining, among them bladder, oesophagus, stomach, thyroid, testis and adrenal gland, and CytoFormer led on every one of them, by the same margin as on the organs it had seen. It also led on cell types that its own label space never contained as separate classes, such as melanophages in PUMA. This indicates that what the model has learned is generic cell-level information, the appearance of the nucleus together with the tissue immediately around it, rather than a fixed set of organ-specific categories. 
+
+2.6 Full fine-tuning on public cell-classification benchmarks 
+
+We then repeated the comparison with every backbone fine-tuned end-to-end ( Figure 4a ). This evaluation asks a practical question: when choosing a pretrained model for H&E cell classification, which backbone provides the strongest starting point and can achieve the best performance after full fine-tuning? The datasets, the cells, the crops and the training recipe were the same for all methods, so the only difference remains the backbone the model starts from. We fully fine-tuned every model on each benchmark. CytoFormer continued to perform very well. On CoNSeP it had the highest F1 on four of the six classes ( Figure 4b ), with 97.7 against 97.1 for UNI2-h on dysplastic malignant epithelium ( p = 0.004), 92.3 against 90.2 for UNI2-h on healthy epithelium ( p =
+
+0.056), 81.0 against 80.5 for PathGen on muscle ( p = 0.636) and 66.0 against 45.1 for MUSK on endothelial cells ( p < 0.001); on fibroblasts and inflammatory cells CytoFormer was not the highest, but in both cases the difference from the best method was not significant ( p = 0.322 and p = 0.166). At the organ level CytoFormer reached a macro-F1 of 83.9 against 78.5 for UNI2-h ( p < 0.001). On PUMA it had the highest F1 on five of the nine classes ( Figure 4c ), among them epithelium at 85.8 against 84.8 and plasma cells at 65.6 against 64.7. On the remaining four classes CytoFormer was not the highest; on three of them the difference from the best method was not significant, and on tumour it stayed among the top methods. At the organ level CytoFormer reached 69.1 against 67.8 for UNI2-h ( p = 0.008). On MoNuSAC, CytoFormer had the highest macro-F1 in breast (98.7 against 98.2 for UNI2-h, p = 0.528) and kidney (92.6 against 89.6 for UNI2-h, p = 0.028). In lung it was not the highest, but the difference from the best method was not significant ( p = 0.082), and in prostate it stayed among the top methods. Averaged over the four organs CytoFormer reached 95.2, with no significant difference from the best method ( p =
+
+0.732; Figure 4d ). On PanNuke, averaged over its 19 organs, CytoFormer was highest on all four classes, with 91.6 against 91.1 for UNI2-h on neoplastic cells ( p = 0.016), 92.0 against 91.9 for Virchow2 on epithelial cells ( p = 0.790), 80.6 against 79.0 for UNI2-h on connective cells ( p < 0.001) and 70.8 against 68.6 for UNI2-h on inflammatory cells ( p = 0.010), and averaged 83.5 against 82.2 for Virchow2 ( p = 0.002; Figure 4e ). CytoFormer therefore still performed well under full fine-tuning on every dataset. It stayed clearly ahead on the difficult classes, such as endothelial cells in CoNSeP and connective cells in PanNuke, even after every backbone had been trained on the target labels. This confirms that pretraining on our dataset is effective, and that CytoFormer is a strong starting point for cell classification on H&E. 9CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP 0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%) 
+
+97.7 97.1 94.5 93.4 94.8 92.3 91.7 
+
+*** *** *** *** *** 
+
+** 
+
+p=0.004 
+
+dysplastic malignant epithelial 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+66.0 38.9 31.5 45.1 35.3 20.8 24.0 
+
+*** *** *** *** *** 
+
+*** 
+
+p<0.001 
+
+endothelial 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+84.0 84.5 81.5 78.2 82.1 80.3 79.8 
+
+*** *** *** *** *** 
+
+n/s 
+
+p=0.322 
+
+fibroblast 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%)  92.3 90.2 78.9 77.7 75.7 66.3 73.1 
+
+*** *** *** *** *** 
+
+n/s 
+
+p=0.056 
+
+healthy epithelial 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+82.6 83.4 81.3 80.0 80.2 80.3 80.3 
+
+n/s *** *** *** *** 
+
+n/s 
+
+p=0.166 
+
+inflammatory 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+81.0 77.1 74.8 72.6 74.5 80.5 78.6 
+
+** *** *** *** *
+
+n/s 
+
+p=0.636 
+
+muscle CoNSeP / colon 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%) 
+
+60.7 58.8 59.4 50.5 53.4 45.7 42.8 
+
+n/s *** *** *** *** 
+
+n/s 
+
+p=0.374 
+
+endothelium 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+85.8 84.8 83.4 73.8 83.0 73.8 64.6 
+
+** *** ** *** *** 
+
+n/s 
+
+p=0.240 epithelium 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+52.2 52.0 51.3 47.7 49.0 46.8 45.6 
+
+n/s *** *** *** *** 
+
+n/s 
+
+p=0.786 
+
+histiocyte 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%)  83.6 83.7 82.3 82.4 82.7 81.9 78.5 
+
+*** *** * *** *** 
+
+n/s 
+
+p=0.564 lymphocyte 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+59.7 55.9 57.6 62.2 57.3 58.5 48.5 
+
+n/s n/s n/s n/s *** 
+
+n/s 
+
+p=0.318 
+
+melanophage 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+79.8 80.2 79.8 69.6 76.1 71.2 61.9 
+
+n/s *** * *** *** 
+
+n/s 
+
+p=0.748 neutrophil 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 F1 (%)  65.6 59.9 63.4 48.0 64.7 43.6 40.2 
+
+n/s n/s *** *** *** 
+
+n/s 
+
+p=0.744 
+
+plasma cell 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+43.5 43.2 40.7 40.6 39.0 36.7 35.4 
+
+* * *** *** *** 
+
+n/s 
+
+p=0.800 
+
+stroma 
+
+> CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP
+
+91.3 91.7 90.4 88.9 90.1 88.4 86.1 
+
+*** *** *** *** *** 
+
+*
+
+p=0.032 
+
+tumor PUMA / skin MoNuSAC 
+
+0
+
+50 
+
+100 *** *** *** *** *** 
+
+n/s 
+
+p=0.528 98.7 98.2 91.6 92.2 84.9 81.4 88.4 
+
+> **** ****
+
+*
+
+p=0.028 92.6 89.6 88.9 83.8 89.4 89.4 89.3 
+
+> n/s *n/s *** ***
+
+n/s 
+
+p=0.082 95.9 97.4 97.1 92.7 93.7 89.6 90.1 
+
+Breast Kidney Lung 
+
+050 100 
+
+> **** n/s n/s *
+
+*
+
+p=0.012 93.7 96.3 95.9 87.8 92.0 94.2 89.2 
+
+> ** *** *** *** ***
+
+n/s 
+
+p=0.732 95.2 95.4 93.4 89.1 90.0 88.7 89.3 
+
+Prostate Average 
+
+> *** *** *** *** ***
+
+*
+
+p=0.016 91.6 91.1 90.9 89.3 90.4 90.3 89.5 
+
+> n/s *** *** ***
+
+n/s 
+
+p=0.790 92.0 91.1 91.9 85.6 89.3 88.2 84.2 
+
+> ** *** *** *** ***
+
+*
+
+p=0.010 70.8 68.6 68.5 66.7 68.1 67.4 66.8 
+
+> *** *** *** *** ***
+
+*** 
+
+p<0.001 80.6 79.0 78.7 76.4 77.8 77.9 76.3 
+
+> ** *** *** *** ***
+
+** 
+
+p=0.002 83.5 82.2 82.2 79.3 81.1 80.7 79.1 
+
+Neoplastic Epithelial Inflammatory Connective Average 
+
+CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP CytoFormer UNI2 Virchow2 MUSK CONCH PathGen PLIP 
+
+PanNuke - 19 organs b dc e
+
+H&E 56x56 μm CytoFormer Cell types 
+
+a10 Figure 4: Full fine-tuning of CytoFormer and six pathology foundation models on four public bench-marks. (a) Full fine-tuning setup. A 56 μm crop around each nucleus is encoded by the backbone and classified by a head, and both are trained end-to-end (flames). (b) F1 per cell type on CoNSeP (colon). (c) F1 per cell type on PUMA (melanoma skin). (d) Macro-F1 per organ on MoNuSAC and their average. (e) F1 per cell type on PanNuke and the overall average, each averaged over the 19 organs. Error bars represent 95% confidence intervals from bootstrap resampling over test cells. Statistical significance was assessed us-ing a paired two-sided bootstrap test: ∗ p < 0.05, ∗∗ p < 0.01, ∗∗∗ p < 0.001. A bracket is drawn only between CytoFormer and the second-best method and gives their exact p-value; the remaining methods are marked with asterisks only. 
+
+2.7 CytoFormer provides more label-efficient representations for interactive cell an-notation 
+
+A practical foundation model should let a pathologist obtain accurate cell typing from only a handful of annotations. We therefore benchmarked CytoFormer against existing pathology foundation models as the representation for interactive, active-learning cell annotation on our TissueLab platform [19], focusing on label efficiency. To evaluate it, we used a colorectal cancer VisiumHD section ( Figure 5a ) and framed the task as de-tecting normal epithelium, which is hard because benign crypt epithelium and adenocarcinoma look alike on H&E and share most marker genes. We derived per-cell ground truth from the paired VisiumHD tran-scriptome together with the crypt structure ( Figure 5b ). For every foundation model baseline we trained an identical logistic-regression head on the same user annotations and evaluated normal-epithelium detec-tion, Epithelium versus all other cells, across the section (10,627 positive and 151,075 negative ground-truth cells), so that the embedding was the only variable. CytoFormer detected normal epithelium most accurately, reaching an F1 of 0.82 and confining the Ep-ithelium prediction to the normal crypt region ( Figure 5c ). All other foundation-model baselines scored markedly lower, with UNI2-h the strongest at F1 0.69, followed by Virchow2 at 0.67, MUSK at 0.49, Path-Gen at 0.47, and CONCH and PLIP at 0.44, so that CytoFormer led the best baseline by about 0.13 in F1. Zooming into a region of interest at the benign–malignant boundary ( Figure 5d , with ground truth in Fig-ure 5e ) made this difference concrete. The advantage was largest in the low-annotation regime that active learning operates in. Across the annotation schedule, the CytoFormer learning curve rose fastest and high-est ( Figure 5f and Extended Data Figure 2 ), reaching most of its final F1 within the first ∼200 annotations, whereas the baselines plateaued well below it and did not close the gap even at the largest annotation budget. Per-model overlays within this region ( Figure 5g ) confirmed that CytoFormer placed Epithelium precisely on the normal crypts while the baselines scattered it across malignant and non-epithelial cells. Because every model used an identical classifier and differed only in its embedding, this advantage is attributable to the representation, showing that CytoFormer yields linearly separable, label-efficient cell features that make detecting subtle cell states such as normal epithelium amid look-alike tumour practical from only a few annotations. 
+
+## 3 Discussion 
+
+We have presented CytoFormer, a cell foundation model trained on H&E cells whose identity comes from paired spatial transcriptomics. Reference labels were derived from Xenium by clustering, marker-gene annotation and human review, and were then transferred to the matched H&E morphology. This gave 15.4 million cells from 81 sections and 16 organs without any manual annotation of images. On spatially held-out tissue the model reached an accuracy of 0.846 and a macro-F1 of 0.779 across all 16 organs, and when applied to a whole section its predictions reproduced the tissue architecture of the reference. The representation also transfers. Under linear fine-tuning it performed very well on four public benchmarks, including on organs and cell types that were not part of pretraining, and it continued to perform well when 11 MUSK 
+
+CytoFormer (ours) Conch Virchow UNI-2 
+
+PLIP PathGen 
+
+Epithelium vs all others (colon) 
+
+0 250 500 750 1000 1250 1500 1750 Number of annotated cells 
+
+0.0 
+
+0.2 
+
+0.4 
+
+0.6 
+
+0.8 
+
+1.0 F1 CytoFormer (ours) UNI2 Virchow2 CONCH PathGen PLIP MUSK 
+
+H&E region Visium HD ground truth Visium HD ground truth CytoFormer final prediction (ours) 
+
+ad e fgb c
+
+Others Tumor cells Benign epithelial cells Others Tumor cells Benign epithelial cells Others Tumor cells Benign epithelial cells 12 Figure 5: CytoFormer embeddings enable label-efficient active learning for cell classification on VisiumHD. For every foundation model an identical logistic-regression head is trained on the same user annotations and evaluated on the same held-out cells, so that the embedding is the only variable. (a) H&E whole-slide image of the section. (b) VisiumHD ground-truth overlay, with Negative control shown in grey, Tumor in red and Epithelium in green. (c) Active-learning prediction from CytoFormer (ours), with the Epithelium prediction confined to the normal crypt region. (d) H&E of a zoomed region of interest (ROI) spanning the benign–malignant boundary. (e) Ground truth of the zoomed region of interest spanning the benign–malignant boundary. (f) Active-learning learning curves (F1 for detecting normal Epithelium versus all other cells) as a function of the number of annotated cells, averaged over five random subsets; CytoFormer (bold) is highest throughout and improves most with additional annotations. 
+
+(g) Per-model prediction overlays within the ROI: CytoFormer places Epithelium precisely on the normal crypts, whereas frozen foundation models over-call epithelium across malignant and non-epithelial cells. every model was fully fine-tuned. Several limitations should be noted. First, our label space covers the cell types that are commonly reported in each organ, which are the ones used in routine practice, and does not go below that level. Finer subtypes are therefore not separated, for example T and B cells, which are grouped as Lymphocyte, or the states of macrophages, even though the transcriptome that produced the labels often carries that information. Second, this work uses Xenium alone as the source of cell types. In future work we will extend it to other paired modalities, such as spatial proteomics [20] and Visium HD [21]. Third, we have used CytoFormer only to assign a type to each cell, but its output is a map of every cell in a slide, and that map is itself a measurement. Cell composition and the spatial arrangement of cells carry diagnostic and prognostic information, and in future work we will use the counts, densities and neighbourhoods that the model produces as features for clinical tasks such as diagnosis, prognosis and the prediction of treatment response [19]. In summary, CytoFormer shows that paired spatial transcriptomics can replace manual annotation as the source of cell-level supervision on H&E, and that a cell foundation model trained in this way transfers to organs and cell types it has never seen. The model turns any routine H&E slide into a map of typed cells, and provides a cell-level representation that downstream analyses can build on. 
+
+## 4 Methods 
+
+4.1 Dataset introduction 
+
+Data sources. We went through the human Xenium experiments available from two sources: the 10x Genomics public dataset portal, and HEST-1k [16], which collects spatial transcriptomics datasets deposited elsewhere. We kept the experiments in which the same tissue section had also been imaged with H&E, and removed samples that appear in both sources. After removing sections without an H&E image or without a usable image-to-transcriptome registration, 81 sections from 16 organs entered training: bone, bone marrow, brain, breast, cervix, colon, heart, kidney, liver, lung, lymph node, ovary, pancreas, prostate, skin and tonsil. Of these, 54 come from the 10x Genomics portal and 27 from HEST-1k deposits. Gene panels range from targeted about 300-plex to the 5,000-plex Prime panel, and sections include healthy, inflammatory and malignant tissue. 
+
+Reference cell typing. Each section was processed independently in Scanpy [22]: counts were normalised per cell and log (1 + x) transformed, highly variable genes selected, a PCA computed, and a k-nearest-neighbour graph clustered with Leiden [23] at a resolution of 0.8. Sections sharing a gene panel within an organ were integrated before clustering; single sections were clustered on their own without scaling, so that absolute expression levels remain interpretable. For every cluster we computed ranked marker genes 13 bone bone marrow brain breast cervix colon heart kidney liver lung lymph node ovary pancreas prostate skin tonsil 
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 Accuracy (%) 
+
+59.3 71.7 93.1 86.0 86.4 90.0 79.7 86.3 94.6 77.0 88.7 88.2 90.1 91.5 85.1 88.9 
+
+> Acinar Bone cell Cardiomyocyte Cholangiocyte Chondrocyte Ductal Endothelium Epithelium Erythroid Hepatocyte Islet Lymphocyte Macrophage Microglia Myeloid progenitor Nerve Neutrophil Plasma cell Renal tubule Squamous epithelium Stroma melanocytic tumor
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 Accuracy (%) 
+
+94.9 74.4 94.0 93.3 23.6 81.5 83.8 80.0 86.7 98.1 93.9 87.4 56.5 47.8 41.3 31.3 74.8 63.2 97.8 95.9 84.2 78.7 96.2 
+
+> bone bone marrow brain breast cervix colon heart kidney liver lung lymph node ovary pancreas prostate skin tonsil
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 macro-Precision (%) 
+
+65.3 69.6 89.4 78.1 71.8 83.9 76.1 85.4 88.1 71.1 84.3 80.4 89.2 85.8 79.1 78.7 
+
+> Acinar Bone cell Cardiomyocyte Cholangiocyte Chondrocyte Ductal Endothelium Epithelium Erythroid Hepatocyte Islet Lymphocyte Macrophage Microglia Myeloid progenitor Nerve Neutrophil Plasma cell Renal tubule Squamous epithelium Stroma melanocytic tumor
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 Precision (%)  86.1 45.9 80.9 94.0 92.6 90.1 81.3 88.3 85.5 98.2 95.7 83.3 69.8 80.9 53.9 89.3 68.4 76.0 97.8 95.5 81.8 92.3 89.6 
+
+> bone bone marrow brain breast cervix colon heart kidney liver lung lymph node ovary pancreas prostate skin tonsil
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 macro-Recall (%) 
+
+57.9 67.5 80.6 68.0 64.4 82.5 62.8 85.3 87.8 56.5 81.2 79.4 87.3 69.6 76.3 70.5 
+
+> Acinar Bone cell Cardiomyocyte Cholangiocyte Chondrocyte Ductal Endothelium Epithelium Erythroid Hepatocyte Islet Lymphocyte Macrophage Microglia Myeloid progenitor Nerve Neutrophil Plasma cell Renal tubule Squamous epithelium Stroma melanocytic tumor
+
+0
+
+20 
+
+40 
+
+60 
+
+80 
+
+100 Recall (%) 
+
+94.9 74.4 94.0 93.3 23.6 81.5 83.8 80.0 86.7 98.1 93.9 87.4 56.5 47.8 41.3 31.3 74.8 63.2 97.8 95.9 84.2 78.7 96.2 Extended Data Fig. 1 abcdef14 Extended Data Figure 1: Additional in-distribution metrics on the held-out Xenium test split. 
+
+Complementary metrics to Figure 2a,b, all computed on the spatially held-out split (2,944,356 cells). (a) 
+
+Accuracy per organ. (b) Accuracy per cell type, which for a single class equals its recall and is therefore identical to panel (f) . (c) Macro-precision per organ. (d) Precision per cell type. (e) Macro-recall per organ. 
+
+(f) Recall per cell type. Error bars represent 95% confidence intervals from bootstrap resampling over test cells. Iter. Annotations CytoFormer UNI2 Virchow2 CONCH PathGen PLIP MUSK 
+
+1 10 0.246 0.174 0.161 0.139 0.102 0.130 0.155 2 20 0.453 0.395 0.346 0.291 0.234 0.237 0.299 3 30 0.609 0.493 0.395 0.315 0.208 0.226 0.289 4 50 0.630 0.474 0.412 0.287 0.211 0.214 0.267 5 75 0.706 0.601 0.512 0.361 0.266 0.286 0.335 6 100 0.709 0.616 0.573 0.394 0.284 0.317 0.331 7 150 0.773 0.669 0.651 0.424 0.373 0.368 0.444 8 200 0.797 0.672 0.656 0.421 0.407 0.387 0.478 9 300 0.806 0.665 0.653 0.422 0.408 0.385 0.464 10 500 0.815 0.675 0.671 0.451 0.415 0.401 0.480 11 800 0.818 0.678 0.674 0.453 0.428 0.425 0.483 12 1,100 0.818 0.681 0.677 0.445 0.436 0.421 0.488 13 1,844 0.821 0.685 0.670 0.444 0.468 0.444 0.494 
+
+Extended Data Figure 2: Epithelium detection F1 across active-learning iterations. Epithelium vs all others; 10,627 positive / 151,075 negative cells; same annotations, schedule and 5 seeds for every model. F1 for the Epithelium class, mean of 5 seeds. Bold = best in row. by Wilcoxon rank-sum test and annotated the cluster from the top 30 markers together with the mean expression and per cent positivity of canonical lineage markers. 
+
+Quality control. Two orthogonal filters were applied. At the cluster level, every cluster of every organ was reviewed by hand: whether the cell types recovered and their proportions match what the tissue should contain, what the top markers of the cluster are, and how its absolute expression compares with competing lineages. Each cluster was then kept, relabelled, or removed. We removed the clusters that were artefacts, doublets or of low quality, and flagged the clusters that are real but ambiguous, which are excluded from training. At the cell level, we computed a confidence for every cell, which combines two scores, a neighbour purity and a marker margin: the first asks whether a cell really belongs to the cluster it was assigned to, the second whether that cluster’s markers are stronger in the cell than those of the most similar other cluster. Neighbour purity is the fraction of a cell’s k = 50 nearest neighbours in expression PCA space that belong 15 to its own Leiden cluster. Marker margin is the mean expression of its own cluster’s marker set minus that of the strongest competing cluster’s marker set, and is then normalised to [0, 1 ]. The confidence of a cell is the average of the two, and we kept only the cells with a confidence above 0.6 for training. The intention is to drop the ambiguous cells that sit at the border between clusters to reduce the label noise. 
+
+Cell-type taxonomy. For each organ we selected the cell types that are commonly reported in that tis-sue, and mapped the cluster-level annotations onto them, giving 23 categories in total. Seven pan-tissue classes (tumour, Stroma, Epithelium, Lymphocyte, Endothelium, Macrophage, Plasma cell) cover about 97% of cells; the other 16 are organ-specific (Hepatocyte, Cholangiocyte, Acinar, Ductal, Islet, Renal tubule, Microglia, Chondrocyte, Squamous epithelium, Cardiomyocyte, Erythroid, Neutrophil, Myeloid progen-itor, Bone cell, Nerve and melanocytic). The subtypes found by clustering were then merged into these predefined categories, for example T and B cells into Lymphocyte. 
+
+H&E registration and patch extraction. Cell coordinates were mapped into H&E pixel space using the registration supplied with each section, and we checked the mapping by overlaying nuclear boundaries from the DAPI channel on the H&E image. For each cell a 56 μm window centred on the nucleus centroid was cropped from the finest pyramid level and resized to 224 × 224 pixels. Crops falling outside tissue were removed with a tissue mask that also excludes tears and folds, and out-of-focus crops were removed by thresholding the Laplacian variance of the resized patch at 10, a cut-off we set by visually inspecting the discarded patches. 
+
+Training and testing split. For breast and lung, where many comparable sections exist, whole sections were held out (7 of 23 and 7 of 28). For the remaining 14 organs, training and test cells were separated by location within the section rather than at random: the section was recursively bisected at the median of the cell distribution into 16 KD-tree blocks [24], and dispersed blocks totalling about 20% of cells were assigned to test. Because every cell is represented by a 56 μm crop, two cells whose centroids lie closer than 56 μm share image content, so a test cell next to a training cell would already have been partly seen during training. We therefore discarded a guard band at every block boundary: any cell whose nearest neighbour of the opposite split lay within 112 μm was removed from both splits. The threshold is twice the crop width, so every retained training cell and every retained test cell are at least one full crop apart and their fields of view cannot overlap. This removed 366,227 cells, 2.4% of the dataset. The resulting split contains 12,111,769 training, 2,944,356 test and 366,227 guard-band cells. 
+
+4.2 Model architecture and training 
+
+CytoFormer is a shared image encoder followed by a multi-task, per-organ classification head. The encoder is a ViT-giant transformer [25] that takes a 224 × 224 input with a patch size of 14 and returns a 1536-dimensional embedding. It is initialised from UNI2-h [4] and fine-tuned end-to-end, and its pooled class token is layer-normalised to give one embedding per cell. The head holds 16 linear classifiers, one per organ, each mapping the embedding to the cell types of that organ alone. Head sizes range from three to nine classes, which gives 103 outputs in total. At each forward pass the organ identifier sends every cell to the head of its organ. We trained with AdamW [26] (weight decay 10 −2), using separate learning rates for the backbone (2 × 10 −5) and the heads (10 −3), one epoch of linear warm-up followed by cosine decay, gradient clip-ping at 1.0, and a batch size of 256 in bfloat16, under distributed data-parallel training on four NVIDIA B200 GPUs. Dropout of 0.25 is applied to the embedding before the heads. Augmentation consisted of random horizontal and vertical flips, random rotation up to 180 ◦, and colour jitter with brightness, contrast and saturation 0.1 and hue 0.02. Training ran for up to 10 epochs with early stopping on held-out macro-F1 (patience 5), evaluated at the end of each epoch on a capped subsample of the test split for speed. We kept the checkpoint with the best macro-F1, which occurred at epoch 5, and re-evaluated it on the full test split. 16 4.3 Field-of-view ablation 
+
+To isolate the effect of the crop window we sampled one fixed set of cells (500,000 for training and 100,000 for testing, stratified by organ and cell type over 10 organs and 17 cell types) and cropped that same set at 28, 56, 112 and 224 μm, each resized to 224 pixels. Every other element of the recipe was held constant, so the crop window, and therefore the effective resolution, is the only variable. Models were compared by macro-F1 over the 17 classes. 
+
+4.4 Public benchmarks 
+
+We benchmarked against six pathology foundation models used as feature extractors (UNI2-h, Virchow2, MUSK, CONCH, PathGen and PLIP) on four expert-annotated datasets: PanNuke [1] (186,836 cells, 19 organs, 4 classes), CoNSeP [2] (23,400 cells, colon, 6 classes), MoNuSAC [3] (46,901 cells, 4 organs, 4 classes) and PUMA [18] (95,389 cells, melanoma skin, 9 classes). Categories that do not correspond to a definite cell identity were removed before the benchmark was built: Dead cells in PanNuke, Ambiguous in MoNuSAC, 
+
+apoptosis in PUMA and the unspecified other class in CoNSeP. This leaves four, four, nine and six classes respectively. Each dataset’s own split was used where defined (PanNuke folds 1–2 for training and fold 3 for testing; the CoNSeP and MoNuSAC official splits) and PUMA was split by region of interest (about 20% held out). Every cell was cropped identically at 56 μm and resized to 224 pixels. In the linear fine-tuning regime, features were extracted with the frozen backbone, standardised with training statistics, and a single linear layer was trained per (dataset, organ) with class-balanced cross-entropy (AdamW [26], learning rate 10 −3, weight decay 10 −4, 300 full-batch steps). In the fine-tuning regime the same backbone and head were trained end-to-end for 10 epochs with backbone learning rate 2 × 10 −5 and head learning rate 10 −3, cosine schedule with warm-up, bfloat16, and early stopping on test macro-F1 with patience 3. 
+
+4.5 Statistical analysis 
+
+Statistical significance between methods was assessed using a paired two-sided bootstrap test [27] over the test cells, with 1,000 resamples and a single set of resampling indices shared by all methods. Significance levels are denoted ∗ p < 0.05, ∗∗ p < 0.01 and ∗∗∗ p < 0.001. Confidence intervals (95% CI) were computed by bootstrap resampling over test cells. 
+
+4.6 Label-efficiency benchmark 
+
+We benchmarked CytoFormer against six pathology foundation models used as feature extractors, UNI2-h, Virchow2, CONCH, PathGen, PLIP and MUSK, on interactive normal-epithelium detection in a colorectal cancer VisiumHD section. We assigned each segmented nucleus a cell type from the paired VisiumHD transcriptome, aggregating the 2 μm-bin expression that fell within its contour and scoring curated marker sets, and kept only confident calls that met total-UMI and score-margin thresholds. Because benign and malignant epithelium express the same markers, we further resolved the benign versus malignant axis from crypt structure. Epithelial cells lying within normal crypts were labelled normal Epithelium, epithelial cells elsewhere were labelled Tumor, and all non-epithelial cells were labelled Negative control. This yielded 161,702 confidently typed cells, of which 10,627 were normal Epithelium and 151,075 were other cells. For every cell we cropped a 56 μm H&E patch centred on its nucleus, resized it to 224 × 224 pixels and encoded it with each foundation model to obtain a per-cell embedding. On top of each embedding we trained a multinomial logistic-regression head with balanced class weights and C = 1 on the user annotations and predicted the three classes for every cell. All models shared the same annotations, the same cells and the same head, so the embedding was the only variable. 17 We scored normal-epithelium detection as the F1 of the Epithelium class, one versus all other cells, over all 161,702 confidently typed cells. Because the goal is to measure how accurately a small set of annotations propagates across the slide under active learning rather than generalization to unseen data, we evaluated on the whole slide including the annotated cells, which form a small fraction of the evaluation set and are identical across models. To trace label efficiency we retrained on nested random subsets of the annotations of increasing size, from 10 up to 1,844, and averaged over five fixed random seeds (0 to 4); at each anno-tation budget the same seed selected the same subset for every model, so the comparison is matched and reproducible. 
+
+## Author Contributions 
+
+J.Y., S.L. developed the methodology. J.Y., S.L., A.Y. performed the experiments. J.Y., S.L., A.Y., Z.H. wrote the manuscript. Z.H. conceived and supervised the study. All authors discussed the results and approved the final manuscript. 
+
+## Acknowledgements 
+
+This project was supported by startup funding from the Perelman School of Medicine, University of Penn-sylvania (Z.H.) and the Abramson Cancer Center Pilot Award (Z.H.). 
+
+## Code Availability 
+
+Code is available at https://github.com/zhihuanglab/CytoFormer . Model checkpoint is available at 
+
+https://huggingface.co/zhihuanglab/CytoFormer .
+
+## Conflict of Interests 
+
+None declared. 18 References 
+
+1. Gamper, J., Alemi Koohbanani, N., Benet, K., Khuram, A. & Rajpoot, N. PanNuke: An Open Pan-Cancer Histology Dataset for Nuclei Instance Segmentation and Classification in European Congress on Digital Pathol-ogy (ECDP) (2019), 11–19. 2. Graham, S., Vu, Q. D., Raza, S. E. A., Azam, A., Tsang, Y. W., Kwak, J. T. & Rajpoot, N. Hover-Net: Simultaneous segmentation and classification of nuclei in multi-tissue histology images. Medical Image Analysis 58, 101563 (2019). 3. Verma, R., Kumar, N., Patil, A., Kurian, N. C., Rane, S., Graham, S., Vu, Q. D., Zwager, M., Raza, S. E. A., Rajpoot, N., et al. MoNuSAC2020: A Multi-Organ Nuclei Segmentation and Classification Challenge. 
+
+IEEE Transactions on Medical Imaging 40, 3413–3423 (2021). 4. Chen, R. J., Ding, T., Lu, M. Y., Williamson, D. F. K., Jaume, G., Song, A. H., Chen, B., Zhang, A., Shao, D., Shaban, M., Williams, M., Oldenburg, L., Weishaupt, L. L., Wang, J. J., Vaidya, A., Le, L. P., Gerber, G., Sahai, S., Williams, W. & Mahmood, F. Towards a general-purpose foundation model for computational pathology. en. Nat. Med. 30, 850–862 (Mar. 2024). 5. Lu, M. Y., Chen, B., Williamson, D. F. K., Chen, R. J., Liang, I., Ding, T., Jaume, G., Odintsov, I., Le, L. P., Gerber, G., Parwani, A. V., Zhang, A. & Mahmood, F. A visual-language foundation model for computational pathology. en. Nat. Med. 30, 863–874 (Mar. 2024). 6. Huang, Z., Bianchi, F., Yuksekgonul, M., Montine, T. J. & Zou, J. A visual–language foundation model for pathology image analysis using medical Twitter. en. Nat. Med. 29, 2307–2316 (Sept. 2023). 7. Xiang, J., Wang, X., Zhang, X., Xi, Y., Eweje, F., Chen, Y., Li, Y., Bergstrom, C., Gopaulchan, M., Kim, T., Yu, K.-H., Willens, S., Olguin, F. M., Nirschl, J. J., Neal, J., Diehn, M., Yang, S. & Li, R. A vision–language foundation model for precision oncology. en. Nature 638, 769–778 (Feb. 2025). 8. Wang, X., Zhao, J., Marostica, E., Yuan, W., Jin, J., Zhang, J., Li, R., Tang, H., Wang, K., Li, Y., Wang, F., Peng, Y., Zhu, J., Zhang, J., Jackson, C. R., Zhang, J., Dillon, D., Lin, N. U., Sholl, L., Denize, T., Meredith, D., Ligon, K. L., Signoretti, S., Ogino, S., Golden, J. A., Nasrallah, M. P., Han, X., Yang, S. & Yu, K.-H. A pathology foundation model for cancer diagnosis and prognosis prediction. en. Nature 
+
+634, 970–978 (Oct. 2024). 9. Xu, H., Usuyama, N., Bagga, J., Zhang, S., Rao, R., Naumann, T., Wong, C., Gero, Z., GonzÃ ˛ alez, J., Gu, Y., Xu, Y., Wei, M., Wang, W., Ma, S., Wei, F., Yang, J., Li, C., Gao, J., Rosemon, J., Bower, T., Lee, S., Weerasinghe, R., Wright, B. J., Robicsek, A., Piening, B., Bifulco, C., Wang, S. & Poon, H. A whole-slide foundation model for digital pathology from real-world data. en. Nature 630, 181–188 (June 2024). 10. Zimmermann, E., Vorontsov, E., Viret, J., Casson, A., Zelechowski, M., Shaikovski, G., Tenenholtz, N., Hall, J., Klimstra, D., Yousfi, R., Fuchs, T., Fusi, N., Liu, S. & Severson, K. Virchow2: Scaling Self-Supervised Mixed Magnification Models in Pathology. arXiv preprint arXiv:2408.00738 (2024). 11. Yao, J., Li, S., Liang, P., Xu, X., Elder, D. & Huang, Z. Melan-Dx: a knowledge-enhanced vision-language framework improves differential diagnosis of melanocytic neoplasm pathology. npj Digital Medicine 9, 
+
+171 (2026). 12. Janesick, A., Shelansky, R., Gottscho, A. D., Wagner, F., Williams, S. R., Rouault, M., Beliakoff, G., Mor-rison, C. A., Oliveira, M. F., Sicherman, J. T., Kohlway, A., Abousoud, J., Drennon, T. Y., Mohabbat, S. H., 10x Development Teams & Taylor, S. E. B. High resolution mapping of the tumor microenviron-ment using integrated single-cell, spatial and in situ analysis. Nature Communications 14, 8353 (2023). 13. Marco Salas, S., Kuemmerle, L. B., Mattsson-Langseth, C., Tismeyer, S., Avenel, C., Hu, T., Rehman, H., Grillo, M., Czarnewski, P., Helgadottir, S., Tiklova, K., Andersson, A., Rafati, N., Chatzinikolaou, M., Theis, F. J., Luecken, M. D., WÃd’hlby, C., Ishaque, N. & Nilsson, M. Optimizing Xenium In Situ data utility by quality assessment and best-practice analysis workflows. en. Nat. Methods 22, 813–823 (Apr. 2025). 14. Chen, W., Zhang, P., Tran, T. N., Xiao, Y., Li, S., Shah, V. V., Cheng, H., Brannan, K. W., Youker, K., Lai, L., Fang, L., Yang, Y., Le, N.-T., Abe, J.-i., Chen, S.-H., Ma, Q., Chen, K., Song, Q., Cooke, J. P. & Wang, G. A visual–omics foundation model to bridge histopathology with spatial transcriptomics. en. 
+
+Nat. Methods 22, 1568–1582 (July 2025). 19 15. Huang, T., Liu, T., Babadi, M., Ying, R. & Jin, W. STPath: a generative foundation model for integrating spatial transcriptomics and whole-slide images. en. NPJ Digit. Med. 8, 659 (Nov. 2025). 16. Jaume, G., Doucet, P., Song, A. H., Lu, M. Y., Almagro-Pérez, C., Wagner, S. J., Vaidya, A. J., Chen, R. J., Williamson, D. F. K., Kim, A. & Mahmood, F. HEST-1k: A Dataset for Spatial Transcriptomics and Histology Image Analysis in Advances in Neural Information Processing Systems (NeurIPS), Datasets and Benchmarks Track (2024). https://arxiv.org/abs/2406.16192 .17. Sun, Y., Zhang, Y., Si, Y., Zhu, C., Zhang, K., Shui, Z., Li, J., Gong, X., Lyu, X., Lin, T. & Yang, L. 
+
+PathGen-1.6M: 1.6 Million Pathology Image-text Pairs Generation through Multi-agent Collaboration in In-ternational Conference on Learning Representations (ICLR) (2025). https://openreview.net/forum?id= rFpZnn11gj .18. Schuiveling, M., Liu, H., Eek, D., Breimer, G. E., Suijkerbuijk, K. P. M., Blokx, W. A. M. & Veta, M. A novel dataset for nuclei and tissue segmentation in melanoma with baseline nuclei segmentation and tissue segmentation benchmarks. GigaScience 14, giaf011 (2025). 19. Li, S., Xu, J., Bao, T., Liu, Y., Liu, Y., Liu, Y., Wang, L., Lei, W., Wang, S., Xu, Y., Cui, Y., Yao, J., Koga, S. & Huang, Z. A co-evolving agentic AI system for medical imaging analysis. arXiv [cs.CV] (Sept. 2025). 20. Shaban, M., Chang, Y., Qiu, H., Yeo, Y. Y., Song, A. H., Jaume, G., Wang, Y., Weishaupt, L. L., Ding, T., Vaidya, A., et al. A foundation model for spatial proteomics. arXiv preprint arXiv:2506.03373 (2025). 21. Oliveira, M. F. d., Romero, J. P., Chung, M., Williams, S. R., Gottscho, A. D., Gupta, A., Pilipauskas, S. E., Mohabbat, S., Raman, N., Sukovich, D. J., Patterson, D. M., Visium HD Development Team & Taylor, S. E. B. High-definition spatial transcriptomic profiling of immune cell populations in colorectal cancer. Nature Genetics 57, 1512–1523 (2025). 22. Wolf, F. A., Angerer, P. & Theis, F. J. SCANPY: large-scale single-cell gene expression data analysis. 
+
+Genome Biology 19, 15 (2018). 23. Traag, V. A., Waltman, L. & van Eck, N. J. From Louvain to Leiden: guaranteeing well-connected com-munities. Scientific Reports 9, 5233 (2019). 24. Bentley, J. L. Multidimensional binary search trees used for associative searching. Communications of the ACM 18, 509–517 (1975). 25. Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner, T., Dehghani, M., Minderer, M., Heigold, G., Gelly, S., Uszkoreit, J. & Houlsby, N. An Image is Worth 16x16 Words: Trans-formers for Image Recognition at Scale in International Conference on Learning Representations (ICLR) (2021). 26. Loshchilov, I. & Hutter, F. Decoupled Weight Decay Regularization in International Conference on Learning Representations (ICLR) (2019). 27. Efron, B. Bootstrap Methods: Another Look at the Jackknife. The Annals of Statistics 7, 1–26 (1979). 20
