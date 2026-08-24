@@ -6,98 +6,56 @@
 </div>
 
 ## 每次日报
-- 最新运行日期：2026-08-23
-- 运行时间：2026-08-23 20:56:52 UTC
+- 最新运行日期：2026-08-24
+- 运行时间：2026-08-24 21:05:54 UTC
 - 运行状态：成功
-- 本次总论文数：26
-- 精读区：13
-- 速读区：13
+- 本次总论文数：11
+- 精读区：7
+- 速读区：4
 
 ### 今日简报（AI）
-今日精读聚焦全切片图像（WSI）分析，重点覆盖图约束多实例学习的报告生成与补丁选择机制；速读则涉及肺癌病理架构基准、超声视觉-语言-动作模型及医学影像联邦基础模型。最值得关注的是WSI报告生成与MIL证据可解释性两个高分类工作，建议优先精读这两篇。
-- 详情：[/202608/23/README](/202608/23/README)
+- 今日共生成 11 篇推荐（精读 7 篇，速读 4 篇）
+- 精读：《MagViT: Interpretable Multi-Magnification Transformers with Patient-Level Model Selection for Breast Histopathology》（9.0/10）, 《An AI-assisted platform for quantitative histopathological analysis in interstitial lung disease》（9.0/10）
+- 速读：《TRUSS: Towards Task-Reliable and User-Safe Automated Agent Skill Generation》（7.0/10）, 《Clinically Structured Surrogate Rewards for Post-SFT Medical Image Captioning》（6.0/10）, 《BART-spatial unravels biologically significant transcriptional regulators from spatial omics data》（6.0/10）
+- 这些结果覆盖了当下较热的方向，建议先看精读区论文的关键问题与方法。
+- 详情：[/202608/24/README](/202608/24/README)
 
 ### 精读区论文标签
-1. [Decomposing Whole Slide Image Report Generation with Graph-Constrained Multiple Instance Learning Workflows](/202608/23/2608.15353v1-decomposing-whole-slide-image-report-generation-with-graph-constrained-multiple-instance-learning-workflows)  
+1. [MagViT: Interpretable Multi-Magnification Transformers with Patient-Level Model Selection for Breast Histopathology](/202608/24/2608.16959v1-magvit-interpretable-multi-magnification-transformers-with-patient-level-model-selection-for-breast-histopathology)  
    标签：评分：9.0/10、query:hmm
-   evidence：使用视觉语言模型和多实例学习的全切片图像报告生成
-2. [BagShift: Measuring How Patch Selection Changes the Evidence Seen by Whole-Slide MIL](/202608/23/2608.15970v1-bagshift-measuring-how-patch-selection-changes-the-evidence-seen-by-whole-slide-mil)  
+   evidence：用于乳腺组织病理学分类的多倍率Transformer
+2. [An AI-assisted platform for quantitative histopathological analysis in interstitial lung disease](/202608/24/biorxiv-10-64898-2026-08-16-745078-v1-an-ai-assisted-platform-for-quantitative-histopathological-analysis-in-interstitial-lung-disease)  
    标签：评分：9.0/10、query:hmm
-   evidence：提出测量全切片多示例学习中补丁选择影响的协议，直接关联全切片图像深度学习
-3. [BaT: Towards Self-Evolving Medical Research Agent with Stage Rubrics](/202608/23/2608.16211v1-bat-towards-self-evolving-medical-research-agent-with-stage-rubrics)  
-   标签：评分：9.0/10、query:agent
-   evidence：提出带阶段评估的自进化医学研究智能体，直接关联基于大语言模型的医学智能体架构
-4. [Concept-based explanation of gene expression prediction from H&E images](/202608/23/2608.16669v1-concept-based-explanation-of-gene-expression-prediction-from-he-images)  
+   evidence：用于全切片分析的AI辅助定量组织病理平台
+3. [Population-scale subcellular proteomics reveals intracellular remodelling across the Alzheimer's disease-resilience spectrum](/202608/24/biorxiv-10-64898-2026-08-20-746004-v1-population-scale-subcellular-proteomics-reveals-intracellular-remodelling-across-the-alzheimers-disease-resilience-spectrum)  
    标签：评分：9.0/10、query:spatialprot
-   evidence：基于ViT从H&E图像预测空间转录组并进行概念解释，属于计算病理空间分析
-5. [Learning latent progression states from spatial heterogeneity in uterine histopathology](/202608/23/2608.17337v1-learning-latent-progression-states-from-spatial-heterogeneity-in-uterine-histopathology)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：子宫全切片组织病理学的空间异质性建模计算病理框架
-6. [PathoArgus: Advancing Evidence-Grounded Long-Context Visual Reasoning across Gigapixel Whole-Slide and Multi-Slide Case Contexts](/202608/23/2608.17607v1-pathoargus-advancing-evidence-grounded-long-context-visual-reasoning-across-gigapixel-whole-slide-and-multi-slide-case-contexts)  
-   标签：评分：9.0/10、query:hmm
-   evidence：面向全切片病理的视觉推理基准，属于组织病理学多模态大模型主题
-7. [Multi-Agent AI System for Radiology Report Structuring and Quality Assurance with Independent Radiologist Evaluation](/202608/23/2608.18072v1-multi-agent-ai-system-for-radiology-report-structuring-and-quality-assurance-with-independent-radiologist-evaluation)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于放射学报告结构化与质控的多智能体AI管线
-8. [DentAgent: Evidence-Centric Multi-Agent Coordination for Multimodal Dental Reasoning](/202608/23/2608.18878v1-dentagent-evidence-centric-multi-agent-coordination-for-multimodal-dental-reasoning)  
-   标签：评分：9.0/10、query:agent
-   evidence：以证据为中心的多智能体牙科推理框架，属于医学AI智能体
-9. [Adaptive Memory and Reflection Multi-Agent System for Medical Question Answering](/202608/23/2608.19029v1-adaptive-memory-and-reflection-multi-agent-system-for-medical-question-answering)  
-   标签：评分：9.0/10、query:agent
-   evidence：面向医学问答的自适应记忆多智能体框架
-10. [A knowledge-guided agentic framework for mitigating patient-context ambiguity in health queries](/202608/23/2608.19875v1-a-knowledge-guided-agentic-framework-for-mitigating-patient-context-ambiguity-in-health-queries)  
-   标签：评分：9.0/10、query:agent
-   evidence：用于医疗聊天机器人消除患者上下文歧义的代理框架
-11. [Mantpy: a framework for extracellular matrix analysis in spatial proteomics](/202608/23/biorxiv-10-1101-2025-06-04-657781-v4-mantpy-a-framework-for-extracellular-matrix-analysis-in-spatial-proteomics)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：用于细胞外基质与细胞相互作用的空间蛋白质组学分析框架
-12. [An open multimodal spatial resource integrating same-tissue transcriptomics, proteomics, and histology](/202608/23/biorxiv-10-64898-2026-08-17-742355-v1-an-open-multimodal-spatial-resource-integrating-same-tissue-transcriptomics-proteomics-and-histology)  
-   标签：评分：9.0/10、query:spatialprot
-   evidence：同一组织切片的空间转录组、蛋白质组与H&E组织学多模态资源
-13. [Pheno-MYCN maps the morphological footprint of MYCN amplification in paediatric neuroblastoma](/202608/23/biorxiv-10-64898-2026-08-20-745848-v1-pheno-mycn-maps-the-morphological-footprint-of-mycn-amplification-in-paediatric-neuroblastoma)  
-   标签：评分：9.0/10、query:hmm
-   evidence：基于H&E全切片图像的弱监督框架，将MYCN预测与可解释的形态学亚群关联
+   evidence：脑组织亚细胞（空间）蛋白质组学，揭示蛋白定位变化与AD韧性关联
+4. [Lymphocyte Mimicry Correction via Region-Level Tissue Reasoning and Unbalanced Optimal Transport](/202608/24/2608.17151v1-lymphocyte-mimicry-correction-via-region-level-tissue-reasoning-and-unbalanced-optimal-transport)  
+   标签：评分：8.0/10、query:hmm
+   evidence：利用病理多模态大模型与区域级组织推理进行细胞分类校正
+5. [PathoArgus: Advancing Evidence-Grounded Long-Context Visual Reasoning across Gigapixel Whole-Slide and Multi-Slide Case Contexts](/202608/24/2608.17607v1-pathoargus-advancing-evidence-grounded-long-context-visual-reasoning-across-gigapixel-whole-slide-and-multi-slide-case-contexts)  
+   标签：评分：8.0/10、query:hmm
+   evidence：面向全切片与多切片病理视觉推理的基准与评估协议
+6. [CellPath-Bench: A Multidimensional Benchmark for Whole-Slide Cellular Representations in Pathology Foundation Models](/202608/24/2608.21060v1-cellpath-bench-a-multidimensional-benchmark-for-whole-slide-cellular-representations-in-pathology-foundation-models)  
+   标签：评分：8.0/10、query:hmm
+   evidence：利用H&E-Xenium空间对齐数据评估病理基础模型的细胞级表征
+7. [A Modular Agent for Reliable and Auditable Spatial Relation Verification in CT Scans](/202608/24/2608.21140v1-a-modular-agent-for-reliable-and-auditable-spatial-relation-verification-in-ct-scans)  
+   标签：评分：8.0/10、query:agent
+   evidence：面向CT空间关系验证的模块化医学影像智能体
 
 ### 速读区论文标签
-1. [Comprehensive Benchmarking of Deep Learning Architectures for Lung Cancer Histopathology](/202608/23/2608.15915v1-comprehensive-benchmarking-of-deep-learning-architectures-for-lung-cancer-histopathology)  
-   标签：评分：8.0/10、query:hmm
-   evidence：肺癌组织病理深度学习架构的综合基准，涵盖组织分类与区域分割
-2. [US-VLA: An Ultrasound Vision-Language-Action Model for Embodied Abdomina](/202608/23/2608.16074v1-us-vla-an-ultrasound-vision-language-action-model-for-embodied-abdomina)  
-   标签：评分：8.0/10、query:agent
-   evidence：面向自动化超声扫描的视觉-语言-行动模型，是自动化医疗工作流的智能体
-3. [CoM$^3$eT: A foundation model for medical image analysis through federated, multidimensional context integration](/202608/23/2608.16268v1-com3et-a-foundation-model-for-medical-image-analysis-through-federated-multidimensional-context-integration)  
-   标签：评分：8.0/10、query:hmm
-   evidence：统一病理与放射影像的医学图像基础模型
-4. [Interactive Whole Slide Images for RL-based Tumour Segmentation](/202608/23/2608.16607v1-interactive-whole-slide-images-for-rl-based-tumour-segmentation)  
-   标签：评分：8.0/10、query:hmm
-   evidence：直接在整张病理切片上进行强化学习肿瘤分割
-5. [CytoFormer: A Molecularly Supervised Cell Foundation Model for Histopathology Cell Classification](/202608/23/2608.16718v1-cytoformer-a-molecularly-supervised-cell-foundation-model-for-histopathology-cell-classification)  
-   标签：评分：8.0/10、query:hmm
-   evidence：组织病理学细胞分类的细胞基础模型；利用空间转录组进行分子监督
-6. [PaSTel: Anchoring Histology in Spatial Transcriptomics via Multi-Scale Hierarchical Bio-Prior Contrastive Pretraining](/202608/23/2608.14924v1-pastel-anchoring-histology-in-spatial-transcriptomics-via-multi-scale-hierarchical-bio-prior-contrastive-pretraining)  
-   标签：评分：7.0/10、query:spatialprot
-   evidence：通过组织学与空间转录组的多模态对齐进行计算病理空间分析
-7. [ETHOS: Towards a Modular Ethics Framework for Clinical Multi-Agent Systems](/202608/23/2608.15424v1-ethos-towards-a-modular-ethics-framework-for-clinical-multi-agent-systems)  
+1. [TRUSS: Towards Task-Reliable and User-Safe Automated Agent Skill Generation](/202608/24/2608.17588v1-truss-towards-task-reliable-and-user-safe-automated-agent-skill-generation)  
    标签：评分：7.0/10、query:agent
-   evidence：临床多智能体系统；基于大语言模型的医疗代理；分层监督的伦理框架
-8. [Health Inquiry with AI: How Empathetic Expression and Conversational Contexts Shape Users' Communicative Acts](/202608/23/2608.17144v1-health-inquiry-with-ai-how-empathetic-expression-and-conversational-contexts-shape-users-communicative-acts)  
-   标签：评分：7.0/10、query:agent
-   evidence：直接研究医疗健康聊天机器人的共情表达与用户沟通行为
-9. [A Few Cases Are All You Need: An Empirical Study of Annotation-Efficient LoRA Fine-Tuning of MedSAM3](/202608/23/2608.18731v1-a-few-cases-are-all-you-need-an-empirical-study-of-annotation-efficient-lora-fine-tuning-of-medsam3)  
-   标签：评分：7.0/10、query:hmm
-   evidence：研究医学基础模型的LoRA微调，与数字病理基础模型相关
-10. [HxAgent: Iterative Agent Planning for End-to-End Web Application Testing](/202608/23/2608.15491v1-hxagent-iterative-agent-planning-for-end-to-end-web-application-testing)  
-   标签：评分：6.0/10、query:agent
-   evidence：迭代LLM智能体规划与记忆纠错；可迁移至医学智能体架构
-11. [Agent Gym: A Framework for Continuous Evaluation and Evolution of LLM Agents Through Human-in-the-Loop Feedback](/202608/23/2608.15591v1-agent-gym-a-framework-for-continuous-evaluation-and-evolution-of-llm-agents-through-human-in-the-loop-feedback)  
-   标签：评分：6.0/10、query:agent
-   evidence：可迁移至医疗AI智能体的通用LLM智能体评估框架
-12. [Towards Risk-free AI Agent Deployment](/202608/23/2608.16411v1-towards-risk-free-ai-agent-deployment)  
-   标签：评分：6.0/10、query:agent
-   evidence：基于轨迹的智能体测试与调试，保障无风险部署；对医学智能体框架重要
-13. [Unsupervised Learning of Cell Instances with Generative Routing Pyramids](/202608/23/2608.16810v1-unsupervised-learning-of-cell-instances-with-generative-routing-pyramids)  
+   evidence：自动生成与安全评估智能体技能
+2. [Clinically Structured Surrogate Rewards for Post-SFT Medical Image Captioning](/202608/24/2608.18654v1-clinically-structured-surrogate-rewards-for-post-sft-medical-image-captioning)  
    标签：评分：6.0/10、query:hmm
-   evidence：提出无监督深度学习用于细胞实例分割与表型分类，可迁移到病理图像分析
+   evidence：医学图像字幕生成的结构化奖励，可迁移至病理视觉语言模型
+3. [BART-spatial unravels biologically significant transcriptional regulators from spatial omics data](/202608/24/biorxiv-10-64898-2026-05-05-723027-v2-bart-spatial-unravels-biologically-significant-transcriptional-regulators-from-spatial-omics-data)  
+   标签：评分：6.0/10、query:spatialprot
+   evidence：从空间转录组数据解析转录调控因子的空间组学计算方法
+4. [A multi-agent molecular optimization framework leads to a rapid-recovery intravenous anesthetic candidate with an improved safety margin](/202608/24/biorxiv-10-64898-2026-08-17-745149-v1-a-multi-agent-molecular-optimization-framework-leads-to-a-rapid-recovery-intravenous-anesthetic-candidate-with-an-improved-safety-margin)  
+   标签：评分：6.0/10、query:agent
+   evidence：面向药物发现的角色专用多智能体分子优化框架
 
 
 <div class="dpr-home-promo-card">

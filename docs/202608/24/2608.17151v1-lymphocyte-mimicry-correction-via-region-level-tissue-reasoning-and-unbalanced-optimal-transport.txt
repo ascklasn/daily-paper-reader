@@ -1,0 +1,448 @@
+Title: Lymphocyte Mimicry Correction via Region-Level Tissue Reasoning and Unbalanced Optimal Transport
+
+URL Source: https://arxiv.org/pdf/2608.17151v1
+
+Published Time: Wed, 19 Aug 2026 00:24:16 GMT
+
+Number of Pages: 13
+
+Markdown Content:
+# Lymphocyte Mimicry Correction via Region-Level Tissue Reasoning and Unbalanced Optimal Transport 
+
+Xiang Li 1, Yuqi Wang 1, Casey C. Heirman 2, Jihye Heo 3, and Kyle J. Lafata 1,2,4,5,6 
+
+> 1
+
+Department of Electrical and Computer Engineering, Duke University, US  
+
+> 2
+
+Medical Physics Graduate Program, Duke University, US  
+
+> 3
+
+Department of Biomedical Engineering, Duke University, US  
+
+> 4
+
+Department of Radiation Oncology, Duke University, US  
+
+> 5
+
+Department of Radiology, Duke University, US  
+
+> 6
+
+Department of Mathematics, Duke University, US 
+
+Abstract. Cell mimicry arises when different cell types appear mor-phologically similar. Human pathologists resolve this ambiguity using surrounding tissue context, whereas current vision models either lack contextual reasoning (cell foundation models) or cannot operate at the cell level (pathology MLLMs). We present Loki-OT, which propagates region-level tissue reasoning to individual cell predictions via Unbal-anced Optimal Transport, using MLLM-derived density priors as soft guidance for ambiguous cell reassignment. Loki-OT is motivated by the observation that pretrained cell foundation model features already en-code discriminative information, including tissue context, but standard cell-level supervision fails to use tissue context effectively. The result-ing transport plan is distilled into a lightweight student MLP classifier that learns context-aware decision boundaries within the pretrained fea-ture space. On the independent TCGA-BRCA cohort, Loki-OT achieved lower patient-level MAE than the fully supervised in-domain PanopTILs classifier and improved F1 in epithelium-rich mimicry tissues, using 278 weak region-level MLLM estimates built on a general-domain cell founda-tion model. Code: https://github .com/xiangli980/Lymphocyte_Mimicry_ Correction_via_Loki_OT .
+
+Keywords: Cell Mimicry · Weak Supervision · Tumor-Infiltrating Lymphocyte (TIL) Quantification · Region-to-Cell Tissue Reasoning · Unbalanced Optimal Transport 
+
+# 1 Introduction 
+
+Tumor-infiltrating lymphocytes (TILs) are established prognostic and predictive biomarkers across multiple cancer types [1,2,3]. However, accurate TIL quan-tification on H&E-stained tissue remains challenging because morphologically similar cells can become difficult to distinguish in complex tissue environments, arXiv:2608.17151v1 [cs.CV] 17 Aug 2026 2 X. Li et al. 
+
+as recognized in pathology guidelines and pitfalls studies [4,5]. We refer to this morphology-driven ambiguity as cell mimicry , where non-lymphocyte nuclei vi-sually resemble lymphocytes and contribute to systematic overestimation during automated cell classification. Recent analyses from the TIGER TIL challenge further identified confounding tissue morphology as an unresolved challenge for automated TIL quantification despite continued advances in model design and detection performance [6]. Existing approaches address only part of this challenge. Cell segmenta-tion and classification models , including CNN-based methods such as HoVer-Net [7] and foundation-model-based methods such as CellViT [8], achieve precise localization but rely primarily on local cellular morphology, which can fail when different cell types share similar morphology [3,6,9,10]. Context-aware ap-proaches , including graph-based models [11,12] and cell-on-tissue architectures such as OCELOT [9], incorporate neighborhoods or tissue-structural features but still require dense cell-level annotations. In contrast, pathology MLLMs 
+
+can reason about tissue composition—for example, recognizing that invasive tu-mor regions or normal glands should contain few lymphocytes—but operate only at the region level and cannot directly classify individual cells, whether gener-ative [13], contrastive-embedding-based [14], or prompt-tuning-based [15]. Con-sequently, a gap remains between region-level biological reasoning and cell-level prediction. We formulate cell mimicry correction as learning cell-level predictions from region-level biological supervision. We present Loki-OT (LOgical Knowledge Injected OT), a framework that treats region-level tissue reasoning as a soft bio-logical constraint and propagates it to individual cell predictions through Unbal-anced Optimal Transport (UOT). Unlike multiple-instance learning (MIL) [16] that learns bag-level representations through attention pooling, Loki-OT receives a region-level external target (the MLLM-derived lymphocyte density prior) and generates a transport plan for globally consistent cell-level assignments. Previous OT methods align empirical distributions, such as source and target domains [17] or cellular populations [18]. In this study, UOT aligns cell-level predictions with a biological prior describing the expected tissue composition. The resulting trans-port plan is distilled into a lightweight student classifier, requiring region-level reasoning only during training and using only the distilled classifier at inference (Fig. 1 ). 
+
+# 2 Method 
+
+2.1 Cell Representation Encoding 
+
+We employ CellViT++ [19] with a SAM-H backbone to extract cell features (Fig. 1a ). For convenience, we use “cell” to denote each extracted nucleus-centered patch from CellViT++. For each cell i:
+
+– Morphological embedding z i ∈ RD (D=1280): the latent representation capturing nuclear morphology, from the last-layer ViT token of the encoder assigned to cell i.Lymphocyte Mimicry Correction via Loki-OT 3 
+
+> Fig. 1. Loki-OT pipeline. (a) CellViT++ extracts per-cell morphological and context embeddings. (b) An MLLM provides tissue-level lymphocyte density priors. (c) The UOT arbiter balances perceptual evidence against biological priors to produce soft teacher labels. (d) A lightweight MLP is distilled via a two-stage curriculum. At infer-ence, only the distilled MLP runs, no MLLM or OT computation required.
+
+– Context embedding c i = 1
+
+> |N i|
+
+∑ 
+
+> j∈N i
+
+zj ∈ RD : mean-pooled ViT patch tokens zj over Ni, the expanded window of ±5 tokens ( ≈ 80 pixels) around cell i’s bounding box. 
+
+– Baseline prediction as perception prior a i ∈ ∆K (K=2): per-cell class probability from the model, collapsed to lymphocyte vs. non-lymphocyte. Concatenating [ zi; ci] creates a context-enhanced feature space where morpho-logically identical cells in different tissue environments become separable. 
+
+2.2 MLLM Knowledge Prior 
+
+We query an MLLM with general pathology knowledge to estimate the expected lymphocyte density for each tissue region ( Fig. 1b ). Given an ROI image I, its tissue mask M, and tissue subtype, the MLLM returns a region-level density prior b = MLLM( I, M, tissue subtype) ∈ ∆K . The resulting prior serves as soft supervision for UOT during training only; at inference, the distilled student classifier operates without MLLM queries or tissue masks. We used a general-purpose instruction-following MLLM (Claude Sonnet 4.5) because it can better follow a structured density-estimation task in a masked region than a pathology-specific MLLM [13,14]. An example prompt is provided in App. A. 4 X. Li et al. 
+
+2.3 Unbalanced Optimal Transport 
+
+The cost matrix C ∈ RN ×K combines perceptual evidence with a logical penalty (Fig. 1c ): Cik = Cost percept (i, k ) + Cost logic (i, k ). The perceptual cost uses the off-the-shelf baseline confidence, Cost percept (i, k ) = 1 − ai,k , preserving high-confidence predictions. The logical cost encodes a meta-rule— lymphocytes in epithelium-rich regions are usually sparse —implemented via cell-context simi-larity si = cos( zi, ci), and is added only in epithelium-rich tissue subtypes (T1, T3, T4): Cost logic (i, k ) = 
+
+{
+
+ReLU( si)2 k = lymphocyte and cell i lies in T1, T3, or T4 0 otherwise, (1) The logic cost assumes that a real lymphocyte should look visually distinct from its surrounding epithelium, so high cell–context similarity increases the cost of la-beling a cell a lymphocyte. This is consistent with clinical TIL scoring guidelines that treat intratumoral lymphocytes as rare relative to stromal lymphocytes [5], motivating the restriction of this penalty to epithelium-rich tissue subtypes (T1, T3, T4). We formulate cell re-assignment as a UOT problem with uniform source mass 
+
+u = 1N /N ∈ ∆N and target class marginal b ∈ ∆K :min 
+
+> π≥0
+
+⟨C, π⟩ − ϵH (π) + τ · KL( π1∥u) + ρ · KL( π⊤1∥b) (2) where H(π) is the entropy regularizer that enables an efficient Sinkhorn-Knopp solution [20]. Unlike balanced OT, UOT allows deviation from both distribu-tions through KL penalties ( τ =ρ=3 .0), providing a mathematical buffer for MLLM uncertainty. We set ϵ = 0 .1. The perception prior enters through C
+
+(via Cost percept ), while the MLLM density b is the target marginal; the trans-port plan π balances the two, preserving confident per-cell predictions except where the region must match the MLLM density. 
+
+2.4 Two-Stage Training Strategy 
+
+Direct UOT distillation is unstable ( Fig. 1d ) because transport assignments are sparse and differ substantially from baseline predictions. We therefore adopt a two-stage curriculum [21]: Stage 1 operates at region level, solving all N cells within a tissue region jointly with b as the marginal constraint, while Stage 2 refines at cell level, distilling per-cell UOT assignments πi as individual targets. UOT correction is applied only when the baseline lymphocyte density exceeds the MLLM estimate by at least 10%, i.e., ∆ = ¯ alymph − blymph ≥ 10%; otherwise, predictions are preserved through self-distillation. The 10% threshold is set based on the MLLM prior’s density error ( ≈ 11 .7%). 
+
+Stage 1 (region-proportional supervision, Context-soft version) serves as warm-up initialization, using MLLM density as region-level (label-proportion) supervision [22]. The region-averaged prediction ¯fθ = 1
+
+> |R|
+
+∑ 
+
+> i∈R
+
+fθ, lymph (xi) is Lymphocyte Mimicry Correction via Loki-OT 5
+
+regularized toward the MLLM density blymph where ∆ ≥ 10%, and otherwise preserves baseline predictions: 
+
+L1 =
+
+{
+
+ReLU( ¯fθ − blymph − 0.05) 2 ∆ ≥ 10% KL( ai∥fθ ) ∆ < 10% (3) The one-sided hinge with a 0 .05 dead-zone suppresses only over-prediction and tolerates small density errors. 
+
+Stage 2 (UOT teacher distillation, final Loki-OT version) distills cell-level teacher targets ti through a temperature-softened KL term ( T =4) com-bined with a hard-label cross-entropy anchor on the teacher’s argmax to prevent probability collapse [23,24]: 
+
+L2 = 12 KL( ti∥fθ ) + 12 CE( fθ , arg max  
+
+> k
+
+ti,k ), ti =
+
+{
+
+πi ∆ ≥ 10% 
+
+fθ1 ∆ < 10% (4) The teacher target ti is the UOT transport assignment πi in corrected regions (∆ ≥ 10%) and falls back to the Stage-1 prediction fθ1 elsewhere, so distillation is applied selectively. 
+
+# 3 Experiments 
+
+3.1 Experimental Setup Datasets. We use the TIGER challenge dataset [6] with expert nuclear anno-tations and tissue labels. Train: 135 ROIs (1024 ×1024 pixels, ∼80K nuclei, 278 (ROI, subtype) regions) from 2 hospitals. Test: TIGER’s TCGA-BRCA subset (1,741 ROIs, median 143 ×143 pixels, 64K nuclei, 124 patients) with the same annotation format and tissue masks, but zero hospital overlap. Both splits share 7 tissue subtypes (T1–T7) but differ in composition: training is T1-dominated (43 .5% of cells) with minimal T6 (3 .3%), whereas the test set is T6-heavy (32 .8%). Within-tissue lymphocyte density is broadly comparable across splits (Table 1 ), so this is a composition shift rather than a density shift. MLLM (Claude Sonnet 4.5) provides weak supervision at training only; against training GT, its density estimates achieve Pearson r=0 .58, an MAE of 11 .7%, and +6 .6% bias, averaged across all tissue subtypes (per-tissue MLLM% in Table 1 ). The statistics show MLLM is coarse but directionally closer to GT than Lizard. We hypothesize that this relative direction is the key signal for the error correction. 
+
+Baselines and Ablations. All methods share the same frozen CellViT++ [19] (SAM-H) backbone and lightweight MLP architecture — the only variable is the supervision signal. External baselines use cell-level GT labels: (1) Lizard :MLP trained on large-scale general-domain colorectal (colon) cell labels, ap-plied zero-shot to breast; (2) PanopTILs : MLP retrained on 800K in-domain TCGA-BRCA nuclei with cell-level annotation — in-domain, but its annota-tions over-represent epithelium-rich regions. (3) Context-soft : Stage 1 training with 278 region-level density estimates as a proportional regularizer, serving 6 X. Li et al.                                                           
+
+> Table 1. Lymphocyte density (%) by tissue subtype. Nuclei columns show train/test counts. Lizard over-predicts in epithelium-rich regions (T1, T3, T4); MLLM is coarse but directionally closer to GT than Lizard. Train (2 hospitals) Test (TCGA-BRCA) Tissue subtype Nuclei GT% MLLM% Lizard% Nuclei GT% Lizard% T1 Invasive tumor 35K 1.3 13.9 28.6 26K 2.4 24.4 T2 Tumor-assoc. stroma 18K 20.3 20.8 31.0 14K 23.2 38.3 T3 In-situ tumor 7K 0.2 11.0 35.8 2K 0.9 14.3 T4 Healthy glands 7K 1.8 2.8 31.2 0.2K 7.0 36.0 T5 Necrosis 0.6K 5.4 0.3 38.1 0.3K 1.5 52.1 T6 Inflamed stroma 3K 52.6 64.4 41.1 21K 61.6 67.8 T7 Rest 10K 9.3 15.5 27.3 0.3K 9.4 19.8
+
+both as the Stage-1 step ablation and as the standalone region-proportional-supervision comparison method; (4) OT/UOT-Teacher : balanced/unbalanced OT solver outputs (teacher only, not deployable); (5) Loki-OT : distilled student from two-stage curriculum, the final deployable model. Ablation is conducted on the training set, as OT/UOT-Teacher are solver outputs within the training pipeline. 
+
+Implementation. CellViT++ with frozen SAM-H encoder. Stage 1: 20 epochs, lr= 10 −4; Stage 2: 5 epochs, lr= 10 −5; Adam. UOT and distillation hyperparam-eters were selected on the training set against the MLLM density gap. Cell-level ground truth was not used in model training. 
+
+Metrics. Precision, recall, and F1 for lymphocyte classification are micro-averaged globally over all test-set cells; cell-level decisions (TP, FP, FN) use argmax, while AUC and AP use the raw softmax lymphocyte probability. Patient-level MAE first accumulates predicted and ground-truth lymphocyte counts across each pa-tient’s ROIs, then computes the per-patient absolute count difference, and finally averages this error over the 124 test patients. We report MAE in Table 2 at pa-tient level because TIL scoring is a per-patient biomarker [4]—the ROI is the annotation unit but the patient is the clinical decision unit. Per-subtype MAE (App. B) is computed the same way but aggregated at the ROI level, since most patients contribute only a few ROIs of any given subtype. For ablation, selectiv-ity = FP ↓% / TP ↓% measures how selectively false positives are removed while true positives are preserved. 
+
+3.2 Main Results Does MLLM context supervision improve over Lizard? Context-soft im-proves every per-patient metric over Lizard ( Table 2 ), with the largest gain in MAE. The results show that a coarse, imperfect MLLM prior (which en-codes tissue-level reasoning) could reduce systematic over-counting by directing Stage 1 to suppress density in regions where Lizard’s false positive predictions far exceed the tissue-level estimate. Lymphocyte Mimicry Correction via Loki-OT 7
+
+Table 2. TCGA-BRCA independent cohort (124 patients). F1, recall, and precision are globally micro-averaged; MAE is computed at the patient level. Point estimate [95% bootstrap CI, N =1000]. Bold: best per column. Wilcoxon with Holm correction: Loki-OT vs. PanopTILs MAE p=0 .031. Method F1 ↑ Recall ↑ Prec ↑ AUC ↑ AP ↑ MAE ↓
+
+Lizard 0.526 
+
+> [.492,.557]
+
+0.743 
+
+> [.707,.776]
+
+0.393 
+
+> [.354,.430]
+
+0.787 
+
+> [.768,.805]
+
+0.544 
+
+> [.509,.578]
+
+83.8 
+
+> [65.6,104.7]
+
+Context-soft 0.579 
+
+> [.547,.606]
+
+0.760 
+
+> [.721,.797]
+
+0.436 
+
+> [.396,.473]
+
+0.823 
+
+> [.806,.838]
+
+0.568 
+
+> [.537,.603]
+
+68.5 
+
+> [54.4,84.4]
+
+Loki-OT 0.543 
+
+> [.512,.573]
+
+0.637 
+
+> [.599,.675]
+
+0.455 
+
+> [.418,.496]
+
+0.809 
+
+> [.792,.826]
+
+0.554 
+
+> [.521,.587]
+
+46.0 
+
+> [35.5,56.9]
+
+PanopTILs 0.474 
+
+> [.435,.511]
+
+0.430 
+
+> [.380,.477]
+
+0.561 
+
+> [.516,.604]
+
+0.816 
+
+> [.795,.835]
+
+0.578 
+
+> [.544,.612]
+
+58.3 
+
+> [45.4,71.5]
+
+What does OT distillation add over Context-soft? Loki-OT makes a targeted trade ( Table 2 ): recall drops as UOT suppresses some true lympho-cytes alongside morphological mimics, but MAE falls further—a 32 .8% reduction from Context-soft—and precision rises. The transport plan forces morphologi-cally similar cells in the same region to receive different labels based on tis-sue context, moving predictions closer to the MLLM-estimated regional density. Qualitatively ( Fig. 2a–c ), Loki-OT attains higher selectivity by recognizing the surrounding tissue context, suppressing morphological mimics while preserving true positives. MAE gains are largest where mimicry is densest (per-ROI): T1 invasive tumor (2 .63 vs. Context-soft 3 .69), T3 in-situ (1 .25 vs. 2 .05), T4 healthy glands (1 .32 vs. 1 .84). 
+
+How does Loki-OT compare to PanopTILs? Using weak region-level MLLM estimates rather than dense in-domain cell-level labels, Loki-OT outperforms PanopTILs on both F1 ( p< 0.001) and patient-level MAE ( p=0 .031; Wilcoxon, Holm-corrected; Table 2 ). PanopTILs’ lower recall may reflect its epithelium-heavy training distribution and a tendency to suppress positive predictions. This tendency helps in epithelial regions but is detrimental in T6 inflamed stroma, where lymphocytes are abundant: PanopTILs systematically under-predicts (per-ROI MAE 8 .68 vs. Loki-OT 6 .70; per-tissue-subtype MAE in App. B, Table 4), yielding low recall and the patient-level MAE gap. This subtype bias is visible in case studies: PanopTILs suppresses the hard mimics that other models predict as false positives ( Fig. 2d ), but loses true positives in lymphocyte-rich regions ( Fig. 2b,c ). 
+
+3.3 Mechanism Analysis Table 3 suggests that the two training stages address different levels of mimicry difficulty. Region-level proportional supervision (Stage 1) removes easy false pos-itives while largely preserving true lymphocytes. Stage 2 introduces UOT-based cell reassignment, enabling harder context-dependent mimic correction through 8 X. Li et al.         
+
+> Fig. 2. Per-ROI cell classification on representative TCGA-BRCA test cases. Columns: Ground Truth, Lizard, Context-soft, Loki-OT, PanopTIL; contours: green = FP, blue = TP, yellow = FN. (a) T3 in-situ tumor (mimics cleanly eliminated); (b) mixed T1/T2/T6 boundary; (c) T2 tumor-associated stroma; (d) T1 invasive tumor (hard mimics persist, limitation).
+
+explicit region-to-cell supervision. This further reduces false positives but intro-duces additional TP suppression as a trade-off. OT-Teacher achieves the lowest MAE and highest FP reduction, but at severe TP loss, due to strict marginal matching with noisy MLLM priors. UOT-Teacher relaxes marginal constraints via KL penalties, trading some FP reduction for lower TP loss. Loki-OT does not simply replicate UOT-Teacher: the selective distillation threshold ( ∆≥10%) causes the student to fall back to Stage 1 predictions for low-deviation regions, effectively learning when to rely on the OT teacher, yielding better selectivity and lower TP loss than UOT-Teacher. 
+
+Attention analysis. GradCAM token analysis shows that Loki-OT shifts at-tention from the nucleus toward the surrounding tissue, while the channel-attribution difference map indicates that Loki-OT up-weights context features (red in Fig. 3 ). 
+
+# 4 Conclusion 
+
+We presented a cross-scale framework that transfers region-level tissue reason-ing to cell-level predictions through Unbalanced Optimal Transport. On TCGA-BRCA, Loki-OT corrects lymphocyte mimicry using weak region-level MLLM estimates and achieves lower patient-level MAE than the fully supervised Panop-TILs model. These findings suggest that region-level biological priors can com-plement dense cell annotations when errors arise from tissue context rather than Lymphocyte Mimicry Correction via Loki-OT 9
+
+Table 3. Ablation on TIGER training set (135 ROIs, 80K nuclei). OT/UOT-Teacher rows are solver outputs (no distillation); Loki-OT is the deployable distilled model. 
+
+Bold marks the training performance of the best deployable model (OT/UOT-Teacher are non-deployable). Method FP FP ↓% TP TP ↓% Select. F1 MAE ↓
+
+Baseline (Lizard) 17,960 — 6,550 — — 0.269 135.6 + Context-soft 12,046 32.9 6,275 4.2 7.84 × 0.331 87.5 + OT-Teacher 6,017 66.5 4,120 37.1 1.79 × 0.328 48.8 + UOT-Teacher 7,469 58.4 5,024 23.3 2.50 × 0.351 55.4 + Loki-OT 7,898 56.0 5,449 16.8 3.32 × 0.366 56.4 
+
+Fig. 3. Attention analysis at cell-token level (GradCAM) and feature level (channel at-tribution), for Stage 1 (Context-soft) vs. Stage 2 (Loki-OT). (a,b) Spatial GradCAM on a T2-stroma and a T1-invasive-tumor mimic. (c) Channel-weighted feature-importance difference map for cell (a); red: up-weighted by Stage 2, blue: by Stage 1. 
+
+detection. Our evaluation is limited to breast-cancer TIL quantification on one held-out cohort, and the asymmetric correction mechanism prioritizes precision over recall and cannot resolve errors when the baseline and prior agree. Future work will evaluate robustness to different priors and prompts and validate the framework across cancer types, cell types, and multiscale architectures. 
+
+Disclosure of Interests. The authors have no competing interests to declare that are relevant to the content of this article. 
+
+Ethical Approval. This study used only publicly available, de-identified human tissue datasets (TIGER challenge dataset). No new human data were collected, and institutional review board approval was therefore not required. 10 X. Li et al. 
+
+# References 
+
+1. Salgado, R., Denkert, C., Demaria, S., et al.: The evaluation of tumor-infiltrating lymphocytes (TILs) in breast cancer: recommendations by an International TILs Working Group 2014. Ann. Oncol. 26 (2), 259–271 (2015). https://doi .org/ 10 .1093/annonc/mdu450 
+
+2. Denkert, C., von Minckwitz, G., Darb-Esfahani, S., et al.: Tumour-infiltrating lym-phocytes and prognosis in different subtypes of breast cancer: a pooled analysis of 3771 patients treated with neoadjuvant therapy. Lancet Oncol. 19 (1), 40–50 (2018). https://doi .org/10 .1016/S1470-2045(17)30904-X 
+
+3. Abousamra, S., Gupta, R., Hou, L., et al.: Deep learning-based mapping of tumor infiltrating lymphocytes in whole slide images of 23 types of cancer. Front. Oncol. 
+
+11 , 806603 (2022). https://doi .org/10 .3389/fonc .2021 .806603 
+
+4. Dieci, M.V., Radosevic-Robin, N., Fineberg, S., et al.: Update on tumor-infiltrating lymphocytes (TILs) in breast cancer, including recommendations to assess TILs in residual disease after neoadjuvant therapy and in carcinoma in situ. Semin. Cancer Biol. 52 , 16–25 (2018). https://doi .org/10 .1016/j .semcancer .2017 .10 .003 
+
+5. Kos, Z., Roblin, E., Kim, R.S., et al.: Pitfalls in assessing stromal tumor infiltrating lymphocytes (sTILs) in breast cancer. npj Breast Cancer 6, 17 (2020). https: //doi .org/10 .1038/s41523-020-0156-0 
+
+6. van Rijthoven, M., Aswolinskiy, W., Tessier, L., et al.: Analysis of computational tumor-infiltrating lymphocytes in breast cancer from the results of the TIGER challenge. Nat. Commun. 17 , 6480 (2026). https://doi .org/10 .1038/s41467-026-72956-x 
+
+7. Graham, S., Vu, Q.D., Raza, S.E.A., et al.: HoVer-Net: Simultaneous segmentation and classification of nuclei in multi-tissue histology images. Med. Image Anal. 58 ,101563 (2019). https://doi .org/10 .1016/j .media .2019 .101563 
+
+8. Hörst, F., Rempe, M., Heine, L., et al.: CellViT: Vision transformers for precise cell segmentation and classification. Med. Image Anal. 94 , 103143 (2024). https: //doi .org/10 .1016/j .media .2024 .103143 
+
+9. Ryu, J., Valero Puche, A., Shin, J., et al.: OCELOT: Overlapped Cell on Tissue Dataset for Histopathology. In: Proc. IEEE/CVF Conf. Computer Vision and Pattern Recognition (CVPR) (2023). https://doi .org/10 .1109/ CVPR52729 .2023 .02289 
+
+10. Dibaeinia, P., Babu, S., Knudson, M., et al.: Virtual cells need context, not just scale. bioRxiv (2026). https://doi .org/10 .64898/2026 .02 .04 .703804 
+
+11. Zhou, Y., Graham, S., Alemi Koohbanani, N., et al.: CGC-Net: Cell Graph Convo-lutional Network for Grading of Colorectal Cancer Histology Images. In: Proc. IEEE/CVF Int. Conf. Computer Vision Workshops (ICCVW) (2019). https: //doi .org/10 .1109/ICCVW .2019 .00050 
+
+12. Pati, P., Jaume, G., Foncubierta-Rodríguez, A., et al.: Hierarchical graph rep-resentations in digital pathology. Med. Image Anal. 75 , 102264 (2022). https: //doi .org/10 .1016/j .media .2021 .102264 
+
+13. Lu, M.Y., Chen, B., Williamson, D.F.K., et al.: A multimodal generative AI copi-lot for human pathology. Nature 634 , 466–473 (2024). https://doi .org/10 .1038/ s41586-024-07618-3 
+
+14. Lu, M.Y., Chen, B., Williamson, D.F.K., et al.: A visual-language foundation model for computational pathology. Nat. Med. 30 , 863–874 (2024). https://doi .org/ 10 .1038/s41591-024-02856-4 Lymphocyte Mimicry Correction via Loki-OT 11 15. Qu, L., Luo, X., Fu, K., et al.: The rise of AI language pathologists: Exploring two-level prompt learning for few-shot weakly-supervised whole slide image classi-fication. In: Adv. Neural Inf. Process. Syst. 36 (2023) 16. Ilse, M., Tomczak, J.M., Welling, M.: Attention-based deep multiple instance learn-ing. In: Proc. 35th Int. Conf. Machine Learning (ICML), pp. 2127–2136 (2018) 17. Damodaran, B.B., Kellenberger, B., Flamary, R., et al.: DeepJDOT: Deep joint distribution optimal transport for unsupervised domain adaptation. In: Computer Vision – ECCV 2018. LNCS, vol. 11208, pp. 467–483. Springer, Cham (2018). 
+
+https://doi .org/10 .1007/978-3-030-01225-0_28 
+
+18. Bunne, C., Stark, S.G., Gut, G., et al.: Learning single-cell perturbation responses using neural optimal transport. Nat. Methods 20 , 1759–1768 (2023). https:// doi .org/10 .1038/s41592-023-01969-x 
+
+19. Hörst, F., Rempe, M., Becker, H., et al.: CellViT++: Energy-efficient and adap-tive cell segmentation and classification using foundation models. arXiv preprint arXiv:2501.05269 (2025). https://doi .org/10 .48550/arXiv .2501 .05269 
+
+20. Chizat, L., Peyré, G., Schmitzer, B., et al.: Scaling algorithms for unbalanced op-timal transport problems. Math. Comp. 87 , 2563–2609 (2018). https://doi .org/ 10 .1090/mcom/3303 
+
+21. Bengio, Y., Louradour, J., Collobert, R., et al.: Curriculum learning. In: Proc. 26th Int. Conf. Machine Learning (ICML), pp. 41–48 (2009). https://doi .org/ 10 .1145/1553374 .1553380 
+
+22. Quadrianto, N., Smola, A.J., Caetano, T.S., et al.: Estimating labels from label proportions. J. Mach. Learn. Res. 10 (82), 2349–2374 (2009) 23. Gou, J., Yu, B., Maybank, S.J., et al.: Knowledge distillation: A survey. Int. J. Comput. Vis. 129 (6), 1789–1819 (2021). https://doi .org/10 .1007/s11263-021-01453-z 
+
+24. Hinton, G., Vinyals, O., Dean, J.: Distilling the knowledge in a neural network. arXiv preprint arXiv:1503.02531 (2015). https://doi .org/10 .48550/ arXiv .1503 .02531 12 X. Li et al. 
+
+# A MLLM Prompting Protocol 
+
+Claude Sonnet 4.5 is queried once per (ROI, tissue) block in a single-turn mul-timodal dialog. The system and user prompts below are reproduced verbatim from the production pipeline. 
+
+Tissue-label mapping. The placeholder {label_description} in the user message is filled by matching the tissue index parsed from the (ROI, tissue) PNG filename to: T1 invasive_tumor , T2 tumor_stroma , T3 in_situ_tumor ,T4 benign_glands , T5 necrosis , T6 inflamed_stroma , T7 other_tissue .
+
+System message (sent once per query as the system field): 
+
+LYMPHOCYTE ASSESSMENT CRITICAL INSTRUCTION: “Presence Probability” is based primarily on ANATOM-ICAL CONCEPT and strict definitions (are lymphocytes within the defined compartment based on anatomical boundaries?) — Other fields (Density, Pat-tern, Description) are based on VISUAL OBSERVATION combined with anatom-ical context (what do you see and how much?) 
+
+The anatomy-vs-visual split reduces hallucination: anatomical compartment knowl-edge drives the binary presence call; visual evidence drives the quantitative den-sity estimate. 
+
+User message (multimodal: one PNG of the ROI with the target tissue outlined in blue contour, plus the text below): 
+
+TASK: Analyze lymphocytes in the blue-outlined region (labeled as {label_description}): - Presence Probability (0.00-1.00): [likelihood based on ANATOMICAL DEFINITION] - Density (if lymphocytes exist): [category with % range –- VISUAL assessment] • Rare: <5% • Low: 5-20% • Moderate: 20-40% • High: 40-70% • Very high: >70% - Density by area (if lymphocytes exist): [%] - Density by cell count (if lymphocytes exist): [%] - Rationale: [explanation for probability assessment] - Predominant location (if lymphocytes exist): [where most lymphocytes are] - Overall pattern (if lymphocytes exist): [distribution –- VISUAL] - Clinical interpretation: [significance] - Overall confidence (0.00-1.00): [confidence in entire assessment] OUTPUT REQUIREMENT: Provide your response in structured JSON format. 
+
+Representative assistant response (T6 inflamed stroma, TIGER training set): Lymphocyte Mimicry Correction via Loki-OT 13 
+
+{"Presence Probability": 0.95, "Density": {"category": "High", "range_percent": "40-70%"}, "Density by area": 52, "Density by cell count": 58, "Rationale": "The blue-outlined region exhibits clear lymphocytic infiltrate with characteristic small round nuclei and high nuclear-to-cytoplasmic ratio. Anatomically, this region is identified as inflamed tumor stroma, where lymphocyte infiltration is expected.", "Overall confidence": 0.85 }
+
+# B Per-Subtype MAE 
+
+Table 4. Per-ROI MAE by tissue subtype (TCGA-BRCA test; lymphocytes per ROI), point estimate with 95% bootstrap CI [low, high] ( N =1000, ROI-level resampling). Due to wide, overlapping CIs in the small-n subtypes (T4 n=19, T5 n=58, T3 n=73), we do not bold a single per-tissue-subtype winner. PanopTILs attains the lowest MAE in sparse-positive epithelial subtypes (T1, T3–T5, T7) by its tendency to suppress positive predictions everywhere, whereas Loki-OT is lowest in T2 and lower than PanopTILs in the lymphocyte-dense T6, consistent with its lower patient-level MAE. Tissue subtype ( n) Lizard PanopTILs Context-soft Loki-OT T1 Invasive tumor (1108) 5.24 
+
+> [4.83,5.69]
+
+1.14 
+
+> [.96,1.34]
+
+3.69 
+
+> [3.38,4.01]
+
+2.63 
+
+> [2.41,2.86]
+
+T2 Tumor-assoc. stroma (1169) 2.51 
+
+> [2.34,2.70]
+
+2.09 
+
+> [1.91,2.28]
+
+2.35 
+
+> [2.18,2.55]
+
+1.96 
+
+> [1.80,2.12]
+
+T3 In-situ tumor (73) 3.58 
+
+> [2.38,5.01]
+
+0.67 
+
+> [.25,1.22]
+
+2.05 
+
+> [1.45,2.84]
+
+1.25 
+
+> [.85,1.71]
+
+T4 Healthy glands (19) 3.47 
+
+> [1.84,5.95]
+
+0.84 
+
+> [.16,1.79]
+
+1.84 
+
+> [.47,4.05]
+
+1.32 
+
+> [.32,2.84]
+
+T5 Necrosis (58) 2.84 
+
+> [1.57,4.91]
+
+0.28 
+
+> [.14,.45]
+
+3.21 
+
+> [1.62,5.79]
+
+1.74 
+
+> [.98,2.91]
+
+T6 Inflamed stroma (624) 6.54 
+
+> [5.97,7.15]
+
+8.68 
+
+> [7.94,9.54]
+
+6.54 
+
+> [5.96,7.16]
+
+6.70 
+
+> [6.11,7.36]
+
+T7 Rest (103) 0.51 
+
+> [.35,.69]
+
+0.29 
+
+> [.18,.41]
+
+0.41 
+
+> [.26,.59]
+
+0.31
